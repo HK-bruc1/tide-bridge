@@ -1,0 +1,156 @@
+{
+ "name": "T2616CC_JL7018_V3.0.0",
+ "type": "耳机",
+ "sdk": "TWS耳机",
+ "chip": "AC701N",
+ "version": "3.0.0",
+ "ingoreConfig": false,
+ "pack": "AC701N-demo",
+ "patch": {
+  "title": "patch_02.04",
+  "sn": 2.04,
+  "path": "D:\\JLStudio\\standard\\TWS耳机\\AC701N\\3.0.0\\patch\\patch_02.04"
+ },
+ "specialPatchKey": "",
+ "projectType": "NormalProject",
+ "tabform": [
+  {
+   "type": 1,
+   "fileName": "src\\电源配置.json",
+   "binName": "powercfg.bin",
+   "showName": "电源配置"
+  },
+  {
+   "type": 1,
+   "fileName": "src\\板级配置.json",
+   "binName": "boardcfg.bin",
+   "showName": "板级配置"
+  },
+  {
+   "type": 1,
+   "fileName": "src\\按键配置.json",
+   "binName": "ledcfg.bin",
+   "showName": "按键配置",
+   "eventSource": true
+  },
+  {
+   "type": 1,
+   "fileName": "src\\蓝牙配置.json",
+   "binName": "btcfg.bin",
+   "showName": "蓝牙配置"
+  },
+  {
+   "type": 1,
+   "fileName": "src\\功能配置.json",
+   "binName": "boardcfg.bin",
+   "showName": "功能配置"
+  },
+  {
+   "type": 1,
+   "fileName": "src\\升级配置.json",
+   "binName": "updatecfg.bin",
+   "showName": "升级配置"
+  },
+  {
+   "type": 1,
+   "fileName": "src\\音频配置.json",
+   "binName": "audiocfg.bin",
+   "showName": "音频配置"
+  },
+  {
+   "type": 3,
+   "fileName": "src\\提示音.tone",
+   "binName": "",
+   "showName": "提示音"
+  },
+  {
+   "type": 4,
+   "fileName": "src\\音频流程",
+   "binName": "stream.bin",
+   "showName": "音频流程",
+   "folder": true,
+   "files": [
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\系统模式.x6flow",
+     "binName": "stream.bin",
+     "showName": "系统模式",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\蓝牙音乐.x6flow",
+     "binName": "stream.bin",
+     "showName": "蓝牙音乐",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\蓝牙通话.x6flow",
+     "binName": "stream.bin",
+     "showName": "蓝牙通话",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\USB Audio.x6flow",
+     "binName": "stream.bin",
+     "showName": "USB Audio",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\产测模式.x6flow",
+     "binName": "stream.bin",
+     "showName": "产测模式",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\麦克风音效.x6flow",
+     "binName": "stream.bin",
+     "showName": "麦克风音效",
+     "data": ""
+    },
+    {
+     "type": 4,
+     "fileName": "src\\音频流程\\LE_Audio.x6flow",
+     "binName": "stream.bin",
+     "showName": "LE_Audio",
+     "data": ""
+    },
+    {
+     "showName": "翻译耳机_立体声",
+     "fileName": "src\\音频流程\\翻译耳机_立体声.x6flow",
+     "folder": false,
+     "binName": "stream.bin",
+     "type": 4,
+     "data": ""
+    },
+    {
+     "showName": "翻译耳机_单声道",
+     "fileName": "src\\音频流程\\翻译耳机_单声道.x6flow",
+     "folder": false,
+     "binName": "stream.bin",
+     "type": 4,
+     "data": ""
+    }
+   ]
+  }
+ ],
+ "create_time": "2024-12-24T09:42:31.813Z",
+ "update_time": "2026-05-27T07:53:06.734Z",
+ "standardPatch": "3.3.5",
+ "lastOpenToolVersion": "4.9.3",
+ "lastStencilFlowTime": "2026-02-15T23:09:07.8070105+08:00",
+ "proxyRepoid": null,
+ "versionName": "3.0.0",
+ "provider": "杰理",
+ "publishType": 2,
+ "checkPatchTime": 0,
+ "relateVersion": "4.3.0",
+ "variant": [],
+ "defaultVariant": {
+  "name": "默认配置"
+ }
+}

@@ -1,0 +1,24 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": true,
+      "cwd": "d:/Workspaces/Code/Jeli/Visual/RDX_Project/EP_JL7018_V3.0.0_T2403_Notta/SDK/apps/common/third_party_profile/rdx_protocol",
+      "program": "d:/Workspaces/Code/Jeli/Visual/RDX_Project/EP_JL7018_V3.0.0_T2403_Notta/SDK/apps/common/third_party_profile/rdx_protocol/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}

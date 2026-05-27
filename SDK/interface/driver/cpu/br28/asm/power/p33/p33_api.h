@@ -1,0 +1,171 @@
+#ifndef __P33_API_H__
+#define __P33_API_H__
+
+//Macro for SYSVDD_VOL_SEL
+enum {
+    SYSVDD_VOL_SEL_081V = 0,
+    SYSVDD_VOL_SEL_084V,
+    SYSVDD_VOL_SEL_087V,
+    SYSVDD_VOL_SEL_090V,
+    SYSVDD_VOL_SEL_093V,
+    SYSVDD_VOL_SEL_096V,
+    SYSVDD_VOL_SEL_099V,
+    SYSVDD_VOL_SEL_102V,
+    SYSVDD_VOL_SEL_105V,
+    SYSVDD_VOL_SEL_108V,
+    SYSVDD_VOL_SEL_111V,
+    SYSVDD_VOL_SEL_114V,
+    SYSVDD_VOL_SEL_117V,
+    SYSVDD_VOL_SEL_120V,
+    SYSVDD_VOL_SEL_123V,
+    SYSVDD_VOL_SEL_126V,
+};
+
+//Macro for SYSVDD_VOL_SEL
+enum {
+    RVDD_VOL_SEL_081V = 0,
+    RVDD_VOL_SEL_084V,
+    RVDD_VOL_SEL_087V,
+    RVDD_VOL_SEL_090V,
+    RVDD_VOL_SEL_093V,
+    RVDD_VOL_SEL_096V,
+    RVDD_VOL_SEL_099V,
+    RVDD_VOL_SEL_102V,
+    RVDD_VOL_SEL_105V,
+    RVDD_VOL_SEL_108V,
+    RVDD_VOL_SEL_111V,
+    RVDD_VOL_SEL_114V,
+    RVDD_VOL_SEL_117V,
+    RVDD_VOL_SEL_120V,
+    RVDD_VOL_SEL_123V,
+    RVDD_VOL_SEL_126V,
+};
+
+//Macro for VDC13_VOL_SEL
+enum {
+    VDC13_VOL_SEL_100V = 0,
+    VDC13_VOL_SEL_105V,
+    VDC13_VOL_SEL_1075V,
+    VDC13_VOL_SEL_110V,
+    VDC13_VOL_SEL_1125V,
+    VDC13_VOL_SEL_115V,
+    VDC13_VOL_SEL_1175V,
+    VDC13_VOL_SEL_120V,
+    VDC13_VOL_SEL_1225V,
+    VDC13_VOL_SEL_125V,
+    VDC13_VOL_SEL_1275V,
+    VDC13_VOL_SEL_130V,
+    VDC13_VOL_SEL_1325V,
+    VDC13_VOL_SEL_135V,
+    VDC13_VOL_SEL_1375V,
+    VDC13_VOL_SEL_140V,
+};
+
+//vddiom_lev
+enum {
+    VDDIOM_VOL_20V = 0,
+    VDDIOM_VOL_22V,
+    VDDIOM_VOL_24V,
+    VDDIOM_VOL_26V,
+    VDDIOM_VOL_28V,
+    VDDIOM_VOL_30V, //default
+    VDDIOM_VOL_32V,
+    VDDIOM_VOL_34V,
+};
+
+//vddiow_lev
+enum {
+    VDDIOW_VOL_20V = 0,
+    VDDIOW_VOL_22V,
+    VDDIOW_VOL_24V,
+    VDDIOW_VOL_26V,
+    VDDIOW_VOL_28V,
+    VDDIOW_VOL_30V,
+    VDDIOW_VOL_32V,
+    VDDIOW_VOL_34V,
+};
+
+/************************P3_PVDD0_AUTO*****************************/
+#define PVDD_LEVEL_LOW(sel)			P33_CON_SET(P3_PVDD0_AUTO, 0, 4, sel)
+#define GET_PVDD_LEVEL_LOW()		(P33_CON_GET(P3_PVDD0_AUTO) & 0xf)
+#define PVDD_LEVEL_AUTO(en)			P33_CON_SET(P3_PVDD0_AUTO, 4, 1, en)
+#define GET_PVDD_LEVEL_AUTO()		((P33_CON_GET(P3_PVDD0_AUTO) & BIT(4)) ? 1:0)
+#define PVDD_AUTO_PRD(sel)			P33_CON_SET(P3_PVDD0_AUTO, 5, 3, sel)
+#define GET_PVDD_AUTO_PRD()			((P33_CON_GET(P3_PVDD0_AUTO) & (0x7<<5)) >> 5)
+
+/************************P3_PVDD1_AUTO*****************************/
+#define PVDD_LEVEL_HIGH_NOW(sel)	P33_CON_SET(P3_PVDD1_AUTO, 0, 8, (sel<<4)|sel);
+#define PVDD_LEVEL_HIGH(sel)		P33_CON_SET(P3_PVDD1_AUTO, 4, 4, sel)
+#define GET_PVDD_LEVEL_HIGH()		((P33_CON_GET(P3_PVDD1_AUTO) & 0xf0)>>4)
+#define PVDD_LEVEL_NOW(sel)			P33_CON_SET(P3_PVDD1_AUTO, 0, 4, sel)
+#define GET_PVDD_LEVEL_NOW()		(P33_CON_GET(P3_PVDD1_AUTO) & 0x0f)
+
+enum {
+    PVDD_VOL_SEL_050V = 0,
+    PVDD_VOL_SEL_055V,
+    PVDD_VOL_SEL_060V,
+    PVDD_VOL_SEL_065V,
+    PVDD_VOL_SEL_070V,
+    PVDD_VOL_SEL_075V,
+    PVDD_VOL_SEL_080V,
+    PVDD_VOL_SEL_085V,
+    PVDD_VOL_SEL_090V,
+    PVDD_VOL_SEL_095V,
+    PVDD_VOL_SEL_100V,
+    PVDD_VOL_SEL_105V,
+    PVDD_VOL_SEL_110V,
+    PVDD_VOL_SEL_115V,
+    PVDD_VOL_SEL_120V,
+    PVDD_VOL_SEL_125V,
+};
+
+#define P3_PVDD0_AUTO_MASK			0b11110000
+#define P3_PVDD0_AUTO_RV			0b01110000
+
+#define PVDD_VOL_STEP       	50
+#define PVDD_LEVEL_MAX      	0xf
+
+#ifdef CONFIG_WATCH_CASE_ENABLE
+#define PVDD_LEVEL_SLEEP      PVDD_VOL_SEL_090V
+#define PVDD_VOL_SLEEP        900
+#else
+#define PVDD_LEVEL_SLEEP      PVDD_VOL_SEL_095V
+#define PVDD_VOL_SLEEP        950
+#endif
+
+#define PVDD_LEVEL_REF		  	PVDD_VOL_SEL_115V
+#define PVDD_VOL_REF          	1150//mV
+
+#define PVDD_VOL_CLOCK_SET      1200
+
+#define PVDD_VOL_PROTECT      	1100
+
+#define PVDD_TRIM_LEVEL_MAX		(PVDD_LEVEL_SLEEP+2+2)
+#define PVDD_TRIM_LEVEL_MIN		(PVDD_LEVEL_SLEEP-2)
+#define PVDD_TRIM_ERR_LEVEL_USE	(PVDD_LEVEL_SLEEP+2)
+
+#define SYSVDD_VOL_SEL(sel)     	P33_CON_SET(P3_ANA_CON11, 0, 4, sel)
+#define GET_SYSVDD_VOL_SEL()     	(P33_CON_GET(P3_ANA_CON11) & 0xf)
+#define RVDD_VOL_SEL(sel)       	P33_CON_SET(P3_ANA_CON12, 0, 4, sel)
+#define GET_RVDD_VOL_SEL()      	(P33_CON_GET(P3_ANA_CON12) & 0xf)
+
+#define VDC13_VOL_SEL(sel)      	P33_CON_SET(P3_ANA_CON6, 0, 4, sel)
+#define GET_VD13_VOL_SEL()      	(P33_CON_GET(P3_ANA_CON6) & 0xf)
+
+#define RTC_WKUP_KEEP(a)        	P33_CON_SET(P3_VLD_KEEP, 1, 1, a)
+
+u32 get_vddiom_vol();
+
+void pvdd_config(u32 lev, u32 low_lev, u32 output);
+void pvdd_output(u32 output);
+
+
+/*
+1.类型：支持普通io / 模拟io
+2.滤波：普通io无滤波参数、模拟io可配置滤波参数
+3.边沿：支持普通io单边沿，模拟io可配置双边沿
+*/
+#define MAX_WAKEUP_PORT     12  //最大同时支持数字io输入个数
+#define MAX_WAKEUP_ANA_PORT 3   //最大同时支持模拟io输入个数
+
+#endif
