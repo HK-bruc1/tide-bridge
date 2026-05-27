@@ -1,5 +1,5 @@
 {
- "name": "T2616CC_JL7018_V3.0.0",
+ "name": "t2616cc-firmware",
  "type": "耳机",
  "sdk": "TWS耳机",
  "chip": "AC701N",
@@ -139,10 +139,10 @@
   }
  ],
  "create_time": "2024-12-24T09:42:31.813Z",
- "update_time": "2026-05-27T07:53:06.734Z",
+ "update_time": "2026-05-27T10:02:50.080Z",
  "standardPatch": "3.3.5",
  "lastOpenToolVersion": "4.9.3",
- "lastStencilFlowTime": "2026-02-15T23:09:07.8070105+08:00",
+ "lastStencilFlowTime": "2026-03-16T15:15:03.230819+08:00",
  "proxyRepoid": null,
  "versionName": "3.0.0",
  "provider": "杰理",

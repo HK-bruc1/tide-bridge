@@ -80,9 +80,9 @@
 
 /*注意App和硬件的适配*/
 //choose Application.
-#define RDX_AI_SEL_APP									APP_BEANSTALK_EN//APP_BRANDWORKS_EN//APP_NEVIEW_EN //APP_TURING_EN //APP_NOTTA_EN
+#define RDX_AI_SEL_APP									APP_ZENCHORD_EN//APP_BRANDWORKS_EN//APP_NEVIEW_EN //APP_TURING_EN //APP_NOTTA_EN
 //choose hardware.
-#define RDX_SEL_DEVICE									DEVICE_RDX_BJ_T2403 //DEVICE_ZENCORD_CC_T2616
+#define RDX_SEL_DEVICE									DEVICE_ZENCORD_CC_T2616 //DEVICE_ZENCORD_CC_T2616
 
 //----------------------------------------------------------------------------
 // 产品形态分类宏 (由 RDX_SEL_DEVICE 派生, 与 PRODUCT_CODE 对应)

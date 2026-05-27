@@ -19,7 +19,7 @@
 #define TCFG_LOWPOWER_VDDIOW_LEVEL                VDDIOW_VOL_28V   // 弱VDDIO
 #define TCFG_LOWPOWER_VDDIO_KEEP                  0                // 关机保持VDDIO
 #define TCFG_LOWPOWER_LOWPOWER_SEL                1                // 低功耗模式
-#define TCFG_AUTO_POWERON_ENABLE                  0                // 上电自动开机
+#define TCFG_AUTO_POWERON_ENABLE                  1                // 上电自动开机
 
 #define TCFG_CHARGESTORE_ENABLE                   0                // 智能仓
 
@@ -53,7 +53,7 @@
 #define TCFG_DEBUG_UART_ENABLE                    1                // 调试串口
 #if TCFG_DEBUG_UART_ENABLE
 #define TCFG_DEBUG_UART_TX_PIN                    IO_PORT_DP       // 输出IO
-#define TCFG_DEBUG_UART_BAUDRATE                  2000000          // 波特率
+#define TCFG_DEBUG_UART_BAUDRATE                  1000000          // 波特率
 #define TCFG_EXCEPTION_LOG_ENABLE                 1                // 打印异常信息
 #define TCFG_EXCEPTION_RESET_ENABLE               1                // 异常自动复位
 #endif // TCFG_DEBUG_UART_ENABLE
