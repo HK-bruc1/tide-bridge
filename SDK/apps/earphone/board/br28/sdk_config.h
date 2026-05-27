@@ -84,14 +84,14 @@
 #if TCFG_SD0_ENABLE
 #define TCFG_SD0_DAT_MODE                         1                // 线数设置
 #define TCFG_SD0_DET_MODE                         SD_IO_DECT       // 检测方式
-#define TCFG_SD0_CLK                              24000000         // SD时钟频率
+#define TCFG_SD0_CLK                              1000000         // SD时钟频率
 #define TCFG_SD0_DET_IO                           NO_CONFIG_PORT   // 检测IO
 #define TCFG_SD0_DET_IO_LEVEL                     0                // IO检测方式
 #define TCFG_SD0_POWER_SEL                        SD_PWR_NULL      // SD卡电源
-#define TCFG_SDX_CAN_OPERATE_MMC_CARD             1                // 支持MMC卡
+#define TCFG_SDX_CAN_OPERATE_MMC_CARD             0                // 支持MMC卡
 #define TCFG_KEEP_CARD_AT_ACTIVE_STATUS           0                // 保持卡活跃状态
-#define TCFG_SD0_PORT_CMD                         IO_PORTC_04      // SD_PORT_CMD
-#define TCFG_SD0_PORT_CLK                         IO_PORTC_05      // SD_PORT_CLK
+#define TCFG_SD0_PORT_CMD                         IO_PORTC_05      // SD_PORT_CMD
+#define TCFG_SD0_PORT_CLK                         IO_PORTC_04      // SD_PORT_CLK
 #define TCFG_SD0_PORT_DA0                         IO_PORTC_03      // SD_PORT_DATA0
 #define TCFG_SD0_PORT_DA1                         NO_CONFIG_PORT   // SD_PORT_DATA1
 #define TCFG_SD0_PORT_DA2                         NO_CONFIG_PORT   // SD_PORT_DATA2
@@ -127,9 +127,9 @@
 #define TCFG_LINEIN_AD_DETECT_VALUE               0                // AD检测时阈值
 #endif // TCFG_LINEIN_DETECT_ENABLE
 
-#define TCFG_IO_CFG_AT_POWER_ON                   0                // 开机时IO配置
+#define TCFG_IO_CFG_AT_POWER_ON                   1                // 开机时IO配置
 
-#define TCFG_IO_CFG_AT_POWER_OFF                  0                // 关机时IO配置
+#define TCFG_IO_CFG_AT_POWER_OFF                  1                // 关机时IO配置
 
 #define TCFG_CHARGESTORE_PORT                     IO_PORT_LDOIN    // 通信IO
 // ------------板级配置.json------------

@@ -387,7 +387,7 @@ static struct app_mode *app_task_init()
     board_init();
     do_platform_initcall();
  //----------------------------------------------------------------------------------------   
-    // sd_set_power_user(1);
+    sd_set_power_user(1);
  //----------------------------------------------------------------------------------------  
 #if (defined(TCFG_DEBUG_DLOG_ENABLE) && TCFG_DEBUG_DLOG_ENABLE)
     dlog_init();

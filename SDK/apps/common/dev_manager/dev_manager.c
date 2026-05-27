@@ -79,6 +79,27 @@ int __dev_manager_add(char *logo, u8 need_mount)
 		if(dev->fmnt == NULL){
 			return DEV_MANAGER_ADD_ERR_MOUNT_FAIL;
 		}
+		
+#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
+		if (!strcmp(logo, "sd0")) {
+			static u8 _sd0_fmt_done = 0;
+			if (!_sd0_fmt_done) {
+				_sd0_fmt_done = 1;
+				os_time_dly(50);
+
+				int ret = f_format("storage/sd0/C/", "fat", 0);
+				if (ret == 0) {
+					u32 free_kb = 0;
+					fget_free_space("storage/sd0/C/", &free_kb);
+					printf("[SD-FMT] format OK, FAT32, free=%u KB (%u MB)\n",
+					       free_kb, free_kb / 1024);
+				} else {
+					printf("[SD-FMT] format FAIL: %d\n", ret);
+				}
+			}
+		}
+#endif
+
 		return DEV_MANAGER_ADD_OK;
 	}
 	printf("dev_manager_add can not find logo %s\n",logo);

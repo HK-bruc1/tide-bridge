@@ -44,14 +44,14 @@
 #define TCFG_SW_I2C0_DAT_PORT               IO_PORTG_08                             //软件IIC  DAT脚选择
 #define TCFG_SW_I2C0_DELAY_CNT              50                                      //IIC延时参数，影响通讯时钟频率
 /*硬件IIC设置*/
-#define TCFG_HW_I2C0_CLK_PORT               IO_PORTC_04                             //硬件IIC  CLK脚选择
-#define TCFG_HW_I2C0_DAT_PORT               IO_PORTC_05                             //硬件IIC  DAT脚选择
+#define TCFG_HW_I2C0_CLK_PORT               NO_CONFIG_PORT//IO_PORTC_04                             //硬件IIC  CLK脚选择
+#define TCFG_HW_I2C0_DAT_PORT               NO_CONFIG_PORT//IO_PORTC_05                             //硬件IIC  DAT脚选择
 #define TCFG_HW_I2C0_CLK                    100000                                  //硬件IIC波特率
 
 //*********************************************************************************//
 //                                 硬件SPI 配置                                    //
 //*********************************************************************************//
-#define TCFG_HW_SPI1_ENABLE                 ENABLE_THIS_MOUDLE
+#define TCFG_HW_SPI1_ENABLE                 0//ENABLE_THIS_MOUDLE
 #define TCFG_HW_SPI1_PORT_CLK               NO_CONFIG_PORT//IO_PORTA_00
 #define TCFG_HW_SPI1_PORT_DO                NO_CONFIG_PORT//IO_PORTA_01
 #define TCFG_HW_SPI1_PORT_DI                NO_CONFIG_PORT//IO_PORTA_02
@@ -82,6 +82,13 @@
 // #define TCFG_SD0_PORT_DA1					NO_CONFIG_PORT  //当选择4线模式时要用
 // #define TCFG_SD0_PORT_DA2					NO_CONFIG_PORT
 // #define TCFG_SD0_PORT_DA3					NO_CONFIG_PORT
+
+//*********************************************************************************//
+//                          SD NAND 上电格式化                                      //
+//*********************************************************************************//
+// bring-up / 首次初始化用：上电自动格式化 SD NAND 为 FAT32，日志打印可用容量
+// 量产固件必须关闭，否则每次开机都会格式化导致数据丢失
+#define TCFG_SD0_FORMAT_ON_BOOT             DISABLE_THIS_MOUDLE
 
 //*********************************************************************************//
 //                                 key 配置                                        //

@@ -62,13 +62,21 @@ const struct battery_curve g_battery_curve_table [] =  {
 
 #if TCFG_IO_CFG_AT_POWER_ON
 const struct gpio_cfg_item g_io_cfg_at_poweron [] =  {
-    
+    {
+        .gpio = IO_PORTA_00,
+        .mode = PORT_OUTPUT_HIGH,
+        .hd = PORT_DRIVE_STRENGT_8p0mA
+    }
 };
 #endif // TCFG_IO_CFG_AT_POWER_ON
 
 #if TCFG_IO_CFG_AT_POWER_OFF
 const struct gpio_cfg_item g_io_cfg_at_poweroff [] =  {
-    
+    {
+        .gpio = IO_PORTA_00,
+        .mode = PORT_OUTPUT_LOW,
+        .hd = PORT_DRIVE_STRENGT_8p0mA
+    }
 };
 #endif // TCFG_IO_CFG_AT_POWER_OFF
 
