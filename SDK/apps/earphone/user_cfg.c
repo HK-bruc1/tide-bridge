@@ -135,7 +135,7 @@ const char *sdk_version_info_get(void)
 
 const char *bt_get_local_name()
 {
-    return (const char *)(bt_cfg.edr_name);
+    return BT_NAME;
 }
 
 const char *bt_get_pin_code()

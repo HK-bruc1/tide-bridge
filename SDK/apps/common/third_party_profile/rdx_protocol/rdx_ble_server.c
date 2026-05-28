@@ -349,36 +349,26 @@ int rdx_ble_server_reset_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
-    DevBaseInfo* p = rdx_app_get_dev_base_info();
-    u16 len = strlen(BLE_LOCAL_NAME);
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-    if (len > BLE_LOCAL_NAME_MAX_LEN) {
-        len = BLE_LOCAL_NAME_MAX_LEN;
-    }
     //clear local name in vm.
     memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-
-    u8 buf[5];
-    memset(buf, 0, 5);
-    y_printf("%s --> AuthKey:%s \r", __func__, p->auth);
-    memcpy(buf, p->auth + 20, 4);
-    sprintf(g_rdx_ble_server_info.ble_local_name, "%s %s", BLE_LOCAL_NAME, buf);
+    sprintf(g_rdx_ble_server_info.ble_local_name, "%s", BLE_LOCAL_NAME);
 
     int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
     if (ret <= 0) {
         log_info("%s --> write local name failed \r", __func__);
     } else {
         log_info("%s --> write local name success: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-    }     
+    }
 
     return ret;
 }
 
 /**************************************************************************
  * function: rdx_ble_server_get_local_name
- * description: 
+ * description:
  * param (*)
  * return (*)
  **************************************************************************/
@@ -387,7 +377,6 @@ char* rdx_ble_server_get_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
-    DevBaseInfo* p = rdx_app_get_dev_base_info();
     char tmp[BLE_LOCAL_NAME_MAX_LEN + 1];
     /*----------------------------------------------------------------*/
     /* Code Body													  */
@@ -401,11 +390,7 @@ char* rdx_ble_server_get_local_name(void)
             local_name_len = BLE_LOCAL_NAME_MAX_LEN;
         }
         memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-
-        u8 buf[5];
-        memset(buf, 0, 5);
-        memcpy(buf, p->auth + 20, 4);
-        sprintf(g_rdx_ble_server_info.ble_local_name, "%s %s", BLE_LOCAL_NAME, buf);
+        sprintf(g_rdx_ble_server_info.ble_local_name, "%s", BLE_LOCAL_NAME);
 
         ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, local_name_len);
         if (ret <= 0) {
