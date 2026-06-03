@@ -378,7 +378,7 @@ void rdx_app_charge_full(void)
     rdx_app_set_charge_state(RDX_CHARGE_FULL); 
     
     // 充满电：绿色常亮
-    rdx_led_ctrl_set_state(LED_STATE_CHARGE_FULL); 
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0)
     // rdx_app_charge_full_timeout_stop();

@@ -1835,6 +1835,7 @@ void rdx_app_wifi_handle(u8 cmd)
             return;
         }
         xxp_esp32_wifi_open();
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
 	}else{
 		b_printf("=== %s --> wifi close \r", __func__);
 
@@ -1845,6 +1846,7 @@ void rdx_app_wifi_handle(u8 cmd)
         }
         //do wifi close.
 		xxp_esp32_wifi_close();
+        rdx_led_ctrl_restore_system_state();
 	}
 }
 
@@ -1887,6 +1889,7 @@ int rdx_app_msg_handler(int *msg)
         case APP_MSG_BT_ENTER_SNIFF:
             break;
         case APP_MSG_BT_EXIT_SNIFF:
+            rdx_led_ctrl_restore_system_state();
             break;
 
         case APP_MSG_MAIN_PAGE_DISPLAYING:

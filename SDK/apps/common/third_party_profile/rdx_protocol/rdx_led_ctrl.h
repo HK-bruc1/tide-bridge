@@ -1,25 +1,25 @@
 /*=====================================================================================
  HEADER NAME: rdx_led_ctrl.h
  MODULE NAME: RDX LED control module headfile.
- 
- PRE-INCLUDE FILES DESCRIPTION: 	
- 
- GENERAL DESCRIPTION: 	
+
+ PRE-INCLUDE FILES DESCRIPTION:
+
+ GENERAL DESCRIPTION:
  	This File implements LED control logic for RDX device.
  	- BLE搜索中：1s闪一次
  	- BLE连接后：常亮1s后熄灭
  	- BLE断开后：1s闪一次
  	- 录音时：呼吸灯
  	- 录音结束后：如果BLE连着则熄灭，未连则闪灯
- =======================================================================================	
- Revision History: 
+ =======================================================================================
+ Revision History:
  ---------------------------------------
  Author: Auto Generated
  Date: 2025-01-XX
  LastEditors: Auto Generated
  LastEditTime: 2025-01-XX
  FilePath: \SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.h
- 
+
  Self-documenting Code
 =====================================================================================*/
 
@@ -28,7 +28,7 @@
 
 /******************************************************************************
 * Include files
-******************************************************************************/ 
+******************************************************************************/
 #include "typedef.h"
 #include "led_pt0807.h"
 
@@ -38,27 +38,52 @@ extern "C" {
 
 /******************************************************************************
 * Macro Define Section
-******************************************************************************/ 
+******************************************************************************/
 
 /* LED状态定义 */
 typedef enum {
     LED_STATE_OFF = 0,              /* 熄灭 */
-    LED_STATE_BLE_ADV_BLINK,        /* BLE搜索中闪烁（1s一次，蓝色） */
-    LED_STATE_BLE_CONNECTED,        /* BLE连接后常亮1s后熄灭（绿色） */
-    LED_STATE_BLE_DISCONNECTED,     /* BLE断开后闪烁（1s一次，蓝色） */
-    LED_STATE_RECORD_BREATH,        /* 录音时呼吸灯（蓝色） */
+    LED_STATE_BLE_ADV_BLINK,        /* BLE未连：紫灯闪烁2分钟后熄灭 */
+    LED_STATE_BLE_CONNECTED,        /* BLE已连：无灯效 */
+    LED_STATE_BLE_DISCONNECTED,     /* BLE断开：紫灯闪烁2分钟后熄灭 */
+    LED_STATE_RECORD_BREATH,        /* 录音中：橙灯呼吸 */
     LED_STATE_OTA_BLINK,            /* OTA升级中：3s闪两次（100ms间隔） */
     LED_STATE_DUT_BLINK,            /* DUT模式：黄灯1s一次闪烁 */
-    LED_STATE_WIFI_BLINK,           /* WiFi传输中：黄灯快闪（500ms一次） */
+    LED_STATE_WIFI_BLINK,           /* BLE/WiFi传输：黄灯慢闪 */
     LED_STATE_CHARGE_LOW_BREATH,    /* 充电中电量<20%：红色呼吸灯 */
     LED_STATE_CHARGE_MID_BREATH,    /* 充电中电量20-80%：黄色呼吸灯 */
     LED_STATE_CHARGE_HIGH_BREATH,   /* 充电中电量80-100%：绿色呼吸灯 */
     LED_STATE_CHARGE_FULL,          /* 充满电：绿色常亮 */
 } rdx_led_state_e;
 
+/* LEGACY: 内部使用，业务代码请使用 rdx_led_scene_e + rdx_led_ctrl_set_scene() */
+
+/* LED业务场景定义 — 业务层只通过场景控制灯效 */
+typedef enum {
+    RDX_LED_SCENE_OFF = 0,          /* 熄灭 */
+    RDX_LED_SCENE_BLE_ADV_START,    /* BLE广播开始 */
+    RDX_LED_SCENE_BLE_CONNECTED,    /* BLE已连接 */
+    RDX_LED_SCENE_BLE_DISCONNECTED, /* BLE断开 */
+    RDX_LED_SCENE_BLE_FAST_ADV,     /* BLE快速广播 */
+    RDX_LED_SCENE_RECORD_START,     /* 开始录音 */
+    RDX_LED_SCENE_RECORD_STOP,      /* 停止录音 */
+    RDX_LED_SCENE_OTA_START,        /* OTA开始 */
+    RDX_LED_SCENE_OTA_STOP,         /* OTA结束 */
+    RDX_LED_SCENE_DUT_ENTER,        /* 进入DUT模式 */
+    RDX_LED_SCENE_DUT_EXIT,         /* 退出DUT模式 */
+    RDX_LED_SCENE_CHARGE_PLUG_IN,   /* 充电插入 */
+    RDX_LED_SCENE_CHARGE_PLUG_OUT,  /* 充电拔出 */
+    RDX_LED_SCENE_CHARGE_FULL,      /* 充电充满 */
+    RDX_LED_SCENE_CASE_DISCHARGE,   /* 仓给耳机充电：无灯效 */
+    RDX_LED_SCENE_LOW_BATTERY,      /* 充电仓低电 */
+    RDX_LED_SCENE_WIFI_START,       /* WiFi传输开始 */
+    RDX_LED_SCENE_WIFI_STOP,        /* WiFi传输结束 */
+    RDX_LED_SCENE_MAX,
+} rdx_led_scene_e;
+
 /******************************************************************************
 * Function Section
-******************************************************************************/ 
+******************************************************************************/
 
 /**
  * @brief 初始化LED控制模块
@@ -73,16 +98,22 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config);
 void rdx_led_ctrl_deinit(void);
 
 /**
- * @brief 设置LED状态
+ * @brief 设置LED状态 (LEGACY — 请使用 rdx_led_ctrl_set_scene)
  * @param state LED状态
  */
 void rdx_led_ctrl_set_state(rdx_led_state_e state);
 
 /**
- * @brief 获取当前LED状态
- * @return 当前LED状态
+ * @brief 设置LED业务场景（推荐使用）
+ * @param scene LED业务场景
  */
-rdx_led_state_e rdx_led_ctrl_get_state(void);
+void rdx_led_ctrl_set_scene(rdx_led_scene_e scene);
+
+/**
+ * @brief 获取当前LED业务场景
+ * @return 当前场景
+ */
+rdx_led_scene_e rdx_led_ctrl_get_scene(void);
 
 /**
  * @brief 更新LED显示（需要在定时器中调用）
@@ -127,4 +158,3 @@ void rdx_led_ctrl_restore_system_state(void);
 #endif
 
 #endif /* __RDX_LED_CTRL_H__ */
-

@@ -937,7 +937,7 @@ void rdx_record_ui_notify(void)
     y_printf("====== %s --> rp->run: %d, record_status.noshow: %d \r", __FUNCTION__, rp->run, record_status.noshow);
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         //record start.
-        rdx_led_ctrl_set_state(LED_STATE_RECORD_BREATH);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
         if(rp->key_trigger == false){
             rp->key_trigger = true;
             //record start by app.
@@ -948,18 +948,7 @@ void rdx_record_ui_notify(void)
     }else if(rp->run == RECORD_STATE_PAUSE || rp->run == RECORD_STATE_STOP){
         //record pause or stop.
         if(record_status.noshow == 0){
-            if(in_dut == TRUE){
-                // DUT 模式，恢复 DUT 灯效
-                rdx_led_ctrl_set_state(LED_STATE_DUT_BLINK);
-            }else{
-                if(get_ota_status()){
-                    // OTA 模式，恢复 OTA 灯效
-                    rdx_led_ctrl_set_state(LED_STATE_OTA_BLINK);
-                }else{
-                    // 正常模式，恢复 BLE 广播灯效
-                    rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
-                }
-            }
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
         }else{
             record_status.noshow = 0;
         }
@@ -1058,7 +1047,7 @@ void rdx_record_process(void)
             #endif
 
                 //LED控制：录音时呼吸灯
-                rdx_led_ctrl_set_state(LED_STATE_RECORD_BREATH);
+                rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
 
                 // if(record_status.scene == RECORD_SCENE_CHAT){
                 //     os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_TO_MONO_OPUS);      
@@ -1087,7 +1076,7 @@ void rdx_record_process(void)
             #endif
 
                 //LED控制：录音时呼吸灯
-                rdx_led_ctrl_set_state(LED_STATE_RECORD_BREATH);
+                rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
 
                 // if(record_status.scene == RECORD_SCENE_CHAT){
                 //     os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_TO_MONO_OPUS);  //MIC_TO_MONO_OPUS
@@ -1141,13 +1130,8 @@ void rdx_record_process(void)
                 //close translation.
                 // os_taskq_post_msg(RECORD_TASK_NAME, 1, record_status.run);
 
-                //LED控制：录音结束后，如果BLE连着则熄灭，未连则闪灯
-                rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
-                if (ble_info && ble_info->ble_conn) {
-                    rdx_led_ctrl_set_state(LED_STATE_OFF);
-                } else {
-                    rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
-                }
+                //LED控制：录音结束后恢复系统灯效
+                rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
 
             #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
                 //tws start role switch.
@@ -1852,6 +1836,7 @@ void rdx_record_stream_resume(void* priv)
         && (rp->stream_discont != false)) {
         rp->stream_discont = false;
     }
+    rdx_led_ctrl_restore_system_state();
     stream_resume_timer = 0;
 }
 

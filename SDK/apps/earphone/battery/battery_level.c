@@ -22,6 +22,7 @@
 #if RCSP_ADV_EN
 #include "ble_rcsp_adv.h"
 #endif
+#include "rdx_led_ctrl.h"
 
 #define LOG_TAG             "[BATTERY]"
 #define LOG_ERROR_ENABLE
@@ -152,6 +153,7 @@ static int app_power_event_handler(int *msg)
         if (lowpower_timer == 0) {
             lowpower_timer = sys_timer_add(NULL, power_warning_timer, LOW_POWER_WARN_TIME);
         }
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
         break;
     case POWER_EVENT_POWER_LOW:
         r_printf(" POWER_EVENT_POWER_LOW");

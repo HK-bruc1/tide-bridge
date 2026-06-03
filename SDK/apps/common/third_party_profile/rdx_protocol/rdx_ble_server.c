@@ -824,7 +824,7 @@ void rdx_ble_server_disconnected_handle(void)
 
     //LED控制：BLE断开后闪烁（1s一次），但WiFi传输中不改变灯效
     if(k->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_state(LED_STATE_BLE_DISCONNECTED);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
     }
 
     rdx_record_stream_interrupt();
@@ -943,7 +943,7 @@ void rdx_ble_server_connected_handle(void)
     rdx_ble_server_start_force_disconnect_timer();
 
     //LED控制：BLE连接后常亮1s后熄灭
-    rdx_led_ctrl_set_state(LED_STATE_BLE_CONNECTED);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_EMMC) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)
     RecordStatus* rp = rdx_record_get_status();
@@ -1603,7 +1603,7 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
     // 进入慢速广播后，关闭 LED 灯效（广播继续但 LED 熄灭），但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if(wifi_info->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_state(LED_STATE_OFF);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     }
 }
 
@@ -1681,7 +1681,7 @@ void rdx_ble_server_fast_adv_restart(void)
     // 点亮 BLE 广播 LED 灯效，但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if(wifi_info->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
 }
 
@@ -1752,7 +1752,7 @@ int rdx_ble_server_adv_enable(u8 enable)
     //LED控制：BLE广播开启时，如果未连接则闪烁，但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if (enable && !g_rdx_ble_server_info.ble_conn && wifi_info->onoff != TRANSFER_BY_WIFI_ON) {
-        rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
     
     return 0;

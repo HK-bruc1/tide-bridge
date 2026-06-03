@@ -270,7 +270,7 @@ void rdx_dut_close_current_func(void)
 static void rdx_dut_show(void)
 {
     DUT_LOG("in DUT mode now!\r");
-    rdx_led_ctrl_set_state(LED_STATE_DUT_BLINK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
 }
 
 /******************************************************************************
@@ -293,7 +293,7 @@ void rdx_dut_oled_start(void)
     rdx_dut_info.current_func = DUT_FUNC_OLED;
     
     /* PIN: LED全亮白色作为灯光测试 */
-    rdx_led_ctrl_set_state(LED_STATE_BLE_CONNECTED);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 }
 
 /**************************************************************************
@@ -557,8 +557,8 @@ void rdx_dut_poweroff(void)
     rdx_dut_close_current_func();
     rdx_dut_info.dut_mode = FALSE;
     
-    rdx_led_ctrl_set_state(LED_STATE_OFF);
-    
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_EXIT);
+
     sys_timeout_add(NULL, (void (*)(void *))rdx_app_normal_poweroff, 200);
 }
 
@@ -957,7 +957,7 @@ void rdx_dut_msg_handle(void)
         rdx_app_bt_open();
         bt_bredr_enter_dut_mode(0, 0);
         
-        rdx_led_ctrl_set_state(LED_STATE_DUT_BLINK);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
         
         rdx_ble_server_app_disconnect();
         rdx_ble_server_adv_enable(0);
@@ -983,7 +983,7 @@ void rdx_dut_msg_handle(void)
         
         rdx_ble_server_adv_data_changed();
         
-        rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
         
         rdx_ble_server_auto_shut_down_enable(1);
         DUT_LOG("Auto shutdown enabled!\r");
@@ -1018,7 +1018,7 @@ void rdx_dut_show_refresh(void)
         case DUT_FUNC_WIFI:
             break;
         default:
-            rdx_led_ctrl_set_state(LED_STATE_DUT_BLINK);
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
             break;
     }
 }

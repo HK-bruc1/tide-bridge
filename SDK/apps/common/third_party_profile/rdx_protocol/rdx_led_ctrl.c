@@ -1,15 +1,20 @@
 /*=====================================================================================
  HEADER NAME: rdx_led_ctrl.c
  MODULE NAME: RDX LED control module.
- 
- GENERAL DESCRIPTION: 
+
+ GENERAL DESCRIPTION:
     This File implements LED control logic for RDX device.
     - BLE搜索中：1s闪一次（蓝色）
-    - BLE连接后：常亮1s后熄灭（绿色）
+    - BLE连接后：常亮1s后熄灭（青色）
     - BLE断开后：1s闪一次（蓝色）
-    - 录音时：呼吸灯（蓝色）
-    - 充电灯效：<20%红色呼吸，20-80%黄色呼吸，80-100%绿色呼吸，充满绿色常亮
-    
+    - 录音时：呼吸灯（红色）
+    - 充电灯效：按电量分段呼吸灯，充满绿色常亮
+
+    架构：表驱动引擎
+    - 所有产品级颜色/时序/亮度参数在 rdx_led_cfg.h 中配置
+    - rdx_led_ctrl.c 只包含执行引擎，不硬编码任何产品级颜色常量
+    - 业务层通过 rdx_led_ctrl_set_scene(RDX_LED_SCENE_*) 控制灯效
+
     适配新的SPI模式LED PT0807驱动:
     - 使用 led_pt0807_set_all_rgb() + led_pt0807_update() 更新显示
     - 支持亮度调节，实现平滑呼吸效果
@@ -24,106 +29,66 @@
 
 /******************************************************************************
 * Include files
-******************************************************************************/ 
+******************************************************************************/
 #include "rdx_led_ctrl.h"
+#include "rdx_led_cfg.h"
 #include "system/includes.h"
 #include "rdx_ble_server.h"
 #include "rdx_record.h"
 #include "rdx_app.h"
 #include "rdx_charge.h"
+#include "rdx_uxfile.h"
+
+extern bool rdx_app_get_dut_status(void);
+extern u8 get_ota_status(void);
+extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 
 /******************************************************************************
 * Macro Define Section
-******************************************************************************/ 
-
-#define LED_BLINK_INTERVAL_MS            (1000)
-#define LED_BLINK_ON_TIME_MS             (200)
-#define LED_CONNECTED_ON_TIME_MS         (1000)
-#define LED_BREATH_CYCLE_MS              (4000)  // 呼吸灯周期 4s（加长一倍）
-#define LED_UPDATE_INTERVAL_MS           (20)
-#define LED_BREATH_TABLE_SIZE            (100)
-
-/* LED颜色定义 */
-#define LED_COLOR_BLUE_R                 (0)
-#define LED_COLOR_BLUE_G                 (0)
-#define LED_COLOR_BLUE_B                 (255)
-
-#define LED_COLOR_GREEN_R                (0)
-#define LED_COLOR_GREEN_G                (255)
-#define LED_COLOR_GREEN_B                (0)
-
-#define LED_COLOR_RED_R                  (255)
-#define LED_COLOR_RED_G                  (0)
-#define LED_COLOR_RED_B                  (0)
-
-#define LED_COLOR_YELLOW_R               (255)
-#define LED_COLOR_YELLOW_G               (255)
-#define LED_COLOR_YELLOW_B               (0)
-
-/* OTA灯效参数：3s闪两次（100ms间隔） */
-#define LED_OTA_CYCLE_MS                 (3000)
-#define LED_OTA_BLINK_ON_MS              (100)
-#define LED_OTA_BLINK_OFF_MS             (100)
-
-/* DUT灯效参数：黄灯1s一次闪烁 */
-#define LED_DUT_BLINK_INTERVAL_MS        (1000)
-#define LED_DUT_BLINK_ON_TIME_MS         (200)
-
-/* WiFi灯效参数：黄灯500ms快闪 */
-#define LED_WIFI_BLINK_INTERVAL_MS       (500)
-#define LED_WIFI_BLINK_ON_TIME_MS        (200)
+******************************************************************************/
 
 #define LED_MAX_BRIGHTNESS               (255)
-#define LED_BLINK_BRIGHTNESS             (200)
-#define LED_BREATH_MIN_BRIGHTNESS        (0)   // 呼吸灯最弱时完全灭灯
 
 /******************************************************************************
 * Local Variables Section
-******************************************************************************/ 
+******************************************************************************/
 
 static LedPt0807Config_t *g_led_config = NULL;
-static rdx_led_state_e g_led_state = LED_STATE_OFF;
+static const rdx_led_effect_cfg_t *g_active_effect = NULL;
+static rdx_led_scene_e g_current_scene = RDX_LED_SCENE_OFF;
 static u32 g_led_update_timer = 0;
-static u32 g_led_state_time = 0;
+static u32 g_effect_elapsed_ms = 0;   /* 从不重置 — 用于超时检查 */
+static u32 g_phase_elapsed_ms = 0;    /* 每周期重置 — 用于引擎处理 */
 static u8 g_led_blink_state = 0;
 static u8 g_led_connected_on_done = 0;
 static u8 g_led_initialized = 0;
 
-/* 呼吸灯亮度查表 - 4s周期，100级渐变
- * 渐亮1200ms(30点) + 最亮800ms(20点) + 渐暗1200ms(30点) + 灭灯800ms(20点)
- */
-static const u8 g_breath_brightness_table[LED_BREATH_TABLE_SIZE] = {
-    // 渐亮阶段 (0-29): 0 -> 255, 30个点，平滑渐变
-      0,   9,  18,  27,  36,  45,  54,  64,  74,  84,
-     94, 105, 116, 127, 138, 150, 162, 174, 187, 200,
-    213, 223, 233, 241, 247, 251, 253, 254, 255, 255,
-    // 最亮保持阶段 (30-49): 255, 20个点
-    255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    // 渐暗阶段 (50-79): 255 -> 0, 30个点，平滑渐变
-    255, 255, 254, 253, 251, 247, 241, 233, 223, 213,
-    200, 187, 174, 162, 150, 138, 127, 116, 105,  94,
-     84,  74,  64,  54,  45,  36,  27,  18,   9,   0,
-    // 灭灯保持阶段 (80-99): 0, 20个点
-      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-      0,   0,   0,   0,   0,   0,   0,   0,   0,   0
-};
-
 /******************************************************************************
 * Function Declaration Section
-******************************************************************************/ 
+******************************************************************************/
 
 static void rdx_led_ctrl_update_timer_cb(void *priv);
 static void rdx_led_ctrl_set_rgb_brightness(u8 r, u8 g, u8 b, u8 brightness);
 static void rdx_led_ctrl_off(void);
-static void rdx_led_ctrl_process_blink(u8 r, u8 g, u8 b);
-static void rdx_led_ctrl_process_breath(u8 r, u8 g, u8 b);
-static void rdx_led_ctrl_process_ota_blink(void);
-static void rdx_led_ctrl_process_dut_blink(void);
+
+/* 引擎处理器 */
+static void _rdx_led_engine_solid_timeout(const rdx_led_effect_cfg_t *cfg);
+static void _rdx_led_engine_blink(const rdx_led_effect_cfg_t *cfg);
+static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg);
+static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg);
+static void _rdx_led_engine_double_blink(const rdx_led_effect_cfg_t *cfg);
+
+/* 内部辅助函数 */
+static void _rdx_led_apply_effect(rdx_led_effect_e effect);
+static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent);
+static void _rdx_led_restore_system_state(void);
+static bool _rdx_led_is_transfer_active(void);
+static bool _rdx_led_can_show_transfer_effect(void);
+static bool _rdx_led_refresh_transfer_scene(void);
 
 /******************************************************************************
-* Function Section
-******************************************************************************/ 
+* Function Section — 基础LED操作
+******************************************************************************/
 
 static void rdx_led_ctrl_set_rgb_brightness(u8 r, u8 g, u8 b, u8 brightness)
 {
@@ -158,6 +123,267 @@ static void rdx_led_ctrl_update_timer_cb(void *priv)
     rdx_led_ctrl_update();
 }
 
+static bool _rdx_led_is_transfer_active(void)
+{
+    RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
+    if (wifi_info && wifi_info->onoff == TRANSFER_BY_WIFI_ON) {
+        return true;
+    }
+
+    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
+    return rf_info && rf_info->file_send_busy == true;
+}
+
+static bool _rdx_led_can_show_transfer_effect(void)
+{
+    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
+        return false;
+    }
+    if (rdx_app_get_dut_status() || get_ota_status()) {
+        return false;
+    }
+
+    RecordStatus* rp = rdx_record_get_status();
+    if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool _rdx_led_refresh_transfer_scene(void)
+{
+    bool transfer_active = _rdx_led_is_transfer_active();
+
+    if (g_current_scene == RDX_LED_SCENE_WIFI_START) {
+        if (!transfer_active || !_rdx_led_can_show_transfer_effect()) {
+            _rdx_led_restore_system_state();
+            return true;
+        }
+        return false;
+    }
+
+    if (transfer_active && _rdx_led_can_show_transfer_effect()) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
+        return true;
+    }
+
+    return false;
+}
+
+/******************************************************************************
+* Function Section — 内部辅助函数
+******************************************************************************/
+
+static void _rdx_led_apply_effect(rdx_led_effect_e effect)
+{
+    if (effect >= RDX_LED_EFFECT_MAX) {
+        return;
+    }
+    g_active_effect = &rdx_led_effect_cfg[effect];
+    g_effect_elapsed_ms = 0;
+    g_phase_elapsed_ms = 0;
+    g_led_blink_state = 0;
+    g_led_connected_on_done = 0;
+    led_pt0807_run_enable(g_led_config, 1);
+
+    switch (g_active_effect->mode) {
+    case RDX_LED_MODE_OFF:
+        rdx_led_ctrl_off();
+        break;
+    case RDX_LED_MODE_SOLID:
+        rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
+                                        g_active_effect->b, g_active_effect->brightness);
+        break;
+    case RDX_LED_MODE_SOLID_TIMEOUT:
+        rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
+                                        g_active_effect->b, g_active_effect->brightness);
+        break;
+    case RDX_LED_MODE_BLINK:
+        g_led_blink_state = 1;
+        rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
+                                        g_active_effect->b, g_active_effect->brightness);
+        break;
+    case RDX_LED_MODE_BREATH:
+        rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
+                                        g_active_effect->b, 0);
+        break;
+    case RDX_LED_MODE_RAINBOW_BREATH:
+        rdx_led_ctrl_set_rgb_brightness(rdx_led_rainbow_color_table[0].r,
+                                        rdx_led_rainbow_color_table[0].g,
+                                        rdx_led_rainbow_color_table[0].b, 0);
+        break;
+    case RDX_LED_MODE_DOUBLE_BLINK:
+        g_led_blink_state = 1;
+        rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
+                                        g_active_effect->b, g_active_effect->brightness);
+        break;
+    }
+}
+
+static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
+{
+    rdx_led_effect_e effect;
+#if RDX_LED_CHARGE_POLICY == RDX_LED_CHARGE_POLICY_RAINBOW
+    effect = RDX_LED_EFFECT_CHARGE_RAINBOW_BREATH;
+#else
+    if (battery_percent < RDX_LED_CHARGE_THRESHOLD_LOW) {
+        effect = RDX_LED_EFFECT_CHARGE_LOW_BREATH;
+    } else if (battery_percent < RDX_LED_CHARGE_THRESHOLD_MID) {
+        effect = RDX_LED_EFFECT_CHARGE_MID_BREATH;
+    } else {
+        effect = RDX_LED_EFFECT_CHARGE_HIGH_BREATH;
+    }
+#endif
+    _rdx_led_apply_effect(effect);
+
+    g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;
+}
+
+static void _rdx_led_restore_system_state(void)
+{
+    RecordStatus* rp = rdx_record_get_status();
+
+    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        return;
+    }
+
+    if (rdx_app_get_dut_status()) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
+        return;
+    }
+
+    if (get_ota_status()) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
+        return;
+    }
+
+    if (_rdx_led_is_transfer_active() && _rdx_led_can_show_transfer_effect()) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
+        return;
+    }
+
+    u8 charger_status = rdx_app_get_charge_state();
+    if (charger_status == RDX_CHARGE_IN) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
+        return;
+    }
+    if (charger_status == RDX_CHARGE_FULL) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
+        return;
+    }
+
+    rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
+    if (ble_info && ble_info->ble_conn) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+    } else {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+    }
+}
+
+/******************************************************************************
+* Function Section — 引擎处理器（表驱动，参数来自cfg）
+******************************************************************************/
+
+static void _rdx_led_engine_solid_timeout(const rdx_led_effect_cfg_t *cfg)
+{
+    if (!g_led_connected_on_done) {
+        if (g_effect_elapsed_ms >= cfg->on_ms) {
+            g_led_connected_on_done = 1;
+            rdx_led_ctrl_off();
+        }
+    }
+}
+
+static void _rdx_led_engine_blink(const rdx_led_effect_cfg_t *cfg)
+{
+    if (g_led_blink_state) {
+        if (g_phase_elapsed_ms >= cfg->on_ms) {
+            g_led_blink_state = 0;
+            rdx_led_ctrl_off();
+        }
+    } else {
+        if (g_phase_elapsed_ms >= cfg->interval_ms) {
+            g_phase_elapsed_ms = 0;
+            g_led_blink_state = 1;
+            rdx_led_ctrl_set_rgb_brightness(cfg->r, cfg->g, cfg->b, cfg->brightness);
+        }
+    }
+}
+
+static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg)
+{
+    u32 cycle_pos = g_phase_elapsed_ms % cfg->cycle_ms;
+    u32 table_index = (cycle_pos * RDX_LED_BREATH_TABLE_SIZE) / cfg->cycle_ms;
+    if (table_index >= RDX_LED_BREATH_TABLE_SIZE) {
+        table_index = RDX_LED_BREATH_TABLE_SIZE - 1;
+    }
+    u8 brightness = rdx_led_breath_brightness_table[table_index];
+    rdx_led_ctrl_set_rgb_brightness(cfg->r, cfg->g, cfg->b, brightness);
+}
+
+static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg)
+{
+    if (cfg->cycle_ms == 0 || cfg->interval_ms == 0) {
+        return;
+    }
+
+    u32 cycle_pos = g_phase_elapsed_ms % cfg->cycle_ms;
+    u32 table_index = (cycle_pos * RDX_LED_BREATH_TABLE_SIZE) / cfg->cycle_ms;
+    if (table_index >= RDX_LED_BREATH_TABLE_SIZE) {
+        table_index = RDX_LED_BREATH_TABLE_SIZE - 1;
+    }
+
+    u8 color_index = (g_effect_elapsed_ms / cfg->interval_ms) % RDX_LED_RAINBOW_COLOR_COUNT;
+    u8 brightness = (u8)(((u32)rdx_led_breath_brightness_table[table_index] * cfg->brightness) / 255);
+    const rdx_led_rgb_t *color = &rdx_led_rainbow_color_table[color_index];
+
+    rdx_led_ctrl_set_rgb_brightness(color->r, color->g, color->b, brightness);
+}
+
+/* 双闪引擎: 每个 interval_ms 周期内产生两次短脉冲(on_ms宽, on_ms间隔),
+   然后灭灯直到周期结束。时序: [脉冲1 ON]→[间隙 OFF]→[脉冲2 ON]→[灭灯至周期末] */
+static void _rdx_led_engine_double_blink(const rdx_led_effect_cfg_t *cfg)
+{
+    u32 cycle_pos = g_phase_elapsed_ms % cfg->interval_ms;
+    u16 on_ms = cfg->on_ms;
+    u16 gap_ms = cfg->on_ms;
+
+    /* 第一次脉冲: 0 到 on_ms */
+    if (cycle_pos < on_ms) {
+        if (g_led_blink_state != 1) {
+            g_led_blink_state = 1;
+            rdx_led_ctrl_set_rgb_brightness(cfg->r, cfg->g, cfg->b, cfg->brightness);
+        }
+    }
+    /* 脉冲间隔: on_ms 到 on_ms+gap_ms */
+    else if (cycle_pos < on_ms + gap_ms) {
+        if (g_led_blink_state != 0) {
+            g_led_blink_state = 0;
+            rdx_led_ctrl_off();
+        }
+    }
+    /* 第二次脉冲: on_ms+gap_ms 到 on_ms*2+gap_ms */
+    else if (cycle_pos < on_ms * 2 + gap_ms) {
+        if (g_led_blink_state != 2) {
+            g_led_blink_state = 2;
+            rdx_led_ctrl_set_rgb_brightness(cfg->r, cfg->g, cfg->b, cfg->brightness);
+        }
+    }
+    /* 灭灯直到周期结束 */
+    else {
+        if (g_led_blink_state != 3) {
+            g_led_blink_state = 3;
+            rdx_led_ctrl_off();
+        }
+    }
+}
+
+/******************************************************************************
+* Function Section — 公共API
+******************************************************************************/
+
 int rdx_led_ctrl_init(LedPt0807Config_t *config)
 {
     if (config == NULL || !config->initialized) {
@@ -165,14 +391,16 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
         return -1;
     }
     g_led_config = config;
-    g_led_state = LED_STATE_OFF;
-    g_led_state_time = 0;
+    g_current_scene = RDX_LED_SCENE_OFF;
+    g_active_effect = NULL;
+    g_effect_elapsed_ms = 0;
+    g_phase_elapsed_ms = 0;
     g_led_blink_state = 0;
     g_led_connected_on_done = 0;
     led_pt0807_run_enable(config, 1);
     rdx_led_ctrl_off();
     if (g_led_update_timer == 0) {
-        g_led_update_timer = sys_timer_add(NULL, rdx_led_ctrl_update_timer_cb, LED_UPDATE_INTERVAL_MS);
+        g_led_update_timer = sys_timer_add(NULL, rdx_led_ctrl_update_timer_cb, RDX_LED_UPDATE_INTERVAL_MS);
         if (g_led_update_timer == 0) {
             return -2;
         }
@@ -193,199 +421,120 @@ void rdx_led_ctrl_deinit(void)
         led_pt0807_run_enable(g_led_config, 0);
     }
     g_led_config = NULL;
-    g_led_state = LED_STATE_OFF;
+    g_current_scene = RDX_LED_SCENE_OFF;
+    g_active_effect = NULL;
     g_led_initialized = 0;
 }
 
+void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
+{
+    if (g_led_config == NULL || !g_led_initialized) {
+        return;
+    }
+    if (scene >= RDX_LED_SCENE_MAX) {
+        return;
+    }
+
+    /* 低电告警最高优先级 — 只允许 关机/插入充电 打断 */
+    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY
+        && scene != RDX_LED_SCENE_OFF
+        && scene != RDX_LED_SCENE_CHARGE_PLUG_IN) {
+        return;
+    }
+
+    g_printf("RDX LED Scene: %d->%d\r\n", g_current_scene, scene);
+    g_current_scene = scene;
+
+    switch (scene) {
+    case RDX_LED_SCENE_RECORD_STOP:
+    case RDX_LED_SCENE_CHARGE_PLUG_OUT:
+        _rdx_led_restore_system_state();
+        return;
+
+    case RDX_LED_SCENE_CHARGE_PLUG_IN:
+        /* 充电刚插入 — 使用默认充电效果。
+           调用者应随后调用 set_charge_state_by_battery(实际电量%) */
+        _rdx_led_set_charge_effect_by_battery(80);
+        return;
+
+    default:
+        break;
+    }
+
+    u8 effect_idx = rdx_led_scene_to_effect[scene];
+    if (effect_idx == RDX_LED_EFFECT_SMART) {
+        /* SMART 场景应在上面 switch 中处理并 return，不应到达此处 */
+        return;
+    }
+    _rdx_led_apply_effect((rdx_led_effect_e)effect_idx);
+}
+
+rdx_led_scene_e rdx_led_ctrl_get_scene(void)
+{
+    return g_current_scene;
+}
+
+/* LEGACY: 将旧的 LED_STATE_* 映射到新的场景API。新代码请使用 set_scene()。 */
 void rdx_led_ctrl_set_state(rdx_led_state_e state)
 {
     if (g_led_config == NULL || !g_led_initialized) {
         return;
     }
-    if (g_led_state == state) {
-        return;
-    }
-    g_printf("RDX LED: %d->%d\r\n", g_led_state, state);
-    g_led_state = state;
-    g_led_state_time = 0;
-    g_led_blink_state = 0;
-    g_led_connected_on_done = 0;
-    led_pt0807_run_enable(g_led_config, 1);
+    g_printf("RDX LED (legacy set_state): %d\r\n", state);
 
     switch (state) {
-        case LED_STATE_OFF:
-            rdx_led_ctrl_off();
-            break;
-        case LED_STATE_BLE_ADV_BLINK:
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BLINK_BRIGHTNESS);
-            break;
-        case LED_STATE_BLE_CONNECTED:
-            g_led_connected_on_done = 0;
-            rdx_led_ctrl_set_rgb(LED_COLOR_GREEN_R, LED_COLOR_GREEN_G, LED_COLOR_GREEN_B);
-            break;
-        case LED_STATE_BLE_DISCONNECTED:
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BLINK_BRIGHTNESS);
-            break;
-        case LED_STATE_RECORD_BREATH:
-            // 录音呼吸灯改为蓝色
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BREATH_MIN_BRIGHTNESS);
-            break;
-        case LED_STATE_CHARGE_LOW_BREATH:
-            // 充电中电量<20%：红色呼吸灯
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_RED_R, LED_COLOR_RED_G, 
-                                            LED_COLOR_RED_B, LED_BREATH_MIN_BRIGHTNESS);
-            break;
-        case LED_STATE_CHARGE_MID_BREATH:
-            // 充电中电量20-80%：黄色呼吸灯
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, 
-                                            LED_COLOR_YELLOW_B, LED_BREATH_MIN_BRIGHTNESS);
-            break;
-        case LED_STATE_CHARGE_HIGH_BREATH:
-            // 充电中电量80-100%：绿色呼吸灯
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_GREEN_R, LED_COLOR_GREEN_G, 
-                                            LED_COLOR_GREEN_B, LED_BREATH_MIN_BRIGHTNESS);
-            break;
-        case LED_STATE_CHARGE_FULL:
-            // 充满电：绿色常亮
-            rdx_led_ctrl_set_rgb(LED_COLOR_GREEN_R, LED_COLOR_GREEN_G, LED_COLOR_GREEN_B);
-            break;
-        case LED_STATE_OTA_BLINK:
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BLINK_BRIGHTNESS);
-            break;
-        case LED_STATE_DUT_BLINK:
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, 
-                                            LED_COLOR_YELLOW_B, LED_BLINK_BRIGHTNESS);
-            break;
-        case LED_STATE_WIFI_BLINK:
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, 
-                                            LED_COLOR_YELLOW_B, LED_BLINK_BRIGHTNESS);
-            break;
-        default:
-            rdx_led_ctrl_off();
-            break;
+    case LED_STATE_OFF:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        break;
+    /* LEGACY FIXED-STATE: CHARGE_LOW/MID/HIGH 直接调 _rdx_led_apply_effect(),
+       不经过 set_scene()。g_current_scene 设为 best-effort 值。
+       仅存的调用者 rdx_app.c:1594 需要此路径。 */
+
+    case LED_STATE_BLE_ADV_BLINK:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        break;
+    case LED_STATE_BLE_CONNECTED:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
+        break;
+    case LED_STATE_BLE_DISCONNECTED:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
+        break;
+    case LED_STATE_RECORD_BREATH:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        break;
+    case LED_STATE_OTA_BLINK:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
+        break;
+    case LED_STATE_DUT_BLINK:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
+        break;
+    case LED_STATE_WIFI_BLINK:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
+        break;
+    case LED_STATE_CHARGE_LOW_BREATH:
+        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_LOW_BREATH);
+        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
+        break;
+    case LED_STATE_CHARGE_MID_BREATH:
+        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_MID_BREATH);
+        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
+        break;
+    case LED_STATE_CHARGE_HIGH_BREATH:
+        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_HIGH_BREATH);
+        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
+        break;
+    case LED_STATE_CHARGE_FULL:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
+        break;
+    default:
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        break;
     }
 }
 
-rdx_led_state_e rdx_led_ctrl_get_state(void)
-{
-    return g_led_state;
-}
-
-static void rdx_led_ctrl_process_blink(u8 r, u8 g, u8 b)
-{
-    if (g_led_blink_state) {
-        if (g_led_state_time >= LED_BLINK_ON_TIME_MS) {
-            g_led_blink_state = 0;
-            rdx_led_ctrl_off();
-        }
-    } else {
-        if (g_led_state_time >= LED_BLINK_INTERVAL_MS) {
-            g_led_state_time = 0;
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(r, g, b, LED_BLINK_BRIGHTNESS);
-        }
-    }
-}
-
-static void rdx_led_ctrl_process_breath(u8 r, u8 g, u8 b)
-{
-    u32 cycle_pos = g_led_state_time % LED_BREATH_CYCLE_MS;
-    u32 table_index = (cycle_pos * LED_BREATH_TABLE_SIZE) / LED_BREATH_CYCLE_MS;
-    if (table_index >= LED_BREATH_TABLE_SIZE) {
-        table_index = LED_BREATH_TABLE_SIZE - 1;
-    }
-    u8 brightness = g_breath_brightness_table[table_index];
-    rdx_led_ctrl_set_rgb_brightness(r, g, b, brightness);
-}
-
-/**
- * @brief OTA灯效处理：3s周期内闪两次（每次亮100ms，间隔100ms）
- *        时序: 0-100ms亮, 100-200ms灭, 200-300ms亮, 300-3000ms灭
- */
-static void rdx_led_ctrl_process_ota_blink(void)
-{
-    u32 cycle_pos = g_led_state_time % LED_OTA_CYCLE_MS;
-    
-    // 第一次闪烁: 0-100ms 亮
-    if (cycle_pos < LED_OTA_BLINK_ON_MS) {
-        if (g_led_blink_state != 1) {
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BLINK_BRIGHTNESS);
-        }
-    }
-    // 第一次间隔: 100-200ms 灭
-    else if (cycle_pos < LED_OTA_BLINK_ON_MS + LED_OTA_BLINK_OFF_MS) {
-        if (g_led_blink_state != 0) {
-            g_led_blink_state = 0;
-            rdx_led_ctrl_off();
-        }
-    }
-    // 第二次闪烁: 200-300ms 亮
-    else if (cycle_pos < LED_OTA_BLINK_ON_MS * 2 + LED_OTA_BLINK_OFF_MS) {
-        if (g_led_blink_state != 2) {
-            g_led_blink_state = 2;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, 
-                                            LED_COLOR_BLUE_B, LED_BLINK_BRIGHTNESS);
-        }
-    }
-    // 剩余时间: 300-3000ms 灭
-    else {
-        if (g_led_blink_state != 3) {
-            g_led_blink_state = 3;
-            rdx_led_ctrl_off();
-        }
-    }
-}
-
-/**
- * @brief DUT灯效处理：黄灯1s一次闪烁
- */
-static void rdx_led_ctrl_process_dut_blink(void)
-{
-    if (g_led_blink_state) {
-        if (g_led_state_time >= LED_DUT_BLINK_ON_TIME_MS) {
-            g_led_blink_state = 0;
-            rdx_led_ctrl_off();
-        }
-    } else {
-        if (g_led_state_time >= LED_DUT_BLINK_INTERVAL_MS) {
-            g_led_state_time = 0;
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, 
-                                            LED_COLOR_YELLOW_B, LED_BLINK_BRIGHTNESS);
-        }
-    }
-}
-
-/**
- * @brief WiFi灯效处理：黄灯500ms快闪
- */
-static void rdx_led_ctrl_process_wifi_blink(void)
-{
-    if (g_led_blink_state) {
-        if (g_led_state_time >= LED_WIFI_BLINK_ON_TIME_MS) {
-            g_led_blink_state = 0;
-            rdx_led_ctrl_off();
-        }
-    } else {
-        if (g_led_state_time >= LED_WIFI_BLINK_INTERVAL_MS) {
-            g_led_state_time = 0;
-            g_led_blink_state = 1;
-            rdx_led_ctrl_set_rgb_brightness(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, 
-                                            LED_COLOR_YELLOW_B, LED_BLINK_BRIGHTNESS);
-        }
-    }
-}
+/******************************************************************************
+* Function Section — 更新与刷新
+******************************************************************************/
 
 void rdx_led_ctrl_update(void)
 {
@@ -395,55 +544,43 @@ void rdx_led_ctrl_update(void)
     if (!g_led_config->run_en) {
         return;
     }
-    g_led_state_time += LED_UPDATE_INTERVAL_MS;
+    if (_rdx_led_refresh_transfer_scene()) {
+        return;
+    }
+    if (g_active_effect == NULL) {
+        return;
+    }
 
-    switch (g_led_state) {
-        case LED_STATE_OFF:
-            break;
-        case LED_STATE_BLE_ADV_BLINK:
-            rdx_led_ctrl_process_blink(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, LED_COLOR_BLUE_B);
-            break;
-        case LED_STATE_BLE_CONNECTED:
-            if (!g_led_connected_on_done) {
-                if (g_led_state_time >= LED_CONNECTED_ON_TIME_MS) {
-                    g_led_connected_on_done = 1;
-                    rdx_led_ctrl_off();
-                }
-            }
-            break;
-        case LED_STATE_BLE_DISCONNECTED:
-            rdx_led_ctrl_process_blink(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, LED_COLOR_BLUE_B);
-            break;
-        case LED_STATE_RECORD_BREATH:
-            // 录音呼吸灯改为蓝色
-            rdx_led_ctrl_process_breath(LED_COLOR_BLUE_R, LED_COLOR_BLUE_G, LED_COLOR_BLUE_B);
-            break;
-        case LED_STATE_OTA_BLINK:
-            rdx_led_ctrl_process_ota_blink();
-            break;
-        case LED_STATE_DUT_BLINK:
-            rdx_led_ctrl_process_dut_blink();
-            break;
-        case LED_STATE_WIFI_BLINK:
-            rdx_led_ctrl_process_wifi_blink();
-            break;
-        case LED_STATE_CHARGE_LOW_BREATH:
-            // 充电中电量<20%：红色呼吸灯
-            rdx_led_ctrl_process_breath(LED_COLOR_RED_R, LED_COLOR_RED_G, LED_COLOR_RED_B);
-            break;
-        case LED_STATE_CHARGE_MID_BREATH:
-            // 充电中电量20-80%：黄色呼吸灯
-            rdx_led_ctrl_process_breath(LED_COLOR_YELLOW_R, LED_COLOR_YELLOW_G, LED_COLOR_YELLOW_B);
-            break;
-        case LED_STATE_CHARGE_HIGH_BREATH:
-            // 充电中电量80-100%：绿色呼吸灯
-            rdx_led_ctrl_process_breath(LED_COLOR_GREEN_R, LED_COLOR_GREEN_G, LED_COLOR_GREEN_B);
-            break;
-        case LED_STATE_CHARGE_FULL:
-            // 充满电：绿色常亮，无需处理（已在 set_state 中设置）
-            break;
-        default:
-            break;
+    g_effect_elapsed_ms += RDX_LED_UPDATE_INTERVAL_MS;
+    g_phase_elapsed_ms += RDX_LED_UPDATE_INTERVAL_MS;
+
+    switch (g_active_effect->mode) {
+    case RDX_LED_MODE_OFF:
+        break;
+    case RDX_LED_MODE_SOLID:
+        break;
+    case RDX_LED_MODE_SOLID_TIMEOUT:
+        _rdx_led_engine_solid_timeout(g_active_effect);
+        break;
+    case RDX_LED_MODE_BLINK:
+        _rdx_led_engine_blink(g_active_effect);
+        break;
+    case RDX_LED_MODE_BREATH:
+        _rdx_led_engine_breath(g_active_effect);
+        break;
+    case RDX_LED_MODE_RAINBOW_BREATH:
+        _rdx_led_engine_rainbow_breath(g_active_effect);
+        break;
+    case RDX_LED_MODE_DOUBLE_BLINK:
+        _rdx_led_engine_double_blink(g_active_effect);
+        break;
+    }
+
+    /* 检查超时 — 使用g_effect_elapsed_ms（不被引擎处理器重置）。
+       通过set_scene()保持g_current_scene同步。 */
+    if (g_active_effect->timeout_ms > 0
+        && g_effect_elapsed_ms >= g_active_effect->timeout_ms) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     }
 }
 
@@ -454,6 +591,10 @@ void rdx_led_ctrl_refresh(void)
     }
     led_pt0807_update(g_led_config);
 }
+
+/******************************************************************************
+* Function Section — 自定义颜色
+******************************************************************************/
 
 void rdx_led_ctrl_set_custom_color(u8 r, u8 g, u8 b)
 {
@@ -471,6 +612,10 @@ void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness)
     rdx_led_ctrl_set_rgb_brightness(r, g, b, brightness);
 }
 
+/******************************************************************************
+* Function Section — 充电与状态恢复（公共API，委托给内部辅助函数）
+******************************************************************************/
+
 /**
  * @brief 根据电池电量设置充电灯效
  * @param battery_percent 电池电量百分比 (0-100)
@@ -480,20 +625,7 @@ void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
     if (g_led_config == NULL || !g_led_initialized) {
         return;
     }
-    
-    if (battery_percent < 20) {
-        // 电量<20%：红色呼吸灯
-        rdx_led_ctrl_set_state(LED_STATE_CHARGE_LOW_BREATH);
-    } else if (battery_percent < 80) {
-        // 电量20-80%：黄色呼吸灯
-        rdx_led_ctrl_set_state(LED_STATE_CHARGE_MID_BREATH);
-    } else if (battery_percent < 100) {
-        // 电量80-100%：绿色呼吸灯
-        rdx_led_ctrl_set_state(LED_STATE_CHARGE_HIGH_BREATH);
-    } else {
-        // 充满电：绿色常亮
-        rdx_led_ctrl_set_state(LED_STATE_CHARGE_FULL);
-    }
+    _rdx_led_set_charge_effect_by_battery(battery_percent);
 }
 
 /**
@@ -504,36 +636,5 @@ void rdx_led_ctrl_restore_system_state(void)
     if (g_led_config == NULL || !g_led_initialized) {
         return;
     }
-    
-    // 检查当前系统状态，按优先级恢复灯效
-    RecordStatus* rp = rdx_record_get_status();
-    
-    // 1. 检查是否在录音中
-    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
-        rdx_led_ctrl_set_state(LED_STATE_RECORD_BREATH);
-        return;
-    }
-    
-    // 2. 检查是否在 DUT 模式
-    if (rdx_app_get_dut_status()) {
-        rdx_led_ctrl_set_state(LED_STATE_DUT_BLINK);
-        return;
-    }
-    
-    // 3. 检查是否在 OTA 中
-    extern u8 get_ota_status(void);
-    if (get_ota_status()) {
-        rdx_led_ctrl_set_state(LED_STATE_OTA_BLINK);
-        return;
-    }
-    
-    // 4. 检查 BLE 连接状态
-    rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
-    if (ble_info && ble_info->ble_conn) {
-        // BLE 已连接，熄灭 LED
-        rdx_led_ctrl_set_state(LED_STATE_OFF);
-    } else {
-        // BLE 未连接，显示广播灯效
-        rdx_led_ctrl_set_state(LED_STATE_BLE_ADV_BLINK);
-    }
+    _rdx_led_restore_system_state();
 }
