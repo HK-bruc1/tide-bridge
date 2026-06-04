@@ -165,7 +165,7 @@ u8 key_table_normal_r[KEY_ACTION_MAX] = {
     APP_MSG_NULL,  //双击
     APP_MSG_NULL,  //三击
     APP_MSG_NULL, 
-    APP_MSG_NULL,  //五击
+    APP_MSG_BT_PAIR_SET_DEFAULT,  //五击
     APP_MSG_NULL, //六击
     APP_MSG_NULL, 
     APP_MSG_DUT,
