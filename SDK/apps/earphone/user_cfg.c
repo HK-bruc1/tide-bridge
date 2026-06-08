@@ -24,6 +24,7 @@
 #endif
 #include "scene_switch.h"
 #include "volume_node.h"
+#include "poweroff.h"
 
 #define LOG_TAG             "[USER_CFG]"
 #define LOG_ERROR_ENABLE
@@ -452,6 +453,9 @@ void sys_set_auto_off_time(u32 auto_off_time)
         log_info("sys_set_auto_off_time fail --> auto_off_time: %d mins \r", RDX_DEFAULT_SHUT_DOWN_TIME);
         app_var.auto_off_time = RDX_DEFAULT_SHUT_DOWN_TIME * 60;
     }
+
+    sys_auto_shut_down_disable();
+    sys_auto_shut_down_enable();
 }
 #endif
 

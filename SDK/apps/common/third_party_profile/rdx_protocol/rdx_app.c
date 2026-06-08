@@ -1945,13 +1945,12 @@ int rdx_app_msg_handler(int *msg)
                 ret = TRUE;
                 break;
             }
-            //poweron ready.
+            //poweroff ready.
             ret = TRUE;
-            break;
             poweroff_ready_flag = 1;
             key_press_record_ready_flag = 0;
-            //auto shutdown.
-            rdx_app_auto_shutdown();
+            //关机直接复用 RDX + JL 原生软关机链，避免只进入伪 idle。
+            rdx_app_normal_poweroff();
             ret = TRUE;
             break;
 

@@ -130,12 +130,18 @@ static void sys_auto_shut_down_deal(void *priv)
     extern u8 rdx_app_get_charge_state(void);
     int c_state = rdx_app_get_charge_state();
     if(c_state != 1 && c_state != 2){
+        // r_printf("============================================================================ \n");
+        // r_printf("======= %s --> DO NOT SHUT DOWN, Enter Idle! \n", __FUNCTION__);
+        // r_printf("============================================================================ \n");
+        // //dons++
+        // extern void rdx_app_enter_idle(void);
+        // rdx_app_enter_idle();
         r_printf("============================================================================ \n");
-        r_printf("======= %s --> DO NOT SHUT DOWN, Enter Idle! \n", __FUNCTION__);
+        r_printf("======= %s --> DO NOT SHUT DOWN, Enter POWEROFF! \n", __FUNCTION__);
         r_printf("============================================================================ \n");
-        //dons++
-        extern void rdx_app_enter_idle(void);
-        rdx_app_enter_idle();
+        // extern void rdx_app_normal_poweroff(void);
+        // rdx_app_normal_poweroff();
+        sys_enter_soft_poweroff(POWEROFF_NORMAL);
         return;
     }
 #else
