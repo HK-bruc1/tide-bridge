@@ -26,7 +26,7 @@
 #include "app_main.h"
 #include "rdx_rtc.h"
 #include "syscfg_id.h"
-#include "asm/rtc.h"
+#include "rtc/rtc_dev.h"
 
 /******************************************************************************
 * Macro Define Section

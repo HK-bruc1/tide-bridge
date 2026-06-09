@@ -9,6 +9,8 @@
 #include "includes.h"
 #include "gpio_config.h"
 
+#include "rtc/rtc_dev.h"
+
 //-------------------------------------------------------------------
 /*config
  */
@@ -80,7 +82,11 @@ u8 power_soff_callback()
     DO_PLATFORM_UNINITCALL();
 
     __mask_io_cfg();
-
+    
+#if TCFG_APP_RTC_EN
+    poweroff_save_rtc_time();
+#endif
+    
     void gpio_config_soft_poweroff(void);
     gpio_config_soft_poweroff();
 

@@ -55,6 +55,8 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
+#include "rtc_test.h"
+
 
 /*任务列表 */
 const struct task_info task_info_table[] = {
@@ -433,6 +435,11 @@ static struct app_mode *app_task_init()
     struct app_mode *mode;
     mode = app_mode_switch_handler(msg);
     ASSERT(mode != NULL);
+
+#if TCFG_APP_RTC_EN
+    rtc_test_init();
+#endif
+
     return mode;
 }
 

@@ -104,7 +104,7 @@ u32 adc_set_voltage_mode(enum AD_CH ch, enum AD_MODE mode);
   * @param[in]  无
   * @return     无
   */
-void adc_init(void);
+void gpadc_init(void);
 
 /**@brief 触发一次adc队列采集,定时调用
   * @param[in]  无

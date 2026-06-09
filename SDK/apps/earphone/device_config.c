@@ -8,9 +8,13 @@
 #include "app_main.h"
 #include "app_config.h"
 #include "asm/sdmmc.h"
-#include "asm/rtc.h"
+// #include "asm/rtc.h"
+#include "rtc/rtc_dev.h"
+
 #include "linein_dev.h"
 #include "usb/host/usb_storage.h"
+
+#include "rtc_test.h"
 
 //dons++
 int sdmmc_0_io_detect_user(const struct sdmmc_platform_data *p)
@@ -73,9 +77,9 @@ struct linein_dev_data linein_data = {
 #if TCFG_APP_RTC_EN
 //初始一下当前时间
 const struct sys_time def_sys_time = {
-    .year = 2020,
-    .month = 1,
-    .day = 1,
+    .year = 2026,
+    .month = 6,
+    .day = 9,
     .hour = 0,
     .min = 0,
     .sec = 0,
@@ -93,18 +97,18 @@ const struct sys_time def_alarm = {
 
 /* extern void alarm_isr_user_cbfun(u8 index); */
 RTC_DEV_PLATFORM_DATA_BEGIN(rtc_data)
-.default_sys_time = &def_sys_time,
- .default_alarm = &def_alarm,
-
-  .clk_sel = CLK_SEL_32K,
-   /* #if defined(CONFIG_CPU_BR27) */
-   /* .rtc_sel = HW_RTC, */
-   /* #endif */
-   //闹钟中断的回调函数,用户自行定义
-   .cbfun = NULL,
+    .default_sys_time = &def_sys_time,
+    .default_alarm = &def_alarm,
+    .rtc_clk = RTC_CLK_RES_SEL,//引用板级配置中的宏定义，默认也是CLK_SEL_32K
+    .rtc_sel = HW_RTC,
+    //闹钟中断的回调函数,用户自行定义
+#if RTC_TEST_ENABLE && (RTC_TEST_ITEM_MASK & RTC_TEST_ITEM_ALARM)
+    .cbfun = rtc_test_alarm_callback,
+#else
+    .cbfun = NULL,
+#endif
     /* .cbfun = alarm_isr_user_cbfun, */
     RTC_DEV_PLATFORM_DATA_END()
-
 #endif
 
 REGISTER_DEVICES(device_table) = {

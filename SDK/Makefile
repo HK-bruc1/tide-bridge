@@ -620,6 +620,7 @@ c_SRC_FILES := \
 	apps/common/update/update_tws.c \
 	apps/common/update/update_tws_new.c \
 	apps/earphone/app_main.c \
+	apps/earphone/rtc_test.c \
 	apps/earphone/audio/jlstream_event_handler.c \
 	apps/earphone/audio/scene_switch.c \
 	apps/earphone/audio/tone_table.c \
@@ -972,7 +973,6 @@ c_SRC_FILES := \
 	cpu/br28/setup.c \
 	cpu/br28/ui_driver/led7/led7_driver.c \
 	cpu/br28/ui_driver/ui_common.c \
-	cpu/components/gpadc_battery.c \
 	cpu/components/iic_api.c \
 	cpu/components/iic_soft.c \
 	cpu/components/ir_decoder.c \

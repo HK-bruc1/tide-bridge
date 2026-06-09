@@ -241,7 +241,7 @@ void board_init()
 {
     board_power_init();
 
-    adc_init();
+    gpadc_init();
 
 #if TCFG_BATTERY_CURVE_ENABLE
     vbat_curve_init(g_battery_curve_table, ARRAY_SIZE(g_battery_curve_table));

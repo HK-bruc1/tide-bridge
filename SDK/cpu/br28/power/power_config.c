@@ -9,6 +9,8 @@
 #include "asm/charge.h"
 #include "gpio_config.h"
 
+#include "rtc/rtc_dev.h"
+
 const struct low_power_param power_param = {
     //sniff时芯片是否进入低功耗
     .config         = TCFG_LOWPOWER_LOWPOWER_SEL,
@@ -18,6 +20,9 @@ const struct low_power_param power_param = {
 
     .vddiom_lev     = TCFG_LOWPOWER_VDDIOM_LEVEL,         //vddiom等级
     .osc_type       = TCFG_LOWPOWER_OSC_TYPE,			  //低功耗晶振类型，btosc/lrc
+#if TCFG_APP_RTC_EN
+    .rtc_clk        = RTC_CLK_RES_SEL,
+#endif
     .lpctmu_en 		= TCFG_LP_TOUCH_KEY_ENABLE,
 #if TCFG_LOWPOWER_RAM_SIZE
     .mem_init_con   = MEM_PWR_RAM_SET(TCFG_LOWPOWER_RAM_SIZE),

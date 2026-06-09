@@ -493,6 +493,39 @@
 //dons++
 #define RTC_CLK_RES_SEL             CLK_SEL_LRC 
 
+//*********************************************************************************//
+//                                  RTC测试配置                                    //
+//*********************************************************************************//
+#define RTC_TEST_ITEM_NONE          0x00000000UL
+#define RTC_TEST_ITEM_REG_DUMP      0x00000001UL    //Test1: 当前 RTC 时间快照
+#define RTC_TEST_ITEM_BASIC_RW      0x00000002UL    //Test2: 基础读写验证
+#define RTC_TEST_ITEM_TIMING        0x00000004UL    //Test3: 60 秒走时精度验证（每 10 秒采样一次，共 6 次）
+#define RTC_TEST_ITEM_ALARM         0x00000008UL    //Test4: 闹钟功能验证（设置一个 20 秒后的闹钟，校验是否回调并比较期望/实际触发时间，允许 1 秒容差）
+#define RTC_TEST_ITEM_UTILS         0x00000010UL    //Test5: 工具函数验证（覆盖 time_diff_for_sec / time_add_sec / caculate_weekday_by_time / datetime_to_sec↔sec_to_datetime / month_to_day）
+#define RTC_TEST_ITEM_ALL           (RTC_TEST_ITEM_REG_DUMP | RTC_TEST_ITEM_BASIC_RW | \
+                                    RTC_TEST_ITEM_TIMING | RTC_TEST_ITEM_ALARM | \
+                                    RTC_TEST_ITEM_UTILS)
+
+#ifndef RTC_TEST_ENABLE
+#define RTC_TEST_ENABLE             0
+#endif
+
+#ifndef RTC_TEST_ITEM_MASK
+#define RTC_TEST_ITEM_MASK          (RTC_TEST_ITEM_REG_DUMP | RTC_TEST_ITEM_TIMING | RTC_TEST_ITEM_BASIC_RW | RTC_TEST_ITEM_ALARM | RTC_TEST_ITEM_UTILS)
+#endif
+
+#ifndef RTC_TEST_TIMING_SAMPLE_PERIOD_MS
+#define RTC_TEST_TIMING_SAMPLE_PERIOD_MS  (10 * 1000UL)
+#endif
+
+#ifndef RTC_TEST_TIMING_SAMPLE_COUNT
+#define RTC_TEST_TIMING_SAMPLE_COUNT      6
+#endif
+
+#ifndef RTC_TEST_ALARM_DELAY_SEC
+#define RTC_TEST_ALARM_DELAY_SEC          20
+#endif
+
 
 //*********************************************************************************//
 //                                  低功耗配置                                     //
