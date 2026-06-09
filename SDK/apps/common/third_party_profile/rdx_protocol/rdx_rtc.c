@@ -24,16 +24,19 @@
 * Include files
 ******************************************************************************/ 
 #include "app_main.h"
+#include "rdx_app_config.h"
 #include "rdx_rtc.h"
 #include "syscfg_id.h"
 #include "rtc/rtc_dev.h"
+#include "system/generic/jiffies.h"
 
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/ 
 #define RTC_RESTORE_INTERVAL            (3 * 60 * 1000) // 5 minutes
 
-#define RTC_DEFAULT_DATE_AND_TIME       "2025-04-01 16:50:06" // Default date and time in "YYYY-MM-DD HH:MM:SS" format
+#define RTC_DEFAULT_DATE_AND_TIME       "2000-01-01 00:00:00" // Default date and time in "YYYY-MM-DD HH:MM:SS" format
+#define RDX_RTC_TIMEZONE_OFFSET_SEC     (8 * 3600) // UTC+8, hardcoded for now
 
 /******************************************************************************
 * Structure and Enum Section
@@ -52,10 +55,13 @@ typedef struct{
 ******************************************************************************/ 
 static u16 rtc_restore_timer = 0;
 static RTCParams rtc_params;
+static u8 rdx_rtc_boot_time_valid = 0;
 
 /******************************************************************************
 * Function Declaration Section
 ******************************************************************************/ 
+extern const struct sys_time def_sys_time;
+
 time_t rdx_rtc_get(void);
 
 /******************************************************************************
@@ -328,7 +334,158 @@ time_t rdx_rtc_utc_string_to_timestamp(const char *utc_string) {
     return timestamp;
 }
 
-#if 1
+static time_t rdx_rtc_read_vm_timestamp(void)
+{
+    time_t timestamp = 0;
+
+    syscfg_read(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+    return timestamp;
+}
+
+static void rdx_rtc_write_vm_timestamp(time_t timestamp)
+{
+    syscfg_write(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+}
+
+static void rdx_rtc_datetime_to_sys_time(const DateTime *datetime, struct sys_time *sys_time)
+{
+    memset(sys_time, 0, sizeof(*sys_time));
+    sys_time->year = datetime->year;
+    sys_time->month = datetime->month;
+    sys_time->day = datetime->day;
+    sys_time->hour = datetime->hour;
+    sys_time->min = datetime->minute;
+    sys_time->sec = datetime->second;
+}
+
+static void rdx_rtc_sys_time_to_datetime(const struct sys_time *sys_time, DateTime *datetime)
+{
+    memset(datetime, 0, sizeof(*datetime));
+    datetime->year = sys_time->year;
+    datetime->month = sys_time->month;
+    datetime->day = sys_time->day;
+    datetime->hour = sys_time->hour;
+    datetime->minute = sys_time->min;
+    datetime->second = sys_time->sec;
+}
+
+static int rdx_rtc_sys_time_valid(const struct sys_time *sys_time)
+{
+    if (sys_time->year < 1970 || sys_time->month < 1 || sys_time->month > 12) {
+        return 0;
+    }
+
+    if (sys_time->day < 1 || sys_time->day > 31) {
+        return 0;
+    }
+
+    if (sys_time->hour > 23 || sys_time->min > 59 || sys_time->sec > 59) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int rdx_rtc_read_hw_time(struct sys_time *sys_time)
+{
+    struct _rtc_trim rtc_trim = {0};
+
+    memset(sys_time, 0, sizeof(*sys_time));
+
+    if (read_p11_sys_time(sys_time, &rtc_trim) && rdx_rtc_sys_time_valid(sys_time)) {
+        return 1;
+    }
+
+    rtc_read_time(sys_time);
+    return 0;
+}
+
+static void rdx_rtc_write_hw_time(const struct sys_time *sys_time)
+{
+    rtc_write_time(sys_time);
+}
+
+static time_t rdx_rtc_sys_time_to_timestamp(const struct sys_time *sys_time)
+{
+    DateTime datetime;
+
+    rdx_rtc_sys_time_to_datetime(sys_time, &datetime);
+    return rdx_rtc_datetime_to_timestamp(datetime);
+}
+
+static void rdx_rtc_timestamp_to_sys_time_value(time_t timestamp, struct sys_time *sys_time)
+{
+    DateTime datetime = rdx_rtc_timestamp_to_datetime(timestamp);
+
+    rdx_rtc_datetime_to_sys_time(&datetime, sys_time);
+}
+
+static int rdx_rtc_is_init_placeholder_time(const struct sys_time *sys_time)
+{
+    if (!rdx_rtc_sys_time_valid(sys_time)) {
+        return 0;
+    }
+
+    return (sys_time->year == def_sys_time.year &&
+            sys_time->month == def_sys_time.month &&
+            sys_time->day == def_sys_time.day);
+}
+
+static void rdx_rtc_capture_boot_time(const struct sys_time *sys_time)
+{
+    if (!rdx_rtc_boot_time_valid &&
+        rdx_rtc_sys_time_valid(sys_time) &&
+        !rdx_rtc_is_init_placeholder_time(sys_time)) {
+        rdx_rtc_boot_time_valid = 1;
+    }
+}
+
+/**************************************************************************
+ * function: rdx_rtc_test
+ * description: 测试函数
+ * param (void)
+ * return (int) 返回值
+ **************************************************************************/
+int rdx_rtc_test(void)
+{
+    /*----------------------------------------------------------------*/
+    /* Local Variables                                                */
+    /*----------------------------------------------------------------*/
+    time_t timestamp = rdx_rtc_get();
+    time_t parsed_timestamp = 0;
+    char buffer[64];
+    DateTime dt;
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_HARDWARE)
+    const char *rtc_path = "HW";
+#else
+    const char *rtc_path = "SW";
+#endif
+    /*----------------------------------------------------------------*/
+    /* Code Body                                                      */
+    /*----------------------------------------------------------------*/
+    rdx_rtc_timestamp_to_utc_string(timestamp, buffer);
+    parsed_timestamp = rdx_rtc_utc_string_to_timestamp(buffer);
+    dt = rdx_rtc_timestamp_to_datetime(timestamp);
+
+    g_printf("[RDX_RTC][%s] ts=%ld utc=%s wd=%d rt=%s\r",
+             rtc_path,
+             (long)timestamp,
+             buffer,
+             dt.weekday,
+             (parsed_timestamp == timestamp) ? "ok" : "bad");
+
+    if (parsed_timestamp != timestamp) {
+        g_printf("[RDX_RTC][%s] WARN parsed=%ld src=%ld\r",
+                 rtc_path,
+                 (long)parsed_timestamp,
+                 (long)timestamp);
+        return -1;
+    }
+
+    return 0;
+}
+
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
 
 /**************************************************************************
  * function: rdx_rtc_set_timestamp
@@ -342,14 +499,13 @@ int rdx_rtc_set_timestamp(time_t timestamp)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     unsigned long sys_timestamp = jiffies_msec();
-    time_t rtc_timestamp;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     rtc_params.rtc_value = timestamp; // timestamp 单位：秒
     rtc_params.begin_msec = sys_timestamp;
-    y_printf("\n===> rtc_value: %d, rtc_params.begin_msec: %d \n", rtc_params.rtc_value, rtc_params.begin_msec);
-    syscfg_write(VM_RDX_RTC_INIT_VALUE, &rtc_params, sizeof(time_t));
+    y_printf("\n===> rtc_value: %ld, rtc_params.begin_msec: %lu \n", (long)rtc_params.rtc_value, rtc_params.begin_msec);
+    rdx_rtc_write_vm_timestamp(timestamp);
     return 0;
 }
 
@@ -365,14 +521,21 @@ time_t rdx_rtc_get(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     unsigned long sys_timestamp = jiffies_msec();
-    time_t rtc_timestamp;
-    int ms_offset = jiffies_msec2offset(rtc_params.begin_msec, sys_timestamp);
+    int ms_offset = 0;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    syscfg_read(VM_RDX_RTC_INIT_VALUE, &rtc_params, sizeof(time_t));
-    rtc_timestamp = rtc_params.rtc_value + ms_offset/1000;
-    return rtc_timestamp;
+    if (rtc_params.rtc_value == 0) {
+        rtc_params.rtc_value = rdx_rtc_read_vm_timestamp();
+        rtc_params.begin_msec = sys_timestamp;
+    }
+
+    if (rtc_params.rtc_value == 0) {
+        return 0;
+    }
+
+    ms_offset = jiffies_msec2offset(rtc_params.begin_msec, sys_timestamp);
+    return rtc_params.rtc_value + ms_offset / 1000;
 }
 
 /**************************************************************************
@@ -386,7 +549,7 @@ char* rdx_rtc_get_string(void)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    char buffer[64];
+    static char buffer[64];
     time_t timestamp = rdx_rtc_get();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
@@ -437,43 +600,6 @@ char* rdx_rtc_get_string_time(void)
     memset(time_buffer, 0, sizeof(time_buffer));
     sprintf(time_buffer, "%02d:%02d:%02d", dt.hour, dt.minute, dt.second);
     return time_buffer;
-}
-
-/**************************************************************************
- * function: rdx_rtc_test
- * description: 测试函数
- * param (void)
- * return (int) 返回值
- **************************************************************************/
-int rdx_rtc_test(void) {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    time_t timestamp = rdx_rtc_get();//1696516496; // 示例时间戳
-    char buffer[64];
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    puts("-------------------------------------------------- \r");
-    rdx_rtc_timestamp_to_utc_string(timestamp, buffer);
-    g_printf("UTC Time: %s\r", buffer);
-
-    // const char *utc_string = "2023-10-05 12:34:56"; // 示例UTC时间字符串
-    timestamp = rdx_rtc_utc_string_to_timestamp(buffer);
-    g_printf("Timestamp: %ld\r", (long)timestamp);
-
-    DateTime dt = rdx_rtc_timestamp_to_datetime(timestamp);
-
-    g_printf("Year: %d\r", dt.year);
-    g_printf("Month: %d\r", dt.month);
-    g_printf("Day: %d\r", dt.day);
-    g_printf("Hour: %d\r", dt.hour);
-    g_printf("Minute: %d\r", dt.minute);
-    g_printf("Second: %d\r", dt.second);
-    g_printf("Weekday: %d\r", dt.weekday);
-    g_printf("Weekday_name: %s\r", dt.weekday_name);
-
-    return 0;
 }
 
 /**************************************************************************
@@ -547,19 +673,15 @@ void rdx_rtc_init(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     time_t rtc_timestamp;
-    char tmp_buffer[100];
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    memset(&rtc_params, 0, sizeof(rtc_params));
     rtc_timestamp = rdx_rtc_get();
     if(rtc_timestamp == 0){
-        memset(&rtc_params, 0, sizeof(RTCParams));
         //if no rtc timestamp, set default date and time.
         rtc_timestamp = rdx_rtc_utc_string_to_timestamp(RTC_DEFAULT_DATE_AND_TIME);
     }
-    //show current time string.
-    rdx_rtc_timestamp_to_utc_string(rtc_timestamp, tmp_buffer);
-    g_printf("rtc_timestamp: %ld, tmp_buffer: %s \r", (long)rtc_timestamp, tmp_buffer);
 
     //set current utc timestamp.
     rdx_rtc_set_timestamp(rtc_timestamp);
@@ -570,16 +692,35 @@ void rdx_rtc_init(void)
 
 #else
 
-void rdx_rtc_timer_to_check_time(void *priv)
+/**************************************************************************
+ * function: rdx_rtc_store_timestamp
+ * description:
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_rtc_store_timestamp(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    rdx_rtc_get();
+    rdx_rtc_write_vm_timestamp(rdx_rtc_get());
+}
+
+/**************************************************************************
+ * function: rdx_rtc_restore_timer_stop
+ * description:
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_rtc_restore_timer_stop(void)
+{
+}
+
+/**************************************************************************
+ * function: rdx_rtc_restore_timer_start
+ * description:
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_rtc_restore_timer_start(void)
+{
 }
 
 /**************************************************************************
@@ -593,37 +734,43 @@ void rdx_rtc_init(void)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    
+    struct sys_time current_time = {0};
+    time_t rtc_timestamp = 0;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    RTC_DEV_PLATFORM_DATA_BEGIN(rtc_dev_data)
-        .default_sys_time = NULL,
-        .default_alarm = NULL,
-        .cbfun = NULL,
-        .clk_sel = CLK_SEL_LRC,
-    RTC_DEV_PLATFORM_DATA_END()
+    char utc_buf[32];
 
-    // 调用 RTC 初始化函数
-    rtc_init(&rtc_dev_data);
+    rdx_rtc_read_hw_time(&current_time);
+    if (!rdx_rtc_sys_time_valid(&current_time)) {
+        rtc_timestamp = rdx_rtc_read_vm_timestamp();
+        if (rtc_timestamp == 0) {
+            rtc_timestamp = rdx_rtc_sys_time_to_timestamp(&def_sys_time);
+            g_printf("[RDX_RTC][HW] init: hw=invalid vm=empty use=DEFAULT\r");
+        } else {
+            rdx_rtc_timestamp_to_timezone_string(rtc_timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+            g_printf("[RDX_RTC][HW] init: hw=invalid utc=%s src=VM\r", utc_buf);
+        }
 
-    time_t timestamp = rdx_rtc_get();
-    if(timestamp == 0){
-        // 设置默认时间
-        struct sys_time default_time;
-        default_time.year = 2025;
-        default_time.month = 4;
-        default_time.day = 1;
-        default_time.hour = 0;
-        default_time.min = 0;
-        default_time.sec = 0;
-
-        write_sys_time(&default_time);  // 写入默认时间
-        y_printf("=== %s --> set default time: %04d-%02d-%02d %02d:%02d:%02d ===\n", __func__, default_time.year, default_time.month, default_time.day, default_time.hour, default_time.min, default_time.sec);
+        rdx_rtc_set_timestamp(rtc_timestamp);
+        rdx_rtc_read_hw_time(&current_time);
+    } else if (rdx_rtc_is_init_placeholder_time(&current_time)) {
+        rtc_timestamp = rdx_rtc_read_vm_timestamp();
+        if (rtc_timestamp != 0) {
+            rdx_rtc_timestamp_to_timezone_string(rtc_timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+            g_printf("[RDX_RTC][HW] init: hw=default utc=%s src=VM\r", utc_buf);
+            rdx_rtc_set_timestamp(rtc_timestamp);
+            rdx_rtc_read_hw_time(&current_time);
+        } else {
+            g_printf("[RDX_RTC][HW] init: hw=default vm=empty use=HW\r");
+        }
+    } else {
+        rdx_rtc_timestamp_to_timezone_string(rdx_rtc_sys_time_to_timestamp(&current_time), RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+        g_printf("[RDX_RTC][HW] init: hw=running utc=%s src=RTC sync=VM\r", utc_buf);
+        rdx_rtc_write_vm_timestamp(rdx_rtc_sys_time_to_timestamp(&current_time));
     }
 
-    //for test.
-    // sys_timer_add(NULL, rdx_rtc_timer_to_check_time, 1000);
+    rdx_rtc_capture_boot_time(&current_time);
 }
 
 /**************************************************************************
@@ -637,25 +784,18 @@ int rdx_rtc_set_timestamp(time_t timestamp)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    DateTime d;
     struct sys_time set_cur_time;
+    char utc_buf[32];
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    memset(&d, 0, sizeof(DateTime));
+    rdx_rtc_timestamp_to_timezone_string(timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+    g_printf("[RDX_RTC][HW] set: utc=%s\r", utc_buf);
 
-    d = rdx_rtc_timestamp_to_datetime(timestamp);
+    rdx_rtc_timestamp_to_sys_time_value(timestamp, &set_cur_time);
 
-    set_cur_time.year = d.year;
-    set_cur_time.month = d.month;
-    set_cur_time.day = d.day;
-    set_cur_time.hour = d.hour;
-    set_cur_time.min = d.minute;
-    set_cur_time.sec = d.second;
-
-    y_printf("=== %s --> %04d-%02d-%02d %02d:%02d:%02d ===\r", __func__, set_cur_time.year, set_cur_time.month, set_cur_time.day, set_cur_time.hour, set_cur_time.min, set_cur_time.sec);
-
-    write_sys_time(&set_cur_time);
+    rdx_rtc_write_hw_time(&set_cur_time);
+    rdx_rtc_write_vm_timestamp(timestamp);
 
     return 0;
 }
@@ -672,29 +812,33 @@ time_t rdx_rtc_get(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     struct sys_time cur_time;
-    DateTime dt;
     time_t time_stamp;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    read_sys_time(&cur_time);
-    b_printf("=== %s --> read sys time: %d-%d-%d %d:%d:%d ===\r", __func__, cur_time.year, cur_time.month, cur_time.day, cur_time.hour, cur_time.min, cur_time.sec);
+    char utc_buf[32];
 
-    dt.year = cur_time.year;
-    dt.month = cur_time.month;
-    dt.day = cur_time.day;
-    dt.hour = cur_time.hour;
-    dt.minute = cur_time.min;
-    dt.second = cur_time.sec;
-    time_stamp = rdx_rtc_datetime_to_timestamp(dt);
+    memset(&cur_time, 0, sizeof(cur_time));
 
-    char buffer[30];
-    memset(buffer, 0, sizeof(buffer));
-    rdx_rtc_timestamp_to_timezone_string(time_stamp, 8, buffer);
-    y_printf("======================================================================\r");
-    y_printf("=== %s --> get timestamp = %d \r", __func__, time_stamp);
-    y_printf("=== %s --> get time = %s \r", __func__, buffer);
-    y_printf("======================================================================\r");
+    rdx_rtc_read_hw_time(&cur_time);
+    if (!rdx_rtc_sys_time_valid(&cur_time)) {
+        time_stamp = rdx_rtc_read_vm_timestamp();
+        rdx_rtc_timestamp_to_timezone_string(time_stamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+        g_printf("[RDX_RTC][HW] utc=%s src=VM\r", utc_buf);
+        return time_stamp;
+    }
+
+    time_stamp = rdx_rtc_sys_time_to_timestamp(&cur_time);
+
+    if (!rdx_rtc_boot_time_valid) {
+        rdx_rtc_capture_boot_time(&cur_time);
+        if (rdx_rtc_boot_time_valid) {
+            rdx_rtc_write_vm_timestamp(time_stamp);
+        }
+    }
+
+    rdx_rtc_timestamp_to_timezone_string(time_stamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+    g_printf("[RDX_RTC][HW] utc=%s src=RTC\r", utc_buf);
     return time_stamp;
 }
 

@@ -77,9 +77,9 @@ struct linein_dev_data linein_data = {
 #if TCFG_APP_RTC_EN
 //初始一下当前时间
 const struct sys_time def_sys_time = {
-    .year = 2026,
-    .month = 6,
-    .day = 9,
+    .year = 2000,
+    .month = 1,
+    .day = 1,
     .hour = 0,
     .min = 0,
     .sec = 0,

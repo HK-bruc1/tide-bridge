@@ -84,6 +84,13 @@ int rdx_rtc_test(void);
 // Set the current timestamp
 int rdx_rtc_set_timestamp(time_t timestamp);
 
+// Persist the current RDX RTC time if the selected path needs it
+void rdx_rtc_store_timestamp(void);
+
+// Start/stop the periodic RTC persistence timer in software mode
+void rdx_rtc_restore_timer_stop(void);
+void rdx_rtc_restore_timer_start(void);
+
 // RTC initialization function
 void rdx_rtc_init(void);
 

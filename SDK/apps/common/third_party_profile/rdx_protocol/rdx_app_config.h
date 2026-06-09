@@ -110,6 +110,18 @@
 
 #define RDX_SUPPORT_ALGORITHM							(1)
 
+//RTC实现路径 软件模拟/硬件RTC
+#define RDX_RTC_PATH_SOFTWARE							(0)
+#define RDX_RTC_PATH_HARDWARE							(1)
+
+#ifndef RDX_RTC_PATH_SEL
+#define RDX_RTC_PATH_SEL								RDX_RTC_PATH_HARDWARE
+#endif
+
+#if (RDX_RTC_PATH_SEL != RDX_RTC_PATH_SOFTWARE) && (RDX_RTC_PATH_SEL != RDX_RTC_PATH_HARDWARE)
+#error "RDX_RTC_PATH_SEL must be RDX_RTC_PATH_SOFTWARE or RDX_RTC_PATH_HARDWARE"
+#endif
+
 #define BJ_BOARD_VERSION_00								(0)
 #define BJ_BOARD_VERSION_01								(1) //新版本
 #define BJ_BOARD_VERSION_02								(2) //WIFI + EMMC + OLED
