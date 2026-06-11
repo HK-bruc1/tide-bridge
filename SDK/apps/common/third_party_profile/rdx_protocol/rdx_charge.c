@@ -98,6 +98,7 @@ static u16 incharge_full_poweroff_timer = 0;
 static u16 incharge_batPercent_show_timer = 0;
 
 static u8 orig_bat = 0;
+static u8 full_confirm_count = 0;
 
 /******************************************************************************
 * Function Declaration Section
@@ -327,6 +328,20 @@ void rdx_app_charge_full_timer_to_poweroff(void)
  **************************************************************************/
 void rdx_app_charge_full(void)
 {
+#if RDX_PRODUCT_IS_CHARGE_CASE
+    if(cur_charge_state == RDX_CHARGE_FULL){
+        return;
+    }
+
+    bool hw_full = charge_check_is_full();
+    u8 cur_bat = rdx_battery_get_percent();
+    y_printf("====== %s --> hw=%d, bat=%d\r", __func__, hw_full, cur_bat);
+
+    if(hw_full != TRUE && cur_bat < 100){
+        return;
+    }
+    orig_bat = 0;
+#else
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -366,6 +381,7 @@ void rdx_app_charge_full(void)
 #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
     OLED_Show_Incharge_Blink_Stop();
 #endif
+#endif /* RDX_PRODUCT_IS_CHARGE_CASE */
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_01) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_00)
     //shut off 4558.
@@ -395,22 +411,34 @@ void rdx_app_charge_full(void)
  **************************************************************************/
 void rdx_app_incharge_full_check_timer_cb(void* priv)
 {
+    g_printf("==== %s ====\r", __func__);
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     bool full_check = FALSE;
-    
+    u8 cur_bat = 0;
+
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     rdx_protocol_update_dev_battery_level();
+    cur_bat = rdx_battery_get_percent();
     full_check = charge_check_is_full();
     if(full_check == TRUE){
-        y_printf("====== %s --> CHARGE FULL! \r", __func__);
+        // 硬件满直接触发，无需防抖
+        y_printf("====== %s --> CHARGE FULL! hw=%d, bat=%d\r", __func__, full_check, cur_bat);
         rdx_app_charge_full();
-        orig_bat = 0;
+        full_confirm_count = 0;
+    }else if(cur_bat >= 100){
+        // 软件满需要防抖，连续20次才确认（防浮压回落，5s×60=300s）
+        if(full_confirm_count < 255) full_confirm_count++;
+        if(full_confirm_count >= 60){
+            y_printf("====== %s --> CHARGE FULL! hw=%d, bat=%d, cnt=%d\r", __func__, full_check, cur_bat, full_confirm_count);
+            rdx_app_charge_full();
+            full_confirm_count = 0;
+        }
     }else{
-        u8 cur_bat = rdx_battery_get_percent();
+        full_confirm_count = 0;
         if(orig_bat != cur_bat){
             rdx_battery_inchargeBatPer_show();
             // 充电过程中根据电量更新灯效
@@ -544,6 +572,7 @@ void rdx_app_charge_start(void)
 
     rdx_app_set_charge_state(RDX_CHARGE_IN);
     orig_bat = 0;
+    full_confirm_count = 0;
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)
     //init charge.
@@ -575,7 +604,8 @@ void rdx_app_charge_start(void)
 
     y_printf("====== %s --> INCHARGE! \r", __func__);
 
-    // 充电开始，根据当前电量设置充电灯效
+    // 充电开始，确保LED硬件已初始化，然后根据当前电量设置充电灯效
+    rdx_led_hardware_init();
     u8 cur_bat = rdx_battery_get_percent();
     rdx_led_ctrl_set_charge_state_by_battery(cur_bat);
 }
@@ -657,9 +687,13 @@ int rdx_app_battery_msg_handler(int *msg)
 
         case CHARGE_EVENT_LDO5V_OFF:
             y_printf("%s --> BAT_MSG_CHARGE_LDO5V_OFF, charge out, rdx_app_get_charge_state() = %d \r", __func__, rdx_app_get_charge_state());
-            // rdx_app_emmc_poweroff();
-            //reset.
+#if TCFG_CHARGE_OFF_POWERON_EN
             rdx_cpu_reset();
+#else
+            //拔出关机
+            //关机直接复用 RDX + JL 原生软关机链，避免只进入伪 idle。
+            rdx_app_normal_poweroff();
+#endif
             break;
 
         default:

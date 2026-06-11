@@ -3136,8 +3136,31 @@ void rdx_app_tasks_init(void)
 }
 
 /**************************************************************************
+ * function: rdx_led_hardware_init
+ * description: 独立的LED硬件初始化，可在充电模式/关机充电等非BT模式下调用
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_led_hardware_init(void)
+{
+    if (led_pt0807_config.initialized) {
+        return;
+    }
+    if (led_pt0807_init(&led_pt0807_config, LED_PT0807_SPI1, LED_PT0807_DATA_PORT_IO, 1) == 0) {
+        g_printf("===== %s --> LED PT0807 init success\r", __func__);
+        if (rdx_led_ctrl_init(&led_pt0807_config) == 0) {
+            g_printf("===== %s --> LED Ctrl init success\r", __func__);
+        } else {
+            g_printf("===== %s --> LED Ctrl init failed\r", __func__);
+        }
+    } else {
+        g_printf("===== %s --> LED PT0807 init failed\r", __func__);
+    }
+}
+
+/**************************************************************************
  * function: rdx_app_all_init
- * description: 
+ * description:
  * param (*)
  * return (*)
  **************************************************************************/
@@ -3223,19 +3246,7 @@ void rdx_app_all_init(void)
     #endif
 
         //LED PT0807 init and test.
-        /* 参数: config, spi_port, data_gpio, pixel_count */
-        if (led_pt0807_init(&led_pt0807_config, LED_PT0807_SPI1, LED_PT0807_DATA_PORT_IO, 1) == 0) {
-            g_printf("===== %s --> LED PT0807 init success\r", __func__);
-
-            // 初始化LED控制模块
-            if (rdx_led_ctrl_init(&led_pt0807_config) == 0) {
-                g_printf("===== %s --> LED Ctrl init success\r", __func__);
-            } else {
-                g_printf("===== %s --> LED Ctrl init failed\r", __func__);
-            }
-        } else {
-            g_printf("===== %s --> LED PT0807 init failed \r", __func__);
-        }
+        rdx_led_hardware_init();
         rdx_app_emmc_poweroff_check();
 
         rdx_app_tasks_init();

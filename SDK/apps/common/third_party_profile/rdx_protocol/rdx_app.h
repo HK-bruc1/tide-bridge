@@ -406,6 +406,7 @@ extern char* rdx_app_earphone_get_readchardata(void);
 
 extern RdxWifiInfo* rdx_app_get_wifi_info(void);
 
+extern void rdx_led_hardware_init(void);
 extern void rdx_app_all_init(void);
 extern void rdx_app_all_exit(void);
 
