@@ -31,7 +31,7 @@
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/ 
-#define BLE_LOCAL_NAME_MAX_LEN                          (18)
+#define BLE_LOCAL_NAME_MAX_LEN                          (24)
 #define BT_LOCAL_NAME_MAX_LEN                           (20)
 
 // Ability bit definitions (big endian)

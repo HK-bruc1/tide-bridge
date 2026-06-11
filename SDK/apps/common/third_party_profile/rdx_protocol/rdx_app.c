@@ -1904,7 +1904,7 @@ int rdx_app_msg_handler(int *msg)
                 // app_send_message(APP_MSG_GOTO_MODE, APP_MODE_BT);
                 app_is_idle = FALSE;
                 log_info("cpu_reset!!!\n");
-                cpu_reset();
+                rdx_cpu_reset();
             }
             break;
 
@@ -2907,8 +2907,26 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
         case PROTOCOL_EVENT_CMD_RTC: {
             if(!data || len < sizeof(ProtocolRtcParams)) break;
             ProtocolRtcParams* p = (ProtocolRtcParams*)data;
-            int result = (p->timestamp > 0) ? rdx_rtc_set_timestamp(p->timestamp) : 1;
-            ops->rtc_set_ack_indicate((u8)result, p->timestamp);
+            if(p->timestamp > 0){
+                time_t old_rtc = rdx_rtc_get();
+                int result = rdx_rtc_set_timestamp(p->timestamp);
+                if(result == 0 && old_rtc > 0){
+                    int32_t delta = (int32_t)((time_t)p->timestamp - old_rtc);
+                    RecordStatus *rp = rdx_record_get_status();
+                    if(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
+                        uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
+                        if(op && op->start_time > 0){
+                            u32 corrected = (u32)((int32_t)op->start_time + delta);
+                            y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
+                                     op->start_time, corrected, delta);
+                            op->start_time = corrected;
+                        }
+                    }
+                }
+                ops->rtc_set_ack_indicate((u8)result, p->timestamp);
+            } else {
+                ops->rtc_set_ack_indicate(1, p->timestamp);
+            }
             break;
         }
 
@@ -3157,6 +3175,8 @@ void rdx_app_all_init(void)
 #if RDX_PRODUCT_IS_CHARGE_CASE
     //load paired earphone info from VM (耳机仓 配对, 603 专用).
     rdx_vm_read_ep_info_fromVM();
+    //ep_info loaded, repack readchardata with correct ep_mac.
+    rdx_app_earphone_pack_readchardata();
 #endif
 
     //record task init.

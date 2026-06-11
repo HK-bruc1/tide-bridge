@@ -241,6 +241,16 @@ static u8 spi_exception_retry_cnt = 0;
 static u32 spi_send_start_ts = 0;
 #define SPI_SEND_STUCK_TIMEOUT_MS   5000
 
+#ifndef RDX_SPI_VERBOSE_TRACE
+#define RDX_SPI_VERBOSE_TRACE   0
+#endif
+
+#if RDX_SPI_VERBOSE_TRACE
+#define spi_trace(...)  r_printf(__VA_ARGS__)
+#else
+#define spi_trace(...)  do { } while (0)
+#endif
+
 
 /******************************************************************************
 * Function Declaration Section
@@ -572,7 +582,12 @@ static spi_recv_opt_t query_slave_data_trans_info()
 
     spi_device_polling_transmit(esp8684_info.spi_hdl, (spi_transaction_t*)&trans);
     // put_buf(trans.tx_buffer, trans.rxlength/8);
-    // esp_log("=== direct: %d, seq_num: %d, transmit_len: %04X, %d \r", recv_opt.direct, recv_opt.seq_num, recv_opt.transmit_len, recv_opt.transmit_len);
+    {
+        const uint8_t *raw = (const uint8_t *)&recv_opt;
+        spi_trace("=== RDBUF raw: %02X %02X %02X %02X (direct=%u seq=%u len=%u)\r",
+                  raw[0], raw[1], raw[2], raw[3],
+                  recv_opt.direct, recv_opt.seq_num, recv_opt.transmit_len);
+    }
     return recv_opt;
 }
 
@@ -642,7 +657,11 @@ static void notify_slave_to_recv(void)
         if (tmp_send_len > 0) {
             spi_wait_handshake_low();
             spi_manager.plan_send_len = tmp_send_len > ESP_SPI_DMA_MAX_LEN ? ESP_SPI_DMA_MAX_LEN : tmp_send_len;
-            // b_printf("=====> %s --> tmp_send_len: %d, plan_send_len: %d \r", __func__, tmp_send_len, spi_manager.plan_send_len);
+            spi_trace("=== master->slave WRBUF: seq=%u, plan_len=%u (cbuf=%u, hs=%d)\r",
+                      (unsigned)(spi_manager.current_send_seq + 1),
+                      (unsigned)spi_manager.plan_send_len,
+                      (unsigned)tmp_send_len,
+                      gpio_read(ESP8684_HANDSHAKE_PORT_IO));
             spi_master_request_to_write(spi_manager.current_send_seq + 1, spi_manager.plan_send_len); // to tell slave that the master want to write data
             spi_manager.initiative_send_flag = 1;
             spi_send_start_ts = jiffies_msec();
@@ -794,7 +813,11 @@ void rdx_spi_slave_msg_handler(bool flag)
             if (recv_opt.direct == SPI_WRITE || recv_opt.direct == SPI_READ) break;
         }
         if (recv_opt.direct != SPI_WRITE && recv_opt.direct != SPI_READ) {
-            r_printf("!!! SPI query unknown direct=%d after retries\n", recv_opt.direct);
+            r_printf("!!! SPI query unknown direct=%d after retries "
+                     "(init_flag=%d, plan_len=%u, seq=%u, len=%u)\n",
+                     recv_opt.direct, spi_manager.initiative_send_flag,
+                     (unsigned)spi_manager.plan_send_len,
+                     recv_opt.seq_num, recv_opt.transmit_len);
             EXCEPTION_THROW();
         }
     }
@@ -876,7 +899,19 @@ void rdx_spi_slave_msg_handler(bool flag)
                         g_printf("======> all data send done! \n");
                     }
                     os_time_dly(2);
-                    os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
+                    {
+                        int qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
+                        if (qret != OS_NO_ERR) {
+                            r_printf("!!! SPI post send_task failed: %d, pack_num=%d, retry\r\n",
+                                     qret, ru->pack_num);
+                            os_time_dly(1);
+                            qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
+                            if (qret != OS_NO_ERR) {
+                                r_printf("!!! SPI post send_task retry failed: %d, pack_num=%d\r\n",
+                                         qret, ru->pack_num);
+                            }
+                        }
+                    }
                 }else{
                     // g_printf("======> current package data send done! ru->loop = false \n");
                 }
@@ -926,6 +961,11 @@ EXCEPTION_POINTER()
         spi_mutex_unlock();
         if(ru->send_stop == true){
             ru->send_stop = false;
+        } else if(ru->loop == true && ru->interrupt == true){
+            ru->interrupt = false;
+            r_printf("!!! SPI exception during file transfer interrupt, restart send task, pack_num=%d\n",
+                     ru->pack_num);
+            os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
         } else if(ru->loop == true && ru->interrupt == false){
             if (++spi_exception_retry_cnt <= SPI_EXCEPTION_MAX_RETRIES) {
                 r_printf("!!! SPI retry %d/%d, pack_num=%d\n",
@@ -987,6 +1027,8 @@ static void spi_trans_task(void* arg)
                     }
                 }
             }else if(msg[1] == SPI_MSG_SLAVE_NOTIFY){
+                spi_trace("=== handshake notify, hs=%d\r",
+                          gpio_read(ESP8684_HANDSHAKE_PORT_IO));
                 rdx_spi_slave_msg_handler(msg[2]);
             }
         }

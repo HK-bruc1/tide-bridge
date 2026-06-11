@@ -90,6 +90,10 @@
 //   - "602" : 录音卡片 (Record Card)     — DEVICE_RDX_BJ_T2403 等
 //   - "603" : 耳机仓 (Charge Case, CC)   — DEVICE_*_CC_*
 //   - "604" : 录音 PIN
+//
+// RDX_PRODUCT_IS_CHARGE_CASE = 1 时启用仓配对 (*APP#devpair / devunpair),
+// EarphoneInfo 持久化, BLE readchar 含 ep_mac/case_mac/wifi_mac 全量信息;
+// 其它产品 (录音卡片/PIN) 维持原有"仅写 AuthKey"的认证码上报行为.
 //----------------------------------------------------------------------------
 #if (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616) || \
     (RDX_SEL_DEVICE == DEVICE_DACOM_CC_T2401) || \

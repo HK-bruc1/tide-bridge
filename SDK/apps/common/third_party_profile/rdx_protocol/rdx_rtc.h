@@ -94,4 +94,7 @@ void rdx_rtc_restore_timer_start(void);
 // RTC initialization function
 void rdx_rtc_init(void);
 
+// Save RTC then cpu_reset
+void rdx_cpu_reset(void);
+
 #endif

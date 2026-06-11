@@ -349,12 +349,23 @@ int rdx_ble_server_reset_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
+    DevBaseInfo* p = rdx_app_get_dev_base_info();
+    u16 len = strlen(BLE_LOCAL_NAME);
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
+    if (len > BLE_LOCAL_NAME_MAX_LEN) {
+        len = BLE_LOCAL_NAME_MAX_LEN;
+    }
     //clear local name in vm.
     memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-    sprintf(g_rdx_ble_server_info.ble_local_name, "%s", BLE_LOCAL_NAME);
+
+    u8 buf[5] = {0};
+    y_printf("%s --> AuthKey:%s \r", __func__, p->auth);
+    if (strlen((char *)p->auth) >= 24) {
+        memcpy(buf, p->auth + 20, 4);
+    }
+    snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
 
     int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
     if (ret <= 0) {
@@ -368,7 +379,7 @@ int rdx_ble_server_reset_local_name(void)
 
 /**************************************************************************
  * function: rdx_ble_server_get_local_name
- * description:
+ * description: 
  * param (*)
  * return (*)
  **************************************************************************/
@@ -377,6 +388,7 @@ char* rdx_ble_server_get_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
+    DevBaseInfo* p = rdx_app_get_dev_base_info();
     char tmp[BLE_LOCAL_NAME_MAX_LEN + 1];
     /*----------------------------------------------------------------*/
     /* Code Body													  */
@@ -390,7 +402,12 @@ char* rdx_ble_server_get_local_name(void)
             local_name_len = BLE_LOCAL_NAME_MAX_LEN;
         }
         memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-        sprintf(g_rdx_ble_server_info.ble_local_name, "%s", BLE_LOCAL_NAME);
+
+        u8 buf[5] = {0};
+        if (strlen((char *)p->auth) >= 24) {
+            memcpy(buf, p->auth + 20, 4);
+        }
+        snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
 
         ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, local_name_len);
         if (ret <= 0) {
@@ -770,18 +787,20 @@ void rdx_ble_server_disconnected_delay_handle(void* priv)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    
+    RdxWifiInfo* k = rdx_app_get_wifi_info();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if (k->onoff == TRANSFER_BY_WIFI_ON) {
+        r_printf("[BLE] disconnected_delay_handle: WiFi transfer active, skip file cleanup\n");
+        return;
+    }
+
     rdx_protocol_uploadFileInfo_clean();
 	rdx_uxfile_recordFileData_sendBuf_free();
 	rdx_uxfile_datFileInfo_sendBuf_free();
     rdx_protocol_file_sync_busy_timer_stop();
 
-    // BLE 断连后 reinit 协议发送缓冲，避免上一次连接残留的 cbuf/queue 在
-    // 下一次连接重新使用时把旧帧发出去（已观察到 BLE↔WiFi 切换后偶发的
-    // 发送状态错乱）。
     rdx_protocol_send_buffer_reinit();
 
     rdx_app_emmc_poweroff_check();

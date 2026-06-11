@@ -96,7 +96,6 @@ static bool unbounding = FALSE;
 /*******************************************************************************
 * Function Declaration Section
 ******************************************************************************/
-extern void cpu_reset(void);
 extern void sys_set_auto_off_time(u16 auto_off_time);
 extern u8 get_ota_status();
 extern RecordStatus* rdx_record_get_status();
@@ -289,9 +288,6 @@ void rdx_vm_unbound_cb(u8 result)
         //mic gain set defalut.
         rdx_record_mic_gain_set_default();
 
-        //store rtc timestamp.
-        // rdx_rtc_store_timestamp();
-        
         //set unbound, do not show bound status on oled.
         rdx_vm_set_bound_status(0, 0);
 
@@ -302,7 +298,7 @@ void rdx_vm_unbound_cb(u8 result)
         os_time_dly(100);
 
         //DO system reset.
-        cpu_reset();
+        rdx_cpu_reset();
     }else{
         rdx_protocol_bound_result_indicate(1);
         unbounding = false;
@@ -358,7 +354,7 @@ void rdx_vm_choose_to_unbound_cb(u8 result)
         os_time_dly(50);
 
         //DO system reset.
-        cpu_reset();
+        rdx_cpu_reset();
     }else{
         y_printf("rdx_vm_choose_to_unbound_cb --> format sd card fail! \r");
         rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_bound_info.bound_state);
@@ -402,8 +398,6 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
         //mic gain set defalut.
         rdx_record_mic_gain_set_default();
 
-        //store rtc timestamp.
-        // rdx_rtc_store_timestamp();
     }
     if(format_en == 1){
         rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
@@ -418,7 +412,7 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
         os_time_dly(100);
 
         //DO system reset.
-        cpu_reset();
+        rdx_cpu_reset();
     }
 }
 
@@ -615,8 +609,7 @@ void rdx_vm_auth_info_init(void)
             r_printf("---------- invalid label_sn format or length exceeds limit \n");
         }
     }
-    //pack read character data.
-    rdx_app_earphone_pack_readchardata();
+    //readchardata packed after ep_info loaded in rdx_app_all_init.
 }
 
 /**************************************************************************

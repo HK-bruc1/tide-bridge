@@ -843,3 +843,15 @@ time_t rdx_rtc_get(void)
 }
 
 #endif
+
+/**************************************************************************
+ * function: rdx_cpu_reset
+ * description: 保存RTC到VM后执行cpu_reset
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_cpu_reset(void)
+{
+    rdx_rtc_store_timestamp();
+    cpu_reset();
+}

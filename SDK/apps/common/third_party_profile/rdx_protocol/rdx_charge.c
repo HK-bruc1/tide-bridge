@@ -657,12 +657,9 @@ int rdx_app_battery_msg_handler(int *msg)
 
         case CHARGE_EVENT_LDO5V_OFF:
             y_printf("%s --> BAT_MSG_CHARGE_LDO5V_OFF, charge out, rdx_app_get_charge_state() = %d \r", __func__, rdx_app_get_charge_state());
-            //set rtc.
-            rdx_rtc_store_timestamp();
-
             // rdx_app_emmc_poweroff();
             //reset.
-            cpu_reset();
+            rdx_cpu_reset();
             break;
 
         default:
