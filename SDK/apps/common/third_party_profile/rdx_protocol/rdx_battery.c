@@ -299,6 +299,9 @@ u8 rdx_battery_get_percent(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("===> %s--> chr_state: %d, voltage = %d \r", __func__, chr_state, voltage);
+
+    extern u8  battery_value_to_phone_level(void);
+    return ((battery_value_to_phone_level()+1)*10);//使用JL原生电量曲线接口
     
     if(chr_state == RDX_CHARGE_IN || chr_state == RDX_CHARGE_FULL){
         //charging.
