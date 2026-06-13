@@ -97,9 +97,9 @@ Pins in use. The SPI Master can use the GPIO mux, so feel free to change these i
 // #endif
 
 //Pin
-#define ESP8684_CS_PORT_IO                              IO_PORTB_04
-#define ESP8684_CS_PORT                                 PORTB
-#define ESP8684_CS_PIN                                  PORT_PIN_4
+#define ESP8684_CS_PORT_IO                              IO_PORTE_05
+#define ESP8684_CS_PORT                                 PORTE
+#define ESP8684_CS_PIN                                  PORT_PIN_5
 
 
 #ifdef CONFIG_SPI_QUAD_MODE
