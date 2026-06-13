@@ -325,7 +325,7 @@ static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg)
 
 static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg)
 {
-    if (cfg->cycle_ms == 0 || cfg->interval_ms == 0) {
+    if (cfg->cycle_ms == 0) {
         return;
     }
 
@@ -335,11 +335,22 @@ static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg)
         table_index = RDX_LED_BREATH_TABLE_SIZE - 1;
     }
 
-    u8 color_index = (g_effect_elapsed_ms / cfg->interval_ms) % RDX_LED_RAINBOW_COLOR_COUNT;
-    u8 brightness = (u8)(((u32)rdx_led_breath_brightness_table[table_index] * cfg->brightness) / 255);
-    const rdx_led_rgb_t *color = &rdx_led_rainbow_color_table[color_index];
+    /* 呼吸亮度 0~255 */
+    u8 breath = rdx_led_breath_brightness_table[table_index];
+    u8 brightness = (u8)(((u32)breath * cfg->brightness) / 255);
 
-    rdx_led_ctrl_set_rgb_brightness(color->r, color->g, color->b, brightness);
+    /* 沿七色平滑过渡，色相覆盖 0~255，当前颜色在 4s 内变化。
+       相邻颜色在灭灯/亮灯切换时亮度为 0，实现无缝衔接。 */
+    u8 hue = (u8)((g_effect_elapsed_ms * 256) / cfg->cycle_ms);
+    const rdx_led_rgb_t *from = &rdx_led_rainbow_color_table[(hue / 37) % RDX_LED_RAINBOW_COLOR_COUNT];
+    const rdx_led_rgb_t *to   = &rdx_led_rainbow_color_table[((hue / 37) + 1) % RDX_LED_RAINBOW_COLOR_COUNT];
+    u8 step = hue % 37;
+
+    u8 r = (u8)(((u16)(from->r) * (37 - step) + (u16)(to->r) * step) / 37);
+    u8 g = (u8)(((u16)(from->g) * (37 - step) + (u16)(to->g) * step) / 37);
+    u8 b = (u8)(((u16)(from->b) * (37 - step) + (u16)(to->b) * step) / 37);
+
+    rdx_led_ctrl_set_rgb_brightness(r, g, b, brightness);
 }
 
 /* 双闪引擎: 每个 interval_ms 周期内产生两次短脉冲(on_ms宽, on_ms间隔),

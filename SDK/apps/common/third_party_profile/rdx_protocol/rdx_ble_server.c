@@ -1619,9 +1619,11 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
     app_ble_set_adv_param(g_rdx_ble_server_info.rdx_ble_server_hdl, change_adv_interval_min, adv_type, adv_channel);
     app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 1);
     
-    // 进入慢速广播后，关闭 LED 灯效（广播继续但 LED 熄灭），但WiFi传输中不改变灯效
+    // 进入慢速广播后，关闭 LED 灯效（广播继续但 LED 熄灭），但WiFi传输 / 录音中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    if(wifi_info->onoff != TRANSFER_BY_WIFI_ON){
+    RecordStatus* rp = rdx_record_get_status();
+    if(wifi_info->onoff != TRANSFER_BY_WIFI_ON
+       && !(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME))){
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     }
 }

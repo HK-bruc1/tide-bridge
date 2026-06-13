@@ -104,7 +104,7 @@
 #define RDX_LED_CHARGE_THRESHOLD_MID        80
 
 /* ===== Breath brightness table size ===== */
-#define RDX_LED_BREATH_TABLE_SIZE           (100)
+#define RDX_LED_BREATH_TABLE_SIZE           (80)
 
 /* ===== LED effect execution modes ===== */
 typedef enum {
@@ -201,13 +201,14 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .brightness  = 255,
         .cycle_ms    = 4000,
     },
-    /* OTA升级: 每1s连续两次黄色短闪(闪→灭→闪→灭), 区别于普通单闪 */
+    /* OTA升级: 黄色慢闪, 与未连接蓝牙时的紫灯慢闪时序一致 */
     [RDX_LED_EFFECT_OTA_DOUBLE_BLINK] = {
-        .mode        = RDX_LED_MODE_DOUBLE_BLINK,
+        .mode        = RDX_LED_MODE_BLINK,
         .r = 255, .g = 255, .b = 0,             /* 黄色 */
         .brightness  = 200,
-        .on_ms       = 200,                     /* 每次脉冲200ms, 间隔200ms */
-        .interval_ms = 1000,                    /* 两次脉冲完成后灭灯400ms */
+        .on_ms       = 200,
+        .interval_ms = 1000,
+        .timeout_ms  = 0,
     },
     [RDX_LED_EFFECT_DUT_BLINK] = {
         .mode        = RDX_LED_MODE_SOLID,
@@ -224,7 +225,7 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
     [RDX_LED_EFFECT_CHARGE_RAINBOW_BREATH] = {
         .mode        = RDX_LED_MODE_RAINBOW_BREATH,
         .brightness  = 255,
-        .interval_ms = 1000,                    /* 每1s切换一种颜色 */
+        .interval_ms = 4000,                    /* 完整七彩循环周期 */
         .cycle_ms    = 4000,
     },
     [RDX_LED_EFFECT_CHARGE_LOW_BREATH] = {
@@ -271,23 +272,19 @@ static const rdx_led_rgb_t rdx_led_rainbow_color_table[RDX_LED_RAINBOW_COLOR_COU
     {128,   0, 128},   /* purple */
 };
 
-/* ===== Breath Brightness Lookup Table ===== */
-/* 4s周期，100级，index = (elapsed % cycle_ms) * TABLE_SIZE / cycle_ms */
+/* ===== Breath Brightness Lookup Table (no full-off tail) ===== */
+/* 4s周期，80级正弦呼吸曲线: 0 -> 255 -> 0，循环时正好接上起点，避免熄灭间隙 */
 static const u8 rdx_led_breath_brightness_table[RDX_LED_BREATH_TABLE_SIZE] = {
-    /* 渐亮阶段 (0-29): 0 -> 255 */
-      0,   9,  18,  27,  36,  45,  54,  64,  74,  84,
-     94, 105, 116, 127, 138, 150, 162, 174, 187, 200,
-    213, 223, 233, 241, 247, 251, 253, 254, 255, 255,
-    /* 最亮保持 (30-49): 255 */
+    /* 渐亮阶段 (0-39): 0 -> 255 */
+      0,   5,  12,  20,  29,  39,  50,  62,  75,  88,
+    102, 116, 131, 145, 159, 172, 185, 196, 206, 215,
+    223, 230, 236, 240, 244, 247, 249, 251, 252, 253,
+    254, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    /* 渐暗阶段 (40-79): 255 -> 0 */
     255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
-    /* 渐暗阶段 (50-79): 255 -> 0 */
-    255, 255, 254, 253, 251, 247, 241, 233, 223, 213,
-    200, 187, 174, 162, 150, 138, 127, 116, 105,  94,
-     84,  74,  64,  54,  45,  36,  27,  18,   9,   0,
-    /* 灭灯保持 (80-99): 0 */
-      0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-      0,   0,   0,   0,   0,   0,   0,   0,   0,   0
+    254, 253, 252, 251, 249, 247, 244, 240, 236, 230,
+    223, 215, 206, 196, 185, 172, 159, 145, 131, 116,
+    102,  88,  75,  62,  50,  39,  29,  20,  12,   5,
 };
 
 #endif /* __RDX_LED_CFG_H__ */
