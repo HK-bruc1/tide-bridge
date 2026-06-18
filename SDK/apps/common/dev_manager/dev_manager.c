@@ -7,11 +7,17 @@
 #include "dev_manager.h"
 #include "app_config.h"
 #include "app_main.h"
+#ifndef TCFG_SD0_DIAG_ENABLE
+#define TCFG_SD0_DIAG_ENABLE 0
+#endif
 #if TCFG_USB_DM_MULTIPLEX_WITH_SD_DAT0
 #include "dev_multiplex_api.h"
 #endif
 #include "fat_nor/nor_fs.h"
 #include "dev_update.h"
+#if TCFG_SD0_DIAG_ENABLE
+#include "device/device.h"
+#endif
 
 // *INDENT-OFF*
 
@@ -29,6 +35,138 @@ struct __dev_manager {
 static struct __dev_manager dev_mg;
 #define __this	(&dev_mg)
 
+/* SD0 bring-up 诊断代码只在宏打开时编译，宏关闭时不改变正常 mount 路径。 */
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+static u8 sd0_diag_before_open_ok;
+
+static u16 sd0_diag_get_le16(const u8 *buf)
+{
+	return (u16)buf[0] | ((u16)buf[1] << 8);
+}
+
+static u32 sd0_diag_get_le32(const u8 *buf)
+{
+	return (u32)buf[0] | ((u32)buf[1] << 8) | ((u32)buf[2] << 16) | ((u32)buf[3] << 24);
+}
+
+static void sd0_diag_dump_hex(const u8 *buf, u32 len)
+{
+	u32 i;
+
+	for (i = 0; i < len; i++) {
+		if ((i & 0x0f) == 0) {
+			printf("[SD-DIAG] %04x:", i);
+		}
+		printf(" %02x", buf[i]);
+		if ((i & 0x0f) == 0x0f) {
+			printf("\n");
+		}
+	}
+	if (len & 0x0f) {
+		printf("\n");
+	}
+}
+
+static void sd0_diag_dump_bpb(const char *tag, const u8 *buf)
+{
+	printf("[SD-DIAG] %s sig=%02x%02x jmp=%02x %02x %02x oem=%c%c%c%c%c%c%c%c\n",
+	       tag, buf[511], buf[510], buf[0], buf[1], buf[2],
+	       buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10]);
+	printf("[SD-DIAG] %s bps=%u spc=%u rsvd=%u fats=%u root_ent=%u tot16=%u tot32=%u fatsz16=%u\n",
+	       tag,
+	       sd0_diag_get_le16(&buf[11]),
+	       buf[13],
+	       sd0_diag_get_le16(&buf[14]),
+	       buf[16],
+	       sd0_diag_get_le16(&buf[17]),
+	       sd0_diag_get_le16(&buf[19]),
+	       sd0_diag_get_le32(&buf[32]),
+	       sd0_diag_get_le16(&buf[22]));
+}
+
+static void sd0_diag_read_lba(void *fd, u8 *buf, u32 lba, const char *tag)
+{
+	int ret;
+
+	memset(buf, 0, 512);
+	ret = dev_bulk_read(fd, buf, lba, 1);
+	printf("[SD-DIAG] read %s lba=%u ret=%d tail=%02x %02x\n",
+	       tag, lba, ret, buf[510], buf[511]);
+	if (ret == 1) {
+		sd0_diag_dump_hex(buf, 64);
+		if ((buf[510] == 0x55) && (buf[511] == 0xaa)) {
+			sd0_diag_dump_bpb(tag, buf);
+		}
+	}
+}
+
+static void sd0_diag_probe(const char *phase)
+{
+	void *fd;
+	u8 *buf;
+	int ret;
+	u32 status = 0;
+	u32 capacity = 0;
+	u32 block_size = 0;
+	u32 sector_size = 0;
+	u32 block_number = 0;
+	u32 part_lba = 0;
+	u32 part_sectors = 0;
+	u8 part_type = 0;
+
+	printf("[SD-DIAG] ===== %s begin =====\n", phase);
+	if (!strcmp(phase, "before_mount")) {
+		sd0_diag_before_open_ok = 0;
+	}
+
+	/* raw open 失败说明问题还在 SD 初始化/电气/供电层，尚未进入 FAT 文件系统层。 */
+	fd = dev_open("sd0", NULL);
+	printf("[SD-DIAG] dev_open(sd0)=%x\n", (int)fd);
+	if (!fd) {
+		printf("[SD-DIAG] raw open failed before filesystem, check SD init/electrical/power\n");
+		printf("[SD-DIAG] ===== %s end =====\n", phase);
+		return;
+	}
+	if (!strcmp(phase, "before_mount")) {
+		sd0_diag_before_open_ok = 1;
+	}
+
+	ret = dev_ioctl(fd, IOCTL_GET_STATUS, (u32)&status);
+	printf("[SD-DIAG] ioctl STATUS ret=%d val=%u\n", ret, status);
+	ret = dev_ioctl(fd, IOCTL_GET_CAPACITY, (u32)&capacity);
+	printf("[SD-DIAG] ioctl CAPACITY ret=%d val=%u\n", ret, capacity);
+	ret = dev_ioctl(fd, IOCTL_GET_BLOCK_SIZE, (u32)&block_size);
+	printf("[SD-DIAG] ioctl BLOCK_SIZE ret=%d val=%u\n", ret, block_size);
+	ret = dev_ioctl(fd, IOCTL_GET_SECTOR_SIZE, (u32)&sector_size);
+	printf("[SD-DIAG] ioctl SECTOR_SIZE ret=%d val=%u\n", ret, sector_size);
+	ret = dev_ioctl(fd, IOCTL_GET_BLOCK_NUMBER, (u32)&block_number);
+	printf("[SD-DIAG] ioctl BLOCK_NUMBER ret=%d val=%u\n", ret, block_number);
+
+	buf = dma_malloc(512);
+	printf("[SD-DIAG] dma_malloc(512)=%x\n", (int)buf);
+	if (!buf) {
+		dev_close(fd);
+		printf("[SD-DIAG] ===== %s end =====\n", phase);
+		return;
+	}
+
+	sd0_diag_read_lba(fd, buf, 0, "lba0");
+	if ((buf[510] == 0x55) && (buf[511] == 0xaa)) {
+		part_type = buf[0x1be + 4];
+		part_lba = sd0_diag_get_le32(&buf[0x1be + 8]);
+		part_sectors = sd0_diag_get_le32(&buf[0x1be + 12]);
+		printf("[SD-DIAG] mbr part0 type=0x%02x start_lba=%u sectors=%u\n",
+		       part_type, part_lba, part_sectors);
+		if (part_type && part_lba && part_sectors) {
+			sd0_diag_read_lba(fd, buf, part_lba, "part0_boot");
+		}
+	}
+
+	dma_free(buf);
+	dev_close(fd);
+	printf("[SD-DIAG] ===== %s end =====\n", phase);
+}
+#endif
 
 
 
@@ -66,9 +204,26 @@ int __dev_manager_add(char *logo, u8 need_mount)
 		if(dev == NULL){
 			return DEV_MANAGER_ADD_ERR_NOMEM;
 		}
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+		if(need_mount && !strcmp(logo, "sd0")) {
+			printf("[SD-DIAG] mount(sd0) begin\n");
+			/* 诊断 open 可能阻塞数秒，放在设备管理互斥锁外，减少对其它设备流程的影响。 */
+			sd0_diag_probe("before_mount");
+		}
+#endif
 		os_mutex_pend(&__this->mutex, 0);
 		if(need_mount){
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+			if (!strcmp(logo, "sd0")) {
+				printf("[SD-DIAG] mount(sd0) call\n");
+			}
+#endif
 			dev->fmnt = mount(p->name, p->storage_path, p->fs_type, 3, NULL);
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+			if (!strcmp(logo, "sd0")) {
+				printf("[SD-DIAG] mount(sd0) result=%x\n", (int)dev->fmnt);
+			}
+#endif
 		}
 		dev->parm = p;
 		dev->valid = (dev->fmnt ? 1 : 0);
@@ -77,6 +232,15 @@ int __dev_manager_add(char *logo, u8 need_mount)
 		os_mutex_post(&__this->mutex);
 		printf("%s, %s add ok, dev->fmnt = %x,  %d\n", __FUNCTION__, logo, (int)dev->fmnt, dev->active_stamp);
 		if(dev->fmnt == NULL){
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+			if (need_mount && !strcmp(logo, "sd0")) {
+				if (sd0_diag_before_open_ok) {
+					sd0_diag_probe("after_mount_fail");
+				} else {
+					printf("[SD-DIAG] skip after_mount_fail probe because before_mount raw open failed\n");
+				}
+			}
+#endif
 			return DEV_MANAGER_ADD_ERR_MOUNT_FAIL;
 		}
 		
@@ -1151,4 +1315,3 @@ void dev_manager_init(void)
 	devices_init();
 #endif
 }
-

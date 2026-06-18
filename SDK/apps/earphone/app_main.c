@@ -55,6 +55,10 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
+#ifndef TCFG_SD0_DIAG_ENABLE
+#define TCFG_SD0_DIAG_ENABLE 0
+#endif
+
 #include "rtc_test.h"
 
 
@@ -369,6 +373,14 @@ void sd_set_power_user(u8 en)
 {
     if(en){
         gpio_set_mode(IO_PORT_SPILT(IO_PORTE_05), PORT_OUTPUT_HIGH);
+#if TCFG_SD0_DIAG_ENABLE
+        printf("[SD-PWR] PE05 on\n");
+#endif
+    } else {
+#if TCFG_SD0_DIAG_ENABLE
+        /* 保持原始回调行为：默认不在驱动 power-off 请求里拉低 PE05，只记录请求。 */
+        printf("[SD-PWR] PE05 off request ignored by default callback\n");
+#endif
     }
 }
 
@@ -719,4 +731,3 @@ void app_main()
         asm("idle");
     }
 }
-
