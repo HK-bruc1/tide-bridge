@@ -763,8 +763,10 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
     //mic gain set defalut.
     rdx_record_mic_gain_set_default();
 
-    //store rtc timestamp.
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
+    //store rtc timestamp for software path only, hardware path saved by poweroff uninitcall.
     rdx_rtc_store_timestamp();
+#endif
 
     rdx_app_time_to_reset();     
 }
@@ -831,6 +833,8 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
     //mic gain set defalut.
     rdx_record_mic_gain_set_default();
 
-    //store rtc timestamp.
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
+    //store rtc timestamp for software path only, hardware path saved by poweroff uninitcall.
     rdx_rtc_store_timestamp();
+#endif
 }

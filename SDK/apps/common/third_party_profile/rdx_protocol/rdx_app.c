@@ -3320,10 +3320,12 @@ static void rdx_app_idle_handle(void* priv)
 
     rdx_app_emmc_poweroff_check_timer_stop();
 
-    //store rtc timestamp.
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
+    //store rtc timestamp before entering idle, jiffies will be lost during idle.
     rdx_rtc_store_timestamp();
     rdx_rtc_restore_timer_stop();
     rdx_rtc_restore_timer_start();
+#endif
 
     //stop ble.
     rdx_ble_server_exit();

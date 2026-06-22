@@ -84,7 +84,7 @@ u8 power_soff_callback()
     __mask_io_cfg();
     
 #if TCFG_APP_RTC_EN
-    poweroff_save_rtc_time();
+    // poweroff_save_rtc_time();  // 已改为 RDX 自定义接口 platform_uninitcall(rdx_rtc_poweroff_store)
 #endif
     
     void gpio_config_soft_poweroff(void);

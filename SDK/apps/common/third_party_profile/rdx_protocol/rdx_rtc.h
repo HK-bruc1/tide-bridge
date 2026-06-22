@@ -78,10 +78,8 @@ void rdx_rtc_parse_utc_string(const char *utc_string, int *year, int *month, int
 // Calculate the total seconds from 1970-01-01 to a specified date
 time_t rdx_rtc_utc_string_to_timestamp(const char *utc_string);
 
-// Test function
-int rdx_rtc_test(void);
-
-// Set the current timestamp
+// Set the current timestamp and persist it.
+// Returns 0 on success, or a negative error code if the persisted value could not be verified.
 int rdx_rtc_set_timestamp(time_t timestamp);
 
 // Persist the current RDX RTC time if the selected path needs it

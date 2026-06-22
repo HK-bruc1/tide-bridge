@@ -643,10 +643,12 @@ void rdx_app_charge_prepare(void)
         rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
     }
 
-    //restore rtc.
+    //restore rtc for software path only, hardware path saved by poweroff uninitcall.
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
     rdx_rtc_store_timestamp();
     rdx_rtc_restore_timer_stop();
     rdx_rtc_restore_timer_start();
+#endif
 }
 
 /**************************************************************************

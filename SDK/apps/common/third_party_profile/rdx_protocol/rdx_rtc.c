@@ -29,11 +29,12 @@
 #include "syscfg_id.h"
 #include "rtc/rtc_dev.h"
 #include "system/generic/jiffies.h"
+#include "system/init.h"
 
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/ 
-#define RTC_RESTORE_INTERVAL            (3 * 60 * 1000) // 5 minutes
+#define RTC_RESTORE_INTERVAL            (3 * 60 * 1000) // 3 minutes
 
 #define RTC_DEFAULT_DATE_AND_TIME       "2000-01-01 00:00:00" // Default date and time in "YYYY-MM-DD HH:MM:SS" format
 #define RDX_RTC_TIMEZONE_OFFSET_SEC     (8 * 3600) // UTC+8, hardcoded for now
@@ -95,6 +96,9 @@ int rdx_rtc_is_leap_year(int year)
  **************************************************************************/
 int rdx_rtc_days_in_month(int year, int month) {
     static const int days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month < 1 || month > 12) {
+        return 0;
+    }
     if (month == 2 && rdx_rtc_is_leap_year(year)) {
         return 29;
     }
@@ -166,9 +170,8 @@ DateTime rdx_rtc_timestamp_to_datetime(time_t timestamp) {
     // 计算星期几
     dt.weekday = rdx_rtc_calculate_weekday(dt.year, dt.month, dt.day);
 
-    // 星期几映射
     const char *weekdays[] = {"Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"};
-    dt.weekday_name = weekdays[dt.weekday]; // 假设 DateTime 结构体中有一个 weekday_name 字段
+    dt.weekday_name = weekdays[dt.weekday];
 
     return dt;
 }
@@ -291,7 +294,16 @@ void rdx_rtc_timestamp_to_utc_string(time_t timestamp, char *buffer) {
  * return (*)
  **************************************************************************/
 void rdx_rtc_parse_utc_string(const char *utc_string, int *year, int *month, int *day, int *hour, int *minute, int *second) {
-    // 假设输入格式为 "YYYY-MM-DD HH:MM:SS"
+    if (utc_string == NULL || strlen(utc_string) < 19) {
+        *year = 1970;
+        *month = 1;
+        *day = 1;
+        *hour = 0;
+        *minute = 0;
+        *second = 0;
+        return;
+    }
+
     *year = (utc_string[0] - '0') * 1000 + (utc_string[1] - '0') * 100 +
             (utc_string[2] - '0') * 10 + (utc_string[3] - '0');
     *month = (utc_string[5] - '0') * 10 + (utc_string[6] - '0');
@@ -371,11 +383,14 @@ static void rdx_rtc_sys_time_to_datetime(const struct sys_time *sys_time, DateTi
 
 static int rdx_rtc_sys_time_valid(const struct sys_time *sys_time)
 {
+    int max_day;
+
     if (sys_time->year < 1970 || sys_time->month < 1 || sys_time->month > 12) {
         return 0;
     }
 
-    if (sys_time->day < 1 || sys_time->day > 31) {
+    max_day = rdx_rtc_days_in_month(sys_time->year, sys_time->month);
+    if (max_day == 0 || sys_time->day < 1 || sys_time->day > max_day) {
         return 0;
     }
 
@@ -397,7 +412,7 @@ static int rdx_rtc_read_hw_time(struct sys_time *sys_time)
     }
 
     rtc_read_time(sys_time);
-    return 0;
+    return rdx_rtc_sys_time_valid(sys_time) ? 1 : 0;
 }
 
 static void rdx_rtc_write_hw_time(const struct sys_time *sys_time)
@@ -411,6 +426,35 @@ static time_t rdx_rtc_sys_time_to_timestamp(const struct sys_time *sys_time)
 
     rdx_rtc_sys_time_to_datetime(sys_time, &datetime);
     return rdx_rtc_datetime_to_timestamp(datetime);
+}
+
+static int rdx_rtc_verify_vm_timestamp(time_t expected)
+{
+    time_t read_back = rdx_rtc_read_vm_timestamp();
+    g_printf("[RDX_RTC] verify vm: expected=%ld read=%ld %s\r",
+             (long)expected, (long)read_back,
+             (read_back == expected) ? "OK" : "MISMATCH");
+    return (read_back == expected) ? 0 : -1;
+}
+
+static int rdx_rtc_verify_hw_time(time_t expected)
+{
+    struct sys_time read_hw_time = {0};
+    char utc_buf[32];
+    time_t read_hw_ts;
+
+    /* 验证时直接读 RTC 寄存器，避免 P11 缓存未同步导致误判 */
+    rtc_read_time(&read_hw_time);
+    if (!rdx_rtc_sys_time_valid(&read_hw_time)) {
+        g_printf("[RDX_RTC] verify hw: read invalid, treating as MISMATCH\r");
+        return -1;
+    }
+
+    read_hw_ts = rdx_rtc_sys_time_to_timestamp(&read_hw_time);
+    rdx_rtc_timestamp_to_timezone_string(read_hw_ts, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+    g_printf("[RDX_RTC] verify hw: utc=%s %s\r", utc_buf,
+             (read_hw_ts == expected) ? "OK" : "MISMATCH");
+    return (read_hw_ts == expected) ? 0 : -1;
 }
 
 static void rdx_rtc_timestamp_to_sys_time_value(time_t timestamp, struct sys_time *sys_time)
@@ -438,51 +482,6 @@ static void rdx_rtc_capture_boot_time(const struct sys_time *sys_time)
         !rdx_rtc_is_init_placeholder_time(sys_time)) {
         rdx_rtc_boot_time_valid = 1;
     }
-}
-
-/**************************************************************************
- * function: rdx_rtc_test
- * description: 测试函数
- * param (void)
- * return (int) 返回值
- **************************************************************************/
-int rdx_rtc_test(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    time_t timestamp = rdx_rtc_get();
-    time_t parsed_timestamp = 0;
-    char buffer[64];
-    DateTime dt;
-#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_HARDWARE)
-    const char *rtc_path = "HW";
-#else
-    const char *rtc_path = "SW";
-#endif
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    rdx_rtc_timestamp_to_utc_string(timestamp, buffer);
-    parsed_timestamp = rdx_rtc_utc_string_to_timestamp(buffer);
-    dt = rdx_rtc_timestamp_to_datetime(timestamp);
-
-    g_printf("[RDX_RTC][%s] ts=%ld utc=%s wd=%d rt=%s\r",
-             rtc_path,
-             (long)timestamp,
-             buffer,
-             dt.weekday,
-             (parsed_timestamp == timestamp) ? "ok" : "bad");
-
-    if (parsed_timestamp != timestamp) {
-        g_printf("[RDX_RTC][%s] WARN parsed=%ld src=%ld\r",
-                 rtc_path,
-                 (long)parsed_timestamp,
-                 (long)timestamp);
-        return -1;
-    }
-
-    return 0;
 }
 
 #if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
@@ -797,7 +796,11 @@ int rdx_rtc_set_timestamp(time_t timestamp)
     rdx_rtc_write_hw_time(&set_cur_time);
     rdx_rtc_write_vm_timestamp(timestamp);
 
-    return 0;
+    /* 回读校验，确保两条持久化路径都成功 */
+    int hw_ok = (rdx_rtc_verify_hw_time(timestamp) == 0);
+    int vm_ok = (rdx_rtc_verify_vm_timestamp(timestamp) == 0);
+
+    return (hw_ok && vm_ok) ? 0 : -1;
 }
 
 /**************************************************************************
@@ -822,7 +825,12 @@ time_t rdx_rtc_get(void)
 
     rdx_rtc_read_hw_time(&cur_time);
     if (!rdx_rtc_sys_time_valid(&cur_time)) {
+        // 硬件无效，回退VM；VM为空则回退默认时间
         time_stamp = rdx_rtc_read_vm_timestamp();
+        if (time_stamp == 0) {
+            time_stamp = rdx_rtc_sys_time_to_timestamp(&def_sys_time);
+            g_printf("[RDX_RTC][HW] get: hw=invalid vm=empty use=DEFAULT\r");
+        }
         rdx_rtc_timestamp_to_timezone_string(time_stamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
         g_printf("[RDX_RTC][HW] utc=%s src=VM\r", utc_buf);
         return time_stamp;
@@ -845,13 +853,27 @@ time_t rdx_rtc_get(void)
 #endif
 
 /**************************************************************************
+ * function: rdx_rtc_poweroff_store
+ * description: 系统软关机前保存RTC到VM，适用于软件/硬件两种路径
+ * param (*)
+ * return (*)
+ **************************************************************************/
+static void rdx_rtc_poweroff_store(void)
+{
+    rdx_rtc_store_timestamp();
+}
+platform_uninitcall(rdx_rtc_poweroff_store);
+
+/**************************************************************************
  * function: rdx_cpu_reset
- * description: 保存RTC到VM后执行cpu_reset
+ * description: 软件路径下保存RTC到VM后执行cpu_reset；硬件路径下RTC掉电保持，无需额外保存
  * param (*)
  * return (*)
  **************************************************************************/
 void rdx_cpu_reset(void)
 {
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
     rdx_rtc_store_timestamp();
+#endif
     cpu_reset();
 }
