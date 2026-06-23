@@ -38,6 +38,10 @@
 
 #define RTC_DEFAULT_DATE_AND_TIME       "2000-01-01 00:00:00" // Default date and time in "YYYY-MM-DD HH:MM:SS" format
 #define RDX_RTC_TIMEZONE_OFFSET_SEC     (8 * 3600) // UTC+8, hardcoded for now
+#define RDX_RTC_MAX_DRIFT_SEC           (365 * 24 * 3600) // 硬件RTC与VM备份的最大允许偏差：1年
+
+#define RDX_RTC_VALID_YEAR_MIN          2000
+#define RDX_RTC_VALID_YEAR_MAX          2099
 
 /******************************************************************************
 * Structure and Enum Section
@@ -346,11 +350,29 @@ time_t rdx_rtc_utc_string_to_timestamp(const char *utc_string) {
     return timestamp;
 }
 
+static int rdx_rtc_timestamp_in_valid_range(time_t timestamp)
+{
+    DateTime dt;
+
+    if (timestamp == 0) {
+        return 0;
+    }
+
+    dt = rdx_rtc_timestamp_to_datetime(timestamp);
+    return (dt.year >= RDX_RTC_VALID_YEAR_MIN && dt.year <= RDX_RTC_VALID_YEAR_MAX);
+}
+
 static time_t rdx_rtc_read_vm_timestamp(void)
 {
     time_t timestamp = 0;
 
     syscfg_read(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+
+    if (!rdx_rtc_timestamp_in_valid_range(timestamp)) {
+        g_printf("[RDX_RTC] vm timestamp out of valid range, ignore\r");
+        return 0;
+    }
+
     return timestamp;
 }
 
@@ -735,10 +757,11 @@ void rdx_rtc_init(void)
     /*----------------------------------------------------------------*/
     struct sys_time current_time = {0};
     time_t rtc_timestamp = 0;
+    time_t vm_timestamp = 0;
+    char utc_buf[32];
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    char utc_buf[32];
 
     rdx_rtc_read_hw_time(&current_time);
     if (!rdx_rtc_sys_time_valid(&current_time)) {
@@ -764,9 +787,26 @@ void rdx_rtc_init(void)
             g_printf("[RDX_RTC][HW] init: hw=default vm=empty use=HW\r");
         }
     } else {
-        rdx_rtc_timestamp_to_timezone_string(rdx_rtc_sys_time_to_timestamp(&current_time), RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
-        g_printf("[RDX_RTC][HW] init: hw=running utc=%s src=RTC sync=VM\r", utc_buf);
-        rdx_rtc_write_vm_timestamp(rdx_rtc_sys_time_to_timestamp(&current_time));
+        vm_timestamp = rdx_rtc_read_vm_timestamp();
+        rtc_timestamp = rdx_rtc_sys_time_to_timestamp(&current_time);
+
+        if (vm_timestamp != 0 &&
+            (rtc_timestamp < vm_timestamp ||
+             (vm_timestamp <= (time_t)(-1) - RDX_RTC_MAX_DRIFT_SEC &&
+              rtc_timestamp > vm_timestamp + RDX_RTC_MAX_DRIFT_SEC))) {
+            rdx_rtc_timestamp_to_timezone_string(rtc_timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+            g_printf("[RDX_RTC][HW] init: hw=running rtc=%s but drift detected\r", utc_buf);
+            rdx_rtc_timestamp_to_timezone_string(vm_timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+            g_printf("[RDX_RTC][HW] init: hw=running utc=%s src=VM\r", utc_buf);
+            if (rdx_rtc_set_timestamp(vm_timestamp) != 0) {
+                g_printf("[RDX_RTC][HW] init: WARN: drift restore failed, keep VM backup\r");
+            }
+            rdx_rtc_read_hw_time(&current_time);
+        } else {
+            rdx_rtc_timestamp_to_timezone_string(rtc_timestamp, RDX_RTC_TIMEZONE_OFFSET_SEC, utc_buf);
+            g_printf("[RDX_RTC][HW] init: hw=running utc=%s src=RTC sync=VM\r", utc_buf);
+            rdx_rtc_write_vm_timestamp(rtc_timestamp);
+        }
     }
 
     rdx_rtc_capture_boot_time(&current_time);

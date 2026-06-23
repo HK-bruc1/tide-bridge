@@ -84,7 +84,19 @@ u8 power_soff_callback()
     __mask_io_cfg();
     
 #if TCFG_APP_RTC_EN
-    // poweroff_save_rtc_time();  // 已改为 RDX 自定义接口 platform_uninitcall(rdx_rtc_poweroff_store)
+    /* 重要：这是杰理 SDK 原生的硬件 RTC 关机保存钩子。
+     * 作用是在软关机前把运行时 RTC 状态同步到掉电保持域寄存器，
+     * 确保上电后硬件 RTC 能读到正确时间。
+     *
+     * 注意：此回调与 RDX 自定义的 VM 备份机制（platform_uninitcall(rdx_rtc_poweroff_store)）
+     * 是互补关系，不是互斥关系。
+     *   - poweroff_save_rtc_time()：保证硬件 RTC 本身关机不跳变
+     *   - rdx_rtc_poweroff_store()：把当前时间写入 VM，作为硬件异常时的恢复源
+     *
+     * 如果注释掉 poweroff_save_rtc_time()，软关机时 RTC 状态没有落盘，
+     * 上电后可能读到 2002 年、2035 年等异常时间，只能依赖 VM 一致性校验兜底。
+     */
+    poweroff_save_rtc_time();
 #endif
     
     void gpio_config_soft_poweroff(void);
