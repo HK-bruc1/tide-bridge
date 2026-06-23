@@ -4,6 +4,8 @@
 #pragma const_seg(".dev_manager.text.const")
 #pragma code_seg(".dev_manager.text")
 #endif
+#include "system/includes.h"
+#include "system/generic/jiffies.h"
 #include "dev_manager.h"
 #include "app_config.h"
 #include "app_main.h"
@@ -35,9 +37,49 @@ struct __dev_manager {
 static struct __dev_manager dev_mg;
 #define __this	(&dev_mg)
 
-/* SD0 bring-up 诊断代码只在宏打开时编译，宏关闭时不改变正常 mount 路径。 */
+/* SD0 bring-up 诊断代码只在宏打开时编译，宏关闭时不改变正常 mount 路径。
+ *
+ * 设计目标：在无法修改闭源 SD 主机驱动库的前提下，把“从检测到挂载”的链路
+ * 拆成若干阶段，通过阶段到达情况给出失败层级提示，方便 bring-up 时快速定位
+ * 是电气/检测、SD 协议初始化、数据通路、分区表、PBR 还是文件系统层的问题。
+ */
 #if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+
+#define SD0_DIAG_MBR_OFF_PART0      0x1be
+
+enum sd0_diag_stage {
+	SD0_STAGE_UNKNOWN = 0,
+	SD0_STAGE_ONLINE,
+	SD0_STAGE_OPEN,
+	SD0_STAGE_IDENTIFY,
+	SD0_STAGE_GEOMETRY,
+	SD0_STAGE_LBA0,
+	SD0_STAGE_PARTITION,
+	SD0_STAGE_PBR,
+	SD0_STAGE_MOUNT,
+	SD0_STAGE_FS_OK,
+};
+
+static const char *sd0_diag_stage_name(enum sd0_diag_stage s)
+{
+	switch (s) {
+	case SD0_STAGE_ONLINE:     return "ONLINE";
+	case SD0_STAGE_OPEN:       return "OPEN";
+	case SD0_STAGE_IDENTIFY:   return "IDENTIFY";
+	case SD0_STAGE_GEOMETRY:   return "GEOMETRY";
+	case SD0_STAGE_LBA0:       return "LBA0";
+	case SD0_STAGE_PARTITION:  return "PARTITION";
+	case SD0_STAGE_PBR:        return "PBR";
+	case SD0_STAGE_MOUNT:      return "MOUNT";
+	case SD0_STAGE_FS_OK:      return "FS_OK";
+	default:                   return "UNKNOWN";
+	}
+}
+
 static u8 sd0_diag_before_open_ok;
+static u8 sd0_diag_ever_open_ok;
+static u8 sd0_diag_last_stage;
+static u32 sd0_diag_attempt;
 
 static u16 sd0_diag_get_le16(const u8 *buf)
 {
@@ -84,7 +126,7 @@ static void sd0_diag_dump_bpb(const char *tag, const u8 *buf)
 	       sd0_diag_get_le16(&buf[22]));
 }
 
-static void sd0_diag_read_lba(void *fd, u8 *buf, u32 lba, const char *tag)
+static int sd0_diag_read_lba(void *fd, u8 *buf, u32 lba, const char *tag)
 {
 	int ret;
 
@@ -98,73 +140,268 @@ static void sd0_diag_read_lba(void *fd, u8 *buf, u32 lba, const char *tag)
 			sd0_diag_dump_bpb(tag, buf);
 		}
 	}
+	return ret;
+}
+
+static void sd0_diag_parse_mbr(const u8 *buf)
+{
+	int i;
+	u32 start, sectors;
+	u8 type, active;
+	u8 valid_parts = 0;
+
+	for (i = 0; i < 4; i++) {
+		const u8 *p = &buf[SD0_DIAG_MBR_OFF_PART0 + i * 16];
+		active = p[0];
+		type = p[4];
+		start = sd0_diag_get_le32(&p[8]);
+		sectors = sd0_diag_get_le32(&p[12]);
+
+		if (type == 0x0b || type == 0x0c) {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (FAT32) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		} else if (type == 0x01 || type == 0x04 || type == 0x06 || type == 0x0e) {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (FAT12/16) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		} else if (type == 0x05 || type == 0x0f) {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (extended, not directly mountable) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		} else if (type == 0x83) {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (Linux) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		} else if (type) {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (unknown/non-FAT) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		} else {
+			printf("[SD-DIAG] mbr part%d active=0x%02x type=0x%02x (empty) start_lba=%u sectors=%u\n",
+			       i, active, type, start, sectors);
+		}
+
+		if ((type == 0x01 || type == 0x04 || type == 0x06 ||
+		     type == 0x0b || type == 0x0c || type == 0x0e) &&
+		    start && sectors) {
+			valid_parts++;
+		}
+	}
+	if (!valid_parts) {
+		printf("[SD-DIAG] WARN: no valid FAT partition entry found\n");
+	}
+}
+
+static void sd0_diag_parse_pbr(const u8 *buf, u32 lba)
+{
+	u16 bps = sd0_diag_get_le16(&buf[11]);
+	u8 spc = buf[13];
+	u16 rsvd = sd0_diag_get_le16(&buf[14]);
+	u8 fats = buf[16];
+	u16 root_ent = sd0_diag_get_le16(&buf[17]);
+	u16 tot16 = sd0_diag_get_le16(&buf[19]);
+	u32 tot32 = sd0_diag_get_le32(&buf[32]);
+	u16 fatsz16 = sd0_diag_get_le16(&buf[22]);
+	u32 fatsz32 = sd0_diag_get_le32(&buf[36]);
+	u32 root_cluster = sd0_diag_get_le32(&buf[44]);
+	u16 fs_ver = sd0_diag_get_le16(&buf[42]);
+	u8 media = buf[21];
+
+	printf("[SD-DIAG] pbr lba=%u sig=%02x%02x oem=%.8s bps=%u spc=%u media=0x%02x\n",
+	       lba, buf[510], buf[511], &buf[3], bps, spc, media);
+	printf("[SD-DIAG] pbr rsvd=%u fats=%u root_ent=%u tot16=%u tot32=%u\n",
+	       rsvd, fats, root_ent, tot16, tot32);
+	printf("[SD-DIAG] pbr fatsz16=%u fatsz32=%u fs_ver=%u root_clus=%u\n",
+	       fatsz16, fatsz32, fs_ver, root_cluster);
+
+	if ((buf[510] == 0x55) && (buf[511] == 0xaa)) {
+		printf("[SD-DIAG] pbr boot-signature OK\n");
+	} else {
+		printf("[SD-DIAG] WARN: pbr missing boot signature\n");
+	}
+
+	/* 简单推断 FAT 类型 */
+	if (fatsz32 && root_cluster && !root_ent) {
+		printf("[SD-DIAG] pbr looks like FAT32\n");
+	} else if (fatsz16 && root_ent && !fatsz32) {
+		printf("[SD-DIAG] pbr looks like FAT12/16\n");
+	} else {
+		printf("[SD-DIAG] WARN: pbr cannot determine FAT variant\n");
+	}
+}
+
+static void sd0_diag_print_summary(const char *phase, enum sd0_diag_stage reached)
+{
+	sd0_diag_last_stage = (u8)reached;
+	printf("[SD-DIAG] summary phase=%s attempt=%u reached=%s before_open_ok=%u ever_open_ok=%u\n",
+	       phase, sd0_diag_attempt, sd0_diag_stage_name(reached),
+	       sd0_diag_before_open_ok, sd0_diag_ever_open_ok);
+	printf("[SD-DIAG] failure-layer-hint: ");
+	switch (reached) {
+	case SD0_STAGE_UNKNOWN:
+		printf("no progress (check power/reset/clock pinmux before CMD0)\n");
+		break;
+	case SD0_STAGE_ONLINE:
+		printf("card detect reports offline (check detect_mode/detect_io/power-on timing/VDD)\n");
+		break;
+	case SD0_STAGE_OPEN:
+		printf("SD protocol init failed (CMD0/ACMD41/CID/RCA/CSD, check electrical/timing/bus-width)\n");
+		break;
+	case SD0_STAGE_IDENTIFY:
+	case SD0_STAGE_GEOMETRY:
+		printf("card opened but geometry ioctls failed (driver/card identification error)\n");
+		break;
+	case SD0_STAGE_LBA0:
+		printf("data path broken (cannot read LBA0, check bus width/CRC/clock/data line pull-ups)\n");
+		break;
+	case SD0_STAGE_PARTITION:
+		printf("LBA0 OK but partition table invalid (MBR corrupt or non-partitioned media)\n");
+		break;
+	case SD0_STAGE_PBR:
+		printf("partition found but PBR/boot-sector unreadable/corrupt\n");
+		break;
+	case SD0_STAGE_MOUNT:
+		printf("PBR OK but filesystem mount failed (FS corrupt/unsupported or memory exhausted)\n");
+		break;
+	case SD0_STAGE_FS_OK:
+		printf("all stages passed\n");
+		break;
+	default:
+		printf("unknown stage\n");
+		break;
+	}
 }
 
 static void sd0_diag_probe(const char *phase)
 {
-	void *fd;
-	u8 *buf;
+	void *fd = NULL;
+	u8 *buf = NULL;
 	int ret;
+	bool online;
+	u32 t0_ms, t1_ms;
+	u32 probe_t0_ms;
 	u32 status = 0;
 	u32 capacity = 0;
 	u32 block_size = 0;
 	u32 sector_size = 0;
 	u32 block_number = 0;
+	u32 dev_type = 0;
+	u32 dev_id = 0;
 	u32 part_lba = 0;
-	u32 part_sectors = 0;
-	u8 part_type = 0;
+	enum sd0_diag_stage stage = SD0_STAGE_UNKNOWN;
 
-	printf("[SD-DIAG] ===== %s begin =====\n", phase);
 	if (!strcmp(phase, "before_mount")) {
+		sd0_diag_attempt++;
 		sd0_diag_before_open_ok = 0;
 	}
 
-	/* raw open 失败说明问题还在 SD 初始化/电气/供电层，尚未进入 FAT 文件系统层。 */
-	fd = dev_open("sd0", NULL);
-	printf("[SD-DIAG] dev_open(sd0)=%x\n", (int)fd);
-	if (!fd) {
-		printf("[SD-DIAG] raw open failed before filesystem, check SD init/electrical/power\n");
-		printf("[SD-DIAG] ===== %s end =====\n", phase);
+	probe_t0_ms = jiffies_msec();
+	printf("\n[SD-DIAG] ===== %s begin (attempt=%u) =====\n", phase, sd0_diag_attempt);
+
+	/* 1. 检测层：卡是否被识别为 online */
+	online = dev_online("sd0");
+	printf("[SD-DIAG] dev_online(sd0)=%d\n", (int)online);
+	stage = SD0_STAGE_ONLINE;
+	if (!online) {
+		printf("[SD-DIAG] hint: card detect reports offline, skip further probe\n");
+		sd0_diag_print_summary(phase, stage);
+		printf("[SD-DIAG] ===== %s end =====\n\n", phase);
 		return;
 	}
+
+	/* 2. SD 协议初始化层：raw open 是闭源驱动初始化完成的闸门 */
+	t0_ms = jiffies_msec();
+	fd = dev_open("sd0", NULL);
+	t1_ms = jiffies_msec();
+	printf("[SD-DIAG] dev_open(sd0)=%x cost=%ums\n", (int)fd, t1_ms - t0_ms);
+	if (!fd) {
+		printf("[SD-DIAG] FAIL: raw open failed before filesystem\n");
+		sd0_diag_print_summary(phase, stage);
+		printf("[SD-DIAG] ===== %s end =====\n\n", phase);
+		return;
+	}
+	stage = SD0_STAGE_OPEN;
 	if (!strcmp(phase, "before_mount")) {
 		sd0_diag_before_open_ok = 1;
 	}
+	sd0_diag_ever_open_ok = 1;
 
+	/* 3. 识别层：状态与几何信息 */
 	ret = dev_ioctl(fd, IOCTL_GET_STATUS, (u32)&status);
 	printf("[SD-DIAG] ioctl STATUS ret=%d val=%u\n", ret, status);
+	if (ret == 0 && status != 0) {
+		stage = SD0_STAGE_IDENTIFY;
+	} else {
+		printf("[SD-DIAG] WARN: status=0 may indicate init incomplete\n");
+	}
+
+	ret = dev_ioctl(fd, IOCTL_GET_TYPE, (u32)&dev_type);
+	printf("[SD-DIAG] ioctl TYPE ret=%d val=%u (optional)\n", ret, dev_type);
+
+	ret = dev_ioctl(fd, IOCTL_GET_ID, (u32)&dev_id);
+	printf("[SD-DIAG] ioctl ID ret=%d val=0x%x (optional)\n", ret, dev_id);
+
 	ret = dev_ioctl(fd, IOCTL_GET_CAPACITY, (u32)&capacity);
 	printf("[SD-DIAG] ioctl CAPACITY ret=%d val=%u\n", ret, capacity);
+
 	ret = dev_ioctl(fd, IOCTL_GET_BLOCK_SIZE, (u32)&block_size);
 	printf("[SD-DIAG] ioctl BLOCK_SIZE ret=%d val=%u\n", ret, block_size);
+
 	ret = dev_ioctl(fd, IOCTL_GET_SECTOR_SIZE, (u32)&sector_size);
 	printf("[SD-DIAG] ioctl SECTOR_SIZE ret=%d val=%u\n", ret, sector_size);
+
 	ret = dev_ioctl(fd, IOCTL_GET_BLOCK_NUMBER, (u32)&block_number);
 	printf("[SD-DIAG] ioctl BLOCK_NUMBER ret=%d val=%u\n", ret, block_number);
 
+	if (capacity && block_size) {
+		stage = SD0_STAGE_GEOMETRY;
+		printf("[SD-DIAG] geometry OK: capacity=%u blocks block_size=%u\n",
+		       capacity, block_size);
+	}
+
+	/* 4. 数据通路层：读 LBA0 */
 	buf = dma_malloc(512);
 	printf("[SD-DIAG] dma_malloc(512)=%x\n", (int)buf);
 	if (!buf) {
-		dev_close(fd);
-		printf("[SD-DIAG] ===== %s end =====\n", phase);
-		return;
+		printf("[SD-DIAG] FAIL: no dma buffer\n");
+		goto _probe_end;
 	}
 
-	sd0_diag_read_lba(fd, buf, 0, "lba0");
+	ret = sd0_diag_read_lba(fd, buf, 0, "lba0");
+	if (ret != 1) {
+		printf("[SD-DIAG] FAIL: LBA0 read failed (ret=%d)\n", ret);
+		goto _probe_end;
+	}
+	stage = SD0_STAGE_LBA0;
+
+	/* 5. 分区表层：解析 MBR */
 	if ((buf[510] == 0x55) && (buf[511] == 0xaa)) {
-		part_type = buf[0x1be + 4];
-		part_lba = sd0_diag_get_le32(&buf[0x1be + 8]);
-		part_sectors = sd0_diag_get_le32(&buf[0x1be + 12]);
-		printf("[SD-DIAG] mbr part0 type=0x%02x start_lba=%u sectors=%u\n",
-		       part_type, part_lba, part_sectors);
-		if (part_type && part_lba && part_sectors) {
-			sd0_diag_read_lba(fd, buf, part_lba, "part0_boot");
+		printf("[SD-DIAG] LBA0 has boot signature\n");
+		sd0_diag_parse_mbr(buf);
+		stage = SD0_STAGE_PARTITION;
+
+		part_lba = sd0_diag_get_le32(&buf[SD0_DIAG_MBR_OFF_PART0 + 8]);
+		if (part_lba) {
+			ret = sd0_diag_read_lba(fd, buf, part_lba, "pbr");
+			if (ret == 1) {
+				stage = SD0_STAGE_PBR;
+				sd0_diag_parse_pbr(buf, part_lba);
+			} else {
+				printf("[SD-DIAG] FAIL: cannot read PBR at lba=%u\n", part_lba);
+			}
+		} else {
+			printf("[SD-DIAG] WARN: LBA0 is bootable but part0 start_lba=0 (possible VBR without MBR)\n");
 		}
+	} else {
+		printf("[SD-DIAG] WARN: LBA0 missing 0x55AA, not a valid MBR/VBR\n");
 	}
 
-	dma_free(buf);
-	dev_close(fd);
-	printf("[SD-DIAG] ===== %s end =====\n", phase);
+_probe_end:
+	if (buf) {
+		dma_free(buf);
+	}
+	if (fd) {
+		dev_close(fd);
+	}
+
+	sd0_diag_print_summary(phase, stage);
+	printf("[SD-DIAG] ===== %s end (cost=%lums) =====\n\n", phase, jiffies_msec() - probe_t0_ms);
 }
 #endif
 
@@ -215,13 +452,13 @@ int __dev_manager_add(char *logo, u8 need_mount)
 		if(need_mount){
 #if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
 			if (!strcmp(logo, "sd0")) {
-				printf("[SD-DIAG] mount(sd0) call\n");
+				printf("[SD-DIAG] mount(sd0) call (attempt=%u)\n", sd0_diag_attempt);
 			}
 #endif
 			dev->fmnt = mount(p->name, p->storage_path, p->fs_type, 3, NULL);
 #if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
 			if (!strcmp(logo, "sd0")) {
-				printf("[SD-DIAG] mount(sd0) result=%x\n", (int)dev->fmnt);
+				printf("[SD-DIAG] mount(sd0) attempt=%u result=%x\n", sd0_diag_attempt, (int)dev->fmnt);
 			}
 #endif
 		}
@@ -231,6 +468,16 @@ int __dev_manager_add(char *logo, u8 need_mount)
 		list_add_tail(&dev->entry, &__this->list);
 		os_mutex_post(&__this->mutex);
 		printf("%s, %s add ok, dev->fmnt = %x,  %d\n", __FUNCTION__, logo, (int)dev->fmnt, dev->active_stamp);
+#if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
+		if (need_mount && !strcmp(logo, "sd0")) {
+			if (dev->fmnt) {
+				sd0_diag_last_stage = SD0_STAGE_MOUNT;
+				printf("[SD-DIAG] mount(sd0) OK, stage advanced to MOUNT\n");
+			} else {
+				sd0_diag_last_stage = SD0_STAGE_PBR;
+			}
+		}
+#endif
 		if(dev->fmnt == NULL){
 #if (TCFG_SD0_ENABLE && TCFG_SD0_DIAG_ENABLE)
 			if (need_mount && !strcmp(logo, "sd0")) {

@@ -402,6 +402,9 @@ static struct app_mode *app_task_init()
     do_platform_initcall();
  //----------------------------------------------------------------------------------------   
     sd_set_power_user(1);
+#if TCFG_SD0_DIAG_ENABLE
+    printf("[SD-DIAG] sd_set_power_user(1) called at app_task_init\n");
+#endif
  //----------------------------------------------------------------------------------------  
 #if (defined(TCFG_DEBUG_DLOG_ENABLE) && TCFG_DEBUG_DLOG_ENABLE)
     dlog_init();
