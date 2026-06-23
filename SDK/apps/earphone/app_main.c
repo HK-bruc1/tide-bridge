@@ -372,7 +372,7 @@ static void app_version_check()
 void sd_set_power_user(u8 en)
 {
     if(en){
-        gpio_set_mode(IO_PORT_SPILT(IO_PORTE_05), PORT_OUTPUT_HIGH);
+        gpio_set_mode(IO_PORT_SPILT(IO_PORTA_00), PORT_OUTPUT_HIGH);
 #if TCFG_SD0_DIAG_ENABLE
         printf("[SD-PWR] PE05 on\n");
 #endif
@@ -401,10 +401,10 @@ static struct app_mode *app_task_init()
     board_init();
     do_platform_initcall();
  //----------------------------------------------------------------------------------------   
-    sd_set_power_user(1);
-#if TCFG_SD0_DIAG_ENABLE
-    printf("[SD-DIAG] sd_set_power_user(1) called at app_task_init\n");
-#endif
+    //sd_set_power_user(1);
+    // #if TCFG_SD0_DIAG_ENABLE
+    //     printf("[SD-DIAG] sd_set_power_user(1) called at app_task_init\n");
+    // #endif
  //----------------------------------------------------------------------------------------  
 #if (defined(TCFG_DEBUG_DLOG_ENABLE) && TCFG_DEBUG_DLOG_ENABLE)
     dlog_init();

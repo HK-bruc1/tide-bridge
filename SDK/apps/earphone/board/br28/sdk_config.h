@@ -127,9 +127,9 @@
 #define TCFG_LINEIN_AD_DETECT_VALUE               0                // AD检测时阈值
 #endif // TCFG_LINEIN_DETECT_ENABLE
 
-#define TCFG_IO_CFG_AT_POWER_ON                   1                // 开机时IO配置
+#define TCFG_IO_CFG_AT_POWER_ON                   0                // 开机时IO配置
 
-#define TCFG_IO_CFG_AT_POWER_OFF                  1                // 关机时IO配置
+#define TCFG_IO_CFG_AT_POWER_OFF                  0                // 关机时IO配置
 
 #define TCFG_CHARGESTORE_PORT                     IO_PORT_LDOIN    // 通信IO
 // ------------板级配置.json------------
