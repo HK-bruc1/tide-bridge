@@ -17,6 +17,12 @@
 #endif
 #include "fat_nor/nor_fs.h"
 #include "dev_update.h"
+#include "syscfg_id.h"
+
+#ifndef TCFG_SD0_FORMAT_DONE_MAGIC
+#define TCFG_SD0_FORMAT_DONE_MAGIC   0xA5
+#endif
+
 #if TCFG_SD0_DIAG_ENABLE
 #include "device/device.h"
 #endif
@@ -461,6 +467,68 @@ int __dev_manager_add(char *logo, u8 need_mount)
 				printf("[SD-DIAG] mount(sd0) attempt=%u result=%x\n", sd0_diag_attempt, (int)dev->fmnt);
 			}
 #endif
+
+#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
+			if (!strcmp(logo, "sd0")) {
+				static u8 _sd0_fmt_done = 0;
+				if (!_sd0_fmt_done) {
+					_sd0_fmt_done = 1;
+
+#if TCFG_SD0_FORCE_FORMAT_ON_BOOT
+					if (dev->fmnt) {
+						printf("[SD-FMT] force format test: ignore mount ok\n");
+					} else {
+						printf("[SD-FMT] force format test: mount already fail\n");
+					}
+					dev->fmnt = NULL;
+#endif
+
+					if (dev->fmnt) {
+						printf("[SD-FMT] sd0 mount ok, skip format on boot\n");
+					} else {
+						u8 fmt_flag = 0;
+						int rd = syscfg_read(CFG_SD0_FORMAT_DONE_FLAG, &fmt_flag, sizeof(fmt_flag));
+						u8 vm_formatted = (rd == sizeof(fmt_flag) && fmt_flag == TCFG_SD0_FORMAT_DONE_MAGIC);
+
+						printf("[SD-FMT] sd0 mount fail, vm_flag=%s (rd=%d, val=0x%02X)\n",
+						       vm_formatted ? "valid" : "invalid", rd, fmt_flag);
+
+						if (vm_formatted) {
+							printf("[SD-FMT] fs damaged, recover by format...\n");
+						} else {
+							printf("[SD-FMT] first boot or vm cleared, format sd0...\n");
+						}
+						os_time_dly(50);
+
+						int ret = f_format("storage/sd0/C/", "fat", 0);
+						if (ret == 0) {
+							u32 free_kb = 0;
+							fget_free_space("storage/sd0/C/", &free_kb);
+							printf("[SD-FMT] format done, free=%u KB (%u MB)\n",
+							       free_kb, free_kb / 1024);
+
+							printf("[SD-FMT] remount sd0 after format...\n");
+							dev->fmnt = mount(p->name, p->storage_path, p->fs_type, 3, NULL);
+							if (dev->fmnt) {
+								printf("[SD-FMT] remount ok\n");
+
+								u8 done_flag = TCFG_SD0_FORMAT_DONE_MAGIC;
+								int wr = syscfg_write(CFG_SD0_FORMAT_DONE_FLAG, &done_flag, sizeof(done_flag));
+								if (wr == sizeof(done_flag)) {
+									printf("[SD-FMT] vm flag write ok\n");
+								} else {
+									printf("[SD-FMT] warning: vm flag write fail (wr=%d), may re-format on next boot\n", wr);
+								}
+							} else {
+								printf("[SD-FMT] warning: remount fail after format, sd0 still unavailable\n");
+							}
+						} else {
+							printf("[SD-FMT] format fail (err=%d)\n", ret);
+						}
+					}
+				}
+			}
+#endif
 		}
 		dev->parm = p;
 		dev->valid = (dev->fmnt ? 1 : 0);
@@ -490,26 +558,6 @@ int __dev_manager_add(char *logo, u8 need_mount)
 #endif
 			return DEV_MANAGER_ADD_ERR_MOUNT_FAIL;
 		}
-		
-#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
-		if (!strcmp(logo, "sd0")) {
-			static u8 _sd0_fmt_done = 0;
-			if (!_sd0_fmt_done) {
-				_sd0_fmt_done = 1;
-				os_time_dly(50);
-
-				int ret = f_format("storage/sd0/C/", "fat", 0);
-				if (ret == 0) {
-					u32 free_kb = 0;
-					fget_free_space("storage/sd0/C/", &free_kb);
-					printf("[SD-FMT] format OK, FAT32, free=%u KB (%u MB)\n",
-					       free_kb, free_kb / 1024);
-				} else {
-					printf("[SD-FMT] format FAIL: %d\n", ret);
-				}
-			}
-		}
-#endif
 
 		return DEV_MANAGER_ADD_OK;
 	}

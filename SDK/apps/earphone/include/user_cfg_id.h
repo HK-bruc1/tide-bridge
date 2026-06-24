@@ -64,6 +64,7 @@
 #define     CFG_ANC_ADAPTIVE_DUT_ID   		61//保存ANC自适应产测参数id
 #define     CFG_VBG_TRIM                    60//保存VBG配置参数id
 #define     CFG_DACLDO_TRIM                 62//保存DACLDO配置参数id
+#define     CFG_SD0_FORMAT_DONE_FLAG        63//SD0首次上电格式化完成标志(0xA5=已格式化)
 
 #define     TUYA_SYNC_KEY_INFO          100
 #define     RDX_SYNC_KEY_INFO           101
