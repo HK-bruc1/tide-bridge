@@ -3,16 +3,24 @@
 #include "system/includes.h"
 #include "rdx_log.h"
 #include "rdx_err.h"
-
-/*
- * Phase 2 shell: formatting/sync orchestration will be extracted from
- * rdx_app.c (rdx_app_format_handle/cb) after WiFi transport callbacks
- * are verified stable.
- */
+#include "rdx_uxfile.h"
 
 void rdx_storage_service_init(void)
 {
 	RDX_LOGI("storage_service init done");
+}
+
+/* ---- format (moved from rdx_app.c) ---- */
+
+void rdx_storage_service_format_cb(u8 result)
+{
+	if (result == MEM_FORMAT_RESULT_OK)
+		rdx_event_publish(RDX_EVENT_STORAGE_FORMAT_DONE, NULL, 0);
+}
+
+void rdx_storage_service_format_handle(void)
+{
+	rdx_uxfile_sd_format(NULL);
 }
 
 int rdx_storage_format_request(void)

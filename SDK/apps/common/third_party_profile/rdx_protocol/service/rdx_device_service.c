@@ -6,9 +6,12 @@
 #include "rdx_record.h"
 #include "rdx_vm.h"
 #include "rdx_app.h"
+#include "rdx_uxfile.h"
+#include "rdx_wifi_service.h"
 #include "xxpUart.h"
 #include "gpio_config.h"
 #include "poweroff.h"
+#include "btstack/avctp_user.h"
 
 /* board config */
 #include "board/t2616_cc/rdx_board_config.h"
@@ -30,6 +33,22 @@ extern void      oled_task_free(void);
 /* librdxApp.a symbols */
 extern void rdx_util_str_hexstr2hexarray(u8 *str, u32 len, u8 *out);
 extern void rdx_util_reverse_byte(u8 *p, int len);
+extern void rdx_protocol_bound_result_indicate(u8 result);
+extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 state);
+/* ReqFileInfo queries now go through rdx_wifi_service_is_file_send_busy() */
+
+/* rdx_app.c / JL SDK symbols needed by VM business functions */
+extern void rdx_app_time_to_reset(void);
+extern void rdx_app_reset_AI_mode_info(void);
+extern void rdx_record_mic_gain_set_default(void);
+extern void rdx_record_err_reboot_flag_write_into_vm(u8 v);
+extern void rdx_rtc_store_timestamp(void);
+extern void rdx_cpu_reset(void);
+extern void sys_set_auto_off_time(u16 t);
+extern u8   get_ota_status(void);
+extern int  syscfg_write(u16 id, const void *buf, u16 len);
+extern void bt_tws_remove_pairs(void);
+extern int  tws_api_get_role(void);
 
 /* ---- poweroff ---- */
 
@@ -138,11 +157,179 @@ int rdx_device_service_unpair(void)
 	return 0;
 }
 
-/* ---- factory reset shell (VM extraction next round) ---- */
+/* ---- unbound (moved from rdx_vm.c) ---- */
+
+void rdx_device_service_unbound_cb(u8 result)
+{
+	if (result == MEM_FORMAT_RESULT_OK) {
+#if TCFG_USER_TWS_ENABLE
+		bt_tws_remove_pairs();
+#endif
+#if (RDX_AI_TRANSLATE_SUPPORT == 1)
+		rdx_app_reset_AI_mode_info();
+#endif
+#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)
+		if (tws_api_get_role() == TWS_ROLE_MASTER)
+			rdx_ble_server_app_disconnect();
+#endif
+		bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+
+		{
+			u8 name[LOCAL_NAME_LEN];
+			memset(name, 0x00, sizeof(name));
+			syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+			syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		}
+
+		rdx_ble_server_reset_local_name();
+		sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
+		rdx_record_mic_gain_set_default();
+		rdx_vm_set_bound_status(0, 0);
+		rdx_protocol_bound_result_indicate(0);
+
+		rdx_vm_set_unbounding(false);
+		os_time_dly(100);
+		rdx_cpu_reset();
+	} else {
+		rdx_protocol_bound_result_indicate(1);
+		rdx_vm_set_unbounding(false);
+	}
+}
+
+void rdx_device_service_unbound_handle(void)
+{
+	rdx_vm_set_unbounding(true);
+	rdx_uxfile_sd_format(rdx_device_service_unbound_cb);
+}
+
+void rdx_device_service_choose_to_unbound_cb(u8 result)
+{
+	if (result == MEM_FORMAT_RESULT_OK) {
+		rdx_vm_set_bound_status(0, 0);
+		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
+		rdx_vm_set_unbounding(false);
+		os_time_dly(50);
+		rdx_cpu_reset();
+	} else {
+		rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_vm_get_bound_status());
+		rdx_vm_set_unbounding(false);
+	}
+}
+
+void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
+{
+	rdx_vm_set_unbounding(true);
+
+	if (usr_para == 1) {
+		bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+
+		{
+			u8 name[LOCAL_NAME_LEN];
+			memset(name, 0x00, sizeof(name));
+			syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+			syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		}
+
+		rdx_ble_server_reset_local_name();
+		sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
+		rdx_record_mic_gain_set_default();
+	}
+
+	if (format_en == 1) {
+		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
+		rdx_uxfile_sd_format(rdx_device_service_choose_to_unbound_cb);
+	} else {
+		rdx_vm_set_bound_status(0, 0);
+		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
+		rdx_vm_set_unbounding(false);
+		os_time_dly(100);
+		rdx_cpu_reset();
+	}
+}
+
+/* ---- factory reset / user para reset (moved from rdx_vm.c) ---- */
 
 int rdx_device_service_factory_reset(void)
 {
-	return RDX_ERR_NOTSUP;
+	RecordStatus *rp = rdx_record_get_status();
+
+	if (get_ota_status())
+		return RDX_ERR_BUSY;
+	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
+		return RDX_ERR_BUSY;
+	if (rdx_wifi_service_is_file_send_busy())
+		return RDX_ERR_BUSY;
+
+#if TCFG_USER_TWS_ENABLE
+	bt_tws_remove_pairs();
+#endif
+#if (RDX_AI_TRANSLATE_SUPPORT == 1)
+	rdx_app_reset_AI_mode_info();
+#endif
+#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)
+	if (tws_api_get_role() == TWS_ROLE_MASTER)
+		rdx_ble_server_app_disconnect();
+#endif
+	bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+
+	{
+		u8 name[LOCAL_NAME_LEN];
+		memset(name, 0x00, sizeof(name));
+		syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+		syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+	}
+
+	rdx_ble_server_reset_local_name();
+	rdx_record_err_reboot_flag_write_into_vm(0);
+	sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
+	rdx_record_mic_gain_set_default();
+
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
+	rdx_rtc_store_timestamp();
+#endif
+
+	rdx_device_service_reboot();
+	return RDX_OK;
+}
+
+void rdx_device_service_user_para_reset(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+
+	if (get_ota_status())
+		return;
+	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
+		return;
+	if (rdx_wifi_service_is_file_send_busy())
+		return;
+
+#if TCFG_USER_TWS_ENABLE
+	bt_tws_remove_pairs();
+#endif
+#if (RDX_AI_TRANSLATE_SUPPORT == 1)
+	rdx_app_reset_AI_mode_info();
+#endif
+#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)
+	if (tws_api_get_role() == TWS_ROLE_MASTER)
+		rdx_ble_server_app_disconnect();
+#endif
+	bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+
+	{
+		u8 name[LOCAL_NAME_LEN];
+		memset(name, 0x00, sizeof(name));
+		syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+		syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+	}
+
+	rdx_ble_server_reset_local_name();
+	rdx_record_err_reboot_flag_write_into_vm(0);
+	sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
+	rdx_record_mic_gain_set_default();
+
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
+	rdx_rtc_store_timestamp();
+#endif
 }
 
 void rdx_device_service_init(void)

@@ -1920,37 +1920,12 @@ APP_MSG_PROB_HANDLER(rdx_app_key_msg_entry) = {
  **************************************************************************/
 void rdx_app_format_cb(u8 result)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(result == MEM_FORMAT_RESULT_OK){
-        y_printf("rdx_app_format_cb --> format sd card ok! \r");
-    }else{
-        y_printf("rdx_app_format_cb --> format sd card fail! \r");
-    }
+    rdx_storage_service_format_cb(result);
 }
 
-/**************************************************************************
- * function: rdx_app_format_handle
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
 void rdx_app_format_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    //format sd card.
-    rdx_uxfile_sd_format(NULL);
+    rdx_storage_service_format_handle();
 }
 
 /**************************************************************************
@@ -2479,16 +2454,15 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 
         case PROTOCOL_EVENT_CMD_SD_FORMAT: {
             RecordStatus* rp = rdx_record_get_status();
-            ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
             if(get_ota_status() ||
                rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-               (rf_info && rf_info->file_send_busy == true)){
+               rdx_wifi_service_is_file_send_busy()){
                 y_printf("[APP CMD] sd_format rejected: busy\r");
                 ops->sd_format_ack_indicate(1);
                 break;
             }
             ops->sd_format_ack_indicate(0);
-            rdx_uxfile_sd_format(NULL);
+            rdx_storage_service_format_handle();
             break;
         }
 

@@ -39,6 +39,7 @@
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
 #include "rdx_util.h"
+#include "rdx_device_service.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
 #pragma bss_seg(".rdx_vm.data.bss")
@@ -92,6 +93,9 @@ static EarphoneInfo epInfo;
 #endif
 
 static bool unbounding = FALSE;
+
+void rdx_vm_set_unbounding(u8 v)   { unbounding = (v != 0); }
+u8   rdx_vm_is_unbounding(void)    { return unbounding ? 1 : 0; }
 
 /*******************************************************************************
 * Function Declaration Section
@@ -250,81 +254,12 @@ u8 rdx_vm_is_unbouding(void)
  **************************************************************************/
 void rdx_vm_unbound_cb(u8 result)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(result == MEM_FORMAT_RESULT_OK){
-        y_printf("rdx_vm_unbound_cb --> format sd card ok! \r");
-        //reset user para.
-    #if TCFG_USER_TWS_ENABLE
-        bt_tws_remove_pairs();
-    #endif 
-    #if (RDX_AI_TRANSLATE_SUPPORT == 1)
-        rdx_app_reset_AI_mode_info();
-    #endif
-    #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-    if(tws_api_get_role() == TWS_ROLE_MASTER){
-        rdx_ble_server_app_disconnect();
-    }
-    #endif
-        bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
-
-        //set default bt name.
-        u8 name[LOCAL_NAME_LEN];
-        memset(name, 0x00, sizeof(name));
-        syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-        syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
-
-        //set default ble name.
-        rdx_ble_server_reset_local_name();
-
-        //reset off time.
-        sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
-
-        //mic gain set defalut.
-        rdx_record_mic_gain_set_default();
-
-        //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
-
-        rdx_protocol_bound_result_indicate(0);
-
-        unbounding = false;
-
-        os_time_dly(100);
-
-        //DO system reset.
-        rdx_cpu_reset();
-    }else{
-        rdx_protocol_bound_result_indicate(1);
-        unbounding = false;
-        y_printf("rdx_vm_unbound_cb --> format sd card fail! \r");
-    }
+    rdx_device_service_unbound_cb(result);
 }
 
-/**************************************************************************
- * function: rdx_vm_unbound_handle
- * description: 处理解绑操作
- * param (*)
- * return (*)
- **************************************************************************/
 void rdx_vm_unbound_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    unbounding = true;
-    
-    //format sd card.
-    rdx_uxfile_sd_format(rdx_vm_unbound_cb);
+    rdx_device_service_unbound_handle();
 }
 
 /**************************************************************************
@@ -335,85 +270,12 @@ void rdx_vm_unbound_handle(void)
  **************************************************************************/
 void rdx_vm_choose_to_unbound_cb(u8 result)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(result == MEM_FORMAT_RESULT_OK){
-        y_printf("rdx_vm_choose_to_unbound_cb --> format sd card ok! \r");
-        
-        //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
-
-        rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
-        unbounding = false;
-
-        os_time_dly(50);
-
-        //DO system reset.
-        rdx_cpu_reset();
-    }else{
-        y_printf("rdx_vm_choose_to_unbound_cb --> format sd card fail! \r");
-        rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_bound_info.bound_state);
-        unbounding = false;
-    }
+    rdx_device_service_choose_to_unbound_cb(result);
 }
 
-/**************************************************************************
- * function: rdx_vm_choose_to_unbound_handle
- * description: 处理选择解绑操作
- * param (int) usr_para - 用户参数
- * param (int) format_en - 格式化使能
- * return (*)
- **************************************************************************/
 void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    unbounding = true;
-
-    if(usr_para == 1){
-        bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
-
-        //set default bt name.
-        u8 name[LOCAL_NAME_LEN];
-        memset(name, 0x00, sizeof(name));
-        syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-        syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
-
-        //set default ble name.
-        rdx_ble_server_reset_local_name();
-
-        //reset off time.
-        sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
-
-        //mic gain set defalut.
-        rdx_record_mic_gain_set_default();
-
-    }
-    if(format_en == 1){
-        rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
-        rdx_uxfile_sd_format(rdx_vm_choose_to_unbound_cb);
-    }else{
-        //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
-
-        rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
-        unbounding = false;
-
-        os_time_dly(100);
-
-        //DO system reset.
-        rdx_cpu_reset();
-    }
+    rdx_device_service_choose_to_unbound_handle(usr_para, format_en);
 }
 
 /**************************************************************************
@@ -708,69 +570,8 @@ EarphoneInfo* rdx_vm_get_ep_info(void)
  **************************************************************************/
 void rdx_vm_sys_reset_to_defaults(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus *rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    log_info("====== %s ------> APP_MSG_BT_PAIR_SET_DEFAULT!!! \n", __FUNCTION__);
-    // check if recording or ota
-    if(get_ota_status()){
-        return;
-    }
-    if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        y_printf("\r =====%s --> command reject, now is recording or on ota \r", __func__);
-        return;
-    }
-    //file transferring.
-    ReqFileInfo* r_file = rdx_protocol_get_uploadfileInfo();
-    if(r_file->file_send_busy == true){
-        y_printf("\r =====%s --> command reject, now is file transferring \r", __func__);
-        return;
-    }
-
-    //BT & TWS set default, do system restart.
-#if TCFG_USER_TWS_ENABLE
-    bt_tws_remove_pairs();
-#endif 
-#if (RDX_AI_TRANSLATE_SUPPORT == 1)
-    rdx_app_reset_AI_mode_info();
-#endif
-#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-if(tws_api_get_role() == TWS_ROLE_MASTER){
-    rdx_ble_server_app_disconnect();
+    rdx_device_service_factory_reset();
 }
-#endif
-    bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
-
-    //set default bt name.
-    u8 name[LOCAL_NAME_LEN];
-    memset(name, 0x00, sizeof(name));
-    syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-    syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
-
-    //set default ble name.
-    rdx_ble_server_reset_local_name();
-
-    //clear record error flag.
-    rdx_record_err_reboot_flag_write_into_vm(0);
-
-    //reset off time.
-    sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
-
-    //mic gain set defalut.
-    rdx_record_mic_gain_set_default();
-
-#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
-    //store rtc timestamp for software path only, hardware path saved by poweroff uninitcall.
-    rdx_rtc_store_timestamp();
-#endif
-
-    rdx_app_time_to_reset();     
-}
-
 /**
  * @description  : 用户参数设置为默认值
  * @param ()
@@ -778,63 +579,5 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
  */
 void rdx_vm_user_para_set_defaults(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus *rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    log_info("====== %s ------> APP_MSG_BT_PAIR_SET_DEFAULT!!! \n", __FUNCTION__);
-    // check if recording or ota
-    if(get_ota_status()){
-        return;
-    }
-    if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        y_printf("\r =====%s --> command reject, now is recording or on ota \r", __func__);
-        return;
-    }
-    //file transferring.
-    ReqFileInfo* r_file = rdx_protocol_get_uploadfileInfo();
-    if(r_file->file_send_busy == true){
-        y_printf("\r =====%s --> command reject, now is file transferring \r", __func__);
-        return;
-    }
-
-    //BT & TWS set default, do system restart.
-#if TCFG_USER_TWS_ENABLE
-    bt_tws_remove_pairs();
-#endif 
-#if (RDX_AI_TRANSLATE_SUPPORT == 1)
-    rdx_app_reset_AI_mode_info();
-#endif
-#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-if(tws_api_get_role() == TWS_ROLE_MASTER){
-    rdx_ble_server_app_disconnect();
-}
-#endif
-    bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
-
-    //set default bt name.
-    u8 name[LOCAL_NAME_LEN];
-    memset(name, 0x00, sizeof(name));
-    syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-    syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
-
-    //set default ble name.
-    rdx_ble_server_reset_local_name();
-
-    //clear record error flag.
-    rdx_record_err_reboot_flag_write_into_vm(0);
-
-    //reset off time.
-    sys_set_auto_off_time(RDX_DEFAULT_SHUT_DOWN_TIME);
-
-    //mic gain set defalut.
-    rdx_record_mic_gain_set_default();
-
-#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
-    //store rtc timestamp for software path only, hardware path saved by poweroff uninitcall.
-    rdx_rtc_store_timestamp();
-#endif
+    rdx_device_service_user_para_reset();
 }
