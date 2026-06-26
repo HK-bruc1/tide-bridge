@@ -248,6 +248,8 @@ INCLUDES := \
 	-Iapps/common/third_party_profile/ximalaya_protocol \
 	-Iapps/common/third_party_profile/auracast_app \
 	-Iapps/common/third_party_profile/rdx_protocol \
+	-Iapps/common/third_party_profile/rdx_protocol/board/t2616_cc \
+	-Iapps/common/third_party_profile/rdx_protocol/port/jl \
 	-Iapps/common/cJSON \
 	-Iinterface/media/cpu/br28 \
 	-Iinterface/utils/ui/ui/cpu/br28 \
@@ -479,6 +481,9 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_key.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_charge.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spi.c \
+	apps/common/third_party_profile/rdx_protocol/board/t2616_cc/rdx_board_config.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_osal.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_storage.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_battery.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_le_port.c \

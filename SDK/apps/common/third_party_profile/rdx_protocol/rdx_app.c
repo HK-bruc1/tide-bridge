@@ -74,6 +74,8 @@
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
 #include "rdx_vm.h"
+#include "rdx_log.h"
+#include "board/t2616_cc/rdx_board_config.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -3164,6 +3166,31 @@ void rdx_led_hardware_init(void)
  * param (*)
  * return (*)
  **************************************************************************/
+
+/*
+ * 启动诊断日志 — 阶段 1 新增。
+ * 上电时打印 product/board/chip/sdk/transport/storage/RTC path 及关键引脚，
+ * 便于问题定位和板型确认。
+ */
+static void rdx_print_startup_info(void)
+{
+    const rdx_board_config_t *cfg = rdx_board_get_config();
+
+    /*
+     * FIRMWARE_NAME 来自 rdx_app_config.h 第 34 行定义。
+     * RDX_RTC_PATH_SEL / RDX_RTC_PATH_HARDWARE / RDX_RTC_PATH_SOFTWARE
+     * 来自 rdx_app_config.h 第 117-123 行。
+     * JL_SDK_VER_TODO 是占位符，阶段 3 根据 JL SDK 实际宏替换。
+     */
+    RDX_LOGI("startup: product=%s board=%s chip=%s sdk=%s",
+             FIRMWARE_NAME, cfg->board_name, cfg->chip_family, "JL_SDK_VER_TODO");
+    RDX_LOGI("startup: transport=spi storage=syscfg rtc_path=%s",
+             (RDX_RTC_PATH_SEL == RDX_RTC_PATH_HARDWARE) ? "hardware" : "software");
+    RDX_LOGI("startup: pins wifi_power=%x vdd_power=%x led=%x spi_cs=%x",
+             cfg->wifi_power_io, cfg->vdd_power_io,
+             cfg->led_data_io, cfg->spi_cs_io);
+}
+
 void rdx_app_all_init(void)
 {
     /*----------------------------------------------------------------*/
@@ -3176,6 +3203,9 @@ void rdx_app_all_init(void)
     g_printf("-----------------------------------------------------------\r");
     g_printf("====== %s --> protocol version = %d \r", __func__, rdx_protocol_get_version());
     g_printf("-----------------------------------------------------------\r");
+
+    rdx_print_startup_info();
+
     rdx_app_init_flag = false;
     poweron_ready_flag = false;
     emmc_poweroff_check_timer = 0;

@@ -30,7 +30,9 @@
 ******************************************************************************/ 
 #define CHIP_JL7018                                     0
 #define CHIP_JL7016                                     1
+#ifndef CHIP_TYPE
 #define CHIP_TYPE                                       CHIP_JL7018
+#endif
 
 
 #define DMA_CHAN                                        SPI_DMA_CH_AUTO

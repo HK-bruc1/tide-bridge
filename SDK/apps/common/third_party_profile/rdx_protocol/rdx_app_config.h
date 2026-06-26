@@ -5,8 +5,8 @@
  PRE-INCLUDE FILES DESCRIPTION: 	
  
  GENERAL DESCRIPTION: 	
- 	This File will gather functions that special handle msg(UserEvent,Timer) from 
- 	Intergration.These functions don't be changed by project changed.
+	This File will gather functions that special handle msg(UserEvent,Timer) from
+	Intergration.These functions don't be changed by project changed.
  =======================================================================================	
  Revision History: 
  ---------------------------------------
@@ -121,6 +121,7 @@
 #ifndef RDX_RTC_PATH_SEL
 #define RDX_RTC_PATH_SEL								RDX_RTC_PATH_HARDWARE
 #endif
+#include "rdx_config_validate.h"
 
 #if (RDX_RTC_PATH_SEL != RDX_RTC_PATH_SOFTWARE) && (RDX_RTC_PATH_SEL != RDX_RTC_PATH_HARDWARE)
 #error "RDX_RTC_PATH_SEL must be RDX_RTC_PATH_SOFTWARE or RDX_RTC_PATH_HARDWARE"
