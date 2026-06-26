@@ -33,6 +33,7 @@
 #include "circular_buf.h"
 #include "jlstream.h"
 #include "gpio_config.h"
+#include "rdx_wifi_service.h"
 
 #include "media/includes.h"
 #include "spi.h"
@@ -256,11 +257,22 @@ static u32 spi_send_start_ts = 0;
 * Function Declaration Section
 ******************************************************************************/ 
 extern u8 xxp_rx_parse(u8 *data, unsigned short len);
-extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
-extern void rdx_protocol_recordFileData_indicateByRequestNum(ReqFileInfo * rf_info);
 extern void xxp_wifi_tcp_file_stop_indicate(void);
 
 static void gpio_handshake_isr_handler(void* arg);
+
+static rdx_spi_rx_cb_t      g_spi_rx_cb      = NULL;
+static rdx_spi_tx_done_cb_t g_spi_tx_done_cb = NULL;
+static void                 *g_spi_cb_ctx     = NULL;
+
+void rdx_spi_register_wifi_callbacks(rdx_spi_rx_cb_t rx_cb,
+                                     rdx_spi_tx_done_cb_t tx_done_cb,
+                                     void *ctx)
+{
+    g_spi_rx_cb      = rx_cb;
+    g_spi_tx_done_cb = tx_done_cb;
+    g_spi_cb_ctx     = ctx;
+}
 
 static struct _p33_io_wakeup_config gpio_irq_config_esp = {
     .pullup_down_mode = PORT_INPUT_PULLDOWN_1M,
@@ -796,7 +808,6 @@ void rdx_spi_slave_msg_handler(bool flag)
     /*----------------------------------------------------------------*/
     int ret = 0;
     uint32_t send_len = 0;
-    ReqFileInfo* ru = rdx_protocol_get_uploadfileInfo();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -861,60 +872,9 @@ void rdx_spi_slave_msg_handler(bool flag)
             spi_manager.initiative_send_flag = 0;
             spi_exception_retry_cnt = 0;
             spi_send_start_ts = 0;
-            //start next pack send.
-            
-            if(ru->file_send_busy == true){
-                ru->file_send_busy = false;
-            }
-            if(ru->send_stop == true){
-                r_printf("=======> %s --> stopped, clear all buffer! initiative_send_flag = 0 \r", __func__);
-                
-                // rdx_spi_stop_send();
-                rdx_protocol_file_sync_busy_timer_stop();
-                rdx_uxfile_recordFileData_sendBuf_free();
-                rdx_protocol_prepared_data_clean();
 
-                xxp_esp32_data_transfer_timer_stop();
-                xxp_esp32_data_transfer_timer_start();
-                
-                ru->interrupt = false;
-                EXCEPTION_THROW();
-            }
-            if(ru->interrupt == true){
-                r_printf("=======> %s --> interrupted, clear all buffer! initiative_send_flag = 0 \r", __func__);
-                ru->interrupt = false;
-                if(ru->loop == true){
-                    r_printf("=======> interrupted, restart send data! \n");
-                    os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-                }
-            }else{
-                if(ru->loop == true){
-                    if(ru->total_pack > ru->pack_num){
-                        ru->pack_num++;
-                        ru->ack = 0;
-                        g_printf("==========> current package data send done, next pack_num: %d, orig_pack_num: %d \n", ru->pack_num, ru->orig_pack_num);
-                    }else{
-                        ru->pack_num = 0;
-                        ru->ack = 0;
-                        g_printf("======> all data send done! \n");
-                    }
-                    os_time_dly(2);
-                    {
-                        int qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-                        if (qret != OS_NO_ERR) {
-                            r_printf("!!! SPI post send_task failed: %d, pack_num=%d, retry\r\n",
-                                     qret, ru->pack_num);
-                            os_time_dly(1);
-                            qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-                            if (qret != OS_NO_ERR) {
-                                r_printf("!!! SPI post send_task retry failed: %d, pack_num=%d\r\n",
-                                         qret, ru->pack_num);
-                            }
-                        }
-                    }
-                }else{
-                    // g_printf("======> current package data send done! ru->loop = false \n");
-                }
+            if (g_spi_tx_done_cb) {
+                g_spi_tx_done_cb(g_spi_cb_ctx);
             }
         }
         spi_mutex_unlock();
@@ -941,8 +901,10 @@ void rdx_spi_slave_msg_handler(bool flag)
         // fflush(stdout);    //Force to print even if have not '\n'
 
         spi_mutex_unlock();
-        //parse data.
-        xxp_rx_parse(spi_manager.trans_data, recv_opt.transmit_len);
+
+        if (g_spi_rx_cb) {
+            g_spi_rx_cb(spi_manager.trans_data, recv_opt.transmit_len, g_spi_cb_ctx);
+        }
     } else {
         esp_log("Unknow direct: %d \n", recv_opt.direct);
         EXCEPTION_THROW();
@@ -959,23 +921,11 @@ EXCEPTION_POINTER()
         cbuf_clear(&spi_manager.spi_master_tx_ring_buf);
         memset(spi_manager.trans_data, 0, ESP_SPI_DMA_MAX_LEN + 1);
         spi_mutex_unlock();
-        if(ru->send_stop == true){
-            ru->send_stop = false;
-        } else if(ru->loop == true && ru->interrupt == true){
-            ru->interrupt = false;
-            r_printf("!!! SPI exception during file transfer interrupt, restart send task, pack_num=%d\n",
-                     ru->pack_num);
-            os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-        } else if(ru->loop == true && ru->interrupt == false){
-            if (++spi_exception_retry_cnt <= SPI_EXCEPTION_MAX_RETRIES) {
-                r_printf("!!! SPI retry %d/%d, pack_num=%d\n",
-                         spi_exception_retry_cnt, SPI_EXCEPTION_MAX_RETRIES, ru->pack_num);
-                ru->ack = 1;
-                os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-            } else {
-                r_printf("!!! SPI retry limit reached! pack_num=%d\n", ru->pack_num);
-                spi_exception_retry_cnt = 0;
-            }
+
+        if (rdx_wifi_service_is_send_stopped()) {
+            rdx_wifi_service_on_tx_done();
+        } else if (g_spi_tx_done_cb) {
+            g_spi_tx_done_cb(g_spi_cb_ctx);
         }
     }
 }
@@ -1011,7 +961,6 @@ static void spi_trans_task(void* arg)
                 } else if (spi_send_start_ts > 0) {
                     u32 elapsed = jiffies_msec() - spi_send_start_ts;
                     if (elapsed > SPI_SEND_STUCK_TIMEOUT_MS) {
-                        ReqFileInfo* ru_stuck = rdx_protocol_get_uploadfileInfo();
                         r_printf("!!! SPI send stuck %dms! Force reset\n", elapsed);
                         spi_mutex_lock();
                         spi_manager.initiative_send_flag = 0;
@@ -1020,10 +969,7 @@ static void spi_trans_task(void* arg)
                         memset(spi_manager.trans_data, 0, ESP_SPI_DMA_MAX_LEN + 1);
                         spi_mutex_unlock();
                         spi_send_start_ts = 0;
-                        if (ru_stuck->loop && !ru_stuck->send_stop && !ru_stuck->interrupt) {
-                            ru_stuck->ack = 1;
-                            os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru_stuck);
-                        }
+                        rdx_wifi_service_retry_on_stuck();
                     }
                 }
             }else if(msg[1] == SPI_MSG_SLAVE_NOTIFY){
@@ -1294,8 +1240,7 @@ static u8 rdx_spi_idle_query(void)
         return 0;
     }
 
-    ReqFileInfo* ru = rdx_protocol_get_uploadfileInfo();
-    if (ru && ru->file_send_busy == true) {
+    if (rdx_wifi_service_is_file_send_busy()) {
         return 0;
     }
 

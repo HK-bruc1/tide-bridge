@@ -54,14 +54,21 @@
 
 /******************************************************************************
 * Structure and Enum Section
-******************************************************************************/ 
+******************************************************************************/
 typedef struct {
-    u8 spi_hdl; 
+    u8 spi_hdl;
     u8 spi_cs_pin;
     u8 spi_work_mode;
     u8 port;
     u8 spi_clk;
 } esp8684_param;
+
+typedef void (*rdx_spi_rx_cb_t)(const u8 *data, u32 len, void *ctx);
+typedef void (*rdx_spi_tx_done_cb_t)(void *ctx);
+
+void rdx_spi_register_wifi_callbacks(rdx_spi_rx_cb_t rx_cb,
+                                     rdx_spi_tx_done_cb_t tx_done_cb,
+                                     void *ctx);
 
 /******************************************************************************
 * Function Section

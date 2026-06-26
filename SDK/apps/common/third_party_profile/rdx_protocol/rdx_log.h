@@ -2,6 +2,7 @@
 #define __RDX_LOG_H__
 
 #include "app_config.h"
+#include "utils/debug.h"
 
 #define RDX_LOG_TAG "RDX"
 

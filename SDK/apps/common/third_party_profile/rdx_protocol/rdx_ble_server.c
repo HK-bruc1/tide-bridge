@@ -52,6 +52,7 @@
 #include "rdx_app_config.h"
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_ble_service.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -661,15 +662,7 @@ static int rdx_ble_server_disconnect(void *priv)
     /*----------------------------------------------------------------*/
     y_printf("====== %s --> con_handle = %d \n", __func__, g_rdx_ble_server_info.ble_con_handle);
     if (g_rdx_ble_server_info.ble_con_handle) {
-        //stop recording if is running.
-        RecordStatus* rp = rdx_record_get_status();
-        if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-            //disconnect actively, stop recording.
-            log_info(">>>rdx ble disconnect, stop recording\r");
-            rp->run = RECORD_STATE_STOP;
-            //send job.
-            rdx_record_process();
-        }
+        rdx_ble_service_stop_recording();
 
         if (BLE_ST_SEND_DISCONN != g_rdx_ble_server_info.ble_work_state) {
             log_info(">>>rdx ble send disconnect\r");
@@ -846,8 +839,7 @@ void rdx_ble_server_disconnected_handle(void)
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
     }
 
-    rdx_record_stream_interrupt();
-    rdx_record_on_ble_conn_changed(false);
+    rdx_ble_service_on_disconnected();
 
     //record stop.  //dons++ 20250326 离线录音时BLE断开后不停止录音
 #if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
@@ -859,16 +851,11 @@ void rdx_ble_server_disconnected_handle(void)
 #else
     r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
     if(rp->orig_mode != RECORD_MODE_OFFLINE){
-        //if not offline mode, stop recording.
         if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-            rp->run = RECORD_STATE_STOP;
         #if !(RDX_AI_SEL_APP & APP_TURING_EN)
             rp->rerun = true;
         #endif
-
-            //time to restart.
-            // sys_timeout_add(NULL, rdx_record_start, 2000);
-            rdx_record_process();
+            rdx_ble_service_stop_recording();
         }
     }
 #endif
@@ -948,7 +935,7 @@ void rdx_ble_server_connected_handle(void)
     //disbale shutdown timer.
     rdx_ble_server_auto_shut_down_enable(0);
 
-    rdx_record_on_ble_conn_changed(true);
+    rdx_ble_service_on_connected();
 
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
     rdx_app_tws_bind_info_sync();
@@ -974,7 +961,6 @@ void rdx_ble_server_connected_handle(void)
             y_printf("offline recording now, do not change original record mode \r");
         }
     }
-    rdx_record_stream_resume_delayed();
 #endif
 }
 
@@ -1126,9 +1112,6 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 
                     rdx_ble_server_reset_send_fail_cnt();
 
-                    rdx_record_stream_interrupt();
-
-                    //deal disconnect handle.
                     rdx_ble_server_disconnected_handle();
                 }
                 break;

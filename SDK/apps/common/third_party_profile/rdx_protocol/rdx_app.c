@@ -82,6 +82,13 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
+#include "rdx_event_bus.h"
+#include "rdx_command_dispatch.h"
+#include "rdx_wifi_service.h"
+#include "rdx_ble_service.h"
+#include "rdx_device_service.h"
+#include "rdx_storage_service.h"
+#include "rdx_record_service.h"
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -3253,6 +3260,15 @@ void rdx_app_all_init(void)
     
     //spi irq init.
     rdx_spi_init_irq();
+
+    /* Phase 2: service layer init — must run before any task starts */
+    rdx_event_bus_init();
+    rdx_cmd_dispatch_init();
+    rdx_wifi_service_init();
+    rdx_ble_service_init();
+    rdx_device_service_init();
+    rdx_storage_service_init();
+    rdx_record_service_init();
 
     u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();
     if(err_boot == 1){

@@ -250,6 +250,7 @@ INCLUDES := \
 	-Iapps/common/third_party_profile/rdx_protocol \
 	-Iapps/common/third_party_profile/rdx_protocol/board/t2616_cc \
 	-Iapps/common/third_party_profile/rdx_protocol/port/jl \
+	-Iapps/common/third_party_profile/rdx_protocol/service \
 	-Iapps/common/cJSON \
 	-Iinterface/media/cpu/br28 \
 	-Iinterface/utils/ui/ui/cpu/br28 \
@@ -485,6 +486,14 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_osal.c \
 	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_storage.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_battery.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_event_bus.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_command_dispatch.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_default_hooks.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_ble_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_le_port.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_setting.c \
