@@ -137,8 +137,6 @@ extern struct ble_task_param ble_task;
 *******************************************************************************/
 static bool rdx_app_init_flag = FALSE;
 
-static RecordStatus set_rp;
-
 /* LED PT0807 配置 */
 static LedPt0807Config_t led_pt0807_config;
 
@@ -161,11 +159,8 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 
 #endif
 
-static u16 record_state_upload_timer = 0;
 static RdxWifiInfo wifiInfo;
 static bool rdx_ble_conn = FALSE;
-
-static u8 record_mode = RDX_RECORD_CHANNAL_SINGLE;
 static bool poweroff_ready_flag = 0;
 static bool poweron_ready_flag = 0;
 
@@ -1203,47 +1198,7 @@ void rdx_app_motor_run_once(void)
  **************************************************************************/
 void rdx_app_record_state_upload_timer_cb(void* priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    g_printf("====== %s \r", __func__);
-
-    rdx_app_record_state_upload_timer_stop();
-
-    if(RECORD_STATE_START == rp->run || RECORD_STATE_RESUME == rp->run){
-        u16 con_hdl = rdx_ble_server_get_conn_handle();
-        rp->run = RECORD_STATE_STOP;
-        if(0xffff != con_hdl && 0 != con_hdl){
-            //report this action to app.
-            set_rp.run = rp->run;
-            set_rp.formate = rp->formate;
-            set_rp.scene = rp->scene;
-            //report this action to app.
-            int msg[4];
-            u8 factor = 0;
-            msg[0] = (int)rdx_protocol_record_trigger_indicate;
-            msg[1] = 2;
-            msg[2] = (int)&set_rp;
-            msg[3] = (int)factor;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
-            if(ret) {
-                r_printf("%s rdx_record_state_indicate taskq post err \n", __func__);
-            }
-        }else{
-            //send job.
-            int arg[2];
-            arg[0] = (int)rdx_record_process;
-            arg[1] = 0;
-            int r = os_taskq_post_type("app_core", Q_CALLBACK, 2, arg);
-            if(r) {
-                r_printf("%s record taskq post err \n", __func__);
-            } 
-        }
-    }
+    rdx_record_service_upload_timer_cb(priv);
 }
 
 /**************************************************************************
@@ -1254,39 +1209,12 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
  **************************************************************************/
 void rdx_app_record_state_upload_timer_stop(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(record_state_upload_timer){
-        sys_timeout_del(record_state_upload_timer);
-        record_state_upload_timer = 0;
-    }
-    y_printf("====== %s \r", __func__);
+    rdx_record_service_upload_timer_stop();
 }
 
-/**************************************************************************
- * function: rdx_app_record_state_upload_timer_start
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
 void rdx_app_record_state_upload_timer_start(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("====== %s \r", __func__);
-    if(record_state_upload_timer == 0){
-        record_state_upload_timer = sys_timeout_add(NULL, rdx_app_record_state_upload_timer_cb, 3000);
-    }
+    rdx_record_service_upload_timer_start();
 }
 
 /**************************************************************************
@@ -1297,90 +1225,7 @@ void rdx_app_record_state_upload_timer_start(void)
  **************************************************************************/
 void rdx_app_device_record_handle(u8 scene)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    u8 formate = 0;
-    u16 con_hdl = rdx_ble_server_get_conn_handle();
-    RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("====== %s ------> scene = %d \n", __FUNCTION__, scene);
-    if(scene == RECORD_SCENE_CHAT){
-        formate = RECORD_FORMATE_OPUS_16K_STERO; //会议模式用降噪算法，改为双声道
-    }else if(scene == RECORD_SCENE_CALL){
-        formate = RECORD_FORMATE_OPUS_16K_STERO;
-    }else{
-        return;
-    }
-
-    if(0xffff != con_hdl && 0 != con_hdl){
-        //ota?
-        if(get_ota_status()){
-            return;
-        }
-
-        memset(&set_rp, 0, sizeof(RecordStatus));
-        if(rp->run == RECORD_STATE_STOP){
-            set_rp.run = RECORD_STATE_START;
-            set_rp.formate = formate;
-            set_rp.scene = scene;
-            set_rp.mode = rp->mode;
-            g_printf("====== %s --> 在线录音开启触发，并发送开启消息, scene: %d \r", __func__, scene);
-
-            rdx_app_record_state_upload_timer_start();
-        }else{
-            if(rp->orig_mode == RECORD_MODE_OFFLINE){
-                g_printf("====== %s --> offline-originated recording, direct stop + send trigger \r", __func__);
-                rp->run = RECORD_STATE_STOP;
-                int msg_stop[2];
-                msg_stop[0] = (int)rdx_record_process;
-                msg_stop[1] = 0;
-                os_taskq_post_type("app_core", Q_CALLBACK, 2, msg_stop);
-
-                set_rp.run = RECORD_STATE_STOP;
-                set_rp.formate = formate;
-                set_rp.scene = scene;
-                set_rp.mode = rp->mode;
-            }else{
-                set_rp.run = RECORD_STATE_STOP;
-                set_rp.formate = rp->formate;
-                set_rp.scene = rp->scene;
-                set_rp.mode = rp->mode;
-                g_printf("====== %s --> 在线录音结束触发，并发送结束消息, scene = %d, formate = %d \r", __func__, set_rp.scene, set_rp.formate); 
-            }
-        }
-        //report this action to app. 
-        int msg[4];
-        u8 factor = 0;
-        msg[0] = (int)rdx_protocol_record_trigger_indicate;
-        msg[1] = 2;
-        msg[2] = (int)&set_rp;
-        msg[3] = (int)factor;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
-        if(ret) {
-            r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
-        }
-    }else{
-        if(rp->run == RECORD_STATE_STOP){
-            rp->run = RECORD_STATE_START;
-            rp->formate = formate;
-            rp->scene = scene;
-            int msg[2];
-            msg[0] = (int)rdx_record_process;
-            msg[1] = 0;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-            g_printf("====== %s --> 离线录音开启 \r", __func__);
-        }else{
-            rp->run = RECORD_STATE_STOP;
-            int msg[2];
-            msg[0] = (int)rdx_record_process;
-            msg[1] = 0;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-            g_printf("====== %s --> 离线录音结束 \r", __func__);
-        }
-    }
+    rdx_record_service_device_record_handle(scene);
 }
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
@@ -2264,14 +2109,7 @@ void rdx_app_format_handle(void)
  **************************************************************************/
 u8 rdx_app_get_record_mode(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    return record_mode;
+    return rdx_record_service_get_mode();
 }
 
 /**************************************************************************
@@ -2282,41 +2120,12 @@ u8 rdx_app_get_record_mode(void)
  **************************************************************************/
 void rdx_app_set_record_mode(u8 d)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    record_mode = d;
+    rdx_record_service_set_mode(d);
 }
 
-/**************************************************************************
- * function: rdx_record_mode_active_check
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
 void rdx_record_mode_active_check(bool show)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
-    u16 con_hdl = rdx_ble_server_get_conn_handle();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(rp->run == RECORD_STATE_STOP){
-        rp->scene = RECORD_SCENE_CALL;
-        record_mode = RDX_RECORD_CHANNAL_DUAL;
-        rp->orig_scene = rp->scene;
-    }
-    if(0xffff != con_hdl && 0 != con_hdl && g_protocol_ops){
-        u8 scene = (rp->scene == RECORD_SCENE_CALL) ? 1 : 0;
-        g_protocol_ops->record_mode_indicate(scene, rp->run);
-    }
+    rdx_record_service_mode_active_check(show);
 }
 
 /**************************************************************************
@@ -2327,68 +2136,7 @@ void rdx_record_mode_active_check(bool show)
  **************************************************************************/
 void rdx_app_record_switch(u8 orig_scene)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    u16 con_hdl = rdx_ble_server_get_conn_handle();
-    u8 orignal_scene = orig_scene;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("%s --> record switch: orig_scene = %d \r", __func__, orig_scene);
-
-    if(rdx_dut_mode == TRUE || get_ota_status()){
-        return; 
-    }
-    //record mode switch.
-    if(g_protocol_ops){
-        RecordStatus* rp_cur = rdx_record_get_status();
-        u8 scene = (rp_cur->scene == RECORD_SCENE_CALL) ? 1 : 0;
-        g_protocol_ops->record_mode_indicate(scene, rp_cur->run);
-    }
-
-    //mode switch keep timer restart.
-    rdx_app_switch_keep_timer_restart();
-
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->run != RECORD_STATE_STOP){
-        //do stop current recording.
-        rp->noshow = 1;
-        if(0xffff == con_hdl || 0 == con_hdl){
-            rp->run = RECORD_STATE_STOP;
-            rdx_record_process();
-        }
-
-        rp->is_switch = true;
-        rp->switch_orig_scene = orignal_scene;
-
-        //report this action to app.
-        set_rp.run = RECORD_STATE_STOP;
-        set_rp.formate = rp->formate;
-        set_rp.scene = orignal_scene; //正在录音的，则上报停止上一次的模式
-
-        //report this action to app.
-        int msg[4];
-        u8 factor = 0;
-        msg[0] = (int)rdx_protocol_record_trigger_indicate;
-        msg[1] = 2;
-        msg[2] = (int)&set_rp;
-        msg[3] = (int)factor;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
-        if(ret) {
-            r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
-        }
-
-        //wait 3s to avoid switching too fast. Do post a message to app.
-        int msg1[2];
-        msg1[0] = (int)rdx_app_switch_keep_timer_start;
-        msg1[1] = 0;
-        int r = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg1);
-        if(r) {
-            r_printf("%s rdx_app_switch_keep_timer_start taskq post err \n", __func__);
-        }
-    }
-    
+    rdx_record_service_switch(orig_scene);
 }
 
 

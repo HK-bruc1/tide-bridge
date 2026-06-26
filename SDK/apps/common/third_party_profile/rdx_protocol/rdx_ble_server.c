@@ -53,6 +53,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_ble_service.h"
+#include "rdx_record_service.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -844,10 +845,7 @@ void rdx_ble_server_disconnected_handle(void)
     //record stop.  //dons++ 20250326 离线录音时BLE断开后不停止录音
 #if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
     // r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
-    if(rp->orig_mode != RECORD_MODE_OFFLINE){
-        rp->mode = RECORD_MODE_OFFLINE;
-        rp->orig_mode = RECORD_MODE_OFFLINE;
-    }
+    rdx_record_service_set_mode_offline();
 #else
     r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
     if(rp->orig_mode != RECORD_MODE_OFFLINE){
@@ -952,15 +950,7 @@ void rdx_ble_server_connected_handle(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_EMMC) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->mode != RECORD_MODE_ONLINE){
-        rp->mode = RECORD_MODE_ONLINE;
-        if(rp->run == RECORD_STATE_STOP){
-            rp->orig_mode = RECORD_MODE_ONLINE;
-        }else{
-            y_printf("offline recording now, do not change original record mode \r");
-        }
-    }
+    rdx_record_service_set_mode_online();
 #endif
 }
 

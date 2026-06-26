@@ -2,9 +2,28 @@
 #define __RDX_RECORD_SERVICE_H__
 
 #include "typedef.h"
+#include <stdbool.h>
 
 void rdx_record_service_init(void);
 void rdx_record_service_exit(void);
+
+/* recording orchestration (moved from rdx_app.c) */
+void rdx_record_service_device_record_handle(u8 scene);
+void rdx_record_service_switch(u8 orig_scene);
+void rdx_record_service_upload_timer_cb(void *priv);
+void rdx_record_service_upload_timer_stop(void);
+void rdx_record_service_upload_timer_start(void);
+
+/* record mode state */
+u8   rdx_record_service_get_mode(void);
+void rdx_record_service_set_mode(u8 d);
+void rdx_record_service_mode_active_check(bool show);
+
+/* BLE-driven mode switching */
+void rdx_record_service_set_mode_online(void);
+void rdx_record_service_set_mode_offline(void);
+
+/* shell stubs — filled during extraction */
 void rdx_record_service_start(u8 mode);
 void rdx_record_service_stop(void);
 u8   rdx_record_service_get_state(void);
