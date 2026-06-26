@@ -408,18 +408,7 @@ void rdx_app_reset_delay_cb(void *priv)
  **************************************************************************/
 void rdx_app_time_to_reset(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    //do system reset. 
-    // sys_timeout_add((void *)1, sys_restart, 1000);
-
-    //do power off.
-    sys_timeout_add((void *)1, rdx_app_reset_delay_cb, 1000);
+    rdx_device_service_reboot();
 }
 
 /**************************************************************************
@@ -1090,84 +1079,14 @@ void rdx_app_bt_shutdown(void)
  **************************************************************************/
 void rdx_app_normal_poweroff_cb(void* priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    // rdx_protocol_task_free();
-    rdx_record_task_free();
-    rdx_uxfile_task_free();
-#if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
-    oled_task_free();
-#endif
-
-    sd_set_power(0);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
-
-    // PB4 已改为 WiFi CS 使用，不再设置为高阻态
-    // PB5 已改为充满检测使用，不再设置为高阻态
-
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
-    
-    gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
-
-    sys_enter_soft_poweroff(POWEROFF_NORMAL);
+    rdx_device_service_poweroff_cb(priv);
 }
 
-/**************************************************************************
- * function: rdx_app_normal_poweroff
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
 void rdx_app_normal_poweroff(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
-    RdxWifiInfo* pw = rdx_app_get_wifi_info();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    r_printf("------> %s \n", __func__);
-
-    //close record.
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
-
-    if(pw->onoff == TRANSFER_BY_WIFI_ON){
-        rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
-    }
-
-    rdx_ble_server_app_disconnect();
-    //stop ble.
-    rdx_ble_server_exit();
-
-
-#if (RDX_SUPPORT_MOTOR == 1)
-    //motor.
-    rdx_app_motor_run_once();
-#endif
-
     poweroff_ready_flag = false;
     key_press_record_ready_flag = false;
-
-    xxp_uart_set_wifi_default_flag(false);
-
-    os_time_dly(50);
-
-    // power_set_soft_poweroff();
-    // sys_enter_soft_poweroff(POWEROFF_NORMAL);
-    sys_timeout_add(NULL, rdx_app_normal_poweroff_cb, 500);
+    rdx_device_service_soft_poweroff();
 }
 
 /**************************************************************************
@@ -1239,56 +1158,7 @@ void rdx_app_device_record_handle(u8 scene)
  **************************************************************************/
 int rdx_app_device_pair_handle(char* au_code, char* mac_str, char* label_sn)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    EarphoneInfo* p_epInfo = rdx_vm_get_ep_info();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if(au_code == NULL || mac_str == NULL){
-        r_printf("%s --> param error \n", __func__);
-        return -1;
-    }
-    if(memcmp(au_code, "0", RDX_BLE_DEVICE_AUTH_KEY_SIZE) == 0) {
-        r_printf("%s --> auth code is empty! \r", __func__);
-        return -1;
-    }
-    if(memcmp(mac_str, "0", RDX_BLE_MAC_STRING_SIZE) == 0){
-        r_printf("%s --> earphone mac is empty! \r", __func__);
-        return -1;
-    }
-    if(memcmp(label_sn, "0", RDX_LABEL_SN_SIZE) == 0){
-        r_printf("%s --> earphone label sn is empty! \r", __func__);
-        return -1;
-    }
-    //update auth info (RAM).
-    rdx_auth_info_t* p_authInfo = rdx_vm_get_auth_info();
-    memcpy(p_authInfo->AuthKey, au_code, RDX_BLE_DEVICE_AUTH_KEY_SIZE);
-    memcpy(p_authInfo->label_sn, label_sn, RDX_LABEL_SN_SIZE);
-
-    //update earphone info in ram.
-    EarphoneInfo ep_info;
-    memset(&ep_info, 0, sizeof(EarphoneInfo));
-    strncpy(ep_info.ep_mac_str, mac_str, RDX_BLE_MAC_STRING_SIZE);
-    rdx_util_str_hexstr2hexarray((u8 *)ep_info.ep_mac_str, strlen(ep_info.ep_mac_str), ep_info.ep_mac);
-    rdx_util_reverse_byte(ep_info.ep_mac, 6);
-    //update vm.
-    memcpy(p_epInfo, &ep_info, sizeof(EarphoneInfo));
-    int r = rdx_vm_write_ep_info_intoVM(&ep_info);
-    if(r == FALSE) {
-        r_printf("%s --> write earphone info into VM failed! \r", __func__);
-        return -1;
-    }
-    g_printf("%s --> get earphone mac address success: %s \r", __func__, ep_info.ep_mac_str);
-
-    //update read characteristic data.
-    rdx_app_earphone_pack_readchardata();
-
-    //set default ble name.
-    rdx_ble_server_reset_local_name();
-
-    return 0;
+    return rdx_device_service_pair(au_code, mac_str, label_sn);
 }
 
 /**************************************************************************
@@ -1299,25 +1169,7 @@ int rdx_app_device_pair_handle(char* au_code, char* mac_str, char* label_sn)
  **************************************************************************/
 int rdx_app_device_unpair_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    EarphoneInfo* p_epInfo = rdx_vm_get_ep_info();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("rdx_app_device_unpair_handle \r");
-
-    memset(p_epInfo, 0, sizeof(EarphoneInfo));
-    rdx_vm_write_ep_info_intoVM(p_epInfo);
-
-    //read info back from vm to sync RAM cache.
-    rdx_vm_read_ep_info_fromVM();
-
-    //update read characteristic data.
-    rdx_app_earphone_pack_readchardata();
-
-    return 0;
+    return rdx_device_service_unpair();
 }
 #endif /* RDX_PRODUCT_IS_CHARGE_CASE */
 
