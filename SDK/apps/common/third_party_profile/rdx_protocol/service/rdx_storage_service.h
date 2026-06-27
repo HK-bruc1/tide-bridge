@@ -14,5 +14,6 @@ int  rdx_storage_format_request(void);
 int  rdx_storage_sync_start(void);
 int  rdx_storage_sync_stop(void);
 u8   rdx_storage_is_syncing(void);
+u8   rdx_storage_is_formatting(void);
 
 #endif

@@ -54,6 +54,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_ble_service.h"
 #include "rdx_record_service.h"
+#include "rdx_storage_service.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -222,7 +223,6 @@ const uint8_t rdx_profile_data[] = {
 /******************************************************************************
 * Function Declaration Section
 ******************************************************************************/ 
-extern void rdx_record_start(void* priv);
 extern void sys_set_auto_off_time(u32 auto_off_time);
 extern u32 sys_get_auto_off_time(void);
 extern bool rdx_app_get_poweroff_flag(void);
@@ -235,8 +235,6 @@ extern int bt_modify_name(u8 *new_name);
 extern void rdx_protocol_record_state_indicate(void);
 extern u8 get_self_battery_level(void);
 extern u8 get_ota_status();
-extern void rdx_uxfile_datFileInfo_sendBuf_free(void);
-extern void rdx_uxfile_recordFileData_sendBuf_free(void);
 extern void rdx_protocol_ble_name_set_ack_indicate(u8 result, char* ble_name);
 extern u8 rdx_protocol_get_ble_sent(void);
 extern void rdx_protocol_set_ble_sent(u8 d);
@@ -249,8 +247,6 @@ extern void rdx_app_emmc_poweron(u8 check_en);
 extern void rdx_app_emmc_poweroff(void);
 extern void rdx_record_mode_active_check(bool show);
 extern u8 rdx_battery_get_percent(void);
-extern void rdx_protocol_file_sync_busy_timer_stop(void);
-extern void rdx_protocol_uploadFileInfo_clean(void);
 extern void rdx_protocol_clear_send_confirm_flag(void);
 extern void rdx_record_stream_interrupt(void);
 extern void rdx_record_stream_resume_delayed(void);
@@ -858,14 +854,13 @@ void rdx_ble_server_disconnected_handle(void)
 #endif
 
     //adv restart.
-    bool rdx_uxfile_sd_format_status_check(void);
     if(k->onoff == TRANSFER_BY_WIFI_ON){
         //wifi on, ble without adv.
         rdx_ble_server_adv_enable(0);
     }else{
         //power off, ble adv shut off.
         bool flag = rdx_app_get_dut_status();
-        if(rdx_app_get_poweroff_flag() || flag == true || rdx_uxfile_sd_format_status_check()){
+        if(rdx_app_get_poweroff_flag() || flag == true || rdx_storage_is_formatting()){
             //power off, shut down adv.
             rdx_ble_server_adv_enable(0);
         }else{

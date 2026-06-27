@@ -5,6 +5,8 @@
 #include "rdx_err.h"
 #include "rdx_uxfile.h"
 
+extern bool rdx_uxfile_sd_format_status_check(void);
+
 void rdx_storage_service_init(void)
 {
 	RDX_LOGI("storage_service init done");
@@ -41,4 +43,9 @@ int rdx_storage_sync_stop(void)
 u8 rdx_storage_is_syncing(void)
 {
 	return 0;
+}
+
+u8 rdx_storage_is_formatting(void)
+{
+	return rdx_uxfile_sd_format_status_check();
 }
