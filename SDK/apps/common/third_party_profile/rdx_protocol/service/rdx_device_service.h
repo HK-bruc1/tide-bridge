@@ -10,6 +10,13 @@ void rdx_device_service_soft_poweroff(void);
 void rdx_device_service_poweroff_cb(void *priv);
 void rdx_device_service_reboot(void);
 
+/* eMMC power state machine (migrated from rdx_app.c, Stage 3) */
+void rdx_device_service_do_emmc_reset(void);
+void rdx_device_service_emmc_poweron(u8 check_en);
+void rdx_device_service_emmc_poweroff(void);
+void rdx_device_service_emmc_poweroff_check(void);
+void rdx_device_service_emmc_poweroff_check_timer_stop(void);
+
 /* device pair / unpair (charge case only) */
 int  rdx_device_service_pair(char *au_code, char *mac_str, char *label_sn);
 int  rdx_device_service_unpair(void);

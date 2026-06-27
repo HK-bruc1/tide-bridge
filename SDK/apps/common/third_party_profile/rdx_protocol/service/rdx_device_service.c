@@ -15,11 +15,13 @@
 #include "rdx_jl_storage.h"
 #include "poweroff.h"
 #include "btstack/avctp_user.h"
+#include "app_mode_manager.h"
 
 /* board config */
 #include "rdx_board_config.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_protocol.h"
+#include "rdx_default_hooks.h"
 
 /* rdx_app.c symbols */
 extern void      rdx_ble_server_app_disconnect(void);
@@ -432,4 +434,153 @@ void rdx_device_service_init(void)
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_UNBOUND, rdx_cmd_handle_unbound);
 	RDX_LOGI("device_service init done");
+}
+
+/* ============================================================================
+ * eMMC power state machine — migrated from rdx_app.c (Stage 3)
+ * ============================================================================
+ * Public API (called via rdx_app_emmc_* wrappers in rdx_app.c for backward
+ * compatibility; Stage 4 should switch callers to these names directly):
+ *   rdx_device_service_do_emmc_reset()
+ *   rdx_device_service_emmc_poweron()
+ *   rdx_device_service_emmc_poweroff()
+ *   rdx_device_service_emmc_poweroff_check()
+ *   rdx_device_service_emmc_poweroff_check_timer_stop()
+ */
+
+#define EMMC_LDO_POWER_OFF_CHECK_TIMEOUT    (10 * 1000)
+
+static u16  g_emmc_poweroff_check_timer = 0;
+static bool g_emmc_poweroff_flag = FALSE;
+
+/* external symbols needed by the timer callback */
+extern u8   rdx_uxfile_is_sync_in_progress(void);
+extern u8   rdx_uxfile_is_datFileInfo_loading(void);
+extern u8   rdx_is_file_transfer_active(void);
+extern u8   rdx_is_file_sync_busy(void);
+extern u8   rdx_uxfile_is_scan_active(void);
+extern u8   rdx_uxfile_is_formatting(void);
+
+static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv);
+static void rdx_device_service_emmc_poweroff_check_timer_start(void);
+
+/*
+ * Legacy disabled: returns immediately. The original implementation in rdx_app.c
+ * was disabled (return-as-first-statement) and we preserve that behavior here.
+ * Re-enable when the eMMC auto-poweroff policy is defined for Stage 4.
+ */
+void rdx_device_service_emmc_poweroff_check(void)
+{
+    return;
+}
+
+void rdx_device_service_do_emmc_reset(void)
+{
+    rdx_gpio_set_output_low(VDD_POWER_PORT_IO);
+    rdx_os_time_dly(50);
+    rdx_gpio_set_output_high(VDD_POWER_PORT_IO);
+}
+
+void rdx_device_service_emmc_poweron(u8 check_en)
+{
+    y_printf("=====> %s --> emmc_poweroff_flag = %d \n", __func__, g_emmc_poweroff_flag);
+    if (g_emmc_poweroff_flag == TRUE) {
+        rdx_gpio_set_output_high(VDD_POWER_PORT_IO);
+        sd_set_power(1);
+#if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
+        OLED_Init();
+#endif
+        if (check_en) {
+            rdx_device_service_emmc_poweroff_check_timer_start();
+        }
+        g_emmc_poweroff_flag = false;
+    }
+}
+
+void rdx_device_service_emmc_poweroff(void)
+{
+    y_printf("=====> %s --> emmc_poweroff_flag = %d \r", __func__, g_emmc_poweroff_flag);
+    if (g_emmc_poweroff_flag == false) {
+        rdx_device_service_emmc_poweroff_check_timer_stop();
+        sd_set_power(0);
+        rdx_gpio_set_highz(IO_PORTC_04);
+        rdx_gpio_set_highz(IO_PORTC_05);
+        rdx_gpio_set_output_low(VDD_POWER_PORT_IO);
+        rdx_gpio_set_highz(VDD_POWER_PORT_IO);
+        g_emmc_poweroff_flag = true;
+    }
+}
+
+void rdx_device_service_emmc_poweroff_check_timer_stop(void)
+{
+    if (g_emmc_poweroff_check_timer) {
+        rdx_os_timer_del(g_emmc_poweroff_check_timer);
+        g_emmc_poweroff_check_timer = 0;
+    }
+}
+
+static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    y_printf("=====> %s --> rp->run = %d \r", __func__, rp->run);
+    if (rp->orig_mode == RECORD_MODE_OFFLINE
+        && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+        y_printf("emmc poweroff timer cb --> emmc is busy, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_uxfile_is_sync_in_progress()) {
+        y_printf("emmc poweroff timer cb --> DAT sync in progress, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_uxfile_is_datFileInfo_loading()) {
+        y_printf("emmc poweroff timer cb --> datFileInfo loading, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_is_file_transfer_active()) {
+        y_printf("emmc poweroff timer cb --> file transfer active, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_is_file_sync_busy()) {
+        y_printf("emmc poweroff timer cb --> file sync busy, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_uxfile_is_scan_active()) {
+        y_printf("emmc poweroff timer cb --> async scan active, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_uxfile_is_formatting()) {
+        y_printf("emmc poweroff timer cb --> SD formatting, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    if (rdx_hook_motor_is_running()) {
+        y_printf("emmc poweroff timer cb --> motor is working, do not power off \r");
+        EXCEPTION_THROW();
+    }
+    y_printf("emmc poweroff timer cb --> emmc power off \r");
+    rdx_device_service_emmc_poweroff();
+    return;
+
+EXCEPTION_POINTER()
+    rdx_device_service_emmc_poweroff_check_timer_stop();
+    rdx_device_service_emmc_poweroff_check_timer_start();
+}
+
+static void rdx_device_service_emmc_poweroff_check_timer_start(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    if (true == app_in_mode(APP_MODE_PC)) {
+        r_printf("=====> %s --> APP_MODE_PC, do not start poweroff timer\r", __func__);
+        return;
+    }
+    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+        return;
+    }
+    if (rdx_wifi_service_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON) {
+        return;
+    }
+    if (g_emmc_poweroff_check_timer == 0) {
+        g_emmc_poweroff_check_timer = rdx_os_timer_add(
+            rdx_device_service_emmc_poweroff_check_timer_cb, NULL,
+            EMMC_LDO_POWER_OFF_CHECK_TIMEOUT);
+    }
 }
