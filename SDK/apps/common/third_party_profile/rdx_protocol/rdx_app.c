@@ -2576,32 +2576,6 @@ static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len
 
 }
 
-static void rdx_cmd_handle_mic_gain_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolMicGainQueryParams)) return;
-	ProtocolMicGainQueryParams* p = (ProtocolMicGainQueryParams*)data;
-	int g1 = 0, g2 = 0;
-	int ret = rdx_record_mic_gain_query(p->mode, &g1, &g2);
-	ops->mic_gain_check_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
-
-}
-
-static void rdx_cmd_handle_mic_gain_set(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolMicGainSetParams)) return;
-	ProtocolMicGainSetParams* p = (ProtocolMicGainSetParams*)data;
-	int g1 = p->mic1_gain, g2 = p->mic2_gain;
-	int ret = rdx_record_mic_gain_set(p->mode, &g1, &g2);
-	ops->mic_gain_set_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
-
-}
-
 static void rdx_cmd_handle_os_type(ProtocolEvents event, void *data, u32 len)
 {
 	(void)event; (void)data; (void)len;
@@ -2624,17 +2598,6 @@ static void rdx_cmd_handle_audio_stream(ProtocolEvents event, void *data, u32 le
 
 }
 
-static void rdx_cmd_handle_record(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(Record_info)) return;
-	rdx_record_cmd_handle((Record_info*)data);
-
-}
-
-
 #if TDX_HAS_FLASHNOTE_ABILITY
 static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
 {
@@ -2649,19 +2612,6 @@ static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
 
 #endif
 
-#if TDX_HAS_RECMARK_ABILITY
-static void rdx_cmd_handle_recmark(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < 1) return;
-	u8 src = *(u8*)data;
-	rdx_record_add_mark(src);
-
-}
-
-#endif
 
 static void rdx_app_cmd_register_all(void)
 {
@@ -2679,16 +2629,10 @@ static void rdx_app_cmd_register_all(void)
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_SET, rdx_cmd_handle_bt_name_set);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_SET, rdx_cmd_handle_ble_name_set);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_SET, rdx_cmd_handle_offtime_set);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY, rdx_cmd_handle_mic_gain_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_SET, rdx_cmd_handle_mic_gain_set);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_OS_TYPE, rdx_cmd_handle_os_type);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUDIO_STREAM, rdx_cmd_handle_audio_stream);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD, rdx_cmd_handle_record);
 #if TDX_HAS_FLASHNOTE_ABILITY
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_FLASHNOTE, rdx_cmd_handle_flashnote);
-#endif
-#if TDX_HAS_RECMARK_ABILITY
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECMARK, rdx_cmd_handle_recmark);
 #endif
 }
 

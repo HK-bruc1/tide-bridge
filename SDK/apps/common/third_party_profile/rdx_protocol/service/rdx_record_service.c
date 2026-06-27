@@ -7,6 +7,7 @@
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
 #include "rdx_dut.h"
+#include "rdx_command_dispatch.h"
 
 /* symbols from librdxApp.a */
 extern void rdx_protocol_record_trigger_indicate(RecordStatus *rp, u8 factor);
@@ -61,8 +62,63 @@ static void rpx_pool_cb(void *p1, void *p2)
 	rp_pool_release(rp_slot);
 }
 
+static void rdx_cmd_handle_mic_gain_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolMicGainQueryParams)) return;
+	ProtocolMicGainQueryParams* p = (ProtocolMicGainQueryParams*)data;
+	int g1 = 0, g2 = 0;
+	int ret = rdx_record_mic_gain_query(p->mode, &g1, &g2);
+	ops->mic_gain_check_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
+
+}
+static void rdx_cmd_handle_mic_gain_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolMicGainSetParams)) return;
+	ProtocolMicGainSetParams* p = (ProtocolMicGainSetParams*)data;
+	int g1 = p->mic1_gain, g2 = p->mic2_gain;
+	int ret = rdx_record_mic_gain_set(p->mode, &g1, &g2);
+	ops->mic_gain_set_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
+
+}
+
+static void rdx_cmd_handle_record(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(Record_info)) return;
+	rdx_record_cmd_handle((Record_info*)data);
+
+}
+
+#if TDX_HAS_RECMARK_ABILITY
+static void rdx_cmd_handle_recmark(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < 1) return;
+	u8 src = *(u8*)data;
+	rdx_record_add_mark(src);
+
+}
+
+#endif
+
 void rdx_record_service_init(void)
 {
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY, rdx_cmd_handle_mic_gain_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_SET, rdx_cmd_handle_mic_gain_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD, rdx_cmd_handle_record);
+#if TDX_HAS_RECMARK_ABILITY
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECMARK, rdx_cmd_handle_recmark);
+#endif
 	g_upload_timer = 0;
 	g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
 	memset(g_rp_busy, 0, sizeof(g_rp_busy));
