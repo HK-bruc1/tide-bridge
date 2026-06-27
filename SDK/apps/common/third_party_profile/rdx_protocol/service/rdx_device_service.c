@@ -395,8 +395,40 @@ static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)
 
 }
 
+#if RDX_PRODUCT_IS_CHARGE_CASE
+static void rdx_cmd_handle_device_pair(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolDevicePairParams)) return;
+	ProtocolDevicePairParams* p = (ProtocolDevicePairParams*)data;
+	g_printf("[APP CMD] device pair auth=%s ep_mac=%s case_mac=%s sn=%s\r",
+	         p->auth_code, p->ep_mac, p->case_mac, p->label_sn);
+	int r = rdx_device_service_pair(p->auth_code, p->ep_mac, p->label_sn);
+	ops->device_pair_ack_indicate((u8)((r < 0) ? 1 : 0));
+
+}
+
+static void rdx_cmd_handle_device_unpair(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	g_printf("[APP CMD] device unpair\r");
+	int r = rdx_device_service_unpair();
+	ops->device_unpair_ack_indicate((u8)((r < 0) ? 1 : 0));
+
+}
+
+#endif
+
 void rdx_device_service_init(void)
 {
+#if RDX_PRODUCT_IS_CHARGE_CASE
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_DEVICE_PAIR, rdx_cmd_handle_device_pair);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_DEVICE_UNPAIR, rdx_cmd_handle_device_unpair);
+#endif
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SYS_RESET, rdx_cmd_handle_sys_reset);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_UNBOUND, rdx_cmd_handle_unbound);
