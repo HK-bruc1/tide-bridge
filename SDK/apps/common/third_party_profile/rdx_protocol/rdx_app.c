@@ -89,6 +89,7 @@
 #include "rdx_device_service.h"
 #include "rdx_storage_service.h"
 #include "rdx_record_service.h"
+#include "rdx_default_hooks.h"
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -1104,9 +1105,7 @@ void rdx_app_motor_run_once(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-#if (RDX_SUPPORT_MOTOR == 1)
-    motor_run_by_time(500);
-#endif
+rdx_hook_motor_start(500);
 }
 
 /**************************************************************************
@@ -1751,9 +1750,7 @@ int rdx_app_msg_handler(int *msg)
             if(rp->run == RECORD_STATE_STOP){
                 rp->key_trigger = true;
                 //when offline, let user knonw that they can release the key to start recording.
-            #if (RDX_SUPPORT_MOTOR == 1)
-                rdx_record_motor_run();
-            #endif
+            rdx_hook_motor_start(200);
             }else{
                 RecordStatus* rp = rdx_record_get_status();
                 if(rp->scene == RECORD_SCENE_CHAT){
@@ -2240,13 +2237,10 @@ static void rdx_app_emmc_poweroff_check_timer_cb(void* priv)
         EXCEPTION_THROW();
     }
 
-    //check motor state?
-#if (RDX_SUPPORT_MOTOR == 1)
-    if(true == motor_get_run_status()){
+    if (rdx_hook_motor_is_running()) {
         y_printf("rdx_app_emmc_poweroff_check_timer_cb --> motor is working, do not power off \r");
         EXCEPTION_THROW();
     }
-#endif
     //do power off.
     y_printf("rdx_app_emmc_poweroff_check_timer_cb --> emmc power off \r");
     rdx_app_emmc_poweroff();
@@ -2861,9 +2855,7 @@ void rdx_app_all_init(void)
         rdx_record_err_reboot_flag_write_into_vm(0);        
     }else{
         //normal.
-    #if (RDX_SUPPORT_MOTOR == 1)
-        motor_init();
-    #endif
+    rdx_hook_motor_start(0);  /* init if present */
 
         //LED PT0807 init and test.
         rdx_led_hardware_init();
@@ -3031,10 +3023,7 @@ void rdx_app_auto_shutdown(void)
     
     rdx_app_emmc_poweron(1);
 
-#if (RDX_SUPPORT_MOTOR == 1)
-    //motor.
-    rdx_app_motor_run_once();
-#endif
+rdx_hook_motor_start(500);
     sys_timeout_add(NULL, rdx_app_enter_idle, 1500);    
 }
 

@@ -25,6 +25,11 @@ void rdx_hook_motor_stop(void)
 {
 }
 
+bool rdx_hook_motor_is_running(void)
+{
+	return false;
+}
+
 void rdx_hook_dut_enter(void)
 {
 }

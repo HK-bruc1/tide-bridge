@@ -790,12 +790,7 @@ void rdx_ble_server_disconnected_delay_handle(void* priv)
         return;
     }
 
-    rdx_protocol_uploadFileInfo_clean();
-	rdx_uxfile_recordFileData_sendBuf_free();
-	rdx_uxfile_datFileInfo_sendBuf_free();
-    rdx_protocol_file_sync_busy_timer_stop();
-
-    rdx_protocol_send_buffer_reinit();
+    rdx_ble_service_cleanup_protocol_state();
 
     rdx_app_emmc_poweroff_check();
 }
@@ -923,9 +918,6 @@ void rdx_ble_server_connected_handle(void)
 
     //stop adv change timer.
     rdx_ble_server_adv_interval_change_timer_stop();
-
-    //init connect state.
-    rdx_protocol_send_buffer_reinit();
 
     //set connect flag.
     g_rdx_ble_server_info.ble_conn = TRUE;
