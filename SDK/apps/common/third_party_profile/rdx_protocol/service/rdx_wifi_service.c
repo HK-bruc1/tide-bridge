@@ -5,14 +5,34 @@
 #include "rdx_protocol.h"
 #include "rdx_uxfile.h"
 #include "rdx_jl_osal.h"
+#include "xxpUart.h"
+#include "rdx_led_ctrl.h"
 
 extern u8  xxp_rx_parse(u8 *data, unsigned short len);
 extern void xxp_esp32_data_transfer_timer_stop(void);
 extern void xxp_esp32_data_transfer_timer_start(void);
-extern void rdx_app_wifi_handle(u8 cmd);
+extern void xxp_esp32_wifi_poweron_timer_cancel(void);
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 extern void rdx_protocol_file_sync_busy_timer_stop(void);
 extern void rdx_protocol_prepared_data_clean(void);
+
+static RdxWifiInfo g_wifi_info;
+
+RdxWifiInfo *rdx_wifi_service_get_wifi_info(void)
+{
+    return &g_wifi_info;
+}
+
+void rdx_wifi_service_reset_state(void)
+{
+	memset(&g_wifi_info, 0, sizeof(g_wifi_info));
+}
+
+void rdx_wifi_service_set_state(u8 onoff, u8 conn_state)
+{
+	g_wifi_info.onoff = onoff;
+	g_wifi_info.conn_state = conn_state;
+}
 
 static void wifi_rx_cb(const u8 *data, u32 len, void *ctx)
 {
@@ -79,12 +99,25 @@ void rdx_wifi_service_init(void)
 
 void rdx_wifi_power_on(void)
 {
-	rdx_app_wifi_handle(1);
+    b_printf("=== %s --> wifi open \r", __func__);
+    if (g_wifi_info.onoff == TRANSFER_BY_WIFI_ON) {
+        return;
+    }
+    xxp_esp32_wifi_open();
+    g_wifi_info.onoff = TRANSFER_BY_WIFI_ON;
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
 }
 
 void rdx_wifi_power_off(void)
 {
-	rdx_app_wifi_handle(0);
+    b_printf("=== %s --> wifi close \r", __func__);
+    xxp_esp32_wifi_poweron_timer_cancel();
+    if (g_wifi_info.onoff == TRANSFER_BY_WIFI_OFF) {
+        return;
+    }
+    xxp_esp32_wifi_close();
+    rdx_wifi_service_set_state(TRANSFER_BY_WIFI_OFF, TRANSFER_BY_WIFI_OFF);
+    rdx_led_ctrl_restore_system_state();
 }
 
 void rdx_wifi_data_send(const u8 *data, u32 len)

@@ -3,11 +3,23 @@
 
 #include "typedef.h"
 
+#define TRANSFER_BY_WIFI_OFF                        (0)
+#define TRANSFER_BY_WIFI_ON                         (1)
+
+typedef struct {
+    u8 onoff;
+    u8 conn_state;
+} RdxWifiInfo;
+
 void rdx_wifi_service_init(void);
 void rdx_wifi_power_on(void);
 void rdx_wifi_power_off(void);
 void rdx_wifi_data_send(const u8 *data, u32 len);
 u8   rdx_wifi_is_connected(void);
+
+RdxWifiInfo *rdx_wifi_service_get_wifi_info(void);
+void rdx_wifi_service_reset_state(void);
+void rdx_wifi_service_set_state(u8 onoff, u8 conn_state);
 
 /*
  * SPI transport callback handlers.

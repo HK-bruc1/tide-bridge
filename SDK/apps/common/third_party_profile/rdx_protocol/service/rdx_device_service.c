@@ -26,7 +26,6 @@ extern void      rdx_ble_server_app_disconnect(void);
 extern void      rdx_ble_server_exit(void);
 extern int       rdx_record_task_free(void);
 extern void      rdx_uxfile_task_free(void);
-extern void      rdx_app_wifi_handle(u8 cmd);
 extern void      rdx_app_motor_run_once(void);
 extern void      rdx_app_earphone_pack_readchardata(void);
 extern void      xxp_uart_set_wifi_default_flag(bool f);
@@ -84,9 +83,7 @@ void rdx_device_service_soft_poweroff(void)
 	}
 
 	{
-		RdxWifiInfo *pw = rdx_app_get_wifi_info();
-		if (pw && pw->onoff == TRANSFER_BY_WIFI_ON)
-			rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
+		rdx_wifi_power_off();
 	}
 
 	rdx_ble_server_app_disconnect();

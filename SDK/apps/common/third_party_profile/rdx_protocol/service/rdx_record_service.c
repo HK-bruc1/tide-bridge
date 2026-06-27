@@ -112,6 +112,21 @@ static void rdx_cmd_handle_recmark(ProtocolEvents event, void *data, u32 len)
 
 #endif
 
+/*
+ * Phase 3 BLE event callback — logging-only.
+ * Records event order/timing during the migration window.
+ * Business action remains in the direct-call path until Stage 4 cutover.
+ */
+static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len, void *user_ctx)
+{
+    (void)payload; (void)len; (void)user_ctx;
+    if (event == RDX_EVENT_BLE_CONNECTED) {
+        RDX_LOGI("BLE event: CONNECTED (logging-only)");
+    } else if (event == RDX_EVENT_BLE_DISCONNECTED) {
+        RDX_LOGI("BLE event: DISCONNECTED (logging-only)");
+    }
+}
+
 void rdx_record_service_init(void)
 {
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY, rdx_cmd_handle_mic_gain_query);
@@ -120,6 +135,10 @@ void rdx_record_service_init(void)
 #if TDX_HAS_RECMARK_ABILITY
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECMARK, rdx_cmd_handle_recmark);
 #endif
+	/* Phase 3: BLE event logging-only subscription */
+	rdx_event_subscribe(RDX_EVENT_BLE_CONNECTED,    rdx_record_on_ble_event, NULL);
+	rdx_event_subscribe(RDX_EVENT_BLE_DISCONNECTED, rdx_record_on_ble_event, NULL);
+
 	g_upload_timer = 0;
 	g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
 	memset(g_rp_busy, 0, sizeof(g_rp_busy));

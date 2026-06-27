@@ -31,6 +31,7 @@
 #include "rdx_record.h"
 #include "rdx_app_config.h"
 #include "rdx_vm.h"
+#include "rdx_wifi_service.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -75,8 +76,6 @@ extern "C" {
 #define DEVICE_WORK_MODE_TWS                        (0)
 #define DEVICE_WORK_MODE_AI                         (1)
 
-#define TRANSFER_BY_WIFI_OFF                        (0)
-#define TRANSFER_BY_WIFI_ON                         (1)
 
 /******************************************************************************
 * Structure and Enum Section
@@ -102,11 +101,6 @@ enum {
     RDX_SEND_DATA_TYPE_DT_ENUM,
     RDX_SEND_DATA_TYPE_DT_BITMAP,
 };
-
-typedef struct{
-    u8 onoff;
-    u8 conn_state;
-}RdxWifiInfo;
 
 
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 

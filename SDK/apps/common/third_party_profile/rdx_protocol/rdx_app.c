@@ -29,6 +29,11 @@
 #pragma code_seg(".rdx_app.text")
 #endif
 
+/*
+ * Phase 3 baseline: ~2600 lines / ~90 functions / 11 handler registrations.
+ * Stage 4 target: <=2000 lines / <=50 functions. See docs/ for migration plan.
+ */
+
 #include "app_config.h"
 #include "app_msg.h"
 #include "system/includes.h"
@@ -161,7 +166,6 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 
 #endif
 
-static RdxWifiInfo wifiInfo;
 static bool rdx_ble_conn = FALSE;
 static bool poweroff_ready_flag = 0;
 static bool poweron_ready_flag = 0;
@@ -1181,15 +1185,15 @@ void rdx_app_single_click_handle(void)
     }else{
     #if TDX_HAS_RECMARK_ABILITY
         if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-            if(!get_ota_status() && wifiInfo.onoff != TRANSFER_BY_WIFI_ON){
+            if(!get_ota_status() && rdx_app_get_wifi_info()->onoff != TRANSFER_BY_WIFI_ON){
                 rdx_record_add_mark(RDX_MARK_SOURCE_KEY);
                 return;
             }
         }
     #endif
         // 非 DUT 模式下，按键单击重新唤醒快速广播
-        if(wifiInfo.onoff != TRANSFER_BY_WIFI_ON 
-            && rp->run != RECORD_STATE_START 
+        if(rdx_app_get_wifi_info()->onoff != TRANSFER_BY_WIFI_ON
+            && rp->run != RECORD_STATE_START
             && rp->run != RECORD_STATE_RESUME
             && !get_ota_status()){
             rdx_ble_server_fast_adv_restart();
@@ -1209,14 +1213,14 @@ void rdx_app_double_click_handle(void)
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_DOUBLE_CLICK);
     }else{
-        if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
+        if(rdx_app_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
             r_printf("====== %s --> not on normal status, do nothing \r", __func__);
             return;
         }
 
         //bound status check and show.
         rdx_vm_bound_status_check();
-    }    
+    }
 }
 
 /**************************************************************************
@@ -1235,7 +1239,7 @@ void rdx_app_triple_click_handle(void)
             log_info("====== %s --> 非DUT模式下录音中,三击功能无效 \r", __func__);
             return;
         }
-        if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
+        if(rdx_app_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
             r_printf("====== %s --> not on normal status, do nothing \r", __func__);
             return;
         }
@@ -1260,7 +1264,7 @@ void rdx_app_quadruple_click_handle(void)
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_QUADRUPLE_CLICK);
     }else{
-        if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
+        if(rdx_app_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON){
             r_printf("====== %s --> wifi is on \r", __func__);
             return;
         }
@@ -1331,8 +1335,7 @@ void rdx_app_sextuple_click_handle(void)
  **************************************************************************/
 RdxWifiInfo* rdx_app_get_wifi_info(void)
 {
-    
-    return &wifiInfo;
+    return rdx_wifi_service_get_wifi_info();
 }
 
 /**************************************************************************
@@ -1343,27 +1346,12 @@ RdxWifiInfo* rdx_app_get_wifi_info(void)
  **************************************************************************/
 void rdx_app_wifi_handle(u8 cmd)
 {
-    
     b_printf("=== %s --> cmd = %d \r", __func__, cmd);
-	if(cmd == TRUE){
-		b_printf("=== %s --> wifi open \r", __func__);
-        if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
-            return;
-        }
-        xxp_esp32_wifi_open();
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
-	}else{
-		b_printf("=== %s --> wifi close \r", __func__);
-
-        extern void xxp_esp32_wifi_poweron_timer_cancel(void);
-        xxp_esp32_wifi_poweron_timer_cancel();
-        if(wifiInfo.onoff == TRANSFER_BY_WIFI_OFF){
-            return;
-        }
-        //do wifi close.
-		xxp_esp32_wifi_close();
-        rdx_led_ctrl_restore_system_state();
-	}
+    if (cmd == TRUE) {
+        rdx_wifi_power_on();
+    } else {
+        rdx_wifi_power_off();
+    }
 }
 
 /**************************************************************************
@@ -2010,7 +1998,7 @@ static void rdx_app_emmc_poweroff_check_timer_start(void)
         return;
     }
     // }
-    if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
+    if(rdx_app_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON){
         return;
     }
     if(emmc_poweroff_check_timer == 0){
@@ -2136,6 +2124,14 @@ static void rdx_cmd_handle_sd_mem_query(ProtocolEvents event, void *data, u32 le
 
 }
 
+/*
+ * RTC handler — Stage 3 依赖扫描结论:
+ *   Depends: rdx_rtc_get/set_timestamp, rdx_record_get_status, rdx_uxfile_get_operateFile_info
+ *   核心操作: set hardware RTC + adjust uxfile start_time during active recording
+ *   Stage 4 归属: rdx_time_ops / rdx_time_service (RTC 读写是主路径)
+ *   跨模块碰撞点: uxfile start_time 修正 → 需 record/storage 通过 event 或 service API 协作
+ *   暂不迁入 info_service 或 device_service
+ */
 static void rdx_cmd_handle_rtc(ProtocolEvents event, void *data, u32 len)
 {
 	(void)event; (void)data; (void)len;
@@ -2207,6 +2203,13 @@ static void rdx_cmd_handle_ble_name_set(ProtocolEvents event, void *data, u32 le
 
 }
 
+/*
+ * OFFTIME_SET handler — Stage 3 依赖扫描结论:
+ *   Depends: sys_set_auto_off_time, sys_get_auto_off_time
+ *   核心操作: 设置/查询设备自动关机时间
+ *   Stage 4 归属: rdx_device_service (设备生命周期/关机策略)
+ *   低风险迁移: 依赖全是系统 API，无 librdxApp.a 或跨模块回调
+ */
 static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len)
 {
 	(void)event; (void)data; (void)len;
@@ -2226,16 +2229,6 @@ static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len
 	    sec = sys_get_auto_off_time();
 	}
 	ops->offtime_set_ack_indicate(0, (u16)sec);
-
-}
-
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolOsTypeParams)) return;
-	ProtocolOsTypeParams* p = (ProtocolOsTypeParams*)data;
-	g_printf("[APP CMD] os_type = %d\r", p->os_type);
-	ops->os_type_ack_indicate();
 
 }
 
@@ -2413,7 +2406,7 @@ void rdx_app_all_init(void)
 	rdx_record_task_create();
 
     //wifi init.
-    memset(&wifiInfo, 0, sizeof(wifiInfo));
+    rdx_wifi_service_reset_state();
 
 #if (RDX_AI_TRANSLATE_SUPPORT == 1)
     memset(&aiModeInfo, 0, sizeof(AImodeInfo));
@@ -2439,6 +2432,12 @@ void rdx_app_all_init(void)
         }
         if (lc && lc->early_init) {
             lc->early_init();
+        }
+    }
+    {
+        const rdx_time_ops_t *to = rdx_time_ops_get();
+        if (rdx_time_ops_validate(to) != RDX_OK) {
+            RDX_LOGE("time ops validate failed");
         }
     }
 
