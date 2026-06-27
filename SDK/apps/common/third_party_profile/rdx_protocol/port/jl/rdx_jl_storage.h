@@ -29,4 +29,8 @@ typedef enum {
 rdx_err_t rdx_storage_read(rdx_vm_id_t id, u8 *buf, u16 len);
 rdx_err_t rdx_storage_write(rdx_vm_id_t id, const u8 *buf, u16 len);
 
+/* thin wrappers around syscfg_read_string / syscfg_write */
+rdx_err_t rdx_storage_cfg_read_string(u16 id, void *buf, u16 len, u8 ver);
+rdx_err_t rdx_storage_cfg_write(u16 id, const void *buf, u16 len);
+
 #endif

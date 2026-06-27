@@ -10,6 +10,9 @@
 #include "rdx_wifi_service.h"
 #include "xxpUart.h"
 #include "gpio_config.h"
+#include "rdx_jl_gpio.h"
+#include "rdx_jl_osal.h"
+#include "rdx_jl_storage.h"
 #include "poweroff.h"
 #include "btstack/avctp_user.h"
 
@@ -48,7 +51,6 @@ extern void rdx_rtc_store_timestamp(void);
 extern void rdx_cpu_reset(void);
 extern void sys_set_auto_off_time(u16 t);
 extern u8   get_ota_status(void);
-extern int  syscfg_write(u16 id, const void *buf, u16 len);
 extern void bt_tws_remove_pairs(void);
 extern int  tws_api_get_role(void);
 
@@ -63,12 +65,12 @@ void rdx_device_service_poweroff_cb(void *priv)
 	oled_task_free();
 #endif
 	sd_set_power(0);
-	gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
-	gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
-	gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
-	gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
-	gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
-	gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
+	rdx_gpio_set_highz(IO_PORTC_01);
+	rdx_gpio_set_highz(IO_PORTC_02);
+	rdx_gpio_set_highz(IO_PORTC_04);
+	rdx_gpio_set_highz(IO_PORTC_05);
+	rdx_gpio_set_highz(WIFI_POWER_PORT_IO);
+	rdx_gpio_set_highz(VDD_POWER_PORT_IO);
 	sys_enter_soft_poweroff(POWEROFF_NORMAL);
 }
 
@@ -95,15 +97,15 @@ void rdx_device_service_soft_poweroff(void)
 #endif
 
 	xxp_uart_set_wifi_default_flag(false);
-	os_time_dly(50);
-	sys_timeout_add(NULL, rdx_device_service_poweroff_cb, 500);
+	rdx_os_time_dly(50);
+	rdx_os_timer_add(rdx_device_service_poweroff_cb, NULL, 500);
 }
 
 /* ---- reboot ---- */
 
 void rdx_device_service_reboot(void)
 {
-	sys_timeout_add((void *)1, rdx_app_reset_delay_cb, 1000);
+	rdx_os_timer_add(rdx_app_reset_delay_cb, (void *)1, 1000);
 }
 
 /* ---- device pair (charge case) ---- */
@@ -179,8 +181,8 @@ void rdx_device_service_unbound_cb(u8 result)
 		{
 			u8 name[LOCAL_NAME_LEN];
 			memset(name, 0x00, sizeof(name));
-			syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-			syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+			rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+			rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
 		}
 
 		rdx_ble_server_reset_local_name();
@@ -190,7 +192,7 @@ void rdx_device_service_unbound_cb(u8 result)
 		rdx_protocol_bound_result_indicate(0);
 
 		rdx_vm_set_unbounding(false);
-		os_time_dly(100);
+		rdx_os_time_dly(100);
 		rdx_cpu_reset();
 	} else {
 		rdx_protocol_bound_result_indicate(1);
@@ -210,7 +212,7 @@ void rdx_device_service_choose_to_unbound_cb(u8 result)
 		rdx_vm_set_bound_status(0, 0);
 		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
 		rdx_vm_set_unbounding(false);
-		os_time_dly(50);
+		rdx_os_time_dly(50);
 		rdx_cpu_reset();
 	} else {
 		rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_vm_get_bound_status());
@@ -228,8 +230,8 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 		{
 			u8 name[LOCAL_NAME_LEN];
 			memset(name, 0x00, sizeof(name));
-			syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-			syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+			rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+			rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
 		}
 
 		rdx_ble_server_reset_local_name();
@@ -244,7 +246,7 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 		rdx_vm_set_bound_status(0, 0);
 		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
 		rdx_vm_set_unbounding(false);
-		os_time_dly(100);
+		rdx_os_time_dly(100);
 		rdx_cpu_reset();
 	}
 }
@@ -277,8 +279,8 @@ int rdx_device_service_factory_reset(void)
 	{
 		u8 name[LOCAL_NAME_LEN];
 		memset(name, 0x00, sizeof(name));
-		syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-		syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+		rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
 	}
 
 	rdx_ble_server_reset_local_name();
@@ -320,8 +322,8 @@ void rdx_device_service_user_para_reset(void)
 	{
 		u8 name[LOCAL_NAME_LEN];
 		memset(name, 0x00, sizeof(name));
-		syscfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-		syscfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
+		rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
 	}
 
 	rdx_ble_server_reset_local_name();

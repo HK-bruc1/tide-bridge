@@ -40,7 +40,8 @@ rdx_err_t rdx_os_task_create(const char *name, rdx_task_entry_t entry, void *arg
 rdx_err_t rdx_os_task_post_msg(const char *task_name, u32 msg, u32 arg);
 
 /* time */
-u32 rdx_os_time_ms(void);
-u32 rdx_os_time_tick(void);
+u32  rdx_os_time_ms(void);
+u32  rdx_os_time_tick(void);
+void rdx_os_time_dly(u32 ticks);
 
 #endif

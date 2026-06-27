@@ -4,6 +4,7 @@
 #include "rdx_log.h"
 #include "rdx_protocol.h"
 #include "rdx_uxfile.h"
+#include "rdx_jl_osal.h"
 
 extern u8  xxp_rx_parse(u8 *data, unsigned short len);
 extern void xxp_esp32_data_transfer_timer_stop(void);
@@ -57,12 +58,12 @@ static void wifi_tx_done_cb(void *ctx)
 				ru->pack_num = 0;
 				ru->ack = 0;
 			}
-			os_time_dly(2);
+			rdx_os_time_dly(2);
 			{
 				int qret;
 				qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
 				if (qret != OS_NO_ERR) {
-					os_time_dly(1);
+					rdx_os_time_dly(1);
 					os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
 				}
 			}

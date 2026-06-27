@@ -71,3 +71,8 @@ u32 rdx_os_time_tick(void)
 {
     return (u32)jiffies;
 }
+
+void rdx_os_time_dly(u32 ticks)
+{
+    os_time_dly(ticks);
+}

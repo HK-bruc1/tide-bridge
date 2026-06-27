@@ -8,6 +8,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_dut.h"
 #include "rdx_command_dispatch.h"
+#include "rdx_jl_osal.h"
 
 /* symbols from librdxApp.a */
 extern void rdx_protocol_record_trigger_indicate(RecordStatus *rp, u8 factor);
@@ -136,7 +137,7 @@ void rdx_record_service_exit(void)
 void rdx_record_service_upload_timer_stop(void)
 {
 	if (g_upload_timer) {
-		sys_timeout_del(g_upload_timer);
+		rdx_os_timer_del(g_upload_timer);
 		g_upload_timer = 0;
 	}
 }
@@ -144,8 +145,7 @@ void rdx_record_service_upload_timer_stop(void)
 void rdx_record_service_upload_timer_start(void)
 {
 	if (g_upload_timer == 0) {
-		g_upload_timer = sys_timeout_add(NULL,
-			rdx_record_service_upload_timer_cb, 3000);
+		g_upload_timer = rdx_os_timer_add(rdx_record_service_upload_timer_cb, NULL, 3000);
 	}
 }
 
