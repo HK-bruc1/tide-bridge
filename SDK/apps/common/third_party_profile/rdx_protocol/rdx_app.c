@@ -2370,302 +2370,444 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
  */
 static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
-    const RdxProtocolIndicateOps* ops = g_protocol_ops;
-    if(!ops) return;
+	rdx_cmd_dispatch(event, data, len);
+}
 
-    switch(event){
-        /* ============== 主动查询/上报类: data == NULL ============== */
-        case PROTOCOL_EVENT_CMD_BATTERY_QUERY: {
-            DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
-            g_printf("[APP CMD] battery (L=%d, R=%d, C=%d)\r",
-                     pb->tbat_percent_L, pb->tbat_percent_R, pb->tbat_percent_C);
-            ops->battery_indicate(pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-            break;
-        }
 
-        case PROTOCOL_EVENT_CMD_INCHARGE_QUERY: {
-            DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
-            u8 charge_state = rdx_app_get_charge_state();
-            g_printf("[APP CMD] incharge state=%d (C=%d, R=%d, L=%d)\r",
-                     charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-            /* 历史顺序 (charge, C, R, L); _rdx_protocol_incharge_indicate 形参为
-             * (charge_state, left, right, chargebox), 这里按既有约定填. */
-            ops->incharge_indicate(charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-            break;
-        }
+/* ---- extracted protocol command handlers ---- */
 
-        case PROTOCOL_EVENT_CMD_VERSION_QUERY: {
-            char* hv = rdx_protocol_get_hardware_version();
-            char* sv = rdx_protocol_get_firmware_version();
-            g_printf("[APP CMD] version (fw=%s, hw=%s)\r", sv ? sv : "", hv ? hv : "");
-            ops->version_indicate(hv, sv);
-            break;
-        }
+static void rdx_cmd_handle_battery_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
+	g_printf("[APP CMD] battery (L=%d, R=%d, C=%d)\r",
+	         pb->tbat_percent_L, pb->tbat_percent_R, pb->tbat_percent_C);
+	ops->battery_indicate(pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
 
-        case PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY: {
-            RecordStatus* rp_sw = rdx_record_get_status();
-            u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
-            g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
-            ops->record_mode_indicate(scene, rp_sw->run);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_AUTH_SN: {
-            ops->auth_sn_indicate();
-            break;
-        }
+static void rdx_cmd_handle_incharge_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
+	u8 charge_state = rdx_app_get_charge_state();
+	g_printf("[APP CMD] incharge state=%d (C=%d, R=%d, L=%d)\r",
+	         charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
+	/* 历史顺序 (charge, C, R, L); _rdx_protocol_incharge_indicate 形参为
+	 * (charge_state, left, right, chargebox), 这里按既有约定填. */
+	ops->incharge_indicate(charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
 
-        case PROTOCOL_EVENT_CMD_BT_NAME_QUERY: {
-            char bt_name[64];
-            int ret = rdx_ble_server_bt_name_set_handle(0, NULL, bt_name, sizeof(bt_name));
-            g_printf("[APP CMD] bt name = %s\r", bt_name);
-            ops->bt_name_check_ack_indicate((u8)(ret ? 1 : 0), bt_name);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_BLE_NAME_QUERY: {
-            char ble_name[64];
-            int ret = rdx_ble_server_ble_name_set_handle(0, NULL, ble_name, sizeof(ble_name));
-            g_printf("[APP CMD] ble name = %s\r", ble_name);
-            ops->ble_name_check_ack_indicate((u8)(ret ? 1 : 0), ble_name);
-            break;
-        }
+static void rdx_cmd_handle_version_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	char* hv = rdx_protocol_get_hardware_version();
+	char* sv = rdx_protocol_get_firmware_version();
+	g_printf("[APP CMD] version (fw=%s, hw=%s)\r", sv ? sv : "", hv ? hv : "");
+	ops->version_indicate(hv, sv);
 
-        case PROTOCOL_EVENT_CMD_OFFTIME_QUERY: {
-            u32 sec = sys_get_auto_off_time();
-            g_printf("[APP CMD] offtime = %u\r", (unsigned)sec);
-            ops->offtime_check_ack_indicate(0, sec);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_SD_MEM_QUERY: {
-            /* 先回 0/0 占位 ack, 真实容量查询需走 uxfile 任务异步执行,
-             * 由 sdk 内部 sd_mem 查询路径完成后再次 indicate. */
-            ops->sd_mem_indicate(0, 0);
-            rdx_uxfile_device_sd_mem_check();
-            break;
-        }
+static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	RecordStatus* rp_sw = rdx_record_get_status();
+	u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
+	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
+	ops->record_mode_indicate(scene, rp_sw->run);
 
-        case PROTOCOL_EVENT_CMD_SD_FORMAT: {
-            RecordStatus* rp = rdx_record_get_status();
-            if(get_ota_status() ||
-               rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-               rdx_wifi_service_is_file_send_busy()){
-                y_printf("[APP CMD] sd_format rejected: busy\r");
-                ops->sd_format_ack_indicate(1);
-                break;
-            }
-            ops->sd_format_ack_indicate(0);
-            rdx_storage_service_format_handle();
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_SYS_RESET: {
-            RecordStatus* rp = rdx_record_get_status();
-            ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
-            if(get_ota_status() ||
-               rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-               (rf_info && rf_info->file_send_busy == true)){
-                y_printf("[APP CMD] sys_reset rejected: busy\r");
-                ops->sys_set_default_ack_indicate(1);
-                break;
-            }
-            ops->sys_set_default_ack_indicate(0);
-            int msg[2];
-            msg[0] = (int)rdx_vm_sys_reset_to_defaults;
-            msg[1] = 0;
-            if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
-                log_info("[APP CMD] sys_reset taskq post err\r");
-            }
-            break;
-        }
+static void rdx_cmd_handle_auth_sn(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	ops->auth_sn_indicate();
 
-        /* ============== 下行命令类: data 是 ProtocolXxxParams* ============== */
-        case PROTOCOL_EVENT_CMD_RTC: {
-            if(!data || len < sizeof(ProtocolRtcParams)) break;
-            ProtocolRtcParams* p = (ProtocolRtcParams*)data;
-            if(p->timestamp > 0){
-                time_t old_rtc = rdx_rtc_get();
-                int result = rdx_rtc_set_timestamp(p->timestamp);
-                if(result == 0 && old_rtc > 0){
-                    int32_t delta = (int32_t)((time_t)p->timestamp - old_rtc);
-                    RecordStatus *rp = rdx_record_get_status();
-                    if(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
-                        uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
-                        if(op && op->start_time > 0){
-                            u32 corrected = (u32)((int32_t)op->start_time + delta);
-                            y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
-                                     op->start_time, corrected, delta);
-                            op->start_time = corrected;
-                        }
-                    }
-                }
-                ops->rtc_set_ack_indicate((u8)result, p->timestamp);
-            } else {
-                ops->rtc_set_ack_indicate(1, p->timestamp);
-            }
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_BOUND: {
-            if(!data || len < sizeof(ProtocolBoundParams)) break;
-            ProtocolBoundParams* p = (ProtocolBoundParams*)data;
-            g_printf("[APP CMD] bound cmd=%d\r", p->cmd);
-            if(p->cmd == 1){
-                rdx_vm_set_bound_status(1, 1);
-                ops->bound_result_ack_indicate(0);
-            }else{
-                ops->bound_result_ack_indicate(0);
-                rdx_vm_unbound_handle();
-            }
-            break;
-        }
+static void rdx_cmd_handle_bt_name_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	char bt_name[64];
+	int ret = rdx_ble_server_bt_name_set_handle(0, NULL, bt_name, sizeof(bt_name));
+	g_printf("[APP CMD] bt name = %s\r", bt_name);
+	ops->bt_name_check_ack_indicate((u8)(ret ? 1 : 0), bt_name);
 
-        case PROTOCOL_EVENT_CMD_UNBOUND: {
-            if(!data || len < sizeof(ProtocolUnboundParams)) break;
-            ProtocolUnboundParams* p = (ProtocolUnboundParams*)data;
-            RecordStatus* rp = rdx_record_get_status();
-            ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
-            if(get_ota_status() ||
-               rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-               (rf_info && rf_info->file_send_busy == true)){
-                y_printf("[APP CMD] unbound rejected: busy\r");
-                ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
-                break;
-            }
-            g_printf("[APP CMD] unbound user=%d format=%d\r", p->user_para, p->format_en);
-            rdx_vm_choose_to_unbound_handle(p->user_para, p->format_en);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_FILE_DELETE: {
-            if(!data || len < sizeof(ProtocolFileDeleteParams)) break;
-            ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
-            g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
-            int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
-            ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
-            break;
-        }
+static void rdx_cmd_handle_ble_name_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	char ble_name[64];
+	int ret = rdx_ble_server_ble_name_set_handle(0, NULL, ble_name, sizeof(ble_name));
+	g_printf("[APP CMD] ble name = %s\r", ble_name);
+	ops->ble_name_check_ack_indicate((u8)(ret ? 1 : 0), ble_name);
 
-        case PROTOCOL_EVENT_CMD_BT_NAME_SET: {
-            if(!data || len < sizeof(ProtocolNameParams)) break;
-            ProtocolNameParams* p = (ProtocolNameParams*)data;
-            char bt_name[64];
-            int ret = rdx_ble_server_bt_name_set_handle(p->has_value, p->name,
-                                                       bt_name, sizeof(bt_name));
-            ops->bt_name_set_ack_indicate((u8)(ret ? 1 : 0), bt_name);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_BLE_NAME_SET: {
-            if(!data || len < sizeof(ProtocolNameParams)) break;
-            ProtocolNameParams* p = (ProtocolNameParams*)data;
-            char ble_name[64];
-            int ret = rdx_ble_server_ble_name_set_handle(p->has_value, p->name,
-                                                        ble_name, sizeof(ble_name));
-            ops->ble_name_set_ack_indicate((u8)(ret ? 1 : 0), ble_name);
-            break;
-        }
+static void rdx_cmd_handle_offtime_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	u32 sec = sys_get_auto_off_time();
+	g_printf("[APP CMD] offtime = %u\r", (unsigned)sec);
+	ops->offtime_check_ack_indicate(0, sec);
 
-        case PROTOCOL_EVENT_CMD_OFFTIME_SET: {
-            if(!data || len < sizeof(ProtocolOfftimeParams)) break;
-            ProtocolOfftimeParams* p = (ProtocolOfftimeParams*)data;
-            u32 sec = p->offtime;
-            if(p->has_value){
-                if(sec >= 1){
-                    sys_set_auto_off_time((u16)sec);
-                }else{
-                    ops->offtime_set_ack_indicate(1, (u16)sec);
-                    break;
-                }
-            }else{
-                sec = sys_get_auto_off_time();
-            }
-            ops->offtime_set_ack_indicate(0, (u16)sec);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY: {
-            if(!data || len < sizeof(ProtocolMicGainQueryParams)) break;
-            ProtocolMicGainQueryParams* p = (ProtocolMicGainQueryParams*)data;
-            int g1 = 0, g2 = 0;
-            int ret = rdx_record_mic_gain_query(p->mode, &g1, &g2);
-            ops->mic_gain_check_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
-            break;
-        }
+static void rdx_cmd_handle_sd_mem_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	/* 先回 0/0 占位 ack, 真实容量查询需走 uxfile 任务异步执行,
+	 * 由 sdk 内部 sd_mem 查询路径完成后再次 indicate. */
+	ops->sd_mem_indicate(0, 0);
+	rdx_uxfile_device_sd_mem_check();
 
-        case PROTOCOL_EVENT_CMD_MIC_GAIN_SET: {
-            if(!data || len < sizeof(ProtocolMicGainSetParams)) break;
-            ProtocolMicGainSetParams* p = (ProtocolMicGainSetParams*)data;
-            int g1 = p->mic1_gain, g2 = p->mic2_gain;
-            int ret = rdx_record_mic_gain_set(p->mode, &g1, &g2);
-            ops->mic_gain_set_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
-            break;
-        }
+}
 
-        case PROTOCOL_EVENT_CMD_OS_TYPE: {
-            if(!data || len < sizeof(ProtocolOsTypeParams)) break;
-            ProtocolOsTypeParams* p = (ProtocolOsTypeParams*)data;
-            g_printf("[APP CMD] os_type = %d\r", p->os_type);
-            ops->os_type_ack_indicate();
-            break;
-        }
+static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	RecordStatus* rp = rdx_record_get_status();
+	if(get_ota_status() ||
+	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   rdx_wifi_service_is_file_send_busy()){
+	    y_printf("[APP CMD] sd_format rejected: busy\r");
+	    ops->sd_format_ack_indicate(1);
+	    return;
+	}
+	ops->sd_format_ack_indicate(0);
+	rdx_storage_service_format_handle();
+
+}
+
+static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	RecordStatus* rp = rdx_record_get_status();
+	ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
+	if(get_ota_status() ||
+	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   (rf_info && rf_info->file_send_busy == true)){
+	    y_printf("[APP CMD] sys_reset rejected: busy\r");
+	    ops->sys_set_default_ack_indicate(1);
+	    return;
+	}
+	ops->sys_set_default_ack_indicate(0);
+	int msg[2];
+	msg[0] = (int)rdx_vm_sys_reset_to_defaults;
+	msg[1] = 0;
+	if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+	    log_info("[APP CMD] sys_reset taskq post err\r");
+	}
+
+}
+
+static void rdx_cmd_handle_rtc(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolRtcParams)) return;
+	ProtocolRtcParams* p = (ProtocolRtcParams*)data;
+	if(p->timestamp > 0){
+	    time_t old_rtc = rdx_rtc_get();
+	    int result = rdx_rtc_set_timestamp(p->timestamp);
+	    if(result == 0 && old_rtc > 0){
+	        int32_t delta = (int32_t)((time_t)p->timestamp - old_rtc);
+	        RecordStatus *rp = rdx_record_get_status();
+	        if(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
+	            uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
+	            if(op && op->start_time > 0){
+	                u32 corrected = (u32)((int32_t)op->start_time + delta);
+	                y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
+	                         op->start_time, corrected, delta);
+	                op->start_time = corrected;
+	            }
+	        }
+	    }
+	    ops->rtc_set_ack_indicate((u8)result, p->timestamp);
+	} else {
+	    ops->rtc_set_ack_indicate(1, p->timestamp);
+	}
+
+}
+
+static void rdx_cmd_handle_bound(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolBoundParams)) return;
+	ProtocolBoundParams* p = (ProtocolBoundParams*)data;
+	g_printf("[APP CMD] bound cmd=%d\r", p->cmd);
+	if(p->cmd == 1){
+	    rdx_vm_set_bound_status(1, 1);
+	    ops->bound_result_ack_indicate(0);
+	}else{
+	    ops->bound_result_ack_indicate(0);
+	    rdx_vm_unbound_handle();
+	}
+
+}
+
+static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolUnboundParams)) return;
+	ProtocolUnboundParams* p = (ProtocolUnboundParams*)data;
+	RecordStatus* rp = rdx_record_get_status();
+	ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
+	if(get_ota_status() ||
+	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   (rf_info && rf_info->file_send_busy == true)){
+	    y_printf("[APP CMD] unbound rejected: busy\r");
+	    ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
+	    return;
+	}
+	g_printf("[APP CMD] unbound user=%d format=%d\r", p->user_para, p->format_en);
+	rdx_vm_choose_to_unbound_handle(p->user_para, p->format_en);
+
+}
+
+static void rdx_cmd_handle_file_delete(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolFileDeleteParams)) return;
+	ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
+	g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
+	int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
+	ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
+
+}
+
+static void rdx_cmd_handle_bt_name_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolNameParams)) return;
+	ProtocolNameParams* p = (ProtocolNameParams*)data;
+	char bt_name[64];
+	int ret = rdx_ble_server_bt_name_set_handle(p->has_value, p->name,
+	                                           bt_name, sizeof(bt_name));
+	ops->bt_name_set_ack_indicate((u8)(ret ? 1 : 0), bt_name);
+
+}
+
+static void rdx_cmd_handle_ble_name_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolNameParams)) return;
+	ProtocolNameParams* p = (ProtocolNameParams*)data;
+	char ble_name[64];
+	int ret = rdx_ble_server_ble_name_set_handle(p->has_value, p->name,
+	                                            ble_name, sizeof(ble_name));
+	ops->ble_name_set_ack_indicate((u8)(ret ? 1 : 0), ble_name);
+
+}
+
+static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolOfftimeParams)) return;
+	ProtocolOfftimeParams* p = (ProtocolOfftimeParams*)data;
+	u32 sec = p->offtime;
+	if(p->has_value){
+	    if(sec >= 1){
+	        sys_set_auto_off_time((u16)sec);
+	    }else{
+	        ops->offtime_set_ack_indicate(1, (u16)sec);
+	        return;
+	    }
+	}else{
+	    sec = sys_get_auto_off_time();
+	}
+	ops->offtime_set_ack_indicate(0, (u16)sec);
+
+}
+
+static void rdx_cmd_handle_mic_gain_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolMicGainQueryParams)) return;
+	ProtocolMicGainQueryParams* p = (ProtocolMicGainQueryParams*)data;
+	int g1 = 0, g2 = 0;
+	int ret = rdx_record_mic_gain_query(p->mode, &g1, &g2);
+	ops->mic_gain_check_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
+
+}
+
+static void rdx_cmd_handle_mic_gain_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolMicGainSetParams)) return;
+	ProtocolMicGainSetParams* p = (ProtocolMicGainSetParams*)data;
+	int g1 = p->mic1_gain, g2 = p->mic2_gain;
+	int ret = rdx_record_mic_gain_set(p->mode, &g1, &g2);
+	ops->mic_gain_set_ack_indicate((u8)(ret ? 1 : 0), p->mode, g1, g2);
+
+}
+
+static void rdx_cmd_handle_os_type(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolOsTypeParams)) return;
+	ProtocolOsTypeParams* p = (ProtocolOsTypeParams*)data;
+	g_printf("[APP CMD] os_type = %d\r", p->os_type);
+	ops->os_type_ack_indicate();
+
+}
+
+static void rdx_cmd_handle_audio_stream(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolAudioStreamParams)) return;
+	ops->audio_stream_play((const ProtocolAudioStreamParams*)data);
+
+}
+
+static void rdx_cmd_handle_record(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(Record_info)) return;
+	rdx_record_cmd_handle((Record_info*)data);
+
+}
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
-        case PROTOCOL_EVENT_CMD_DEVICE_PAIR: {
-            if(!data || len < sizeof(ProtocolDevicePairParams)) break;
-            ProtocolDevicePairParams* p = (ProtocolDevicePairParams*)data;
-            g_printf("[APP CMD] device pair auth=%s ep_mac=%s case_mac=%s sn=%s\r",
-                     p->auth_code, p->ep_mac, p->case_mac, p->label_sn);
-            int r = rdx_app_device_pair_handle(p->auth_code, p->ep_mac, p->label_sn);
-            ops->device_pair_ack_indicate((u8)((r < 0) ? 1 : 0));
-            break;
-        }
+static void rdx_cmd_handle_device_pair(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolDevicePairParams)) return;
+	ProtocolDevicePairParams* p = (ProtocolDevicePairParams*)data;
+	g_printf("[APP CMD] device pair auth=%s ep_mac=%s case_mac=%s sn=%s\r",
+	         p->auth_code, p->ep_mac, p->case_mac, p->label_sn);
+	int r = rdx_app_device_pair_handle(p->auth_code, p->ep_mac, p->label_sn);
+	ops->device_pair_ack_indicate((u8)((r < 0) ? 1 : 0));
 
-        case PROTOCOL_EVENT_CMD_DEVICE_UNPAIR: {
-            g_printf("[APP CMD] device unpair\r");
-            int r = rdx_app_device_unpair_handle();
-            ops->device_unpair_ack_indicate((u8)((r < 0) ? 1 : 0));
-            break;
-        }
-#endif /* RDX_PRODUCT_IS_CHARGE_CASE */
+}
 
-        case PROTOCOL_EVENT_CMD_AUDIO_STREAM: {
-            if(!data || len < sizeof(ProtocolAudioStreamParams)) break;
-            ops->audio_stream_play((const ProtocolAudioStreamParams*)data);
-            break;
-        }
+static void rdx_cmd_handle_device_unpair(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	g_printf("[APP CMD] device unpair\r");
+	int r = rdx_app_device_unpair_handle();
+	ops->device_unpair_ack_indicate((u8)((r < 0) ? 1 : 0));
 
-        case PROTOCOL_EVENT_CMD_RECORD: {
-            if(!data || len < sizeof(Record_info)) break;
-            rdx_record_cmd_handle((Record_info*)data);
-            break;
-        }
+}
+
+#endif
 
 #if TDX_HAS_FLASHNOTE_ABILITY
-        /* V24 闪记开/停: 本项目不实现闪记业务, 仅打印事件用于通道联调 */
-        case PROTOCOL_EVENT_CMD_FLASHNOTE: {
-            if(!data || len < 1) break;
-            u8 fn_cmd = *(u8*)data;
-            r_printf("[APP CMD] flashnote cmd=%u (no app impl, swallowed)\r", fn_cmd);
-            break;
-        }
+static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < 1) return;
+	u8 fn_cmd = *(u8*)data;
+	r_printf("[APP CMD] flashnote cmd=%u (no app impl, swallowed)\r", fn_cmd);
+
+}
+
 #endif
 
 #if TDX_HAS_RECMARK_ABILITY
-        /* V24 录音标记: 单字节 source, 直接调 record 层加 mark */
-        case PROTOCOL_EVENT_CMD_RECMARK: {
-            if(!data || len < 1) break;
-            u8 src = *(u8*)data;
-            rdx_record_add_mark(src);
-            break;
-        }
+static void rdx_cmd_handle_recmark(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < 1) return;
+	u8 src = *(u8*)data;
+	rdx_record_add_mark(src);
+
+}
+
 #endif
 
-        default:
-            break;
-    }
+static void rdx_app_cmd_register_all(void)
+{
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BATTERY_QUERY, rdx_cmd_handle_battery_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_INCHARGE_QUERY, rdx_cmd_handle_incharge_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_VERSION_QUERY, rdx_cmd_handle_version_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY, rdx_cmd_handle_record_mode_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUTH_SN, rdx_cmd_handle_auth_sn);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_QUERY, rdx_cmd_handle_bt_name_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_QUERY, rdx_cmd_handle_ble_name_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_QUERY, rdx_cmd_handle_offtime_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_MEM_QUERY, rdx_cmd_handle_sd_mem_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_FORMAT, rdx_cmd_handle_sd_format);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_SYS_RESET, rdx_cmd_handle_sys_reset);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RTC, rdx_cmd_handle_rtc);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_UNBOUND, rdx_cmd_handle_unbound);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_FILE_DELETE, rdx_cmd_handle_file_delete);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_SET, rdx_cmd_handle_bt_name_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_SET, rdx_cmd_handle_ble_name_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_SET, rdx_cmd_handle_offtime_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY, rdx_cmd_handle_mic_gain_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_MIC_GAIN_SET, rdx_cmd_handle_mic_gain_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_OS_TYPE, rdx_cmd_handle_os_type);
+#if RDX_PRODUCT_IS_CHARGE_CASE
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_DEVICE_PAIR, rdx_cmd_handle_device_pair);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_DEVICE_UNPAIR, rdx_cmd_handle_device_unpair);
+#endif
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUDIO_STREAM, rdx_cmd_handle_audio_stream);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD, rdx_cmd_handle_record);
+#if TDX_HAS_FLASHNOTE_ABILITY
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_FLASHNOTE, rdx_cmd_handle_flashnote);
+#endif
+#if TDX_HAS_RECMARK_ABILITY
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECMARK, rdx_cmd_handle_recmark);
+#endif
 }
+
 
 /**************************************************************************
  * function: rdx_app_tasks_init
@@ -2832,6 +2974,7 @@ void rdx_app_all_init(void)
     /* Phase 2: service layer init — must run before any task starts */
     rdx_event_bus_init();
     rdx_cmd_dispatch_init();
+	    rdx_app_cmd_register_all();
     rdx_wifi_service_init();
     rdx_ble_service_init();
     rdx_device_service_init();
