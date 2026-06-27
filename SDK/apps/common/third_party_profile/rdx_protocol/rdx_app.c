@@ -2483,24 +2483,6 @@ static void rdx_cmd_handle_sd_mem_query(ProtocolEvents event, void *data, u32 le
 
 }
 
-static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	RecordStatus* rp = rdx_record_get_status();
-	if(get_ota_status() ||
-	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-	   rdx_wifi_service_is_file_send_busy()){
-	    y_printf("[APP CMD] sd_format rejected: busy\r");
-	    ops->sd_format_ack_indicate(1);
-	    return;
-	}
-	ops->sd_format_ack_indicate(0);
-	rdx_storage_service_format_handle();
-
-}
-
 static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
 {
 	(void)event; (void)data; (void)len;
@@ -2782,7 +2764,6 @@ static void rdx_app_cmd_register_all(void)
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_QUERY, rdx_cmd_handle_ble_name_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_QUERY, rdx_cmd_handle_offtime_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_MEM_QUERY, rdx_cmd_handle_sd_mem_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_FORMAT, rdx_cmd_handle_sd_format);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SYS_RESET, rdx_cmd_handle_sys_reset);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_RTC, rdx_cmd_handle_rtc);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
