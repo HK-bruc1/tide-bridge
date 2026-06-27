@@ -75,7 +75,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_vm.h"
 #include "rdx_log.h"
-#include "board/t2616_cc/rdx_board_config.h"
+#include "rdx_board_config.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -87,9 +87,12 @@
 #include "rdx_wifi_service.h"
 #include "rdx_ble_service.h"
 #include "rdx_device_service.h"
+#include "rdx_info_service.h"
 #include "rdx_storage_service.h"
 #include "rdx_record_service.h"
 #include "rdx_default_hooks.h"
+#include "rdx_ops.h"
+#include "rdx_jl_lifecycle.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
@@ -2085,45 +2088,6 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 
 /* ---- extracted protocol command handlers ---- */
 
-static void rdx_cmd_handle_battery_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
-	g_printf("[APP CMD] battery (L=%d, R=%d, C=%d)\r",
-	         pb->tbat_percent_L, pb->tbat_percent_R, pb->tbat_percent_C);
-	ops->battery_indicate(pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-
-}
-
-static void rdx_cmd_handle_incharge_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
-	u8 charge_state = rdx_app_get_charge_state();
-	g_printf("[APP CMD] incharge state=%d (C=%d, R=%d, L=%d)\r",
-	         charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-	/* 历史顺序 (charge, C, R, L); _rdx_protocol_incharge_indicate 形参为
-	 * (charge_state, left, right, chargebox), 这里按既有约定填. */
-	ops->incharge_indicate(charge_state, pb->tbat_percent_C, pb->tbat_percent_R, pb->tbat_percent_L);
-
-}
-
-static void rdx_cmd_handle_version_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	char* hv = rdx_protocol_get_hardware_version();
-	char* sv = rdx_protocol_get_firmware_version();
-	g_printf("[APP CMD] version (fw=%s, hw=%s)\r", sv ? sv : "", hv ? hv : "");
-	ops->version_indicate(hv, sv);
-
-}
-
 static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u32 len)
 {
 	(void)event; (void)data; (void)len;
@@ -2133,15 +2097,6 @@ static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u
 	u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
 	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
 	ops->record_mode_indicate(scene, rp_sw->run);
-
-}
-
-static void rdx_cmd_handle_auth_sn(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	ops->auth_sn_indicate();
 
 }
 
@@ -2166,17 +2121,6 @@ static void rdx_cmd_handle_ble_name_query(ProtocolEvents event, void *data, u32 
 	int ret = rdx_ble_server_ble_name_set_handle(0, NULL, ble_name, sizeof(ble_name));
 	g_printf("[APP CMD] ble name = %s\r", ble_name);
 	ops->ble_name_check_ack_indicate((u8)(ret ? 1 : 0), ble_name);
-
-}
-
-static void rdx_cmd_handle_offtime_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	u32 sec = sys_get_auto_off_time();
-	g_printf("[APP CMD] offtime = %u\r", (unsigned)sec);
-	ops->offtime_check_ack_indicate(0, sec);
 
 }
 
@@ -2285,8 +2229,6 @@ static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len
 
 }
 
-static void rdx_cmd_handle_os_type(ProtocolEvents event, void *data, u32 len)
-{
 	(void)event; (void)data; (void)len;
 	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
 	if (!ops) return;
@@ -2323,21 +2265,15 @@ static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
 
 static void rdx_app_cmd_register_all(void)
 {
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_BATTERY_QUERY, rdx_cmd_handle_battery_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_INCHARGE_QUERY, rdx_cmd_handle_incharge_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_VERSION_QUERY, rdx_cmd_handle_version_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY, rdx_cmd_handle_record_mode_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUTH_SN, rdx_cmd_handle_auth_sn);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_QUERY, rdx_cmd_handle_bt_name_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_QUERY, rdx_cmd_handle_ble_name_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_QUERY, rdx_cmd_handle_offtime_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_MEM_QUERY, rdx_cmd_handle_sd_mem_query);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_RTC, rdx_cmd_handle_rtc);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_FILE_DELETE, rdx_cmd_handle_file_delete);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_SET, rdx_cmd_handle_bt_name_set);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_SET, rdx_cmd_handle_ble_name_set);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_SET, rdx_cmd_handle_offtime_set);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_OS_TYPE, rdx_cmd_handle_os_type);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUDIO_STREAM, rdx_cmd_handle_audio_stream);
 #if TDX_HAS_FLASHNOTE_ABILITY
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_FLASHNOTE, rdx_cmd_handle_flashnote);
@@ -2391,6 +2327,9 @@ void rdx_led_hardware_init(void)
 {
     if (led_pt0807_config.initialized) {
         return;
+    }
+    if (rdx_hook_led_init() != RDX_OK) {
+        return; /* product hook handled LED init */
     }
     if (led_pt0807_init(&led_pt0807_config, LED_PT0807_SPI1, LED_PT0807_DATA_PORT_IO, 1) == 0) {
         g_printf("===== %s --> LED PT0807 init success\r", __func__);
@@ -2492,10 +2431,22 @@ void rdx_app_all_init(void)
     //spi irq init.
     rdx_spi_init_irq();
 
+        /* Phase 3: lifecycle ops validate + early_init */
+    {
+        const rdx_lifecycle_ops_t *lc = rdx_lifecycle_ops_get();
+        if (rdx_lifecycle_ops_validate(lc) != RDX_OK) {
+            RDX_LOGE("lifecycle ops validate failed");
+        }
+        if (lc && lc->early_init) {
+            lc->early_init();
+        }
+    }
+
     /* Phase 2: service layer init — must run before any task starts */
     rdx_event_bus_init();
     rdx_cmd_dispatch_init();
 	    rdx_app_cmd_register_all();
+    rdx_info_service_init();
     rdx_wifi_service_init();
     rdx_ble_service_init();
     rdx_device_service_init();

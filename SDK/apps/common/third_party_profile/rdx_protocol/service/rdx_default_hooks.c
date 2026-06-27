@@ -1,5 +1,10 @@
 #include "rdx_default_hooks.h"
 
+int rdx_hook_led_init(void)
+{
+    return 0;
+}
+
 void rdx_hook_led_on(u8 led_id)
 {
 	(void)led_id;

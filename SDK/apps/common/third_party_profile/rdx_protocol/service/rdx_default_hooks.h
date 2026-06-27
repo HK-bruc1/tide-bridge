@@ -3,6 +3,7 @@
 
 #include "typedef.h"
 
+int  rdx_hook_led_init(void)                __attribute__((weak));
 void rdx_hook_led_on(u8 led_id)           __attribute__((weak));
 void rdx_hook_led_off(u8 led_id)          __attribute__((weak));
 void rdx_hook_led_blink(u8 led_id, u32 period_ms) __attribute__((weak));

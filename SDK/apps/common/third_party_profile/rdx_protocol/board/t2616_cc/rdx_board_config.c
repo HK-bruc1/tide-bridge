@@ -1,4 +1,4 @@
-#include "board/t2616_cc/rdx_board_config.h"
+#include "rdx_board_config.h"
 #include "gpio_config.h"
 
 /*

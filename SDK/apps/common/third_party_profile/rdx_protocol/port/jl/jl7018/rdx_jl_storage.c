@@ -1,4 +1,4 @@
-#include "port/jl/rdx_jl_storage.h"
+#include "rdx_jl_storage.h"
 #include "app_config.h"
 #include "system/includes.h"
 #include "syscfg_id.h"

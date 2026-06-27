@@ -55,6 +55,10 @@ POST_SCRIPT     := cpu/br28/tools/download.sh
 RUN_POST_SCRIPT := bash $(POST_SCRIPT)
 endif
 
+# RDX board / chip family selection (override from command line)
+RDX_BOARD        ?= t2616_cc
+RDX_CHIP_FAMILY  ?= jl7018
+
 CC  := $(TOOL_DIR)/$(CC)
 CXX := $(TOOL_DIR)/$(CXX)
 LD  := $(TOOL_DIR)/$(LD)
@@ -248,8 +252,8 @@ INCLUDES := \
 	-Iapps/common/third_party_profile/ximalaya_protocol \
 	-Iapps/common/third_party_profile/auracast_app \
 	-Iapps/common/third_party_profile/rdx_protocol \
-	-Iapps/common/third_party_profile/rdx_protocol/board/t2616_cc \
-	-Iapps/common/third_party_profile/rdx_protocol/port/jl \
+	-Iapps/common/third_party_profile/rdx_protocol/board/$(RDX_BOARD) \
+	-Iapps/common/third_party_profile/rdx_protocol/port/jl/include \
 	-Iapps/common/third_party_profile/rdx_protocol/service \
 	-Iapps/common/cJSON \
 	-Iinterface/media/cpu/br28 \
@@ -482,9 +486,12 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_key.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_charge.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spi.c \
-	apps/common/third_party_profile/rdx_protocol/board/t2616_cc/rdx_board_config.c \
-	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_osal.c \
-	apps/common/third_party_profile/rdx_protocol/port/jl/rdx_jl_storage.c \
+	apps/common/third_party_profile/rdx_protocol/board/$(RDX_BOARD)/rdx_board_config.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_osal.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_storage.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_rtc.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_lifecycle.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_ops.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_battery.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_event_bus.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_command_dispatch.c \
@@ -492,6 +499,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_ble_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_info_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \

@@ -48,6 +48,7 @@
 #include "app_main.h"
 #include "poweroff.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_default_hooks.h"
 #include "syscfg_id.h"
 
 /******************************************************************************
@@ -941,6 +942,7 @@ void rdx_dut_msg_handle(void)
         }
         
         DUT_LOG("【 Enter DUT mode! 】\r");
+        rdx_hook_dut_enter();
         
         RdxWifiInfo* pw = rdx_app_get_wifi_info();
         if(pw->onoff == TRANSFER_BY_WIFI_ON) {
@@ -972,6 +974,7 @@ void rdx_dut_msg_handle(void)
     }else{
         /*--- 退出DUT模式 ---*/
         DUT_LOG("【 Exit DUT mode! 】\r");
+        rdx_hook_dut_exit();
         
         rdx_dut_info.dut_mode = FALSE;
         

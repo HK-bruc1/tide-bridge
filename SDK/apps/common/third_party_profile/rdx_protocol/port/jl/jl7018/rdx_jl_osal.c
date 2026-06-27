@@ -1,4 +1,4 @@
-#include "port/jl/rdx_jl_osal.h"
+#include "rdx_jl_osal.h"
 #include "system/includes.h"
 #include "os/os_api.h"
 #include "jiffies.h"

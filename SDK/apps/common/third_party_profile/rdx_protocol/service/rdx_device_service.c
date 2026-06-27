@@ -17,7 +17,7 @@
 #include "btstack/avctp_user.h"
 
 /* board config */
-#include "board/t2616_cc/rdx_board_config.h"
+#include "rdx_board_config.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_protocol.h"
 
