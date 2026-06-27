@@ -59,6 +59,7 @@
 
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_default_hooks.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -673,7 +674,7 @@ int rdx_ota_upgrade_cmd_handler(u8* d, u32 len)
             otaPara.state = RDX_OTA_STATE_NORMAL;
             otaPara.cur_pack_num = 1;
             // OTA 升级开始，设置 OTA 灯效
-            rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
+            rdx_hook_led_set_scene(RDX_LED_SCENE_OTA_START);
             //start timer to check ota status.
             pack_cnt = 0;
             rdx_ota_get_data_timer_start();
@@ -883,7 +884,7 @@ void rdx_ota_stop(void)
     set_ota_status(0);
     
     // OTA 结束，恢复 BLE 广播灯效
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_STOP);
+    rdx_hook_led_set_scene(RDX_LED_SCENE_OTA_STOP);
     
     otaPara.state = RDX_OTA_STATE_NORMAL;
     otaPara.cur_pack_num = 0;

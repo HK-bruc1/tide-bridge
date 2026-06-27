@@ -52,6 +52,7 @@
 #include "rdx_app_config.h"
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_default_hooks.h"
 #include "rdx_ble_service.h"
 #include "rdx_record_service.h"
 #include "rdx_storage_service.h"
@@ -828,7 +829,7 @@ void rdx_ble_server_disconnected_handle(void)
 
     //LED控制：BLE断开后闪烁（1s一次），但WiFi传输中不改变灯效
     if(k->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
+        rdx_hook_led_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
     }
 
     rdx_ble_service_on_disconnected();
@@ -934,7 +935,7 @@ void rdx_ble_server_connected_handle(void)
     rdx_ble_server_start_force_disconnect_timer();
 
     //LED控制：BLE连接后常亮1s后熄灭
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
+    rdx_hook_led_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_EMMC) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)
     rdx_record_service_set_mode_online();
@@ -1584,7 +1585,7 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
     RecordStatus* rp = rdx_record_get_status();
     if(wifi_info->onoff != TRANSFER_BY_WIFI_ON
        && !(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME))){
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        rdx_hook_led_set_scene(RDX_LED_SCENE_OFF);
     }
 }
 
@@ -1662,7 +1663,7 @@ void rdx_ble_server_fast_adv_restart(void)
     // 点亮 BLE 广播 LED 灯效，但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if(wifi_info->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        rdx_hook_led_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
 }
 
@@ -1733,7 +1734,7 @@ int rdx_ble_server_adv_enable(u8 enable)
     //LED控制：BLE广播开启时，如果未连接则闪烁，但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if (enable && !g_rdx_ble_server_info.ble_conn && wifi_info->onoff != TRANSFER_BY_WIFI_ON) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        rdx_hook_led_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
     
     return 0;

@@ -1,4 +1,5 @@
 #include "rdx_default_hooks.h"
+#include "rdx_led_ctrl.h"
 
 int rdx_hook_led_init(void)
 {
@@ -19,6 +20,16 @@ void rdx_hook_led_blink(u8 led_id, u32 period_ms)
 {
 	(void)led_id;
 	(void)period_ms;
+}
+
+void rdx_hook_led_set_scene(u8 scene)
+{
+	rdx_led_ctrl_set_scene((rdx_led_scene_e)scene);
+}
+
+void rdx_hook_led_restore_system_state(void)
+{
+	rdx_led_ctrl_restore_system_state();
 }
 
 void rdx_hook_motor_start(u32 duration_ms)

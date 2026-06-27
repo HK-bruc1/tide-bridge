@@ -15,12 +15,13 @@
 #include "rdx_jl_storage.h"
 #include "poweroff.h"
 #include "btstack/avctp_user.h"
-#include "app_mode_manager.h"
+#include "app_main.h"
 
 /* board config */
 #include "rdx_board_config.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_protocol.h"
+#include "rdx_ble_server.h"
 #include "rdx_default_hooks.h"
 
 /* rdx_app.c symbols */
@@ -51,6 +52,7 @@ extern void rdx_record_err_reboot_flag_write_into_vm(u8 v);
 extern void rdx_rtc_store_timestamp(void);
 extern void rdx_cpu_reset(void);
 extern void sys_set_auto_off_time(u16 t);
+extern u16  sys_get_auto_off_time(void);
 extern u8   get_ota_status(void);
 extern void bt_tws_remove_pairs(void);
 extern int  tws_api_get_role(void);
@@ -424,6 +426,79 @@ static void rdx_cmd_handle_device_unpair(ProtocolEvents event, void *data, u32 l
 
 #endif
 
+/* ---- OFFTIME_SET handler (Stage 4 from rdx_app.c) ---- */
+
+static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < sizeof(ProtocolOfftimeParams)) return;
+	ProtocolOfftimeParams *p = (ProtocolOfftimeParams *)data;
+	u32 sec = p->offtime;
+	if (p->has_value) {
+		if (sec >= 1) {
+			sys_set_auto_off_time((u16)sec);
+		} else {
+			ops->offtime_set_ack_indicate(1, (u16)sec);
+			return;
+		}
+	} else {
+		sec = sys_get_auto_off_time();
+	}
+	ops->offtime_set_ack_indicate(0, (u16)sec);
+}
+
+/* ---- name query/set handlers (Stage 4 from rdx_app.c) ---- */
+
+static void rdx_cmd_handle_bt_name_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	char bt_name[64];
+	int ret = rdx_ble_server_bt_name_set_handle(0, NULL, bt_name, sizeof(bt_name));
+	g_printf("[APP CMD] bt name = %s\r", bt_name);
+	ops->bt_name_check_ack_indicate((u8)(ret ? 1 : 0), bt_name);
+}
+
+static void rdx_cmd_handle_ble_name_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	char ble_name[64];
+	int ret = rdx_ble_server_ble_name_set_handle(0, NULL, ble_name, sizeof(ble_name));
+	g_printf("[APP CMD] ble name = %s\r", ble_name);
+	ops->ble_name_check_ack_indicate((u8)(ret ? 1 : 0), ble_name);
+}
+
+static void rdx_cmd_handle_bt_name_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < sizeof(ProtocolNameParams)) return;
+	ProtocolNameParams *p = (ProtocolNameParams *)data;
+	char bt_name[64];
+	int ret = rdx_ble_server_bt_name_set_handle(p->has_value, p->name,
+	                                             bt_name, sizeof(bt_name));
+	ops->bt_name_set_ack_indicate((u8)(ret ? 1 : 0), bt_name);
+}
+
+static void rdx_cmd_handle_ble_name_set(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < sizeof(ProtocolNameParams)) return;
+	ProtocolNameParams *p = (ProtocolNameParams *)data;
+	char ble_name[64];
+	int ret = rdx_ble_server_ble_name_set_handle(p->has_value, p->name,
+	                                              ble_name, sizeof(ble_name));
+	ops->ble_name_set_ack_indicate((u8)(ret ? 1 : 0), ble_name);
+}
+
 void rdx_device_service_init(void)
 {
 #if RDX_PRODUCT_IS_CHARGE_CASE
@@ -433,6 +508,11 @@ void rdx_device_service_init(void)
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SYS_RESET, rdx_cmd_handle_sys_reset);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_UNBOUND, rdx_cmd_handle_unbound);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_SET, rdx_cmd_handle_offtime_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_QUERY, rdx_cmd_handle_bt_name_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_QUERY, rdx_cmd_handle_ble_name_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_SET, rdx_cmd_handle_bt_name_set);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_SET, rdx_cmd_handle_ble_name_set);
 	RDX_LOGI("device_service init done");
 }
 

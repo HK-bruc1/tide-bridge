@@ -19,6 +19,7 @@ typedef enum {
 	RDX_EVENT_BLE_DISCONNECTED    = 0x41,
 	RDX_EVENT_IDLE_ENTER          = 0x50,
 	RDX_EVENT_IDLE_EXIT           = 0x51,
+	RDX_EVENT_TIME_SYNCED         = 0x52,
 	RDX_EVENT_MAX                 = 0x60,
 } rdx_event_id_t;
 

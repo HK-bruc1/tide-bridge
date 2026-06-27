@@ -9,6 +9,14 @@
 #include "rdx_dut.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_jl_osal.h"
+#include "rdx_uxfile.h"
+#include "rdx_time_service.h"
+
+/* BLE event business logic — Stage 4 cutover from rdx_ble_service.c */
+extern void rdx_record_stream_interrupt(void);
+extern void rdx_record_stream_resume_delayed(void);
+extern void rdx_protocol_uploadFileInfo_clean(void);
+extern void rdx_protocol_file_sync_busy_timer_stop(void);
 
 /* symbols from librdxApp.a */
 extern void rdx_protocol_record_trigger_indicate(RecordStatus *rp, u8 factor);
@@ -113,19 +121,83 @@ static void rdx_cmd_handle_recmark(ProtocolEvents event, void *data, u32 len)
 #endif
 
 /*
- * Phase 3 BLE event callback — logging-only.
- * Records event order/timing during the migration window.
- * Business action remains in the direct-call path until Stage 4 cutover.
+ * BLE event callback — Stage 4 business cutover.
+ * All BLE-triggered record/protocol actions that were previously
+ * direct-called from rdx_ble_service.c now execute here.
  */
 static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len, void *user_ctx)
 {
     (void)payload; (void)len; (void)user_ctx;
     if (event == RDX_EVENT_BLE_CONNECTED) {
-        RDX_LOGI("BLE event: CONNECTED (logging-only)");
+        rdx_protocol_send_buffer_reinit();
+        rdx_record_on_ble_conn_changed(1);
+        rdx_record_stream_resume_delayed();
     } else if (event == RDX_EVENT_BLE_DISCONNECTED) {
-        RDX_LOGI("BLE event: DISCONNECTED (logging-only)");
+        rdx_record_stream_interrupt();
+        rdx_record_on_ble_conn_changed(0);
+        rdx_record_process();
+        rdx_protocol_uploadFileInfo_clean();
+        rdx_uxfile_recordFileData_sendBuf_free();
+        rdx_protocol_file_sync_busy_timer_stop();
+        rdx_protocol_send_buffer_reinit();
     }
 }
+
+static void rdx_record_on_time_event(rdx_event_id_t event, void *payload, u32 len, void *user_ctx)
+{
+	(void)user_ctx;
+	if (event != RDX_EVENT_TIME_SYNCED || !payload || len < sizeof(rdx_time_sync_event_t)) {
+		return;
+	}
+
+	const rdx_time_sync_event_t *sync = (const rdx_time_sync_event_t *)payload;
+	RecordStatus *rp = rdx_record_get_status();
+	if (!rp || (rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME)) {
+		return;
+	}
+
+	uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
+	if (op && op->start_time > 0) {
+		u32 corrected = (u32)((int)op->start_time + sync->delta);
+		y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
+		         op->start_time, corrected, sync->delta);
+		op->start_time = corrected;
+	}
+}
+
+/* ---- migrated handlers (Stage 4 from rdx_app.c) ---- */
+
+static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	RecordStatus *rp_sw = rdx_record_get_status();
+	u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
+	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
+	ops->record_mode_indicate(scene, rp_sw->run);
+}
+
+static void rdx_cmd_handle_audio_stream(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < sizeof(ProtocolAudioStreamParams)) return;
+	ops->audio_stream_play((const ProtocolAudioStreamParams *)data);
+}
+
+#if TDX_HAS_FLASHNOTE_ABILITY
+static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < 1) return;
+	u8 fn_cmd = *(u8 *)data;
+	r_printf("[APP CMD] flashnote cmd=%u (no app impl, swallowed)\r", fn_cmd);
+}
+#endif
 
 void rdx_record_service_init(void)
 {
@@ -135,9 +207,15 @@ void rdx_record_service_init(void)
 #if TDX_HAS_RECMARK_ABILITY
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECMARK, rdx_cmd_handle_recmark);
 #endif
-	/* Phase 3: BLE event logging-only subscription */
+#if TDX_HAS_FLASHNOTE_ABILITY
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_FLASHNOTE, rdx_cmd_handle_flashnote);
+#endif
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY, rdx_cmd_handle_record_mode_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUDIO_STREAM, rdx_cmd_handle_audio_stream);
+	/* Stage 4: BLE event business subscription */
 	rdx_event_subscribe(RDX_EVENT_BLE_CONNECTED,    rdx_record_on_ble_event, NULL);
 	rdx_event_subscribe(RDX_EVENT_BLE_DISCONNECTED, rdx_record_on_ble_event, NULL);
+	rdx_event_subscribe(RDX_EVENT_TIME_SYNCED,      rdx_record_on_time_event, NULL);
 
 	g_upload_timer = 0;
 	g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;

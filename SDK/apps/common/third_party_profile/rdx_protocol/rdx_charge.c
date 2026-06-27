@@ -63,6 +63,7 @@
 #include "rdx_key.h"
 #include "rdx_battery.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_default_hooks.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
@@ -394,7 +395,7 @@ void rdx_app_charge_full(void)
     rdx_app_set_charge_state(RDX_CHARGE_FULL); 
     
     // 充满电：绿色常亮
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
+    rdx_hook_led_set_scene(RDX_LED_SCENE_CHARGE_FULL);
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0)
     // rdx_app_charge_full_timeout_stop();
@@ -499,7 +500,7 @@ void rdx_app_charge_stop(void)
     rdx_app_charge_full_poweroff_timer_stop();
     
     // 充电拔出后，恢复系统当前状态对应的灯效
-    rdx_led_ctrl_restore_system_state();
+    rdx_hook_led_restore_system_state();
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0)
     

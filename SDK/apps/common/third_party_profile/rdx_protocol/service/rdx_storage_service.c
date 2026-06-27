@@ -35,9 +35,34 @@ static void rdx_storage_on_format_done(rdx_event_id_t event, void *payload, u32 
 	RDX_LOGI("storage format done event consumed");
 }
 
+/* ---- migrated handlers (Stage 4 from rdx_app.c) ---- */
+
+static void rdx_cmd_handle_sd_mem_query(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	ops->sd_mem_indicate(0, 0);
+	rdx_uxfile_device_sd_mem_check();
+}
+
+static void rdx_cmd_handle_file_delete(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if (!data || len < sizeof(ProtocolFileDeleteParams)) return;
+	ProtocolFileDeleteParams *p = (ProtocolFileDeleteParams *)data;
+	g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
+	int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
+	ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
+}
+
 void rdx_storage_service_init(void)
 {
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_FORMAT, rdx_cmd_handle_sd_format);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_MEM_QUERY, rdx_cmd_handle_sd_mem_query);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_FILE_DELETE, rdx_cmd_handle_file_delete);
 	if (rdx_event_subscribe(RDX_EVENT_STORAGE_FORMAT_DONE,
 							rdx_storage_on_format_done, NULL) != RDX_OK) {
 		RDX_LOGW("storage format event subscribe failed");

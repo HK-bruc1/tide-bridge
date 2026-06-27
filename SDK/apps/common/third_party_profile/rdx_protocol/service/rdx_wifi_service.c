@@ -5,18 +5,19 @@
 #include "rdx_protocol.h"
 #include "rdx_uxfile.h"
 #include "rdx_jl_osal.h"
+#include "rdx_ops.h"
 #include "xxpUart.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_default_hooks.h"
 
 extern u8  xxp_rx_parse(u8 *data, unsigned short len);
-extern void xxp_esp32_data_transfer_timer_stop(void);
-extern void xxp_esp32_data_transfer_timer_start(void);
-extern void xxp_esp32_wifi_poweron_timer_cancel(void);
+
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 extern void rdx_protocol_file_sync_busy_timer_stop(void);
 extern void rdx_protocol_prepared_data_clean(void);
 
 static RdxWifiInfo g_wifi_info;
+static const rdx_wifi_transport_ops_t *g_wifi_transport;
 
 RdxWifiInfo *rdx_wifi_service_get_wifi_info(void)
 {
@@ -58,8 +59,10 @@ static void wifi_tx_done_cb(void *ctx)
 		rdx_protocol_file_sync_busy_timer_stop();
 		rdx_uxfile_recordFileData_sendBuf_free();
 		rdx_protocol_prepared_data_clean();
-		xxp_esp32_data_transfer_timer_stop();
-		xxp_esp32_data_transfer_timer_start();
+		if (g_wifi_transport && g_wifi_transport->control) {
+			g_wifi_transport->control(RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_STOP, NULL);
+			g_wifi_transport->control(RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_START, NULL);
+		}
 		ru->interrupt = false;
 		return;
 	}
@@ -94,6 +97,7 @@ static void wifi_tx_done_cb(void *ctx)
 void rdx_wifi_service_init(void)
 {
 	rdx_spi_register_wifi_callbacks(wifi_rx_cb, wifi_tx_done_cb, NULL);
+	g_wifi_transport = rdx_wifi_transport_ops_get();
 	RDX_LOGI("wifi_service init done");
 }
 
@@ -103,21 +107,27 @@ void rdx_wifi_power_on(void)
     if (g_wifi_info.onoff == TRANSFER_BY_WIFI_ON) {
         return;
     }
-    xxp_esp32_wifi_open();
+    if (g_wifi_transport && g_wifi_transport->open) {
+        g_wifi_transport->open(NULL);
+    }
     g_wifi_info.onoff = TRANSFER_BY_WIFI_ON;
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
+    rdx_hook_led_set_scene(RDX_LED_SCENE_WIFI_START);
 }
 
 void rdx_wifi_power_off(void)
 {
     b_printf("=== %s --> wifi close \r", __func__);
-    xxp_esp32_wifi_poweron_timer_cancel();
+    if (g_wifi_transport && g_wifi_transport->control) {
+        g_wifi_transport->control(RDX_WIFI_CTRL_POWERON_TIMER_CANCEL, NULL);
+    }
     if (g_wifi_info.onoff == TRANSFER_BY_WIFI_OFF) {
         return;
     }
-    xxp_esp32_wifi_close();
+    if (g_wifi_transport && g_wifi_transport->close) {
+        g_wifi_transport->close();
+    }
     rdx_wifi_service_set_state(TRANSFER_BY_WIFI_OFF, TRANSFER_BY_WIFI_OFF);
-    rdx_led_ctrl_restore_system_state();
+    rdx_hook_led_restore_system_state();
 }
 
 void rdx_wifi_data_send(const u8 *data, u32 len)

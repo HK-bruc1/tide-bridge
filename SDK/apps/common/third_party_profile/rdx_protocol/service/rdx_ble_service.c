@@ -5,13 +5,10 @@
 #include "rdx_record.h"
 
 /*
- * Transition compatibility: these wrappers call existing cleanup
- * interfaces during Phase 2 migration. Full migration to event-bus
- * subscribers happens after record/storage services are extracted.
+ * Stage 4 BLE event bus cutover complete.
+ * Record/protocol actions fire through rdx_record_service event subscriber.
+ * Remaining externs serve rdx_ble_service_stop_recording / cleanup_protocol_state.
  */
-extern void rdx_record_on_ble_conn_changed(u8 connected);
-extern void rdx_record_stream_interrupt(void);
-extern void rdx_record_stream_resume_delayed(void);
 extern void rdx_record_process(void);
 extern void rdx_protocol_uploadFileInfo_clean(void);
 extern void rdx_protocol_file_sync_busy_timer_stop(void);
@@ -30,29 +27,12 @@ void rdx_ble_service_init(void)
 void rdx_ble_service_on_connected(void)
 {
 	g_ble_connected = 1;
-
-	/* compatibility: call existing connection resume logic */
-	rdx_protocol_send_buffer_reinit();
-	rdx_record_on_ble_conn_changed(1);
-	rdx_record_stream_resume_delayed();
-
 	rdx_event_publish_async(RDX_EVENT_BLE_CONNECTED, NULL, 0);
 }
 
 void rdx_ble_service_on_disconnected(void)
 {
 	g_ble_connected = 0;
-
-	/* compatibility: call existing disconnect cleanup logic */
-	rdx_record_stream_interrupt();
-	rdx_record_on_ble_conn_changed(0);
-	rdx_record_process();
-
-	rdx_protocol_uploadFileInfo_clean();
-	rdx_uxfile_recordFileData_sendBuf_free();
-	rdx_protocol_file_sync_busy_timer_stop();
-	rdx_protocol_send_buffer_reinit();
-
 	rdx_event_publish_async(RDX_EVENT_BLE_DISCONNECTED, NULL, 0);
 }
 

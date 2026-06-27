@@ -12,12 +12,14 @@ typedef struct {
 static rdx_event_subscriber_t g_subscribers[RDX_EVENT_MAX][RDX_EVENT_MAX_SUBSCRIBERS];
 
 #define RDX_EVENT_ASYNC_POOL_SIZE  4
+#define RDX_EVENT_ASYNC_PAYLOAD_MAX  16
 
 struct rdx_event_async_msg {
 	rdx_event_id_t event;
 	void *payload;
 	u32   len;
 	u8    busy;
+	u8    payload_buf[RDX_EVENT_ASYNC_PAYLOAD_MAX];
 };
 
 static struct rdx_event_async_msg g_async_pool[RDX_EVENT_ASYNC_POOL_SIZE];
@@ -133,8 +135,17 @@ int rdx_event_publish_async(rdx_event_id_t event, void *payload, u32 len)
 	for (i = 0; i < RDX_EVENT_ASYNC_POOL_SIZE; i++) {
 		if (!g_async_pool[i].busy) {
 			g_async_pool[i].event   = event;
-			g_async_pool[i].payload = payload;
 			g_async_pool[i].len     = len;
+			if (payload && len > 0) {
+				if (len > RDX_EVENT_ASYNC_PAYLOAD_MAX) {
+					CPU_CRITICAL_EXIT();
+					return RDX_ERR_INVAL;
+				}
+				memcpy(g_async_pool[i].payload_buf, payload, len);
+				g_async_pool[i].payload = g_async_pool[i].payload_buf;
+			} else {
+				g_async_pool[i].payload = NULL;
+			}
 			g_async_pool[i].busy    = 1;
 			slot = (int)i;
 			break;

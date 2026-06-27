@@ -30,8 +30,10 @@
 #endif
 
 /*
- * Phase 3 checkpoint: ~2440 lines / ~85 functions / 11 handler registrations.
- * Stage 4 target: <=2000 lines / <=50 functions. See docs/ for migration plan.
+ * Stage 4 checkpoint: 2242 lines / 94 functions / 0 handler registrations.
+ * Stage 4 target: <=2000 lines / <=50 functions. Gap: 242 lines / 44 functions.
+ * Remaining: ABI wrappers + lifecycle orchestration + key state machine.
+ * See docs/7.RDX框架阶段4实施文档 for deferral to Stage 5.
  */
 
 #include "app_config.h"
@@ -95,6 +97,7 @@
 #include "rdx_info_service.h"
 #include "rdx_storage_service.h"
 #include "rdx_record_service.h"
+#include "rdx_time_service.h"
 #include "rdx_default_hooks.h"
 #include "rdx_ops.h"
 #include "rdx_jl_lifecycle.h"
@@ -211,8 +214,6 @@ static const RdxWifiCfg wifi_cfg = {
 ******************************************************************************/ 
 extern u8 get_remote_dev_company(void);
 extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
-extern void xxp_esp32_wifi_close(void);
-extern void xxp_esp32_wifi_control(void);
 extern void rdx_ble_server_app_disconnect(void);
 extern void sd_set_power(u8 enable);
 extern void power_set_soft_poweroff();
@@ -228,8 +229,6 @@ extern void motor_init(void);
 extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);
 extern void rdx_ble_server_adv_data_changed(void);
-extern void xxp_esp32_wifi_open(void);
-extern void xxp_esp32_wifi_close(void);
 extern u16 rdx_ble_server_get_conn_handle(void);
 extern void rdx_record_process(void);
 extern void rdx_record_motor_state_clear(void);
@@ -1368,7 +1367,7 @@ int rdx_app_msg_handler(int *msg)
         case APP_MSG_BT_ENTER_SNIFF:
             break;
         case APP_MSG_BT_EXIT_SNIFF:
-            rdx_led_ctrl_restore_system_state();
+            rdx_hook_led_restore_system_state();
             break;
 
         case APP_MSG_MAIN_PAGE_DISPLAYING:
@@ -1901,205 +1900,6 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 	rdx_cmd_dispatch(event, data, len);
 }
 
-/* ---- extracted protocol command handlers ---- */
-
-static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	RecordStatus* rp_sw = rdx_record_get_status();
-	u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
-	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
-	ops->record_mode_indicate(scene, rp_sw->run);
-
-}
-
-static void rdx_cmd_handle_bt_name_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	char bt_name[64];
-	int ret = rdx_ble_server_bt_name_set_handle(0, NULL, bt_name, sizeof(bt_name));
-	g_printf("[APP CMD] bt name = %s\r", bt_name);
-	ops->bt_name_check_ack_indicate((u8)(ret ? 1 : 0), bt_name);
-
-}
-
-static void rdx_cmd_handle_ble_name_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	char ble_name[64];
-	int ret = rdx_ble_server_ble_name_set_handle(0, NULL, ble_name, sizeof(ble_name));
-	g_printf("[APP CMD] ble name = %s\r", ble_name);
-	ops->ble_name_check_ack_indicate((u8)(ret ? 1 : 0), ble_name);
-
-}
-
-static void rdx_cmd_handle_sd_mem_query(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	/* 先回 0/0 占位 ack, 真实容量查询需走 uxfile 任务异步执行,
-	 * 由 sdk 内部 sd_mem 查询路径完成后再次 indicate. */
-	ops->sd_mem_indicate(0, 0);
-	rdx_uxfile_device_sd_mem_check();
-
-}
-
-/*
- * RTC handler — Stage 3 依赖扫描结论:
- *   Depends: rdx_rtc_get/set_timestamp, rdx_record_get_status, rdx_uxfile_get_operateFile_info
- *   核心操作: set hardware RTC + adjust uxfile start_time during active recording
- *   Stage 4 归属: rdx_time_ops / rdx_time_service (RTC 读写是主路径)
- *   跨模块碰撞点: uxfile start_time 修正 → 需 record/storage 通过 event 或 service API 协作
- *   暂不迁入 info_service 或 device_service
- */
-static void rdx_cmd_handle_rtc(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolRtcParams)) return;
-	ProtocolRtcParams* p = (ProtocolRtcParams*)data;
-	if(p->timestamp > 0){
-	    time_t old_rtc = rdx_rtc_get();
-	    int result = rdx_rtc_set_timestamp(p->timestamp);
-	    if(result == 0 && old_rtc > 0){
-	        int32_t delta = (int32_t)((time_t)p->timestamp - old_rtc);
-	        RecordStatus *rp = rdx_record_get_status();
-	        if(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
-	            uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
-	            if(op && op->start_time > 0){
-	                u32 corrected = (u32)((int32_t)op->start_time + delta);
-	                y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
-	                         op->start_time, corrected, delta);
-	                op->start_time = corrected;
-	            }
-	        }
-	    }
-	    ops->rtc_set_ack_indicate((u8)result, p->timestamp);
-	} else {
-	    ops->rtc_set_ack_indicate(1, p->timestamp);
-	}
-
-}
-
-static void rdx_cmd_handle_file_delete(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolFileDeleteParams)) return;
-	ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
-	g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
-	int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
-	ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
-
-}
-
-static void rdx_cmd_handle_bt_name_set(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolNameParams)) return;
-	ProtocolNameParams* p = (ProtocolNameParams*)data;
-	char bt_name[64];
-	int ret = rdx_ble_server_bt_name_set_handle(p->has_value, p->name,
-	                                           bt_name, sizeof(bt_name));
-	ops->bt_name_set_ack_indicate((u8)(ret ? 1 : 0), bt_name);
-
-}
-
-static void rdx_cmd_handle_ble_name_set(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolNameParams)) return;
-	ProtocolNameParams* p = (ProtocolNameParams*)data;
-	char ble_name[64];
-	int ret = rdx_ble_server_ble_name_set_handle(p->has_value, p->name,
-	                                            ble_name, sizeof(ble_name));
-	ops->ble_name_set_ack_indicate((u8)(ret ? 1 : 0), ble_name);
-
-}
-
-/*
- * OFFTIME_SET handler — Stage 3 依赖扫描结论:
- *   Depends: sys_set_auto_off_time, sys_get_auto_off_time
- *   核心操作: 设置/查询设备自动关机时间
- *   Stage 4 归属: rdx_device_service (设备生命周期/关机策略)
- *   低风险迁移: 依赖全是系统 API，无 librdxApp.a 或跨模块回调
- */
-static void rdx_cmd_handle_offtime_set(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolOfftimeParams)) return;
-	ProtocolOfftimeParams* p = (ProtocolOfftimeParams*)data;
-	u32 sec = p->offtime;
-	if(p->has_value){
-	    if(sec >= 1){
-	        sys_set_auto_off_time((u16)sec);
-	    }else{
-	        ops->offtime_set_ack_indicate(1, (u16)sec);
-	        return;
-	    }
-	}else{
-	    sec = sys_get_auto_off_time();
-	}
-	ops->offtime_set_ack_indicate(0, (u16)sec);
-
-}
-
-static void rdx_cmd_handle_audio_stream(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < sizeof(ProtocolAudioStreamParams)) return;
-	ops->audio_stream_play((const ProtocolAudioStreamParams*)data);
-
-}
-
-#if TDX_HAS_FLASHNOTE_ABILITY
-static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
-{
-	(void)event; (void)data; (void)len;
-	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-	if (!ops) return;
-	if(!data || len < 1) return;
-	u8 fn_cmd = *(u8*)data;
-	r_printf("[APP CMD] flashnote cmd=%u (no app impl, swallowed)\r", fn_cmd);
-
-}
-
-#endif
-
-static void rdx_app_cmd_register_all(void)
-{
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY, rdx_cmd_handle_record_mode_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_QUERY, rdx_cmd_handle_bt_name_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_QUERY, rdx_cmd_handle_ble_name_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_MEM_QUERY, rdx_cmd_handle_sd_mem_query);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_RTC, rdx_cmd_handle_rtc);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_FILE_DELETE, rdx_cmd_handle_file_delete);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_BT_NAME_SET, rdx_cmd_handle_bt_name_set);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_BLE_NAME_SET, rdx_cmd_handle_ble_name_set);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_OFFTIME_SET, rdx_cmd_handle_offtime_set);
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_AUDIO_STREAM, rdx_cmd_handle_audio_stream);
-#if TDX_HAS_FLASHNOTE_ABILITY
-	rdx_cmd_register(PROTOCOL_EVENT_CMD_FLASHNOTE, rdx_cmd_handle_flashnote);
-#endif
-}
-
 /**************************************************************************
  * function: rdx_app_tasks_init
  * description: 
@@ -2180,15 +1980,15 @@ static void rdx_print_startup_info(void)
     const rdx_board_config_t *cfg = rdx_board_get_config();
 
     /*
-     * FIRMWARE_NAME 来自 rdx_app_config.h 第 34 行定义。
-     * RDX_RTC_PATH_SEL / RDX_RTC_PATH_HARDWARE / RDX_RTC_PATH_SOFTWARE
-     * 来自 rdx_app_config.h 第 117-123 行。
+     * FIRMWARE_NAME 来自 rdx_app_config.h。
+     * RTC path 通过 rdx_time_ops_t.is_hw_rtc 查询，不再直接访问 RDX_RTC_PATH_SEL。
      * JL_SDK_VER_TODO 是占位符，阶段 3 根据 JL SDK 实际宏替换。
      */
+    const rdx_time_ops_t *to_startup = rdx_time_ops_get();
     RDX_LOGI("startup: product=%s board=%s chip=%s sdk=%s",
              FIRMWARE_NAME, cfg->board_name, cfg->chip_family, "JL_SDK_VER_TODO");
     RDX_LOGI("startup: transport=spi storage=syscfg rtc_path=%s",
-             (RDX_RTC_PATH_SEL == RDX_RTC_PATH_HARDWARE) ? "hardware" : "software");
+             (to_startup && to_startup->is_hw_rtc) ? "hardware" : "software");
     RDX_LOGI("startup: pins wifi_power=%x vdd_power=%x led=%x spi_cs=%x",
              cfg->wifi_power_io, cfg->vdd_power_io,
              cfg->led_data_io, cfg->spi_cs_io);
@@ -2266,17 +2066,23 @@ void rdx_app_all_init(void)
             RDX_LOGE("time ops validate failed");
         }
     }
+    {
+        const rdx_wifi_transport_ops_t *wo = rdx_wifi_transport_ops_get();
+        if (rdx_wifi_transport_ops_validate(wo) != RDX_OK) {
+            RDX_LOGE("wifi transport ops validate failed");
+        }
+    }
 
     /* Phase 2: service layer init — must run before any task starts */
     rdx_event_bus_init();
     rdx_cmd_dispatch_init();
-	    rdx_app_cmd_register_all();
     rdx_info_service_init();
     rdx_wifi_service_init();
     rdx_ble_service_init();
     rdx_device_service_init();
     rdx_storage_service_init();
     rdx_record_service_init();
+    rdx_time_service_init();
 
     u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();
     if(err_boot == 1){
