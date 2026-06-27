@@ -29,9 +29,19 @@ static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
 
 }
 
+static void rdx_storage_on_format_done(rdx_event_id_t event, void *payload, u32 len, void *ctx)
+{
+	(void)event; (void)payload; (void)len; (void)ctx;
+	RDX_LOGI("storage format done event consumed");
+}
+
 void rdx_storage_service_init(void)
 {
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_SD_FORMAT, rdx_cmd_handle_sd_format);
+	if (rdx_event_subscribe(RDX_EVENT_STORAGE_FORMAT_DONE,
+							rdx_storage_on_format_done, NULL) != RDX_OK) {
+		RDX_LOGW("storage format event subscribe failed");
+	}
 	RDX_LOGI("storage_service init done");
 }
 
@@ -45,7 +55,7 @@ void rdx_storage_service_format_cb(u8 result)
 
 void rdx_storage_service_format_handle(void)
 {
-	rdx_uxfile_sd_format(NULL);
+	rdx_uxfile_sd_format(rdx_storage_service_format_cb);
 }
 
 int rdx_storage_format_request(void)
