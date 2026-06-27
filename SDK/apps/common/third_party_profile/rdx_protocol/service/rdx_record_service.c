@@ -21,29 +21,51 @@ static u16           g_upload_timer = 0;
 static u8            g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
 
 /*
- * 4-slot pool for protocol trigger indicate payload.
- * All 3 async paths post &slot to app_core via os_taskq_post_type;
- * the short critical section protects the slot index across contexts.
+ * 4-slot busy pool for protocol trigger indicate payload.
+ * Slots are marked busy in alloc and released in the callback wrapper
+ * (rpx_pool_cb) after rdx_protocol_record_trigger_indicate returns,
+ * or on post failure.
  */
 #define RP_POOL_SIZE 4
 static RecordStatus  g_rp_pool[RP_POOL_SIZE];
-static u8            g_rp_idx;
+static u8            g_rp_busy[RP_POOL_SIZE];
 
 static RecordStatus *rp_pool_alloc(void)
 {
-	RecordStatus *slot;
+	u8 i;
 	CPU_CRITICAL_ENTER();
-	slot = &g_rp_pool[g_rp_idx];
-	g_rp_idx = (g_rp_idx + 1) % RP_POOL_SIZE;
+	for (i = 0; i < RP_POOL_SIZE; i++) {
+		if (!g_rp_busy[i]) {
+			g_rp_busy[i] = 1;
+			CPU_CRITICAL_EXIT();
+			return &g_rp_pool[i];
+		}
+	}
 	CPU_CRITICAL_EXIT();
-	return slot;
+	return NULL;
+}
+
+static void rp_pool_release(RecordStatus *slot)
+{
+	u8 idx = (u8)(slot - g_rp_pool);
+	CPU_CRITICAL_ENTER();
+	g_rp_busy[idx] = 0;
+	CPU_CRITICAL_EXIT();
+}
+
+static void rpx_pool_cb(void *p1, void *p2)
+{
+	RecordStatus *rp_slot = (RecordStatus *)p1;
+	u8 factor = (u8)(u32)p2;
+	rdx_protocol_record_trigger_indicate(rp_slot, factor);
+	rp_pool_release(rp_slot);
 }
 
 void rdx_record_service_init(void)
 {
 	g_upload_timer = 0;
 	g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
-	g_rp_idx       = 0;
+	memset(g_rp_busy, 0, sizeof(g_rp_busy));
 	memset(g_rp_pool, 0, sizeof(g_rp_pool));
 	RDX_LOGI("record_service init done");
 }
@@ -83,17 +105,23 @@ void rdx_record_service_upload_timer_cb(void *priv)
 		rp->run = RECORD_STATE_STOP;
 		if (0xffff != con_hdl && 0 != con_hdl) {
 			RecordStatus *rp_slot = rp_pool_alloc();
+			if (rp_slot == NULL) {
+				RDX_LOGW("record_svc rp pool full (upload)");
+				return;
+			}
 			rp_slot->run    = rp->run;
 			rp_slot->formate = rp->formate;
 			rp_slot->scene  = rp->scene;
 			{
 				int msg[4];
-				msg[0] = (int)rdx_protocol_record_trigger_indicate;
+				msg[0] = (int)rpx_pool_cb;
 				msg[1] = 2;
 				msg[2] = (int)rp_slot;
 				msg[3] = 0;
-				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg))
+				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+					rp_pool_release(rp_slot);
 					RDX_LOGW("record_svc upload indicate post fail");
+				}
 			}
 		} else {
 			int arg[2];
@@ -126,6 +154,10 @@ void rdx_record_service_device_record_handle(u8 scene)
 		}
 
 		RecordStatus *rp_slot = rp_pool_alloc();
+		if (rp_slot == NULL) {
+			RDX_LOGW("record_svc rp pool full (dev_rec)");
+			return;
+		}
 		memset(rp_slot, 0, sizeof(RecordStatus));
 		if (rp->run == RECORD_STATE_STOP) {
 			rp_slot->run    = RECORD_STATE_START;
@@ -156,12 +188,14 @@ void rdx_record_service_device_record_handle(u8 scene)
 		}
 		{
 			int msg[4];
-			msg[0] = (int)rdx_protocol_record_trigger_indicate;
+			msg[0] = (int)rpx_pool_cb;
 			msg[1] = 2;
 			msg[2] = (int)rp_slot;
 			msg[3] = 0;
-			if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg))
+			if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+				rp_pool_release(rp_slot);
 				RDX_LOGW("record_svc trigger_indicate post fail");
+			}
 		}
 	} else {
 		if (rp->run == RECORD_STATE_STOP) {
@@ -251,17 +285,23 @@ void rdx_record_service_switch(u8 orig_scene)
 
 			{
 				RecordStatus *rp_slot = rp_pool_alloc();
+				if (rp_slot == NULL) {
+					RDX_LOGW("record_svc rp pool full (switch)");
+					return;
+				}
 				rp_slot->run    = RECORD_STATE_STOP;
 				rp_slot->formate = rp->formate;
 				rp_slot->scene  = orig_scene;
 
 				int msg[4];
-				msg[0] = (int)rdx_protocol_record_trigger_indicate;
+				msg[0] = (int)rpx_pool_cb;
 				msg[1] = 2;
 				msg[2] = (int)rp_slot;
 				msg[3] = 0;
-				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg))
+				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+					rp_pool_release(rp_slot);
 					RDX_LOGW("record_svc switch indicate post fail");
+				}
 			}
 			{
 				int msg1[2];
