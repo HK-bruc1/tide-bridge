@@ -15,6 +15,8 @@
 
 /* board config */
 #include "board/t2616_cc/rdx_board_config.h"
+#include "rdx_command_dispatch.h"
+#include "rdx_protocol.h"
 
 /* rdx_app.c symbols */
 extern void      rdx_ble_server_app_disconnect(void);
@@ -332,7 +334,71 @@ void rdx_device_service_user_para_reset(void)
 #endif
 }
 
+static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	RecordStatus* rp = rdx_record_get_status();
+	if(get_ota_status() ||
+	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   rdx_wifi_service_is_file_send_busy()){
+	    y_printf("[APP CMD] sys_reset rejected: busy\r");
+	    ops->sys_set_default_ack_indicate(1);
+	    return;
+	}
+	ops->sys_set_default_ack_indicate(0);
+	int msg[2];
+	msg[0] = (int)rdx_device_service_factory_reset;
+	msg[1] = 0;
+	if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+	    log_info("[APP CMD] sys_reset taskq post err\r");
+	}
+
+}
+
+static void rdx_cmd_handle_bound(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolBoundParams)) return;
+	ProtocolBoundParams* p = (ProtocolBoundParams*)data;
+	g_printf("[APP CMD] bound cmd=%d\r", p->cmd);
+	if(p->cmd == 1){
+	    rdx_vm_set_bound_status(1, 1);
+	    ops->bound_result_ack_indicate(0);
+	}else{
+	    ops->bound_result_ack_indicate(0);
+	    rdx_device_service_unbound_handle();
+	}
+
+}
+
+static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)
+{
+	(void)event; (void)data; (void)len;
+	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	if (!ops) return;
+	if(!data || len < sizeof(ProtocolUnboundParams)) return;
+	ProtocolUnboundParams* p = (ProtocolUnboundParams*)data;
+	RecordStatus* rp = rdx_record_get_status();
+	if(get_ota_status() ||
+	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   rdx_wifi_service_is_file_send_busy()){
+	    y_printf("[APP CMD] unbound rejected: busy\r");
+	    ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
+	    return;
+	}
+	g_printf("[APP CMD] unbound user=%d format=%d\r", p->user_para, p->format_en);
+	rdx_device_service_choose_to_unbound_handle(p->user_para, p->format_en);
+
+}
+
 void rdx_device_service_init(void)
 {
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_SYS_RESET, rdx_cmd_handle_sys_reset);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_BOUND, rdx_cmd_handle_bound);
+	rdx_cmd_register(PROTOCOL_EVENT_CMD_UNBOUND, rdx_cmd_handle_unbound);
 	RDX_LOGI("device_service init done");
 }
