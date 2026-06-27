@@ -91,9 +91,7 @@
 #include "rdx_record_service.h"
 #include "rdx_default_hooks.h"
 
-
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-
 
 #if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403)
 #include "sk4558.h"
@@ -205,7 +203,6 @@ static const RdxWifiCfg wifi_cfg = {
     .ssid_suffix_mode   = WIFI_AP_SSID_SUFFIX_MODE,
 };
 
-
 /******************************************************************************
 * Function Declaration Section
 ******************************************************************************/ 
@@ -249,7 +246,6 @@ extern void sdx_dev_detect_timer_add();
 extern void sdx_dev_detect_timer_del();
 
 extern u16 sys_get_auto_off_time(void);
-
 
 #if (RDX_SUPPORT_MOTOR == 1)
 extern void motor_off(void);
@@ -311,13 +307,7 @@ void rdx_app_set_power_ready_flag(void)
  **************************************************************************/
 bool rdx_app_get_poweroff_flag(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     return poweroff_ready_flag;
 }
 
@@ -329,13 +319,7 @@ bool rdx_app_get_poweroff_flag(void)
  **************************************************************************/
 bool rdx_app_get_app_is_idle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     return app_is_idle;
 }
 
@@ -353,13 +337,7 @@ bool rdx_app_get_app_is_idle(void)
 **************************************************************************/
 bool rdx_app_is_ios_system(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     y_printf("remote_dev_company :%d \n", get_remote_dev_company());
     return (get_remote_dev_company() == REMOTE_DEV_IOS);
 }
@@ -372,13 +350,7 @@ bool rdx_app_is_ios_system(void)
  **************************************************************************/
 void rdx_app_bt_shutdown_delay_timer_cb(void* priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     rdx_app_bt_shutdown();
 }
 
@@ -390,13 +362,7 @@ void rdx_app_bt_shutdown_delay_timer_cb(void* priv)
  **************************************************************************/
 void rdx_app_reset_delay_cb(void *priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     //do power off.
     sys_enter_soft_poweroff(POWEROFF_RESET);
 }
@@ -427,13 +393,7 @@ void rdx_app_time_to_reset(void)
 **************************************************************************/
 void rdx_app_sync_info_send(void *rdx_info, u8 data_type)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
 #if TCFG_USER_TWS_ENABLE
     rdx_sync_flag_update_before_send(&rdx_sync_info);
     if (get_bt_tws_connect_status()) {
@@ -532,13 +492,7 @@ void rdx_app_sync_info_send(void *rdx_info, u8 data_type)
  **************************************************************************/
 void rdx_app_volume_indicate(s8 volume)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     u8 max_vol = app_audio_get_max_volume();
     log_info("cur_vol is:%d, max:%d\n", volume, app_audio_get_max_volume());
     u8 rdx_sync_valume = (int)(volume * 100 / max_vol);
@@ -554,9 +508,6 @@ void rdx_app_volume_indicate(s8 volume)
  **************************************************************************/
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     struct key_event *key = (struct key_event *)msg;
     int index = key->event;     
     u8 *pk_l = NULL;
@@ -564,9 +515,6 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
     RecordStatus* rp = rdx_record_get_status();
     RdxWifiInfo* p = rdx_app_get_wifi_info();
     bool format_state = rdx_uxfile_sd_format_status_check();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     // g_printf("key_remap: 0x%x, 0x%x, 0x%x, 0x%x \r", index, msg[0], msg[1], key->value);
     if(key->value != 0){
         return;
@@ -642,13 +590,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
 **************************************************************************/
 int rdx_app_earphone_state_set_page_scan_enable()
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     return 0;
 }
 
@@ -664,13 +606,7 @@ int rdx_app_earphone_state_set_page_scan_enable()
 **************************************************************************/
 int rdx_app_earphone_state_get_connect_mac_addr()
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     return 0;
 }
 
@@ -686,13 +622,7 @@ int rdx_app_earphone_state_get_connect_mac_addr()
 **************************************************************************/
 int rdx_app_earphone_state_cancel_page_scan()
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     return 0;
 }
 
@@ -708,9 +638,6 @@ int rdx_app_earphone_state_cancel_page_scan()
 **************************************************************************/
 void rdx_app_earphone_pack_readchardata(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
     rdx_auth_info_t* p_authInfo = rdx_vm_get_auth_info();
 #if RDX_PRODUCT_IS_CHARGE_CASE
     EarphoneInfo*    p_epInfo   = rdx_vm_get_ep_info();
@@ -722,9 +649,6 @@ void rdx_app_earphone_pack_readchardata(void)
     u8 wifi_mac[6];
     char temp[BLE_READCHAR_INFO_SIZE + 1];
 #endif
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     //pack data.
     memset(ble_readchar_info, 0, BLE_READCHAR_INFO_SIZE + 1);
 
@@ -811,13 +735,7 @@ void rdx_app_earphone_pack_readchardata(void)
 **************************************************************************/
 char* rdx_app_earphone_get_readchardata(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     return ble_readchar_info;
 }
 
@@ -829,14 +747,8 @@ char* rdx_app_earphone_get_readchardata(void)
  **************************************************************************/
 DevBaseInfo* rdx_app_get_dev_base_info(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
     ApInfo* p = xxp_uart_get_wifi_AP_info();
     
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     memset(&devBaseInfo, 0, sizeof(DevBaseInfo));
     //get data.
     devBaseInfo.dev_type = RDX_SEL_DEVICE;
@@ -859,7 +771,6 @@ DevBaseInfo* rdx_app_get_dev_base_info(void)
     return &devBaseInfo;
 } 
 
-
 /**************************************************************************
  * function: rdx_app_earphone_state_enter_soft_poweroff
  * description: 
@@ -868,13 +779,7 @@ DevBaseInfo* rdx_app_get_dev_base_info(void)
  **************************************************************************/
 int rdx_app_earphone_state_enter_soft_poweroff(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     extern void bt_ble_exit(void);
     bt_ble_exit();
     return 0;
@@ -892,13 +797,7 @@ int rdx_app_earphone_state_enter_soft_poweroff(void)
 **************************************************************************/
 static int rdx_app_bt_status_event_handler(int *msg)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     struct bt_event *bt = (struct bt_event *)msg;
 
     y_printf("\r====== rdx_app_bt_status_event_handler event: %d \r", bt->event);
@@ -988,14 +887,8 @@ static int rdx_app_bt_status_event_handler(int *msg)
 **************************************************************************/
 static int rdx_app_hci_event_handler(int *msg)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
     struct bt_event *bt = (struct bt_event *)msg;
 
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     log_info("\nrdx_app_hci_event_handler event:0x%x\n", bt->event);
     switch (bt->event) {
     case HCI_EVENT_CONNECTION_COMPLETE:
@@ -1020,13 +913,7 @@ static int rdx_app_hci_event_handler(int *msg)
  **************************************************************************/
 void rdx_app_bt_open(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     lmp_hci_write_scan_enable((1 << 1) | 1);//lmp_hci_write_scan_enable((conn_enable << 1) | scan_enable);
 }
 
@@ -1038,14 +925,8 @@ void rdx_app_bt_open(void)
  **************************************************************************/
 void rdx_app_bt_shutdown(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     extern void clr_device_in_page_list();
 
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     r_printf("--------------- rdx_app_bt_shutdown \r");
 
     clr_device_in_page_list();
@@ -1098,13 +979,7 @@ void rdx_app_normal_poweroff(void)
  **************************************************************************/
 void rdx_app_motor_run_once(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
 rdx_hook_motor_start(500);
 }
 
@@ -1180,13 +1055,7 @@ int rdx_app_device_unpair_handle(void)
  **************************************************************************/
 void rdx_app_switch_keep_timer_stop()
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("------ rdx_app_switch_keep_timer_stop \r");
     if(mode_switch_keep_timer){
         sys_timeout_del(mode_switch_keep_timer);
@@ -1202,18 +1071,11 @@ void rdx_app_switch_keep_timer_stop()
  **************************************************************************/
 void rdx_app_switch_keep_timer_cb(void *priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("\n------ rdx_app_switch_keep_timer_cb \r");
     rdx_app_switch_keep_timer_stop();
 
     //check the last mode.
-    // rdx_record_mode_active_check(bool show);
 
     rp->is_switch = false;
 
@@ -1235,13 +1097,7 @@ void rdx_app_switch_keep_timer_cb(void *priv)
  **************************************************************************/
 void rdx_app_switch_keep_timer_restart(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("rdx_app_switch_keep_timer_restart --> mode_switch_keep_timer: %d \r", mode_switch_keep_timer);
     if(mode_switch_keep_timer){
         sys_timer_re_run(mode_switch_keep_timer);
@@ -1256,13 +1112,7 @@ void rdx_app_switch_keep_timer_restart(void)
  **************************************************************************/
 void rdx_app_switch_keep_timer_start(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("rdx_app_switch_keep_timer_start --> mode_switch_keep_timer: %d \r", mode_switch_keep_timer);
     if(mode_switch_keep_timer == 0){
         mode_switch_keep_timer = sys_timeout_add(NULL, rdx_app_switch_keep_timer_cb, RDX_APP_MODE_SWITCH_KEEP_TIMEOUT);
@@ -1322,13 +1172,7 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
  **************************************************************************/
 void rdx_app_single_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_SINGLE_CLICK);
     }else{
@@ -1358,13 +1202,7 @@ void rdx_app_single_click_handle(void)
  **************************************************************************/
 void rdx_app_double_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_DOUBLE_CLICK);
     }else{
@@ -1386,13 +1224,7 @@ void rdx_app_double_click_handle(void)
  **************************************************************************/
 void rdx_app_triple_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_TRIPLE_CLICK);
     }else{
@@ -1420,14 +1252,8 @@ FWHW_VER, FIRMWARE_VERSION, HARDWARE_VERSION);
  **************************************************************************/
 void rdx_app_quadruple_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
 
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_QUADRUPLE_CLICK);
     }else{
@@ -1472,9 +1298,6 @@ QR_CODE, qr_code);
  **************************************************************************/
 void rdx_app_quintuple_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_BT_PAIR_SET_DEFAULT);
     }else{
@@ -1490,9 +1313,6 @@ void rdx_app_quintuple_click_handle(void)
  **************************************************************************/
 void rdx_app_sextuple_click_handle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_SEXTUPLE_CLICK);
     }else{
@@ -1508,13 +1328,7 @@ void rdx_app_sextuple_click_handle(void)
  **************************************************************************/
 RdxWifiInfo* rdx_app_get_wifi_info(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     return &wifiInfo;
 }
 
@@ -1526,13 +1340,7 @@ RdxWifiInfo* rdx_app_get_wifi_info(void)
  **************************************************************************/
 void rdx_app_wifi_handle(u8 cmd)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     b_printf("=== %s --> cmd = %d \r", __func__, cmd);
 	if(cmd == TRUE){
 		b_printf("=== %s --> wifi open \r", __func__);
@@ -1574,15 +1382,9 @@ void rdx_app_dut_show(void)
  **************************************************************************/
 int rdx_app_msg_handler(int *msg)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
     u8 comm_addr[6];
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     int ret = false;  //默认不拦截消息
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     y_printf("\n ====== rdx_app_msg_handler event:0x%x \r", msg[0]);
     switch (msg[0]) {
         case APP_MSG_BT_OPEN_PAGE_SCAN:
@@ -1853,13 +1655,7 @@ SHUTOFF);
  **************************************************************************/
 int rdx_app_key_msg_handler(int *msg)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
     int key_msg = 0;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
     // g_printf("rdx app key msg receive:0x%x\n", msg[1]);
     
     rdx_app_earphone_key_remap(&key_msg, msg);
@@ -1963,7 +1759,6 @@ void rdx_app_record_switch(u8 orig_scene)
     rdx_record_service_switch(orig_scene);
 }
 
-
 /**************************************************************************
  * function: rdx_app_clk_is_locked
  * description: 
@@ -1972,13 +1767,7 @@ void rdx_app_record_switch(u8 orig_scene)
  **************************************************************************/
 bool rdx_app_clk_is_locked(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     return rdx_clock_lock_flag;
 }
 
@@ -1990,13 +1779,7 @@ bool rdx_app_clk_is_locked(void)
  **************************************************************************/
 void rdx_app_clk_unlock(const char *task_name)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     int ret;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_clock_lock_flag){
         rdx_clock_lock_flag = false;
         ret = clock_unlock(task_name);
@@ -2014,13 +1797,7 @@ void rdx_app_clk_unlock(const char *task_name)
  **************************************************************************/
 void rdx_app_clk_lock(const char *task_name, int clk)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     int ret;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(rdx_clock_lock_flag == false){
         rdx_clock_lock_flag = true;
         ret = clock_lock(task_name, clk);
@@ -2038,13 +1815,7 @@ void rdx_app_clk_lock(const char *task_name, int clk)
  **************************************************************************/
 void rdx_app_clk_unlock_with_timer(const char *task_name)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     int ret;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if (rdx_clock_lock_timer != 0) {
         ret = clock_unlock(task_name);
         sys_timeout_del(rdx_clock_lock_timer);
@@ -2061,13 +1832,7 @@ void rdx_app_clk_unlock_with_timer(const char *task_name)
  **************************************************************************/
 void rdx_app_clk_lock_with_timer(const char *task_name, int clk)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     int ret;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if (rdx_clock_lock_timer) {
         sys_timer_re_run(rdx_clock_lock_timer);
         return;
@@ -2085,13 +1850,7 @@ void rdx_app_clk_lock_with_timer(const char *task_name, int clk)
  **************************************************************************/
 void rdx_app_do_emmc_reset(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_LOW);
     os_time_dly(50);
     gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
@@ -2105,13 +1864,7 @@ void rdx_app_do_emmc_reset(void)
  **************************************************************************/
 void rdx_app_emmc_poweron(u8 check_en)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
 
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("=====> %s --> emmc_poweroff_flag = %d \n", __func__, emmc_poweroff_flag);
     if(emmc_poweroff_flag == TRUE){
         //power on vdd.
@@ -2140,20 +1893,12 @@ void rdx_app_emmc_poweron(u8 check_en)
 
 void rdx_app_emmc_poweroff(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("=====> %s --> emmc_poweroff_flag = %d \r", __func__, emmc_poweroff_flag);
 
     if(emmc_poweroff_flag == false){
         rdx_app_emmc_poweroff_check_timer_stop();
 
-        // sdx_dev_detect_timer_del();
-        // sd_io_suspend("sd0", 0);
         sd_set_power(0);
 
         // PB4 已改为 WiFi CS 使用，不再设置为高阻态
@@ -2171,14 +1916,7 @@ void rdx_app_emmc_poweroff(void)
 
 void rdx_app_emmc_poweroff_check_timer_stop(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    // y_printf("=====> %s \r", __func__);
     if (emmc_poweroff_check_timer) {
         sys_timeout_del(emmc_poweroff_check_timer);
         emmc_poweroff_check_timer = 0;
@@ -2187,13 +1925,7 @@ void rdx_app_emmc_poweroff_check_timer_stop(void)
 
 static void rdx_app_emmc_poweroff_check_timer_cb(void* priv)
 { 
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("=====> %s --> rp->run = %d \r", __func__, rp->run);
     //check emmc state?
     if(rp->orig_mode == RECORD_MODE_OFFLINE && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
@@ -2255,13 +1987,7 @@ EXCEPTION_POINTER()
 
 static void rdx_app_emmc_poweroff_check_timer_rerun(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("=====> %s \r", __func__);
     if (emmc_poweroff_check_timer) {
         sys_timer_re_run(emmc_poweroff_check_timer);
@@ -2270,15 +1996,8 @@ static void rdx_app_emmc_poweroff_check_timer_rerun(void)
 
 static void rdx_app_emmc_poweroff_check_timer_start(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
     u16 con_hdl = rdx_ble_server_get_conn_handle();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    // y_printf("=====> %s \r", __func__);
     if(true == app_in_mode(APP_MODE_PC)){
         r_printf("=====> %s --> APP_MODE_PC, do not start poweroff timer\r", __func__);
         return;
@@ -2287,8 +2006,6 @@ static void rdx_app_emmc_poweroff_check_timer_start(void)
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         return;
     }
-    // if(0xffff != con_hdl && 0 != con_hdl){
-    //     return; //ble connected, do not start timer.
     // }
     if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
         return;
@@ -2300,13 +2017,7 @@ static void rdx_app_emmc_poweroff_check_timer_start(void)
 
 void rdx_app_emmc_poweroff_check(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     return;
     y_printf("=====> %s \r", __func__);
     rdx_app_emmc_poweroff_check_timer_start();
@@ -2360,7 +2071,6 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
     }
 }
 
-
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -2372,7 +2082,6 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
 	rdx_cmd_dispatch(event, data, len);
 }
-
 
 /* ---- extracted protocol command handlers ---- */
 
@@ -2612,7 +2321,6 @@ static void rdx_cmd_handle_flashnote(ProtocolEvents event, void *data, u32 len)
 
 #endif
 
-
 static void rdx_app_cmd_register_all(void)
 {
 	rdx_cmd_register(PROTOCOL_EVENT_CMD_BATTERY_QUERY, rdx_cmd_handle_battery_query);
@@ -2636,7 +2344,6 @@ static void rdx_app_cmd_register_all(void)
 #endif
 }
 
-
 /**************************************************************************
  * function: rdx_app_tasks_init
  * description: 
@@ -2645,13 +2352,7 @@ static void rdx_app_cmd_register_all(void)
  **************************************************************************/
 void rdx_app_tasks_init(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
 #if defined(__UUX_FILE__)
 	rdx_uxfile_init();
 #endif
@@ -2674,8 +2375,6 @@ void rdx_app_tasks_init(void)
         rdx_ble_server_auto_shut_down_enable(0);
     }
 #endif
-    //do sd mem first check.
-    // rdx_uxfile_device_sd_mem_check();
 
     rdx_dut_init();
 
@@ -2738,13 +2437,7 @@ static void rdx_print_startup_info(void)
 
 void rdx_app_all_init(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     g_printf("-----------------------------------------------------------\r");
     g_printf("====== %s --> protocol version = %d \r", __func__, rdx_protocol_get_version());
     g_printf("-----------------------------------------------------------\r");
@@ -2844,13 +2537,7 @@ void rdx_app_all_init(void)
  **************************************************************************/
 void rdx_app_all_exit(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     log_info("rdx_app_all_exit\n");
 
     // BLE exit
@@ -2865,13 +2552,7 @@ void rdx_app_all_exit(void)
  **************************************************************************/
 void sdmmc_set_power(u8 enable)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     sd_set_power(enable);
     if (enable) {
         // Enable power to the SD card
@@ -2879,7 +2560,6 @@ void sdmmc_set_power(u8 enable)
     } else {
         // Disable power to the SD card
         printf("SD card power off\n");
-        // gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
     }
 }
 
@@ -2891,14 +2571,6 @@ void sdmmc_set_power(u8 enable)
  **************************************************************************/
 static void rdx_app_idle_handle(void* priv)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    // RecordStatus* rp = rdx_record_get_status();
-    // RdxWifiInfo* pw = rdx_app_get_wifi_info();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
 
     rdx_app_emmc_poweroff_check_timer_stop();
@@ -2920,7 +2592,6 @@ static void rdx_app_idle_handle(void* priv)
 
     xxp_uart_set_wifi_default_flag(false);
 
-    // rdx_protocol_task_free();
     rdx_record_task_free();
     rdx_uxfile_task_free();
 
@@ -2946,14 +2617,8 @@ static void rdx_app_idle_handle(void* priv)
  **************************************************************************/
 void rdx_app_enter_idle(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
     RdxWifiInfo* pw = rdx_app_get_wifi_info();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     if(app_is_idle == TRUE){
         y_printf("rdx_app_enter_idle: app is idle now! \r");
         return;
@@ -2983,13 +2648,7 @@ void rdx_app_enter_idle(void)
  **************************************************************************/
 void rdx_app_auto_shutdown(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
     y_printf("=== %s \r", __func__);
     
     rdx_app_emmc_poweron(1);
@@ -2998,7 +2657,4 @@ rdx_hook_motor_start(500);
     sys_timeout_add(NULL, rdx_app_enter_idle, 1500);    
 }
 
-
 #endif
-
-
