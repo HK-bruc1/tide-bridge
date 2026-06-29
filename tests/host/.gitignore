@@ -1,0 +1,6 @@
+# Host mock build artifacts
+*.exe
+*.o
+*.obj
+*.ilk
+*.pdb

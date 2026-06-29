@@ -24,5 +24,21 @@
             "problemMatcher": [],
             "group": "build"
         }
+        ,        {
+            "label": "rdx verify",
+            "type": "shell",
+            "windows": {
+                "command": "cmd /c \"..\\tests\\host\\run_tests.bat && ..\\tools\\check_rdx_boundaries.bat\"",
+                "options": {
+                    "shell": {
+                        "executable": "cmd.exe",
+                        "args": ["/c"]
+                    }
+                }
+            },
+            "command": "make -C ../tests/host && bash ../tools/check_rdx_boundaries.sh",
+            "problemMatcher": [],
+            "group": "test"
+        }
     ]
 }
