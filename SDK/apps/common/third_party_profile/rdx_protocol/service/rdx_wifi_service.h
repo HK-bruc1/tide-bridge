@@ -2,6 +2,7 @@
 #define __RDX_WIFI_SERVICE_H__
 
 #include "typedef.h"
+#include "rdx_err.h"
 
 #define TRANSFER_BY_WIFI_OFF                        (0)
 #define TRANSFER_BY_WIFI_ON                         (1)
@@ -11,9 +12,9 @@ typedef struct {
     u8 conn_state;
 } RdxWifiInfo;
 
-void rdx_wifi_service_init(void);
-void rdx_wifi_power_on(void);
-void rdx_wifi_power_off(void);
+void      rdx_wifi_service_init(void);
+rdx_err_t rdx_wifi_power_on(void);
+rdx_err_t rdx_wifi_power_off(void);
 void rdx_wifi_data_send(const u8 *data, u32 len);
 u8   rdx_wifi_is_connected(void);
 

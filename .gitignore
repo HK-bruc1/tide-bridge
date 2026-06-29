@@ -39,3 +39,4 @@ info.json
 *sdk.md5
 output/
 cache/
+.claude/

@@ -503,6 +503,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_time_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_clock_service.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_le_port.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_setting.c \

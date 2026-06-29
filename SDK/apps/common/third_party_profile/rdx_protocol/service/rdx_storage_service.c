@@ -82,17 +82,17 @@ void rdx_storage_service_format_handle(void)
 	rdx_uxfile_sd_format(rdx_storage_service_format_cb);
 }
 
-int rdx_storage_format_request(void)
+rdx_err_t rdx_storage_format_request(void)
 {
 	return RDX_ERR_NOTSUP;
 }
 
-int rdx_storage_sync_start(void)
+rdx_err_t rdx_storage_sync_start(void)
 {
 	return RDX_ERR_NOTSUP;
 }
 
-int rdx_storage_sync_stop(void)
+rdx_err_t rdx_storage_sync_stop(void)
 {
 	return RDX_ERR_NOTSUP;
 }
@@ -105,4 +105,33 @@ u8 rdx_storage_is_syncing(void)
 u8 rdx_storage_is_formatting(void)
 {
 	return rdx_uxfile_sd_format_status_check();
+}
+
+/* BLE cleanup — Stage 5: moved from rdx_ble_service.c to break cross-layer coupling */
+extern void rdx_protocol_uploadFileInfo_clean(void);
+extern void rdx_protocol_file_sync_busy_timer_stop(void);
+extern void rdx_protocol_send_buffer_reinit(void);
+
+rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
+{
+	rdx_protocol_uploadFileInfo_clean();
+	rdx_uxfile_recordFileData_sendBuf_free();
+	rdx_uxfile_datFileInfo_sendBuf_free();
+	rdx_protocol_file_sync_busy_timer_stop();
+	rdx_protocol_send_buffer_reinit();
+	return RDX_OK;
+}
+
+/* board SD power — Stage 5 D-class from rdx_app.c */
+extern void sd_set_power(u8 enable);
+
+rdx_err_t rdx_storage_service_sdmmc_set_power(u8 enable)
+{
+	sd_set_power(enable);
+	if (enable) {
+		printf("SD card power on\n");
+	} else {
+		printf("SD card power off\n");
+	}
+	return RDX_OK;
 }

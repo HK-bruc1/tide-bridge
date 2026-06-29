@@ -111,18 +111,18 @@ void rdx_device_service_reboot(void)
 
 /* ---- device pair (charge case) ---- */
 
-int rdx_device_service_pair(char *au_code, char *mac_str, char *label_sn)
+rdx_err_t rdx_device_service_pair(char *au_code, char *mac_str, char *label_sn)
 {
 	EarphoneInfo *p_epInfo = rdx_vm_get_ep_info();
 
 	if (au_code == NULL || mac_str == NULL)
-		return -1;
+		return RDX_ERR_INVAL;
 	if (memcmp(au_code, "0", RDX_BLE_DEVICE_AUTH_KEY_SIZE) == 0)
-		return -1;
+		return RDX_ERR_INVAL;
 	if (memcmp(mac_str, "0", RDX_BLE_MAC_STRING_SIZE) == 0)
-		return -1;
+		return RDX_ERR_INVAL;
 	if (memcmp(label_sn, "0", RDX_LABEL_SN_SIZE) == 0)
-		return -1;
+		return RDX_ERR_INVAL;
 
 	{
 		rdx_auth_info_t *p_authInfo = rdx_vm_get_auth_info();
@@ -139,18 +139,18 @@ int rdx_device_service_pair(char *au_code, char *mac_str, char *label_sn)
 		rdx_util_reverse_byte(ep_info.ep_mac, 6);
 		memcpy(p_epInfo, &ep_info, sizeof(EarphoneInfo));
 		if (!rdx_vm_write_ep_info_intoVM(&ep_info))
-			return -1;
+			return RDX_ERR_IO;
 	}
 
 	rdx_app_earphone_pack_readchardata();
 	rdx_ble_server_reset_local_name();
 
-	return 0;
+	return RDX_OK;
 }
 
 /* ---- device unpair (charge case) ---- */
 
-int rdx_device_service_unpair(void)
+rdx_err_t rdx_device_service_unpair(void)
 {
 	EarphoneInfo *p_epInfo = rdx_vm_get_ep_info();
 
@@ -159,7 +159,7 @@ int rdx_device_service_unpair(void)
 	rdx_vm_read_ep_info_fromVM();
 	rdx_app_earphone_pack_readchardata();
 
-	return 0;
+	return RDX_OK;
 }
 
 /* ---- unbound (moved from rdx_vm.c) ---- */
@@ -254,7 +254,7 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 
 /* ---- factory reset / user para reset (moved from rdx_vm.c) ---- */
 
-int rdx_device_service_factory_reset(void)
+rdx_err_t rdx_device_service_factory_reset(void)
 {
 	RecordStatus *rp = rdx_record_get_status();
 

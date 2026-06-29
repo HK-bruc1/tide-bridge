@@ -504,3 +504,13 @@ u8 rdx_record_service_is_active(void)
 {
 	return 0;
 }
+
+rdx_err_t rdx_record_service_stop_from_ble(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+	if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+		rp->run = RECORD_STATE_STOP;
+		rdx_record_process();
+	}
+	return RDX_OK;
+}

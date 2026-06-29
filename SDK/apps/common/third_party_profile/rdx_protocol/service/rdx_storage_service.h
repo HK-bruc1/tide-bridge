@@ -2,18 +2,25 @@
 #define __RDX_STORAGE_SERVICE_H__
 
 #include "typedef.h"
+#include "rdx_err.h"
 
-void rdx_storage_service_init(void);
+void      rdx_storage_service_init(void);
 
 /* format orchestration (moved from rdx_app.c) */
 void rdx_storage_service_format_handle(void);
 void rdx_storage_service_format_cb(u8 result);
 
 /* sync / file management shells */
-int  rdx_storage_format_request(void);
-int  rdx_storage_sync_start(void);
-int  rdx_storage_sync_stop(void);
-u8   rdx_storage_is_syncing(void);
-u8   rdx_storage_is_formatting(void);
+rdx_err_t rdx_storage_format_request(void);
+rdx_err_t rdx_storage_sync_start(void);
+rdx_err_t rdx_storage_sync_stop(void);
+u8        rdx_storage_is_syncing(void);
+u8        rdx_storage_is_formatting(void);
+
+/* BLE cutover API — Stage 5 */
+rdx_err_t rdx_storage_service_cleanup_ble_buffers(void);
+
+/* board power control — Stage 5 D-class */
+rdx_err_t rdx_storage_service_sdmmc_set_power(u8 enable);
 
 #endif

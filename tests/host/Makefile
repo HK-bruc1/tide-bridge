@@ -44,7 +44,9 @@ INCS         := $(MOCK_INC) \
 TESTS        := test_dispatch \
                 test_event_bus \
                 test_time_ops \
-                test_board_config
+                test_board_config \
+                test_util \
+                test_time_service
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
@@ -66,6 +68,12 @@ test_time_ops$(EXE_EXT): test_time_ops.c mock/rdx_time_ops_host.c
 test_board_config$(EXE_EXT): test_board_config.c $(BOARD_DIR)/rdx_board_config.c
 	$(CC) $(INCS) $^ -o $@
 
+test_util$(EXE_EXT): test_util.c $(PROTO_DIR)/rdx_util.c mock/rdx_debug_mock.c
+	$(CC) $(INCS) $^ -o $@
+
+test_time_service$(EXE_EXT): test_time_service.c $(SERVICE_DIR)/rdx_time_service.c $(SERVICE_DIR)/rdx_command_dispatch.c $(SERVICE_DIR)/rdx_event_bus.c mock/rdx_jl_osal_mock.c
+	$(CC) $(INCS) $^ -o $@
+
 # Run a single test executable; this target depends on the .exe being up to date.
 $(addsuffix .run,$(TESTS)): %.run: %$(EXE_EXT)
 	@echo RUN: $*
@@ -80,3 +88,5 @@ test_dispatch: test_dispatch.run
 test_event_bus: test_event_bus.run
 test_time_ops: test_time_ops.run
 test_board_config: test_board_config.run
+test_util: test_util.run
+test_time_service: test_time_service.run

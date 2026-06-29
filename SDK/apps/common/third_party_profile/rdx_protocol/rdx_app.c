@@ -98,6 +98,7 @@
 #include "rdx_storage_service.h"
 #include "rdx_record_service.h"
 #include "rdx_time_service.h"
+#include "rdx_clock_service.h"
 #include "rdx_default_hooks.h"
 #include "rdx_ops.h"
 #include "rdx_jl_lifecycle.h"
@@ -187,8 +188,6 @@ static DevBaseInfo devBaseInfo;
 static u8 qr_code[256];
 
 static int orig_sys_clk;
-static u16 rdx_clock_lock_timer;
-static bool rdx_clock_lock_flag = FALSE;
 
 static RdxProtocolCallbacks protocol_cbs = {
     .app_select = RDX_AI_SEL_APP,
@@ -1730,87 +1729,31 @@ void rdx_app_record_switch(u8 orig_scene)
     rdx_record_service_switch(orig_scene);
 }
 
-/**************************************************************************
- * function: rdx_app_clk_is_locked
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
+/* ---- clock wrappers (impl migrated to rdx_clock_service, Stage 5) ---- */
+
 bool rdx_app_clk_is_locked(void)
 {
-
-    return rdx_clock_lock_flag;
+    return rdx_clock_service_is_locked();
 }
 
-/**************************************************************************
- * function: rdx_app_clk_unlock
- * description: 
- * param (*) task_name
- * return (*)
- **************************************************************************/
 void rdx_app_clk_unlock(const char *task_name)
 {
-    int ret;
-    if(rdx_clock_lock_flag){
-        rdx_clock_lock_flag = false;
-        ret = clock_unlock(task_name);
-        log_info("====== %s, ret = %d \n", __func__, ret);
-    }else{
-        log_info("====== %s, rdx_clock_lock_flag = %d, no need to unlock! \n", __func__, rdx_clock_lock_flag);
-    }
+    rdx_clock_service_unlock(task_name);
 }
 
-/**************************************************************************
- * function: rdx_app_clk_lock
- * description: 
- * param (*) task_name, clock
- * return (*)
- **************************************************************************/
 void rdx_app_clk_lock(const char *task_name, int clk)
 {
-    int ret;
-    if(rdx_clock_lock_flag == false){
-        rdx_clock_lock_flag = true;
-        ret = clock_lock(task_name, clk);
-        log_info("====== %s, ret = %d \n", __func__, ret);
-    }else{
-        log_info("====== %s, rdx_clock_lock_flag = %d, clk has been locked already! \n", __func__, rdx_clock_lock_flag);
-    }
+    rdx_clock_service_lock(task_name, clk);
 }
 
-/**************************************************************************
- * function: rdx_app_clk_unlock_with_timer
- * description: 
- * param (*) task_name
- * return (*)
- **************************************************************************/
 void rdx_app_clk_unlock_with_timer(const char *task_name)
 {
-    int ret;
-    if (rdx_clock_lock_timer != 0) {
-        ret = clock_unlock(task_name);
-        sys_timeout_del(rdx_clock_lock_timer);
-        rdx_clock_lock_timer = 0;
-    }
-    log_info("====== %s, ret = %d \n", __func__, ret);
+    rdx_clock_service_unlock_with_timer(task_name);
 }
 
-/**************************************************************************
- * function: rdx_app_clk_lock_with_timer
- * description: 
- * param (*) task_name, clock
- * return (*)
- **************************************************************************/
 void rdx_app_clk_lock_with_timer(const char *task_name, int clk)
 {
-    int ret;
-    if (rdx_clock_lock_timer) {
-        sys_timer_re_run(rdx_clock_lock_timer);
-        return;
-    }
-    ret = clock_lock(task_name, clk);
-    rdx_clock_lock_timer = sys_timeout_add(NULL, rdx_app_clk_unlock_with_timer, 5000);
-    log_info("====== %s, ret = %d \r", __func__, ret);
+    rdx_clock_service_lock_with_timer(task_name, clk);
 }
 
 /* ---- eMMC power wrappers (impl migrated to rdx_device_service, Stage 3) ---- */
@@ -2143,23 +2086,11 @@ void rdx_app_all_exit(void)
     rdx_ble_server_exit();
 }
 
-/**************************************************************************
- * function: sdmmc_set_power
- * description: 
- * param (u8) enable
- * return (*)
- **************************************************************************/
+/* ---- sdmmc_set_power wrapper (impl migrated to rdx_storage_service, Stage 5) ---- */
+
 void sdmmc_set_power(u8 enable)
 {
-    
-    sd_set_power(enable);
-    if (enable) {
-        // Enable power to the SD card
-        printf("SD card power on\n");
-    } else {
-        // Disable power to the SD card
-        printf("SD card power off\n");
-    }
+    rdx_storage_service_sdmmc_set_power(enable);
 }
 
 /**************************************************************************

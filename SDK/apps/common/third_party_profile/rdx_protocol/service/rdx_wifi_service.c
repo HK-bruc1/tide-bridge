@@ -101,33 +101,35 @@ void rdx_wifi_service_init(void)
 	RDX_LOGI("wifi_service init done");
 }
 
-void rdx_wifi_power_on(void)
+rdx_err_t rdx_wifi_power_on(void)
 {
     b_printf("=== %s --> wifi open \r", __func__);
     if (g_wifi_info.onoff == TRANSFER_BY_WIFI_ON) {
-        return;
+        return RDX_OK;
     }
     if (g_wifi_transport && g_wifi_transport->open) {
         g_wifi_transport->open(NULL);
     }
     g_wifi_info.onoff = TRANSFER_BY_WIFI_ON;
     rdx_hook_led_set_scene(RDX_LED_SCENE_WIFI_START);
+    return RDX_OK;
 }
 
-void rdx_wifi_power_off(void)
+rdx_err_t rdx_wifi_power_off(void)
 {
     b_printf("=== %s --> wifi close \r", __func__);
     if (g_wifi_transport && g_wifi_transport->control) {
         g_wifi_transport->control(RDX_WIFI_CTRL_POWERON_TIMER_CANCEL, NULL);
     }
     if (g_wifi_info.onoff == TRANSFER_BY_WIFI_OFF) {
-        return;
+        return RDX_OK;
     }
     if (g_wifi_transport && g_wifi_transport->close) {
         g_wifi_transport->close();
     }
     rdx_wifi_service_set_state(TRANSFER_BY_WIFI_OFF, TRANSFER_BY_WIFI_OFF);
     rdx_hook_led_restore_system_state();
+    return RDX_OK;
 }
 
 void rdx_wifi_data_send(const u8 *data, u32 len)
