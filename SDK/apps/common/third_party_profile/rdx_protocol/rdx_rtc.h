@@ -81,6 +81,7 @@ time_t rdx_rtc_utc_string_to_timestamp(const char *utc_string);
 // Set the current timestamp and persist it.
 // Returns 0 on success, or a negative error code if the persisted value could not be verified.
 int rdx_rtc_set_timestamp(time_t timestamp);
+time_t rdx_rtc_get(void);
 
 // Persist the current RDX RTC time if the selected path needs it
 void rdx_rtc_store_timestamp(void);

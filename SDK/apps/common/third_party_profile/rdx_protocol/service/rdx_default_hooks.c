@@ -27,6 +27,11 @@ void rdx_hook_led_set_scene(u8 scene)
 	rdx_led_ctrl_set_scene((rdx_led_scene_e)scene);
 }
 
+void rdx_hook_led_set_charge_state_by_battery(u8 battery_percent)
+{
+	rdx_led_ctrl_set_charge_state_by_battery(battery_percent);
+}
+
 void rdx_hook_led_restore_system_state(void)
 {
 	rdx_led_ctrl_restore_system_state();

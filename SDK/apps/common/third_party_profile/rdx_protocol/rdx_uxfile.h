@@ -122,6 +122,7 @@ u32 rdx_uxfile_get_all_size(void);
 u16 rdx_uxfile_get_dat_cout(void);
 uxfile_datfile_info_t* rdx_uxfile_get_datFileInfo(void);
 void rdx_uxfile_datFileInfo_sendBuf_free(void);
+uxfile_data_t* rdx_uxfile_get_operateFile_info(void);
 uxfile_data_t* rdx_uxfile_get_file_data_by_sn(u32 fnum, u8 type, int f_offset);
 int rdx_uxfile_raw_read(u32 data_len, u32 off_set, u8* data_ptr);
 void rdx_uxfile_close_read_file_handle(void);  // [优化] 关闭持久化文件句柄
@@ -130,6 +131,8 @@ void rdx_uxfile_recordFileData_send_finish(ReqFileInfo * rf_info);
 void rdx_uxfile_txt_write_test(u8* d, u32 len);
 void rdx_uxfile_device_sd_mem_check(void);
 void rdx_uxfile_device_sd_format(uxfile_format_cb cb);
+int rdx_uxfile_sd_format(uxfile_format_cb formatCB);
+bool rdx_uxfile_sd_format_status_check(void);
 int rdx_uxfile_recordFile_delete_handle(int fnum, char* fname);
 
 // [优化] DAT 缓存管理（WiFi传输前调用释放内存）
@@ -161,4 +164,3 @@ u8 rdx_uxfile_is_datFileInfo_loading(void); // listreq 分包传输中
 u8 rdx_uxfile_is_formatting(void);          // SD 卡正在格式化
 
 #endif/*__RDX_UXFILE_H__*/
-

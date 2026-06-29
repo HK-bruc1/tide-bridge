@@ -8,7 +8,6 @@
 #include "rdx_record.h"
 #include "rdx_wifi_service.h"
 
-extern bool rdx_uxfile_sd_format_status_check(void);
 extern u8 get_ota_status(void);
 
 static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)

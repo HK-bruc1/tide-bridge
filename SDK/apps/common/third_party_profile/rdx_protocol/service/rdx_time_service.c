@@ -4,6 +4,7 @@
 #include "rdx_protocol.h"
 #include "rdx_rtc.h"
 #include "rdx_log.h"
+#include "rdx_err.h"
 #include "system/includes.h"
 
 /*
@@ -26,7 +27,10 @@ static void rdx_cmd_handle_rtc(ProtocolEvents event, void *data, u32 len)
 				.timestamp = p->timestamp,
 				.delta = (int)((time_t)p->timestamp - old_rtc),
 			};
-			rdx_event_publish_async(RDX_EVENT_TIME_SYNCED, &sync, sizeof(sync));
+			int publish_ret = rdx_event_publish_async(RDX_EVENT_TIME_SYNCED, &sync, sizeof(sync));
+			if (publish_ret != RDX_OK) {
+				RDX_LOGW("time sync event publish failed ret=%d", publish_ret);
+			}
 		}
 		ops->rtc_set_ack_indicate((u8)result, p->timestamp);
 	} else {

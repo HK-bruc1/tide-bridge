@@ -443,7 +443,7 @@ void rdx_app_incharge_full_check_timer_cb(void* priv)
         if(orig_bat != cur_bat){
             rdx_battery_inchargeBatPer_show();
             // 充电过程中根据电量更新灯效
-            rdx_led_ctrl_set_charge_state_by_battery(cur_bat);
+            rdx_hook_led_set_charge_state_by_battery(cur_bat);
             orig_bat = cur_bat;
         }
     }
@@ -608,7 +608,7 @@ void rdx_app_charge_start(void)
     // 充电开始，确保LED硬件已初始化，然后根据当前电量设置充电灯效
     rdx_led_hardware_init();
     u8 cur_bat = rdx_battery_get_percent();
-    rdx_led_ctrl_set_charge_state_by_battery(cur_bat);
+    rdx_hook_led_set_charge_state_by_battery(cur_bat);
 }
 
 /**************************************************************************
