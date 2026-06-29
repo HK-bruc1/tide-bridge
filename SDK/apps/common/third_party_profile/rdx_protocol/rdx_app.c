@@ -1982,11 +1982,13 @@ static void rdx_print_startup_info(void)
     /*
      * FIRMWARE_NAME 来自 rdx_app_config.h。
      * RTC path 通过 rdx_time_ops_t.is_hw_rtc 查询，不再直接访问 RDX_RTC_PATH_SEL。
-     * JL_SDK_VER_TODO 是占位符，阶段 3 根据 JL SDK 实际宏替换。
+     * sdk_version_info_get() 由 JL SDK 提供，运行时返回 SDK 版本字符串。
      */
     const rdx_time_ops_t *to_startup = rdx_time_ops_get();
+    const char *sdk_ver = sdk_version_info_get();
     RDX_LOGI("startup: product=%s board=%s chip=%s sdk=%s",
-             FIRMWARE_NAME, cfg->board_name, cfg->chip_family, "JL_SDK_VER_TODO");
+             FIRMWARE_NAME, cfg->board_name, cfg->chip_family,
+             (sdk_ver && sdk_ver[0]) ? sdk_ver : "unknown");
     RDX_LOGI("startup: transport=spi storage=syscfg rtc_path=%s",
              (to_startup && to_startup->is_hw_rtc) ? "hardware" : "software");
     RDX_LOGI("startup: pins wifi_power=%x vdd_power=%x led=%x spi_cs=%x",
@@ -2051,10 +2053,14 @@ void rdx_app_all_init(void)
     rdx_spi_init_irq();
 
         /* Phase 3: lifecycle ops validate + early_init */
+    bool vtable_all_ok = true;
     {
         const rdx_lifecycle_ops_t *lc = rdx_lifecycle_ops_get();
         if (rdx_lifecycle_ops_validate(lc) != RDX_OK) {
             RDX_LOGE("lifecycle ops validate failed");
+            vtable_all_ok = false;
+        } else {
+            RDX_LOGI("startup: vtable lifecycle_ops=ok");
         }
         if (lc && lc->early_init) {
             lc->early_init();
@@ -2064,13 +2070,24 @@ void rdx_app_all_init(void)
         const rdx_time_ops_t *to = rdx_time_ops_get();
         if (rdx_time_ops_validate(to) != RDX_OK) {
             RDX_LOGE("time ops validate failed");
+            vtable_all_ok = false;
+        } else {
+            RDX_LOGI("startup: vtable time_ops=ok");
         }
     }
     {
         const rdx_wifi_transport_ops_t *wo = rdx_wifi_transport_ops_get();
         if (rdx_wifi_transport_ops_validate(wo) != RDX_OK) {
             RDX_LOGE("wifi transport ops validate failed");
+            vtable_all_ok = false;
+        } else {
+            RDX_LOGI("startup: vtable wifi_transport_ops=ok");
         }
+    }
+
+    if (!vtable_all_ok) {
+        RDX_LOGE("startup: vtable validation failed, abort rdx_app_all_init");
+        return;
     }
 
     /* Phase 2: service layer init — must run before any task starts */
