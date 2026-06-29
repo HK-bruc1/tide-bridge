@@ -110,7 +110,7 @@ rdx_err_t rdx_wifi_power_on(void)
     if (g_wifi_transport && g_wifi_transport->open) {
         g_wifi_transport->open(NULL);
     }
-    g_wifi_info.onoff = TRANSFER_BY_WIFI_ON;
+    /* xxpUart flips onoff after its delayed hardware power-on path completes. */
     rdx_hook_led_set_scene(RDX_LED_SCENE_WIFI_START);
     return RDX_OK;
 }
