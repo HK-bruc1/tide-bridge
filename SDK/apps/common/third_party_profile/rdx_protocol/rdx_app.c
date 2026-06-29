@@ -64,7 +64,7 @@
 #include "user_cfg_id.h"
 #include "syscfg_id.h"
 #include "time.h"
-#include "clock_manager/clock_manager.h"
+
 #include "power/power_manage.h"
 #include "gpio_config.h"
 
@@ -1023,7 +1023,8 @@ void rdx_app_device_record_handle(u8 scene)
  **************************************************************************/
 int rdx_app_device_pair_handle(char* au_code, char* mac_str, char* label_sn)
 {
-    return rdx_device_service_pair(au_code, mac_str, label_sn);
+    rdx_err_t err = rdx_device_service_pair(au_code, mac_str, label_sn);
+    return RDX_IS_ERR(err) ? -1 : 0;
 }
 
 /**************************************************************************
@@ -1034,7 +1035,8 @@ int rdx_app_device_pair_handle(char* au_code, char* mac_str, char* label_sn)
  **************************************************************************/
 int rdx_app_device_unpair_handle(void)
 {
-    return rdx_device_service_unpair();
+    rdx_err_t err = rdx_device_service_unpair();
+    return RDX_IS_ERR(err) ? -1 : 0;
 }
 #endif /* RDX_PRODUCT_IS_CHARGE_CASE */
 
