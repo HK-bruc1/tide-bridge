@@ -28,12 +28,6 @@
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/ 
-#define CHIP_JL7018                                     0
-#define CHIP_JL7016                                     1
-#ifndef CHIP_TYPE
-#define CHIP_TYPE                                       CHIP_JL7018
-#endif
-
 
 #define DMA_CHAN                                        SPI_DMA_CH_AUTO
 #define ESP_SPI_DMA_MAX_LEN                             (4092 * 2)
@@ -57,7 +51,6 @@
 ******************************************************************************/
 typedef struct {
     u8 spi_hdl;
-    u8 spi_cs_pin;
     u8 spi_work_mode;
     u8 port;
     u8 spi_clk;

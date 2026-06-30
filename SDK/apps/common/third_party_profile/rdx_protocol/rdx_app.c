@@ -83,6 +83,7 @@
 #include "rdx_vm.h"
 #include "rdx_log.h"
 #include "rdx_board_config.h"
+#include "rdx_board_hal.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -1896,7 +1897,7 @@ void rdx_led_hardware_init(void)
     if (rdx_hook_led_init() != RDX_OK) {
         return; /* product hook handled LED init */
     }
-    if (led_pt0807_init(&led_pt0807_config, LED_PT0807_SPI1, LED_PT0807_DATA_PORT_IO, 1) == 0) {
+    if (led_pt0807_init(&led_pt0807_config, rdx_board_led_spi_instance(), rdx_board_led_data_io(), 1) == 0) {
         g_printf("===== %s --> LED PT0807 init success\r", __func__);
         if (rdx_led_ctrl_init(&led_pt0807_config) == 0) {
             g_printf("===== %s --> LED Ctrl init success\r", __func__);
@@ -1986,16 +1987,16 @@ void rdx_app_all_init(void)
 #endif
 
     //wifi power shutoff.
-    gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
+    rdx_board_wifi_power_off();
 
     //power on vdd.
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
+    rdx_board_vdd_power_on();
 
     //rtc init.
     rdx_rtc_init();
-    
-    //spi irq init.
-    rdx_spi_init_irq();
+
+    //spi irq init: moved to rdx_spi_init_master_hd() so the handshake pin
+    //is initialized from board config at the moment WiFi is powered on.
 
         /* Phase 3: lifecycle ops validate + early_init */
     bool vtable_all_ok = true;
@@ -2128,17 +2129,9 @@ static void rdx_app_idle_handle(void* priv)
     rdx_uxfile_task_free();
 
     sd_set_power(0);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
-
-    // PB4 已改为 WiFi CS 使用，不再设置为高阻态
-    // PB5 已改为充满检测使用，不再设置为高阻态
-
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
-    
-    gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
+    rdx_board_shutdown_io_state();
+    rdx_board_wifi_power_off();
+    rdx_board_vdd_power_off_highz();
 }
 
 /**************************************************************************

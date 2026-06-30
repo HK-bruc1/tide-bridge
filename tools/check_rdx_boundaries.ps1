@@ -162,6 +162,36 @@ $directBoardIncludeHits = Find-Pattern -Files $businessFiles `
     -Pattern '^\s*#\s*include\s*["<]board/'
 Assert-NoHits "business code has no direct board include path" $directBoardIncludeHits
 
+# P0: business .c must not ref old board macros
+$oldMacroTargets = $allRdxFiles | Where-Object {
+    $n = $_.Name
+    return ($n -in @("rdx_app.c", "rdx_charge.c", "rdx_dut.c") -or
+            ($_.FullName -match "[/\\]service[/\\]" -and $n -like "*.c"))
+}
+$oldMacroHits = Find-Pattern -Files $oldMacroTargets `
+    -Pattern "\b(WIFI_POWER_PORT_IO|VDD_POWER_PORT_IO|LED_PT0807_DATA_PORT_IO)\b"
+Assert-NoHits "business .c has no old board macros (WIFI/VDD/LED)" $oldMacroHits
+
+# P0: business .c must not directly operate IO_PORTC_* pins
+$ioPortcHits = Find-Pattern -Files $oldMacroTargets `
+    -Pattern "\bIO_PORTC_0[1-5]\b"
+Assert-NoHits "business .c has no bare IO_PORTC_* operations" $ioPortcHits
+
+# P1: rdx_spi.c must not reference ESP8684 old macros
+$spiFile = Join-Path $RdxRoot "rdx_spi.c"
+$spi8684Hits = @()
+if (Test-Path $spiFile) {
+    $spi8684Hits = Select-String -Path $spiFile -Pattern "\bESP8684_[A-Z]" -CaseSensitive
+}
+Assert-NoHits "rdx_spi.c has no ESP8684_ hardcoded macros" $spi8684Hits
+
+# P1: rdx_spi.c must not have CHIP_TYPE conditionals
+$spiChipTypeHits = @()
+if (Test-Path $spiFile) {
+    $spiChipTypeHits = Select-String -Path $spiFile -Pattern "CHIP_TYPE"
+}
+Assert-NoHits "rdx_spi.c has no CHIP_TYPE conditionals" $spiChipTypeHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"

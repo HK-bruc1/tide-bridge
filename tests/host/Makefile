@@ -29,6 +29,7 @@ PROTO_DIR    := ../../SDK/apps/common/third_party_profile/rdx_protocol
 SERVICE_DIR  := $(PROTO_DIR)/service
 PORT_DIR     := $(PROTO_DIR)/port/jl/include
 BOARD_DIR    := $(PROTO_DIR)/board/t2616_cc
+BOARD_COMMON_DIR := $(PROTO_DIR)/board/common
 
 # Mock headers shadow JL-specific includes (typedef.h, system/includes.h, etc.)
 MOCK_INC     := -Imock/include
@@ -38,6 +39,7 @@ INCS         := $(MOCK_INC) \
                 -I$(PROTO_DIR) \
                 -I$(SERVICE_DIR) \
                 -I$(PORT_DIR) \
+                -I$(BOARD_COMMON_DIR) \
                 -I$(BOARD_DIR)
 
 # Tests: each maps to an executable target

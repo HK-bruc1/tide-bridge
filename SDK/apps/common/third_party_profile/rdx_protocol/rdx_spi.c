@@ -33,6 +33,9 @@
 #include "circular_buf.h"
 #include "jlstream.h"
 #include "gpio_config.h"
+#include "rdx_board_config.h"
+#include "rdx_board_hal.h"
+#include "rdx_port_spi.h"
 #include "rdx_wifi_service.h"
 
 #include "media/includes.h"
@@ -62,51 +65,7 @@
 #define SPI_DMA_TIMEOUT_CNT                             500000
 #define SPI_EXCEPTION_MAX_RETRIES                       5
 
-/*
-Pins in use. The SPI Master can use the GPIO mux, so feel free to change these if needed.
-*/
-// #if (CHIP_TYPE == CHIP_JL7018)
-#define ESP8684_HANDSHAKE_PORT_IO                       IO_PORTA_03
-#define ESP8684_HANDSHAKE_PORT                          PORTA
-#define ESP8684_HANDSHAKE_PIN                           PORT_PIN_3
-// #else
-// #define ESP8684_HANDSHAKE_PORT_IO                       IO_PORTG_05
-// #define ESP8684_HANDSHAKE_PORT                          PORTG
-// #define ESP8684_HANDSHAKE_PIN                           PORT_PIN_5
-// #endif
-
-#define ESP8684_MOSI_PORT_IO                            IO_PORTA_06
-#define ESP8684_MOSI_PORT                               PORTA
-#define ESP8684_MOSI_PIN                                PORT_PIN_6
-
-// #define ESP8684_MISO_PORT_IO                            IO_PORTA_04
-// #define ESP8684_MISO_PORT                               PORTA
-// #define ESP8684_MISO_PIN                                PORT_PIN_4
-
-#define ESP8684_SCLK_PORT_IO                            IO_PORTA_05
-#define ESP8684_SCLK_PORT                               PORTA
-#define ESP8684_SCLK_PIN                                PORT_PIN_5
-
-// #if (CHIP_TYPE == CHIP_JL7018)
-//#define ESP8684_CS_PORT_IO                              IO_PORT_DM
-//#define ESP8684_CS_PORT                                 PORTUSB
-//#define ESP8684_CS_PIN                                  PORT_PIN_1
-// #else
-// #define ESP8684_CS_PORT_IO                              IO_PORTG_06
-// #define ESP8684_CS_PORT                                 PORTG
-// #define ESP8684_CS_PIN                                  PORT_PIN_6
-// #endif
-
-//Pin
-#define ESP8684_CS_PORT_IO                              IO_PORTE_05
-#define ESP8684_CS_PORT                                 PORTE
-#define ESP8684_CS_PIN                                  PORT_PIN_5
-
-
-#ifdef CONFIG_SPI_QUAD_MODE
-#define ESP8684_GPIO_WP                                 CONFIG_SPI_WP_PIN
-#define ESP8684_GPIO_HD                                 CONFIG_SPI_HD_PIN
-#endif
+/* SPI pins now sourced from rdx_board_get_config(), see board/<name>/rdx_board_config.c */
 
 
 
@@ -201,29 +160,10 @@ typedef struct{
 ******************************************************************************/ 
 static esp8684_param esp8684_info;
 
-#if (CHIP_TYPE == CHIP_JL7018)
-#define spi_cs_init() \
-    do { \
-        gpio_set_mode(IO_PORT_SPILT(ESP8684_CS_PORT_IO), PORT_OUTPUT_HIGH); \
-    } while (0)
-#define spi_cs_uninit() \
-    do { \
-        gpio_set_mode(IO_PORT_SPILT(ESP8684_CS_PORT_IO), PORT_HIGHZ); \
-    } while (0)
-
-#else
-#define spi_cs_init() \
-    do { \
-        gpio_set_mode(esp8684_info.spi_cs_pin/16, BIT(esp8684_info.spi_cs_pin%16), PORT_OUTPUT_HIGH); \
-    } while (0)
-#define spi_cs_uninit() \
-    do { \
-        gpio_set_mode(esp8684_info.spi_cs_pin/16, BIT(esp8684_info.spi_cs_pin%16), PORT_HIGHZ); \
-    } while (0)
-#endif
-
-#define spi_cs_h()                  gpio_set_mode(IO_PORT_SPILT(ESP8684_CS_PORT_IO), PORT_OUTPUT_HIGH)
-#define spi_cs_l()                  gpio_set_mode(IO_PORT_SPILT(ESP8684_CS_PORT_IO), PORT_OUTPUT_LOW) 
+#define spi_cs_init()       rdx_port_spi_cs_init(rdx_board_get_config()->spi_cs_io)
+#define spi_cs_uninit()     rdx_port_spi_cs_uninit(rdx_board_get_config()->spi_cs_io)
+#define spi_cs_h()          gpio_set_mode(IO_PORT_SPILT(rdx_board_get_config()->spi_cs_io), PORT_OUTPUT_HIGH)
+#define spi_cs_l()          gpio_set_mode(IO_PORT_SPILT(rdx_board_get_config()->spi_cs_io), PORT_OUTPUT_LOW)
 #define spi_read_byte()             spi_recv_byte(esp8684_info.spi_hdl, NULL)
 #define spi_write_byte(x)           spi_send_byte(esp8684_info.spi_hdl, x)
 #define spi_dma_read(x, y)          spi_dma_recv(esp8684_info.spi_hdl, x, y)
@@ -278,7 +218,7 @@ static struct _p33_io_wakeup_config gpio_irq_config_esp = {
     .pullup_down_mode = PORT_INPUT_PULLDOWN_1M,
     .filter      		= PORT_FLT_DISABLE,
     .edge               = PORT_IRQ_EDGE_RISE,
-    .gpio               = ESP8684_HANDSHAKE_PORT_IO,
+    .gpio               = 0,  /* set at runtime from board config */
     .callback			= gpio_handshake_isr_handler,
 };
 
@@ -652,7 +592,7 @@ static u32 write_data_to_spi_task_tx_ring_buf(const void* data, size_t size)
 static void spi_wait_handshake_low(void)
 {
     int wait = 0;
-    while (gpio_read(ESP8684_HANDSHAKE_PORT_IO) && wait < 500) {
+    while (gpio_read(rdx_board_spi_handshake_io()) && wait < 500) {
         udelay(10);
         wdt_clear();
         wait++;
@@ -673,7 +613,7 @@ static void notify_slave_to_recv(void)
                       (unsigned)(spi_manager.current_send_seq + 1),
                       (unsigned)spi_manager.plan_send_len,
                       (unsigned)tmp_send_len,
-                      gpio_read(ESP8684_HANDSHAKE_PORT_IO));
+                      gpio_read(rdx_board_spi_handshake_io()));
             spi_master_request_to_write(spi_manager.current_send_seq + 1, spi_manager.plan_send_len); // to tell slave that the master want to write data
             spi_manager.initiative_send_flag = 1;
             spi_send_start_ts = jiffies_msec();
@@ -974,13 +914,13 @@ static void spi_trans_task(void* arg)
                 }
             }else if(msg[1] == SPI_MSG_SLAVE_NOTIFY){
                 spi_trace("=== handshake notify, hs=%d\r",
-                          gpio_read(ESP8684_HANDSHAKE_PORT_IO));
+                          gpio_read(rdx_board_spi_handshake_io()));
                 rdx_spi_slave_msg_handler(msg[2]);
             }
         }
         if (spi_handshake_missed) {
             spi_handshake_missed = 0;
-            if (gpio_read(ESP8684_HANDSHAKE_PORT_IO)) {
+            if (gpio_read(rdx_board_spi_handshake_io())) {
                 rdx_spi_slave_msg_handler(true);
             }
         }
@@ -1051,24 +991,24 @@ void rdx_spi_init_master_hd(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    memset(&esp8684_info, 0, sizeof(esp8684_param));
-#if (CHIP_TYPE == CHIP_JL7018)
-    esp8684_info.spi_hdl = HW_SPI2;
-#else
-    esp8684_info.spi_hdl = HW_SPI1;
-#endif
-    esp8684_info.spi_cs_pin = ESP8684_CS_PIN;
+    const rdx_board_config_t *cfg = rdx_board_get_config();
 
+    memset(&esp8684_info, 0, sizeof(esp8684_param));
+    esp8684_info.spi_hdl = cfg->spi_port;
+
+    gpio_irq_config_esp.gpio = cfg->spi_handshake_io;
+    p33_io_wakeup_port_init(&gpio_irq_config_esp);
+    p33_io_wakeup_enable(gpio_irq_config_esp.gpio, 0);
     spi_cs_init();
 
     clock_lock("sys", 160 * 1000000);
 
-    //init bus 
+    //init bus
     struct spi_platform_data spix_p_data_rdx = {
         .port = {
-            IO_PORTA_05, //clk any io
-            IO_PORTA_06, //do any io
-            0xff, //di any io
+            cfg->spi_clk_io,
+            cfg->spi_mosi_io,
+            cfg->spi_miso_io,
             0xff, //d2 any io
             0xff, //d3 any io
             0xff, //cs any io(主机不操作cs)
@@ -1081,7 +1021,7 @@ void rdx_spi_init_master_hd(void)
         .ie_en = 1, //ie enbale:0:disable,  1:enable
         .irq_priority = 3,
         .spi_isr_callback = NULL,  //spi isr callback
-        .clk  = 16000000L,
+        .clk  = cfg->spi_clk_hz,
     };
 
     //do init.
@@ -1096,25 +1036,6 @@ void rdx_spi_init_master_hd(void)
 
     esp_log("=== %s ok \r", __func__);
 }
-/**************************************************************************
- * function: rdx_spi_init_irq
- * description: spi中断初始化
- * param (*)
- * return (*)
- **************************************************************************/
-void rdx_spi_init_irq(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    p33_io_wakeup_port_init(&gpio_irq_config_esp);
-    p33_io_wakeup_enable(gpio_irq_config_esp.gpio, 0);
-}
-
 /**************************************************************************
  * function: rdx_spi_uninit_master_hd
  * description: 
@@ -1135,6 +1056,8 @@ void rdx_spi_uninit_master_hd(void)
     clock_unlock("sys");
 
     spi_closed();
+
+    spi_cs_uninit();
 
     esp_log("=== %s ok \r", __func__);
 }

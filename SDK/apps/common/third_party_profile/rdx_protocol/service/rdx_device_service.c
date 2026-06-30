@@ -19,6 +19,7 @@
 
 /* board config */
 #include "rdx_board_config.h"
+#include "rdx_board_hal.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
@@ -68,12 +69,9 @@ void rdx_device_service_poweroff_cb(void *priv)
 	oled_task_free();
 #endif
 	sd_set_power(0);
-	rdx_gpio_set_highz(IO_PORTC_01);
-	rdx_gpio_set_highz(IO_PORTC_02);
-	rdx_gpio_set_highz(IO_PORTC_04);
-	rdx_gpio_set_highz(IO_PORTC_05);
-	rdx_gpio_set_highz(WIFI_POWER_PORT_IO);
-	rdx_gpio_set_highz(VDD_POWER_PORT_IO);
+	rdx_board_shutdown_io_state();
+	rdx_board_wifi_power_off();
+	rdx_board_vdd_power_off_highz();
 	sys_enter_soft_poweroff(POWEROFF_NORMAL);
 }
 
@@ -556,16 +554,16 @@ void rdx_device_service_emmc_poweroff_check(void)
 
 void rdx_device_service_do_emmc_reset(void)
 {
-    rdx_gpio_set_output_low(VDD_POWER_PORT_IO);
+    rdx_board_vdd_power_low();
     rdx_os_time_dly(50);
-    rdx_gpio_set_output_high(VDD_POWER_PORT_IO);
+    rdx_board_vdd_power_on();
 }
 
 void rdx_device_service_emmc_poweron(u8 check_en)
 {
     y_printf("=====> %s --> emmc_poweroff_flag = %d \n", __func__, g_emmc_poweroff_flag);
     if (g_emmc_poweroff_flag == TRUE) {
-        rdx_gpio_set_output_high(VDD_POWER_PORT_IO);
+        rdx_board_vdd_power_on();
         sd_set_power(1);
 #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
         OLED_Init();
@@ -583,10 +581,9 @@ void rdx_device_service_emmc_poweroff(void)
     if (g_emmc_poweroff_flag == false) {
         rdx_device_service_emmc_poweroff_check_timer_stop();
         sd_set_power(0);
-        rdx_gpio_set_highz(IO_PORTC_04);
-        rdx_gpio_set_highz(IO_PORTC_05);
-        rdx_gpio_set_output_low(VDD_POWER_PORT_IO);
-        rdx_gpio_set_highz(VDD_POWER_PORT_IO);
+        rdx_board_sd_nand_poweroff_io_state();
+        rdx_board_vdd_power_low();
+        rdx_board_vdd_power_off_highz();
         g_emmc_poweroff_flag = true;
     }
 }

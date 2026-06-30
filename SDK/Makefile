@@ -253,6 +253,7 @@ INCLUDES := \
 	-Iapps/common/third_party_profile/auracast_app \
 	-Iapps/common/third_party_profile/rdx_protocol \
 	-Iapps/common/third_party_profile/rdx_protocol/board/$(RDX_BOARD) \
+	-Iapps/common/third_party_profile/rdx_protocol/board/common \
 	-Iapps/common/third_party_profile/rdx_protocol/port/jl/include \
 	-Iapps/common/third_party_profile/rdx_protocol/service \
 	-Iapps/common/cJSON \
@@ -487,7 +488,9 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_charge.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spi.c \
 	apps/common/third_party_profile/rdx_protocol/board/$(RDX_BOARD)/rdx_board_config.c \
+	apps/common/third_party_profile/rdx_protocol/board/common/rdx_board_hal.c \
 	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_osal.c \
+	apps/common/third_party_profile/rdx_protocol/port/jl/common/rdx_port_spi.c \
 	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_storage.c \
 	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_rtc.c \
 	apps/common/third_party_profile/rdx_protocol/port/jl/$(RDX_CHIP_FAMILY)/rdx_jl_lifecycle.c \

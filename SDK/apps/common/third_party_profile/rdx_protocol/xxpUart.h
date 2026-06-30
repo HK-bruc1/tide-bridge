@@ -36,12 +36,6 @@
 #define WIFI_TCP_LOCAL_IP                           "192.168.4.1"
 #define WIFI_TCP_LOCAL_PORT                         (9527)
 
-#define WIFI_POWER_PORT_IO							IO_PORTA_04
-#define WIFI_POWER_PORT								PORTA
-#define WIFI_POWER_PIN								PORT_PIN_4
-#define WIFI_POWER_ON								gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_OUTPUT_HIGH)
-#define WIFI_POWER_OFF								gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ)
-
 
 /******************************************************************************
 * Structure and Enum Section
@@ -78,17 +72,17 @@ typedef struct{
 }ApInfo;
 
 typedef enum {
-    WIFI_AP_SSID_SUFFIX_NONE       = 0, /* ²»×·¼Óºó×º, SSID = ap_ssid           */
-    WIFI_AP_SSID_SUFFIX_MAC_TAIL3  = 1, /* ap_ssid_<MACÄ©3×Ö½Úhex>  Àý Octic_C4F3D5 */
-    WIFI_AP_SSID_SUFFIX_AUTH_TAIL4 = 2, /* ap_ssid_<auth SNÄ©4Î»>  Àý Octic_M3MU    */
+    WIFI_AP_SSID_SUFFIX_NONE       = 0, /* ï¿½ï¿½×·ï¿½Óºï¿½×º, SSID = ap_ssid           */
+    WIFI_AP_SSID_SUFFIX_MAC_TAIL3  = 1, /* ap_ssid_<MACÄ©3ï¿½Ö½ï¿½hex>  ï¿½ï¿½ Octic_C4F3D5 */
+    WIFI_AP_SSID_SUFFIX_AUTH_TAIL4 = 2, /* ap_ssid_<auth SNÄ©4Î»>  ï¿½ï¿½ Octic_M3MU    */
 }WifiApSsidSuffixMode;
 
 typedef struct {
-    const char *ap_ssid;            /* »ù´¡ SSID Ãû (e.g. "Octic")              */
-    const char *ap_password;        /* ¾²Ì¬ÃÜÂë; ¶¯Ì¬ÃÜÂëÊ§°ÜÊ±»ØÍËÊ¹ÓÃ         */
-    u8          dynamic_psw_enable; /* 1=SHA256(auth+MAC)¶¯Ì¬ÃÜÂëÇÒ°´ suffix Æ´Ãû
-                                       0=SSID/ÃÜÂëÖ±½ÓÓÃÉÏÃæÁ½¸ö×Ö·û´®×ÖÃæÁ¿    */
-    u8          ssid_suffix_mode;   /* ¼û WifiApSsidSuffixMode                  */
+    const char *ap_ssid;            /* ï¿½ï¿½ï¿½ï¿½ SSID ï¿½ï¿½ (e.g. "Octic")              */
+    const char *ap_password;        /* ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½; ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½Ê¹ï¿½ï¿½         */
+    u8          dynamic_psw_enable; /* 1=SHA256(auth+MAC)ï¿½ï¿½Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½Ò°ï¿½ suffix Æ´ï¿½ï¿½
+                                       0=SSID/ï¿½ï¿½ï¿½ï¿½Ö±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½    */
+    u8          ssid_suffix_mode;   /* ï¿½ï¿½ WifiApSsidSuffixMode                  */
 }RdxWifiCfg;
 
 void xxp_uart_register_wifi_cfg(const RdxWifiCfg *cfg);

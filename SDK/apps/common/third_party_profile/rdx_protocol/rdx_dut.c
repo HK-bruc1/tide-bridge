@@ -49,6 +49,8 @@
 #include "poweroff.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
+#include "rdx_board_config.h"
+#include "rdx_board_hal.h"
 #include "syscfg_id.h"
 
 /******************************************************************************
@@ -967,7 +969,7 @@ void rdx_dut_msg_handle(void)
         rdx_ble_server_auto_shut_down_enable(0);
         DUT_LOG("Auto shutdown disabled!\r");
         
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
+        rdx_board_vdd_power_on();
         
         rdx_spp_init();
         

@@ -1,5 +1,6 @@
 #include "rdx_board_config.h"
 #include "gpio_config.h"
+#include "spi.h"
 
 /*
  * 阶段 1 先硬编码当前板型的引脚。
@@ -18,8 +19,15 @@ static const rdx_board_config_t g_rdx_board_t2616_ep = {
     .spi_miso_io        = IO_PORTB_06,
     .spi_handshake_io   = IO_PORTA_07,
 
-    .spi_port           = 1,
+    .spi_port           = HW_SPI2,
     .spi_clk_hz         = 8000000,
+
+    .mic_bias_ce_io     = RDX_IO_INVALID,
+    .sd_nand_data0_io   = RDX_IO_INVALID,
+    .sd_nand_clk_io     = RDX_IO_INVALID,
+    .sd_nand_cmd_io     = RDX_IO_INVALID,
+
+    .led_spi_instance   = 1,
 
     .chip_family        = RDX_CHIP_FAMILY,
     .board_name         = RDX_BOARD_NAME,

@@ -64,6 +64,8 @@
 #include "rdx_battery.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
+#include "rdx_board_config.h"
+#include "rdx_board_hal.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
@@ -266,9 +268,8 @@ void rdx_app_incharge_full_poweroff_timer_cb(void* priv)
 #endif
 
 
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
-    gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
+    rdx_board_charge_poweroff_io_state();
+    rdx_board_wifi_power_off();
 
 
     //充满电不用关机，拔掉后关机
@@ -509,12 +510,6 @@ void rdx_app_charge_stop(void)
     // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_SHUTOFF); 
 #endif
     //dip switch deinit.
-
-    // gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
-    // gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
-    // gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
-    // //power off vdd.
-    // gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 
     power_set_mode(TCFG_LOWPOWER_POWER_SEL);
     // power_awakeup_gpio_enable(IO_CHGFL_DET, 0);
