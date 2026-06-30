@@ -82,6 +82,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_vm.h"
 #include "rdx_log.h"
+#include "rdx_jl_osal.h"
 #include "rdx_board_config.h"
 #include "rdx_board_hal.h"
 #include "rdx_spi.h"
@@ -1444,11 +1445,7 @@ int rdx_app_msg_handler(int *msg)
                 }
                 rp->run = RECORD_STATE_STOP;
                 //send job.
-                int msg[2];
-                msg[0] = (int)rdx_record_process;
-                msg[1] = 0;
-                int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-                if(ret) {
+                if (rdx_os_task_post_callback0("app_core", rdx_record_process) != RDX_OK) {
                     r_printf("%s record taskq post err \n", __func__);
                 }
             }
@@ -1799,12 +1796,8 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
         case RDX_WIFI_EVENT_CTRL: {
             if (!data || len < 1) break;
             u8 cmd = *(u8 *)data;
-            int msg[3];
-            msg[0] = (int)rdx_app_wifi_handle;
-            msg[1] = 1;
-            msg[2] = (int)cmd;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 3, msg);
-            if (ret) {
+            if (rdx_os_task_post_callback1("app_core",
+                 (void (*)(void *))rdx_app_wifi_handle, (void *)(int)cmd) != RDX_OK) {
                 r_printf("%s wifi ctrl taskq post err \r", __func__);
             }
             break;

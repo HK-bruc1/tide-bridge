@@ -31,9 +31,32 @@ int g_os_taskq_last_arg1   = 0;
 int os_taskq_post_type(const char *name, int type, int argc, int *argv)
 {
     (void)name;
-    (void)type;
     (void)argc;
 
+    if (type == Q_CALLBACK) {
+        /* JL Q_CALLBACK convention: argv[0]=cb, argv[1]=arg_count, argv[2..]=args */
+        if (g_os_taskq_store_mode) {
+            if (argc >= 2 && argv) {
+                g_os_taskq_last_arg0 = argv[0];
+                g_os_taskq_last_arg1 = argv[1]; /* arg_count */
+                g_os_taskq_store_count++;
+            }
+            return 0;
+        }
+        if (argc >= 2 && argv && argv[0]) {
+            int n = argv[1];
+            if (n == 0) {
+                ((void (*)(void))argv[0])();
+            } else if (n == 1) {
+                ((void (*)(void *))argv[0])((void *)argv[2]);
+            } else if (n == 2) {
+                ((void (*)(void *, void *))argv[0])((void *)argv[2], (void *)argv[3]);
+            }
+        }
+        return 0;
+    }
+
+    /* Q_MSG etc. — backwards compatible */
     if (g_os_taskq_store_mode) {
         if (argc >= 2 && argv) {
             g_os_taskq_last_arg0 = argv[0];
@@ -43,29 +66,52 @@ int os_taskq_post_type(const char *name, int type, int argc, int *argv)
         return 0;
     }
 
-    /* Synchronous mock: immediately invoke the callback with its private arg.
-     * This makes async publish deterministic in host tests. */
-    if (argc >= 2 && argv) {
-        void (*cb)(void *) = (void (*)(void *))argv[0];
-        void *priv = (void *)argv[1];
-        if (cb) {
-            cb(priv);
-        }
-    }
     return 0;
 }
 
-/* P2: OSAL wrappers — delegate to os_taskq_post_type mock */
+/* P2: OSAL Q_CALLBACK wrappers — delegate to os_taskq_post_type mock */
+
+rdx_err_t rdx_os_task_post_callback0(const char *task_name,
+                                     void (*callback)(void))
+{
+    int msg[3];
+    msg[0] = (int)callback;
+    msg[1] = 0;
+    msg[2] = 0;
+    return os_taskq_post_type(task_name, Q_CALLBACK, 3, msg) == 0
+           ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_callback1(const char *task_name,
+                                     void (*callback)(void *),
+                                     void *arg)
+{
+    int msg[3];
+    msg[0] = (int)callback;
+    msg[1] = 1;
+    msg[2] = (int)arg;
+    return os_taskq_post_type(task_name, Q_CALLBACK, 3, msg) == 0
+           ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_callback2(const char *task_name,
+                                     void (*callback)(void *, void *),
+                                     void *arg1, void *arg2)
+{
+    int msg[4];
+    msg[0] = (int)callback;
+    msg[1] = 2;
+    msg[2] = (int)arg1;
+    msg[3] = (int)arg2;
+    return os_taskq_post_type(task_name, Q_CALLBACK, 4, msg) == 0
+           ? RDX_OK : RDX_ERR_IO;
+}
 
 rdx_err_t rdx_os_task_post_callback(const char *task_name,
                                     void (*callback)(void *),
                                     void *arg)
 {
-    int msg[2];
-    msg[0] = (int)callback;
-    msg[1] = (int)arg;
-    return os_taskq_post_type(task_name, Q_CALLBACK, 2, msg) == 0
-           ? RDX_OK : RDX_ERR_IO;
+    return rdx_os_task_post_callback1(task_name, callback, arg);
 }
 
 rdx_err_t rdx_os_task_post_msg_array(const char *task_name, u32 msg_type,

@@ -66,6 +66,7 @@
 #include "rdx_default_hooks.h"
 #include "rdx_board_config.h"
 #include "rdx_board_hal.h"
+#include "rdx_jl_osal.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
@@ -590,11 +591,7 @@ void rdx_app_charge_start(void)
     vbat_check_init();
 
     //charge full detect.
-    int msg[2];
-    msg[0] = (int)rdx_app_charge_start_handle;
-    msg[1] = 0;
-    int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-    if(ret) {
+    if (rdx_os_task_post_callback0("app_core", rdx_app_charge_start_handle) != RDX_OK) {
         r_printf("%s record taskq post err \n", __func__);
     }
 

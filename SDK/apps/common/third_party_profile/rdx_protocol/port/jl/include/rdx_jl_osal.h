@@ -40,7 +40,21 @@ rdx_err_t rdx_os_task_create(const char *name, rdx_task_entry_t entry, void *arg
                              u32 stack_depth, u32 prio, rdx_task_t *task);
 rdx_err_t rdx_os_task_post_msg(const char *task_name, u32 msg, u32 arg);
 
-/* task callback — P2: 封装 Q_CALLBACK + msg[2] 模式 */
+/*
+ * Q_CALLBACK family — all delegates to os_taskq_post_type with JL convention:
+ *   msg[0]=callback, msg[1]=arg_count, msg[2..]=args
+ * Business code must use these instead of hand-rolling Q_CALLBACK msg[] arrays.
+ */
+rdx_err_t rdx_os_task_post_callback0(const char *task_name,
+                                     void (*callback)(void));
+rdx_err_t rdx_os_task_post_callback1(const char *task_name,
+                                     void (*callback)(void *),
+                                     void *arg);
+rdx_err_t rdx_os_task_post_callback2(const char *task_name,
+                                     void (*callback)(void *, void *),
+                                     void *arg1, void *arg2);
+
+/* Backwards compatibility — delegates to callback1 */
 rdx_err_t rdx_os_task_post_callback(const char *task_name,
                                     void (*callback)(void *),
                                     void *arg);

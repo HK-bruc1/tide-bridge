@@ -50,6 +50,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
 #include "rdx_board_config.h"
+#include "rdx_jl_osal.h"
 #include "rdx_board_hal.h"
 #include "syscfg_id.h"
 

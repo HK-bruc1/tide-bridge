@@ -51,6 +51,7 @@
 #include "rdx_default_hooks.h"
 #include "rdx_ble_server.h"
 #include "jiffies.h"
+#include "rdx_jl_osal.h"
 
 #if defined(__UUX_FILE__)
 #include "rdx_uxfile.h"
@@ -252,12 +253,7 @@ void rdx_record_keep_alive_check_stop(void)
         //timerout to stop recording.
         record_status.run = RECORD_STATE_STOP;
         //send job.
-        extern void rdx_record_process(void);
-        int msg[2];
-        msg[0] = (int)rdx_record_process;
-        msg[1] = 0;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-        if(ret) {
+        if (rdx_os_task_post_callback0("app_core", rdx_record_process) != RDX_OK) {
             printf("%s record taskq post err \n", __func__);
         } 
     #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
@@ -957,11 +953,7 @@ void rdx_record_ui_notify(void)
         //motor twice.
         rdx_record_motor_twice();
     #endif
-        int msg[2];
-        msg[0] = (int)rdx_record_finish_tone_play;
-        msg[1] = 0;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-        if(ret) {
+        if (rdx_os_task_post_callback0("app_core", rdx_record_finish_tone_play) != RDX_OK) {
             log_info("%s record taskq post err \n", __func__);
         }
     }
@@ -1188,11 +1180,7 @@ void rdx_record_process(void)
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     if(con_hdl != 0xffff && con_hdl != 0){
         //send state to app.
-        int msg[2];
-        msg[0] = (int)rdx_protocol_record_state_indicate;
-        msg[1] = 0;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-        if(ret) {
+        if (rdx_os_task_post_callback0("app_core", rdx_protocol_record_state_indicate) != RDX_OK) {
             log_info("%s record taskq post err \n", __func__);
         }
     }

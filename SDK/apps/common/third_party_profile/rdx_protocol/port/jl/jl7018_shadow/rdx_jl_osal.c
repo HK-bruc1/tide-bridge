@@ -63,15 +63,47 @@ void rdx_os_timer_re_run(rdx_timer_t id)
 /*----------------------------------------------------------------------------*/
 /* task post                                                                   */
 /*----------------------------------------------------------------------------*/
+rdx_err_t rdx_os_task_post_callback0(const char *task_name,
+                                     void (*callback)(void))
+{
+    int msg[3];
+    msg[0] = (int)callback;
+    msg[1] = 0;
+    msg[2] = 0;
+    int ret = os_taskq_post_type(task_name, Q_CALLBACK, 3, msg);
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_callback1(const char *task_name,
+                                     void (*callback)(void *),
+                                     void *arg)
+{
+    int msg[3];
+    msg[0] = (int)callback;
+    msg[1] = 1;
+    msg[2] = (int)arg;
+    int ret = os_taskq_post_type(task_name, Q_CALLBACK, 3, msg);
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_callback2(const char *task_name,
+                                     void (*callback)(void *, void *),
+                                     void *arg1, void *arg2)
+{
+    int msg[4];
+    msg[0] = (int)callback;
+    msg[1] = 2;
+    msg[2] = (int)arg1;
+    msg[3] = (int)arg2;
+    int ret = os_taskq_post_type(task_name, Q_CALLBACK, 4, msg);
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
 rdx_err_t rdx_os_task_post_callback(const char *task_name,
                                     void (*callback)(void *),
                                     void *arg)
 {
-    int msg[2];
-    msg[0] = (int)callback;
-    msg[1] = (int)arg;
-    int ret = os_taskq_post_type(task_name, Q_CALLBACK, 2, msg);
-    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+    return rdx_os_task_post_callback1(task_name, callback, arg);
 }
 
 rdx_err_t rdx_os_task_post_msg(const char *task_name, u32 msg, u32 arg)

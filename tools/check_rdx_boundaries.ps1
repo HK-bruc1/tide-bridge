@@ -210,6 +210,28 @@ $sysTimerHits = Find-Pattern -Files $serviceCFiles `
     -Pattern "\bsys_timer_re_run\b"
 Assert-NoHits "service .c has no direct sys_timer_re_run calls" $sysTimerHits
 
+# P3: RDX code must not hand-roll Q_CALLBACK msg[] arrays — use callback0/1/2
+$rdxBusinessCFiles = $allRdxFiles | Where-Object {
+    $_.FullName -match "[/\\]third_party_profile[/\\]rdx_protocol[/\\]" `
+        -and $_.Name -like "*.c" `
+        -and $_.FullName -notmatch "[/\\]port[/\\]"
+}
+
+$directQCallbackHits = Find-Pattern -Files $rdxBusinessCFiles `
+    -Pattern "\bos_taskq_post_type\s*\([^)]*Q_CALLBACK" `
+    -Exclude {
+        param($match)
+        $line = $match.Line.Trim()
+        $rel = Convert-ToRelativePath $match.Path
+        # skip commented-out code and DUT test mode (rdx_dut.c uses correct JL convention)
+        return ($line -match '^\s*//') -or ($rel -match '/rdx_dut\.c$')
+    }
+Assert-NoHits "business .c has no hand-rolled os_taskq_post_type(Q_CALLBACK...)" $directQCallbackHits
+
+$msgArrayQCallbackHits = Find-Pattern -Files $rdxBusinessCFiles `
+    -Pattern "\brdx_os_task_post_msg_array\s*\([^)]*Q_CALLBACK"
+Assert-NoHits "business .c has no rdx_os_task_post_msg_array(Q_CALLBACK...)" $msgArrayQCallbackHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"
