@@ -271,16 +271,14 @@ void rdx_record_service_upload_timer_cb(void *priv)
 				msg[1] = 2;
 				msg[2] = (int)rp_slot;
 				msg[3] = 0;
-				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+				if (rdx_os_task_post_msg_array("app_core", Q_CALLBACK, 4, msg) != RDX_OK) {
 					rp_pool_release(rp_slot);
 					RDX_LOGW("record_svc upload indicate post fail");
 				}
 			}
 		} else {
-			int arg[2];
-			arg[0] = (int)rdx_record_process;
-			arg[1] = 0;
-			os_taskq_post_type("app_core", Q_CALLBACK, 2, arg);
+			rdx_os_task_post_callback("app_core",
+			     (void (*)(void *))rdx_record_process, NULL);
 		}
 	}
 }
@@ -323,10 +321,8 @@ void rdx_record_service_device_record_handle(u8 scene)
 			if (rp->orig_mode == RECORD_MODE_OFFLINE) {
 				rp->run = RECORD_STATE_STOP;
 				{
-					int msg_stop[2];
-					msg_stop[0] = (int)rdx_record_process;
-					msg_stop[1] = 0;
-					os_taskq_post_type("app_core", Q_CALLBACK, 2, msg_stop);
+					rdx_os_task_post_callback("app_core",
+					     (void (*)(void *))rdx_record_process, NULL);
 				}
 				rp_slot->run    = RECORD_STATE_STOP;
 				rp_slot->formate = formate;
@@ -345,7 +341,7 @@ void rdx_record_service_device_record_handle(u8 scene)
 			msg[1] = 2;
 			msg[2] = (int)rp_slot;
 			msg[3] = 0;
-			if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+			if (rdx_os_task_post_msg_array("app_core", Q_CALLBACK, 4, msg) != RDX_OK) {
 				rp_pool_release(rp_slot);
 				RDX_LOGW("record_svc trigger_indicate post fail");
 			}
@@ -356,18 +352,14 @@ void rdx_record_service_device_record_handle(u8 scene)
 			rp->formate = formate;
 			rp->scene  = scene;
 			{
-				int msg[2];
-				msg[0] = (int)rdx_record_process;
-				msg[1] = 0;
-				os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
+				rdx_os_task_post_callback("app_core",
+				     (void (*)(void *))rdx_record_process, NULL);
 			}
 		} else {
 			rp->run = RECORD_STATE_STOP;
 			{
-				int msg[2];
-				msg[0] = (int)rdx_record_process;
-				msg[1] = 0;
-				os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
+				rdx_os_task_post_callback("app_core",
+				     (void (*)(void *))rdx_record_process, NULL);
 			}
 		}
 	}
@@ -451,16 +443,14 @@ void rdx_record_service_switch(u8 orig_scene)
 				msg[1] = 2;
 				msg[2] = (int)rp_slot;
 				msg[3] = 0;
-				if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+				if (rdx_os_task_post_msg_array("app_core", Q_CALLBACK, 4, msg) != RDX_OK) {
 					rp_pool_release(rp_slot);
 					RDX_LOGW("record_svc switch indicate post fail");
 				}
 			}
 			{
-				int msg1[2];
-				msg1[0] = (int)rdx_app_switch_keep_timer_start;
-				msg1[1] = 0;
-				os_taskq_post_type("app_core", Q_CALLBACK, 2, msg1);
+				rdx_os_task_post_callback("app_core",
+				     (void (*)(void *))rdx_app_switch_keep_timer_start, NULL);
 			}
 		}
 	}

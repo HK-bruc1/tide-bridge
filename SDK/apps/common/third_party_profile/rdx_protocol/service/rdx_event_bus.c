@@ -2,6 +2,7 @@
 #include "rdx_err.h"
 #include "system/includes.h"
 #include "rdx_log.h"
+#include "rdx_jl_osal.h"
 
 typedef struct {
 	rdx_event_callback_t callback;
@@ -122,7 +123,6 @@ static void rdx_event_publish_async_cb(void *priv)
 
 int rdx_event_publish_async(rdx_event_id_t event, void *payload, u32 len)
 {
-	int arg[2];
 	int slot;
 	u32 i;
 
@@ -158,10 +158,8 @@ int rdx_event_publish_async(rdx_event_id_t event, void *payload, u32 len)
 		return RDX_ERR_NOMEM;
 	}
 
-	arg[0] = (int)rdx_event_publish_async_cb;
-	arg[1] = (int)&g_async_pool[slot];
-
-	if (os_taskq_post_type("app_core", Q_CALLBACK, 2, arg) != 0) {
+	if (rdx_os_task_post_callback("app_core",
+	     rdx_event_publish_async_cb, &g_async_pool[slot]) != RDX_OK) {
 		CPU_CRITICAL_ENTER();
 		g_async_pool[slot].busy = 0;
 		CPU_CRITICAL_EXIT();

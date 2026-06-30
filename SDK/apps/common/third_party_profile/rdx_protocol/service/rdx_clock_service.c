@@ -2,6 +2,7 @@
 #include "system/includes.h"
 #include "clock_manager/clock_manager.h"
 #include "rdx_log.h"
+#include "rdx_jl_osal.h"
 
 /*
  * Clock lock service — Stage 5 extracted from rdx_app.c D-class candidates.
@@ -53,7 +54,7 @@ void rdx_clock_service_unlock_with_timer(const char *task_name)
 	int ret = 0;
 	if (g_clock_lock_timer != 0) {
 		ret = clock_unlock((char *)task_name);
-		sys_timeout_del(g_clock_lock_timer);
+		rdx_os_timer_del(g_clock_lock_timer);
 		g_clock_lock_timer = 0;
 	}
 	log_info("====== %s, ret = %d \n", __func__, ret);
@@ -63,10 +64,10 @@ void rdx_clock_service_lock_with_timer(const char *task_name, int clk)
 {
 	int ret;
 	if (g_clock_lock_timer) {
-		sys_timer_re_run(g_clock_lock_timer);
+		rdx_os_timer_re_run(g_clock_lock_timer);
 		return;
 	}
 	ret = clock_lock(task_name, clk);
-	g_clock_lock_timer = sys_timeout_add(NULL, rdx_clock_service_unlock_timer_cb, 5000);
+	g_clock_lock_timer = rdx_os_timer_add(rdx_clock_service_unlock_timer_cb, NULL, 5000);
 	log_info("====== %s, ret = %d \r", __func__, ret);
 }

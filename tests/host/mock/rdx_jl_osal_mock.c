@@ -1,5 +1,6 @@
 #include "system/includes.h"
 #include "rdx_event_bus.h"
+#include "rdx_jl_osal.h"
 
 /* Host mock for JL OS primitives used by rdx_event_bus.c */
 
@@ -52,4 +53,42 @@ int os_taskq_post_type(const char *name, int type, int argc, int *argv)
         }
     }
     return 0;
+}
+
+/* P2: OSAL wrappers — delegate to os_taskq_post_type mock */
+
+rdx_err_t rdx_os_task_post_callback(const char *task_name,
+                                    void (*callback)(void *),
+                                    void *arg)
+{
+    int msg[2];
+    msg[0] = (int)callback;
+    msg[1] = (int)arg;
+    return os_taskq_post_type(task_name, Q_CALLBACK, 2, msg) == 0
+           ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_msg_array(const char *task_name, u32 msg_type,
+                                     u32 argc, int *argv)
+{
+    return os_taskq_post_type(task_name, (int)msg_type, (int)argc, argv) == 0
+           ? RDX_OK : RDX_ERR_IO;
+}
+
+/* Timer stubs — not exercised by current test paths */
+
+rdx_timer_t rdx_os_timer_add(void (*cb)(void *), void *priv, u32 timeout_ms)
+{
+    (void)cb; (void)priv; (void)timeout_ms;
+    return 1;
+}
+
+void rdx_os_timer_del(rdx_timer_t id)
+{
+    (void)id;
+}
+
+void rdx_os_timer_re_run(rdx_timer_t id)
+{
+    (void)id;
 }

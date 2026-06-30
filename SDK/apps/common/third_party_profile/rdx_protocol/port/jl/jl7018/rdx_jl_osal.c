@@ -58,6 +58,38 @@ void rdx_os_timer_del(rdx_timer_t id)
     sys_timeout_del(id);
 }
 
+void rdx_os_timer_re_run(rdx_timer_t id)
+{
+    sys_timer_re_run(id);
+}
+
+/*----------------------------------------------------------------------------*/
+/* task post                                                                   */
+/*----------------------------------------------------------------------------*/
+rdx_err_t rdx_os_task_post_callback(const char *task_name,
+                                    void (*callback)(void *),
+                                    void *arg)
+{
+    int msg[2];
+    msg[0] = (int)callback;
+    msg[1] = (int)arg;
+    int ret = os_taskq_post_type(task_name, Q_CALLBACK, 2, msg);
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_msg(const char *task_name, u32 msg, u32 arg)
+{
+    int ret = os_taskq_post_type(task_name, Q_MSG, 2, (int[]){ (int)msg, (int)arg });
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
+rdx_err_t rdx_os_task_post_msg_array(const char *task_name, u32 msg_type,
+                                     u32 argc, int *argv)
+{
+    int ret = os_taskq_post_type(task_name, msg_type, argc, argv);
+    return (ret == 0) ? RDX_OK : RDX_ERR_IO;
+}
+
 /*----------------------------------------------------------------------------*/
 /* time                                                                        */
 /*----------------------------------------------------------------------------*/

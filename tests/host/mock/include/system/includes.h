@@ -10,9 +10,9 @@
 #include <stdarg.h>
 
 #include "typedef.h"
+#include "os/os_type.h"
 
 /* JL OS primitives mocked for host tests */
-#define Q_CALLBACK  1
 
 void CPU_CRITICAL_ENTER(void);
 void CPU_CRITICAL_EXIT(void);

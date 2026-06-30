@@ -9,8 +9,6 @@
 #include "rdx_uxfile.h"
 #include "rdx_wifi_service.h"
 #include "xxpUart.h"
-#include "gpio_config.h"
-#include "rdx_jl_gpio.h"
 #include "rdx_jl_osal.h"
 #include "rdx_jl_storage.h"
 #include "poweroff.h"
@@ -349,10 +347,8 @@ static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
 	    return;
 	}
 	ops->sys_set_default_ack_indicate(0);
-	int msg[2];
-	msg[0] = (int)rdx_device_service_factory_reset;
-	msg[1] = 0;
-	if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+	if (rdx_os_task_post_callback("app_core",
+	     (void (*)(void *))rdx_device_service_factory_reset, NULL) != RDX_OK) {
 	    log_info("[APP CMD] sys_reset taskq post err\r");
 	}
 

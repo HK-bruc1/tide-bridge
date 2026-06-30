@@ -192,6 +192,24 @@ if (Test-Path $spiFile) {
 }
 Assert-NoHits "rdx_spi.c has no CHIP_TYPE conditionals" $spiChipTypeHits
 
+# P2: service .c must not call os_taskq_post_type directly
+$serviceCFiles = $allRdxFiles | Where-Object {
+    $_.FullName -match "[/\\]service[/\\]" -and $_.Name -like "*.c"
+}
+$taskqHits = Find-Pattern -Files $serviceCFiles `
+    -Pattern "\bos_taskq_post_type\b"
+Assert-NoHits "service .c has no direct os_taskq_post_type calls" $taskqHits
+
+# P2: service .c must not call sys_timeout_* directly
+$sysTimeoutHits = Find-Pattern -Files $serviceCFiles `
+    -Pattern "\bsys_timeout_(add|del)\b"
+Assert-NoHits "service .c has no direct sys_timeout_add/del calls" $sysTimeoutHits
+
+# P2: service .c must not call sys_timer_re_run directly
+$sysTimerHits = Find-Pattern -Files $serviceCFiles `
+    -Pattern "\bsys_timer_re_run\b"
+Assert-NoHits "service .c has no direct sys_timer_re_run calls" $sysTimerHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"
