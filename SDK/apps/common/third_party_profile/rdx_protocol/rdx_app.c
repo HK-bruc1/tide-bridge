@@ -350,8 +350,14 @@ bool rdx_app_is_ios_system(void)
  **************************************************************************/
 void rdx_app_bt_shutdown_delay_timer_cb(void* priv)
 {
-
+    (void)priv;
     rdx_app_bt_shutdown();
+}
+
+static void rdx_app_enter_idle_timer_cb(void *priv)
+{
+    (void)priv;
+    rdx_app_enter_idle();
 }
 
 /**************************************************************************
@@ -796,7 +802,7 @@ static int rdx_app_bt_status_event_handler(int *msg)
     y_printf("\r====== rdx_app_bt_status_event_handler event: %d \r", bt->event);
     switch (bt->event) {
     case BT_STATUS_INIT_OK:
-        sys_timeout_add(NULL, rdx_app_bt_shutdown, 1000);
+        rdx_os_timer_add(rdx_app_bt_shutdown_delay_timer_cb, NULL, 1000);
         break;
 
     case BT_STATUS_SECOND_CONNECTED:
@@ -1053,7 +1059,7 @@ void rdx_app_switch_keep_timer_stop()
     
     y_printf("------ rdx_app_switch_keep_timer_stop \r");
     if(mode_switch_keep_timer){
-        sys_timeout_del(mode_switch_keep_timer);
+        rdx_os_timer_del(mode_switch_keep_timer);
         mode_switch_keep_timer = 0;
     }
 }
@@ -1095,7 +1101,7 @@ void rdx_app_switch_keep_timer_restart(void)
     
     y_printf("rdx_app_switch_keep_timer_restart --> mode_switch_keep_timer: %d \r", mode_switch_keep_timer);
     if(mode_switch_keep_timer){
-        sys_timer_re_run(mode_switch_keep_timer);
+        rdx_os_timer_re_run(mode_switch_keep_timer);
     }
 }
 
@@ -1110,7 +1116,7 @@ void rdx_app_switch_keep_timer_start(void)
     
     y_printf("rdx_app_switch_keep_timer_start --> mode_switch_keep_timer: %d \r", mode_switch_keep_timer);
     if(mode_switch_keep_timer == 0){
-        mode_switch_keep_timer = sys_timeout_add(NULL, rdx_app_switch_keep_timer_cb, RDX_APP_MODE_SWITCH_KEEP_TIMEOUT);
+        mode_switch_keep_timer = rdx_os_timer_add(rdx_app_switch_keep_timer_cb, NULL, RDX_APP_MODE_SWITCH_KEEP_TIMEOUT);
         y_printf("rdx_app_switch_keep_timer_start --> mode_switch_keep_timer: %d \r", mode_switch_keep_timer);
     }    
 }
@@ -2171,8 +2177,8 @@ void rdx_app_auto_shutdown(void)
     
     rdx_app_emmc_poweron(1);
 
-rdx_hook_motor_start(500);
-    sys_timeout_add(NULL, rdx_app_enter_idle, 1500);    
+    rdx_hook_motor_start(500);
+    rdx_os_timer_add(rdx_app_enter_idle_timer_cb, NULL, 1500);
 }
 
 #endif

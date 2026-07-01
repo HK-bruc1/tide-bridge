@@ -232,6 +232,21 @@ $msgArrayQCallbackHits = Find-Pattern -Files $rdxBusinessCFiles `
     -Pattern "\brdx_os_task_post_msg_array\s*\([^)]*Q_CALLBACK"
 Assert-NoHits "business .c has no rdx_os_task_post_msg_array(Q_CALLBACK...)" $msgArrayQCallbackHits
 
+# P3a: 4 specified business .c files must not call sys_timeout_* / sys_timer_re_run directly
+$p3aTargetNames = @("rdx_app.c", "rdx_charge.c", "rdx_ble_server.c", "rdx_battery.c")
+$p3aTargetFiles = $allRdxFiles | Where-Object {
+    $_.Name -in $p3aTargetNames -and
+    $_.FullName -match "[/\\]rdx_protocol[/\\]"
+}
+
+$p3aSysTimeoutHits = Find-Pattern -Files $p3aTargetFiles `
+    -Pattern "\bsys_timeout_(add|del)\b"
+Assert-NoHits "P3a files have no direct sys_timeout_add/del calls" $p3aSysTimeoutHits
+
+$p3aSysTimerHits = Find-Pattern -Files $p3aTargetFiles `
+    -Pattern "\bsys_timer_re_run\b"
+Assert-NoHits "P3a files have no direct sys_timer_re_run calls" $p3aSysTimerHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"

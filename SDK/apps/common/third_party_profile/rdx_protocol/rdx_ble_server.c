@@ -51,6 +51,7 @@
 #include "rdx_commonDef.h"
 #include "rdx_app_config.h"
 #include "rdx_uxfile.h"
+#include "rdx_jl_osal.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
 #include "rdx_ble_service.h"
@@ -740,7 +741,7 @@ void rdx_ble_server_start_force_disconnect_timer(void)
     /*----------------------------------------------------------------*/
     y_printf("====== %s \n", __func__);
     if(g_rdx_ble_server_info.force_disconnect_timer == 0){
-        g_rdx_ble_server_info.force_disconnect_timer = sys_timeout_add(NULL, rdx_ble_server_force_disconnect_timer_cb, RDX_FORCE_DISCONNECT_TIMEOUT);
+        g_rdx_ble_server_info.force_disconnect_timer = rdx_os_timer_add(rdx_ble_server_force_disconnect_timer_cb, NULL, RDX_FORCE_DISCONNECT_TIMEOUT);
     }
 }
 
@@ -762,7 +763,7 @@ void rdx_ble_server_stop_force_disconnect_timer(void)
     y_printf("====== %s \n", __func__);
     //delte force disconnect timer.
     if(g_rdx_ble_server_info.force_disconnect_timer){
-        sys_timeout_del(g_rdx_ble_server_info.force_disconnect_timer);
+        rdx_os_timer_del(g_rdx_ble_server_info.force_disconnect_timer);
         g_rdx_ble_server_info.force_disconnect_timer = 0;
     }
 }
@@ -816,7 +817,7 @@ void rdx_ble_server_disconnected_handle(void)
     rdx_ble_server_stop_force_disconnect_timer();  
 
     if(g_syn_data_timer) {
-        sys_timeout_del(g_syn_data_timer);
+        rdx_os_timer_del(g_syn_data_timer);
         g_syn_data_timer = 0;
     }
 
@@ -883,7 +884,7 @@ void rdx_ble_server_disconnected_handle(void)
     }
     
     //file free if needed.
-    sys_timeout_add(NULL, rdx_ble_server_disconnected_delay_handle, 500);
+    rdx_os_timer_add(rdx_ble_server_disconnected_delay_handle, NULL, 500);
 }
 
 /**************************************************************************
@@ -1336,7 +1337,7 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     //check record mode.
     rdx_record_mode_active_check(0);
 
-    sys_timeout_add(NULL, rdx_ble_server_stream_tx_ready_cb, 500);
+    rdx_os_timer_add(rdx_ble_server_stream_tx_ready_cb, NULL, 500);
 }
 
 /**************************************************************************
@@ -1400,10 +1401,10 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             g_rdx_ble_server_info.ccc_configured = (buffer[0] == 0x01) ? TRUE : FALSE;
 
             if(g_syn_data_timer) {
-                sys_timeout_del(g_syn_data_timer);
+                rdx_os_timer_del(g_syn_data_timer);
                 g_syn_data_timer = 0;
             }
-            g_syn_data_timer = sys_timeout_add(NULL, rdx_ble_server_syn_data_after_ble_write_ready, 1000);
+            g_syn_data_timer = rdx_os_timer_add(rdx_ble_server_syn_data_after_ble_write_ready, NULL, 1000);
             y_printf("====== syn_data_timer created: %d \r", g_syn_data_timer);
             break;
 
@@ -1541,7 +1542,7 @@ void rdx_ble_server_adv_interval_change_timer_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(g_rdx_ble_server_info.adv_interval_change_timer){
-        sys_timeout_del(g_rdx_ble_server_info.adv_interval_change_timer);
+        rdx_os_timer_del(g_rdx_ble_server_info.adv_interval_change_timer);
         g_rdx_ble_server_info.adv_interval_change_timer = 0;
     }
 }
@@ -1610,7 +1611,7 @@ void rdx_ble_server_adv_interval_change_timer_start(void)
     /*----------------------------------------------------------------*/
     y_printf("=== %s \r", __func__);
     if(g_rdx_ble_server_info.adv_interval_change_timer == 0){
-        g_rdx_ble_server_info.adv_interval_change_timer = sys_timeout_add(NULL, rdx_ble_server_adv_interval_change_timer_cb, RDX_BLE_ADV_INTERVAL_CHANGE_TIMEOUT); //2 mins
+        g_rdx_ble_server_info.adv_interval_change_timer = rdx_os_timer_add(rdx_ble_server_adv_interval_change_timer_cb, NULL, RDX_BLE_ADV_INTERVAL_CHANGE_TIMEOUT); //2 mins
     }
 }
 

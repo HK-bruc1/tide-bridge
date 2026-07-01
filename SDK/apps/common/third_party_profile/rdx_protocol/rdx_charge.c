@@ -221,7 +221,7 @@ void rdx_app_incharge_batPercent_show_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(incharge_batPercent_show_timer){
-        sys_timeout_del(incharge_batPercent_show_timer);
+        rdx_os_timer_del(incharge_batPercent_show_timer);
         incharge_batPercent_show_timer = 0;
     }
 }
@@ -242,7 +242,7 @@ void rdx_app_incharge_batPercent_show_start(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(incharge_batPercent_show_timer == 0){
-        incharge_batPercent_show_timer = sys_timeout_add(NULL, rdx_app_incharge_batPercent_show_cb, RDX_APP_INCHARGE_BATTERY_SHOW_TIMEOUT);
+        incharge_batPercent_show_timer = rdx_os_timer_add(rdx_app_incharge_batPercent_show_cb, NULL, RDX_APP_INCHARGE_BATTERY_SHOW_TIMEOUT);
     }
 }
 
@@ -298,7 +298,7 @@ void rdx_app_charge_full_poweroff_timer_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(incharge_full_poweroff_timer){
-        sys_timeout_del(incharge_full_poweroff_timer);
+        rdx_os_timer_del(incharge_full_poweroff_timer);
         incharge_full_poweroff_timer = 0;
     }
 }
@@ -319,7 +319,7 @@ void rdx_app_charge_full_timer_to_poweroff(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(incharge_full_poweroff_timer == 0){
-        incharge_full_poweroff_timer = sys_timeout_add(NULL, rdx_app_incharge_full_poweroff_timer_cb, RDX_APP_INCHARGE_FULL_POWEROFF_TIMEOUT);
+        incharge_full_poweroff_timer = rdx_os_timer_add(rdx_app_incharge_full_poweroff_timer_cb, NULL, RDX_APP_INCHARGE_FULL_POWEROFF_TIMEOUT);
     }
 }
 

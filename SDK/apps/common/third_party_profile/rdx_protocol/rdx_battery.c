@@ -37,6 +37,7 @@
 
 #include "rdx_charge.h"
 #include "rdx_battery.h"
+#include "rdx_jl_osal.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -233,7 +234,7 @@ void rdx_battery_delay_show_batLevel_timer_stop(void)
     /*----------------------------------------------------------------*/
     y_printf("===> %s \r", __func__);
     if(delay_show_batLevel_timer_id){
-        sys_timeout_del(delay_show_batLevel_timer_id);
+        rdx_os_timer_del(delay_show_batLevel_timer_id);
         delay_show_batLevel_timer_id = 0;
     }
 }
@@ -277,7 +278,7 @@ void rdx_battery_delay_show_batLevel_timer_start(u32 time)
     /*----------------------------------------------------------------*/
     b_printf("===> %s --> delay_show_batLevel_timer_id: %d, time: %d \r", __func__, delay_show_batLevel_timer_id, time);
     if(delay_show_batLevel_timer_id == 0){
-        delay_show_batLevel_timer_id = sys_timeout_add(NULL, rdx_battery_delay_show_batLevel_finish_cb, time);
+        delay_show_batLevel_timer_id = rdx_os_timer_add(rdx_battery_delay_show_batLevel_finish_cb, NULL, time);
     }
 }
 
