@@ -563,7 +563,7 @@ void rdx_dut_poweroff(void)
     
     rdx_hook_led_set_scene(RDX_LED_SCENE_DUT_EXIT);
 
-    sys_timeout_add(NULL, (void (*)(void *))rdx_app_normal_poweroff, 200);
+    rdx_os_timer_add((void (*)(void *))rdx_app_normal_poweroff, NULL, 200);
 }
 
 /******************************************************************************
@@ -588,7 +588,7 @@ static void rdx_dut_finalpack_end_disconnect_ble(void *priv)
 {
     DUT_LOG("Finalpack end: Disconnect BLE\r");
     rdx_ble_server_app_disconnect();
-    sys_timeout_add(NULL, rdx_dut_finalpack_end_poweroff, 500);
+    rdx_os_timer_add(rdx_dut_finalpack_end_poweroff, NULL, 500);
 }
 
 /**************************************************************************
@@ -603,7 +603,7 @@ void rdx_dut_finalpack_end_format_cb(u8 result)
     }
     g_finalpack_end_pending = false;
     
-    sys_timeout_add(NULL, rdx_dut_finalpack_end_disconnect_ble, 500);
+    rdx_os_timer_add(rdx_dut_finalpack_end_disconnect_ble, NULL, 500);
 }
 
 /**************************************************************************
@@ -664,7 +664,6 @@ bool rdx_dut_is_key_dut_disabled(void)
 void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
 {
     char* p = NULL;
-    int msg[4];
     int ret;
     
     p = strstr(cmd, FT_DUT);
@@ -673,11 +672,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("DUT cmd, onoff: %d, current_mode: %d\r", onoff, rdx_dut_info.dut_mode);
         
         if((onoff == 1 && !rdx_dut_info.dut_mode) || (onoff == 0 && rdx_dut_info.dut_mode)){
-            msg[0] = (int)rdx_dut_cmd_async_handle;
-            msg[1] = 2;
-            msg[2] = DUT_CMD_DUT_MODE;
-            msg[3] = onoff;
-            ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+            ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_DUT_MODE, (void *)onoff);
             if(ret) {
                 DUT_LOG("DUT taskq post err: %d\r", ret);
             }
@@ -698,11 +693,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("LED cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_OLED;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_OLED, (void *)onoff);
         if(ret) {
             DUT_LOG("LED taskq post err: %d\r", ret);
         }
@@ -715,11 +706,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("Motor cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_MOTOR;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_MOTOR, (void *)onoff);
         if(ret) {
             DUT_LOG("Motor taskq post err: %d\r", ret);
         }
@@ -732,11 +719,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("Record cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_REC;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_REC, (void *)onoff);
         if(ret) {
             DUT_LOG("Record taskq post err: %d\r", ret);
         }
@@ -749,11 +732,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("WiFi cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_WIFI;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_WIFI, (void *)onoff);
         if(ret) {
             DUT_LOG("WiFi taskq post err: %d\r", ret);
         }
@@ -765,11 +744,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
     if(p){
         DUT_LOG("Format cmd\r");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_FORMAT;
-        msg[3] = 1;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_FORMAT, (void *)1);
         if(ret) {
             DUT_LOG("Format taskq post err: %d\r", ret);
         }
@@ -782,11 +757,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Poweroff cmd\r");
         rdx_protocol_custom_msg_indicate(FT_POWEROFF, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_POWEROFF;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_POWEROFF, (void *)0);
         if(ret) {
             DUT_LOG("Poweroff taskq post err: %d\r", ret);
         }
@@ -798,11 +769,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Finalpack end cmd\r");
         rdx_protocol_custom_msg_indicate(FT_FINALPACK_END, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_FINALPACK_END;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_FINALPACK_END, (void *)0);
         if(ret) {
             DUT_LOG("Finalpack end taskq post err: %d\r", ret);
         }
@@ -814,11 +781,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Key DUT enable cmd\r");
         rdx_protocol_custom_msg_indicate(FT_KEY_DUT_ENABLE, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_KEY_DUT_ENABLE;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = rdx_os_task_post_callback2("app_core", (void (*)(void *, void *))rdx_dut_cmd_async_handle, (void *)DUT_CMD_KEY_DUT_ENABLE, (void *)0);
         if(ret) {
             DUT_LOG("Key DUT enable taskq post err: %d\r", ret);
         }

@@ -222,15 +222,30 @@ $directQCallbackHits = Find-Pattern -Files $rdxBusinessCFiles `
     -Exclude {
         param($match)
         $line = $match.Line.Trim()
-        $rel = Convert-ToRelativePath $match.Path
-        # skip commented-out code and DUT test mode (rdx_dut.c uses correct JL convention)
-        return ($line -match '^\s*//') -or ($rel -match '/rdx_dut\.c$')
+        # skip commented-out code
+        return ($line -match '^\s*//')
     }
 Assert-NoHits "business .c has no hand-rolled os_taskq_post_type(Q_CALLBACK...)" $directQCallbackHits
 
 $msgArrayQCallbackHits = Find-Pattern -Files $rdxBusinessCFiles `
     -Pattern "\brdx_os_task_post_msg_array\s*\([^)]*Q_CALLBACK"
 Assert-NoHits "business .c has no rdx_os_task_post_msg_array(Q_CALLBACK...)" $msgArrayQCallbackHits
+
+# P4: rdx_dut.c must have no direct sys_timeout_add/del and no Q_CALLBACK
+$dutFile = $rdxBusinessCFiles | Where-Object { $_.Name -eq "rdx_dut.c" }
+if ($dutFile) {
+    $dutSysTimeoutHits = Find-Pattern -Files @($dutFile) `
+        -Pattern "\bsys_timeout_(add|del)\b"
+    Assert-NoHits "rdx_dut.c has no direct sys_timeout_add/del calls" $dutSysTimeoutHits
+
+    $dutSysTimerHits = Find-Pattern -Files @($dutFile) `
+        -Pattern "\bsys_timer_re_run\b"
+    Assert-NoHits "rdx_dut.c has no direct sys_timer_re_run calls" $dutSysTimerHits
+
+    $dutQCallbackHits = Find-Pattern -Files @($dutFile) `
+        -Pattern "\bQ_CALLBACK\b"
+    Assert-NoHits "rdx_dut.c has no hand-rolled Q_CALLBACK arrays" $dutQCallbackHits
+}
 
 # P3a: 4 specified business .c files must not call sys_timeout_* / sys_timer_re_run directly
 $p3aTargetNames = @("rdx_app.c", "rdx_charge.c", "rdx_ble_server.c", "rdx_battery.c")
