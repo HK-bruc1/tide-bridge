@@ -372,7 +372,7 @@ static void app_version_check()
 void sd_set_power_user(u8 en)
 {
     if(en){
-        gpio_set_mode(IO_PORT_SPILT(IO_PORTA_00), PORT_OUTPUT_HIGH);
+        gpio_set_mode(IO_PORT_SPILT(IO_PORTA_04), PORT_OUTPUT_HIGH);
 #if TCFG_SD0_DIAG_ENABLE
         printf("[SD-PWR] PE05 on\n");
 #endif

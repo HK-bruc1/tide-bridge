@@ -86,7 +86,7 @@ const struct iokey_info g_iokey_info [] =  {
         .key_value = KEY_POWER,
         .key_io = IO_PORTB_01,
         .detect = 0,
-        .long_press_reset_enable = 1,
+        .long_press_reset_enable = 0,
         .long_press_reset_time = 16
     }
 };

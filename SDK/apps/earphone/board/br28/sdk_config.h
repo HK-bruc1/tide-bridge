@@ -19,7 +19,7 @@
 #define TCFG_LOWPOWER_VDDIOW_LEVEL                VDDIOW_VOL_28V   // 弱VDDIO
 #define TCFG_LOWPOWER_VDDIO_KEEP                  0                // 关机保持VDDIO
 #define TCFG_LOWPOWER_LOWPOWER_SEL                1                // 低功耗模式
-#define TCFG_AUTO_POWERON_ENABLE                  0                // 上电自动开机
+#define TCFG_AUTO_POWERON_ENABLE                  1                // 上电自动开机
 
 #define TCFG_CHARGESTORE_ENABLE                   0                // 智能仓
 
@@ -306,18 +306,18 @@
 #define TCFG_ADC0_ENABLE                          1                // 使能
 #define TCFG_ADC0_MODE                            1                // 模式
 #define TCFG_ADC0_AIN_SEL                         1                // 输入端口
-#define TCFG_ADC0_BIAS_SEL                        0                // 供电端口
+#define TCFG_ADC0_BIAS_SEL                        16               // 供电端口
 #define TCFG_ADC0_BIAS_RSEL                       4                // MIC BIAS上拉电阻挡位
 #define TCFG_ADC0_DCC_LEVEL                       8                // DCC 档位
-#define TCFG_ADC0_POWER_IO                        56229            // IO供电选择
-#define TCFG_ADC1_ENABLE                          1                // 使能
+#define TCFG_ADC0_POWER_IO                        49889            // IO供电选择
+#define TCFG_ADC1_ENABLE                          0                // 使能
 #define TCFG_ADC1_MODE                            1                // 模式
 #define TCFG_ADC1_AIN_SEL                         1                // 输入端口
 #define TCFG_ADC1_BIAS_SEL                        0                // 供电端口
 #define TCFG_ADC1_BIAS_RSEL                       4                // MIC BIAS上拉电阻挡位
 #define TCFG_ADC1_DCC_LEVEL                       8                // DCC 档位
-#define TCFG_ADC1_POWER_IO                        56229            // IO供电选择
-#define TCFG_ADC2_ENABLE                          1                // 使能
+#define TCFG_ADC1_POWER_IO                        49889            // IO供电选择
+#define TCFG_ADC2_ENABLE                          0                // 使能
 #define TCFG_ADC2_MODE                            1                // 模式
 #define TCFG_ADC2_AIN_SEL                         1                // 输入端口
 #define TCFG_ADC2_BIAS_SEL                        0                // 供电端口
@@ -327,10 +327,10 @@
 #define TCFG_ADC3_ENABLE                          1                // 使能
 #define TCFG_ADC3_MODE                            1                // 模式
 #define TCFG_ADC3_AIN_SEL                         1                // 输入端口
-#define TCFG_ADC3_BIAS_SEL                        0                // 供电端口
+#define TCFG_ADC3_BIAS_SEL                        16               // 供电端口
 #define TCFG_ADC3_BIAS_RSEL                       4                // MIC BIAS上拉电阻挡位
 #define TCFG_ADC3_DCC_LEVEL                       8                // DCC 档位
-#define TCFG_ADC3_POWER_IO                        56229            // IO供电选择
+#define TCFG_ADC3_POWER_IO                        49889            // IO供电选择
 #endif // TCFG_AUDIO_ADC_ENABLE
 
 #define CONFIG_ANC_ENABLE                         0                // ANC 配置
