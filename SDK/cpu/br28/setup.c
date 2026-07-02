@@ -171,7 +171,7 @@ void setup_arch()
 
 #if TCFG_LONG_PRESS_RESET_ENABLE
     gpio_longpress_pin0_reset_config(TCFG_LONG_PRESS_RESET_PORT, TCFG_LONG_PRESS_RESET_LEVEL, TCFG_LONG_PRESS_RESET_TIME, 1, TCFG_LONG_PRESS_RESET_INSIDE_PULL_UP_DOWN, 0);
-#else
+#elif !TCFG_DIP_SWITCH_POWER_ENABLE
     gpio_longpress_pin0_reset_config(IO_PORTB_01, 0, 0, 1, 1, 0);
 #endif
 

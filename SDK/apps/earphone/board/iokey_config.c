@@ -44,18 +44,23 @@ const struct iokey_platform_data *get_iokey_platform_data()
         return &platform_data;
     }
 
-    platform_data.num       = ARRAY_SIZE(g_iokey_info);
+    platform_data.num       = 0;
     platform_data.port      = iokey_ports;
     platform_data.enable    = 1;
 
-    for (int i = 0; i < platform_data.num; i++) {
-        if (info[i].detect == 0) {
-            iokey_ports[i].connect_way = ONE_PORT_TO_LOW;
-        } else {
-            iokey_ports[i].connect_way = ONE_PORT_TO_HIGH;
+    for (int i = 0; i < ARRAY_SIZE(g_iokey_info); i++) {
+        if (platform_data.num >= CONFIG_IOKEY_MAX_NUM) {
+            break;
         }
-        iokey_ports[i].key_type.one_io.port = info[i].key_io;
-        iokey_ports[i].key_value = info[i].key_value;
+
+        int port_idx = platform_data.num;
+        if (info[i].detect == 0) {
+            iokey_ports[port_idx].connect_way = ONE_PORT_TO_LOW;
+        } else {
+            iokey_ports[port_idx].connect_way = ONE_PORT_TO_HIGH;
+        }
+        iokey_ports[port_idx].key_type.one_io.port = info[i].key_io;
+        iokey_ports[port_idx].key_value = info[i].key_value;
         if (info[i].long_press_reset_enable) {
             platform_data.long_press_enable = 1;
             platform_data.long_press_time = info[i].long_press_reset_time;
@@ -63,11 +68,12 @@ const struct iokey_platform_data *get_iokey_platform_data()
             platform_data.long_press_level = info[i].detect;
         }
         printf("iokey:%d,prot:%d,value:%d,c_way:%d long_press_en:%d time:%ds\n", i,
-               iokey_ports[i].key_type.one_io.port,
-               iokey_ports[i].key_value,
-               iokey_ports[i].connect_way,
+               iokey_ports[port_idx].key_type.one_io.port,
+               iokey_ports[port_idx].key_value,
+               iokey_ports[port_idx].connect_way,
                info[i].long_press_reset_enable,
                info[i].long_press_reset_time);
+        platform_data.num++;
     }
 
     return &platform_data;
@@ -96,11 +102,14 @@ int get_iokey_power_io()
 {
 #if TCFG_IOKEY_ENABLE
     if (platform_data.enable) {
-        return iokey_ports[0].key_type.one_io.port;
+        for (int i = 0; i < platform_data.num; i++) {
+            if (iokey_ports[i].key_value == KEY_POWER) {
+                return iokey_ports[i].key_type.one_io.port;
+            }
+        }
     }
 #endif
     return -1;
 }
 
 #endif
-

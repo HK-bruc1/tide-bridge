@@ -19,7 +19,7 @@
 #define TCFG_LOWPOWER_VDDIOW_LEVEL                VDDIOW_VOL_28V   // 弱VDDIO
 #define TCFG_LOWPOWER_VDDIO_KEEP                  0                // 关机保持VDDIO
 #define TCFG_LOWPOWER_LOWPOWER_SEL                1                // 低功耗模式
-#define TCFG_AUTO_POWERON_ENABLE                  1                // 上电自动开机
+#define TCFG_AUTO_POWERON_ENABLE                  0                // 上电自动开机
 
 #define TCFG_CHARGESTORE_ENABLE                   0                // 智能仓
 

@@ -440,7 +440,7 @@
           "label": "上电自动开机",
           "tag": "el-switch",
           "tagIcon": "switch",
-          "defaultValue": 1,
+          "defaultValue": 0,
           "span": 5,
           "showLabel": true,
           "labelWidth": "",

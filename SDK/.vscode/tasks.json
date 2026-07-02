@@ -13,8 +13,8 @@
                 "kind": "build",
                 "isDefault": true
             }
-        }
-        ,{
+        },
+        {
             "label": "clean",
             "type": "shell",
             "windows": {
@@ -23,6 +23,19 @@
             "command": "make clean -j`nproc`",
             "problemMatcher": [],
             "group": "build"
+        },
+        {
+            "label": "test: config overlay",
+            "type": "shell",
+            "windows": {
+                "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/../tests/host/test_t2620_config_overlay.ps1"
+            },
+            "command": "pwsh -NoProfile -File ${workspaceFolder}/../tests/host/test_t2620_config_overlay.ps1",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
         }
     ]
 }

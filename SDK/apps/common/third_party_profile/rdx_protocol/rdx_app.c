@@ -80,6 +80,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
+#include "rdx_dip_switch.h"
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -3223,6 +3224,11 @@ void rdx_app_all_init(void)
     
     //spi irq init.
     rdx_spi_init_irq();
+
+    //dip switch power init.
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    rdx_dip_switch_init();
+#endif
 
     u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();
     if(err_boot == 1){

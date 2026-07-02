@@ -293,7 +293,7 @@
            "gpio"
           ],
           "saveWay": "code",
-          "defaultValue": "IO_PORTB_01",
+          "defaultValue": "IO_PORTC_02",
           "structProp": "key_io",
           "originValue": ""
          },
@@ -481,6 +481,1194 @@
        "paddingLeft": "0px"
       },
       "id": "id_1718940331200_0",
+      "fromTemplate": true
+     },
+     {
+      "__config__": {
+       "layout": "rowFormItem",
+       "tag": "group",
+       "tagIcon": "row",
+       "layoutTree": true,
+       "componentName": "row_650",
+       "showComponentName": false,
+       "dataType": [],
+       "document": "https://element.eleme.cn/#/zh-CN/component/layout#row-attributes",
+       "template": "",
+       "span": 24,
+       "formId": 650,
+       "renderKey": "6501782970960277",
+       "children": [
+        {
+         "__config__": {
+          "label": "按键",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 651,
+          "renderKey": "6511782970960277",
+          "eventField": [
+           "device",
+           "key"
+          ],
+          "saveWay": "code",
+          "defaultValue": "id_1653465071753_0",
+          "structProp": "key_value",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "KEY_POWER",
+            "value": "id_1653465071753_0"
+           },
+           {
+            "label": "KEY_NEXT",
+            "value": "id_1653465116259_1"
+           },
+           {
+            "label": "KEY_PREV",
+            "value": "id_1653465127430_2"
+           },
+           {
+            "label": "KEY_PLAY",
+            "value": "id_1696929790319_1"
+           },
+           {
+            "label": "KEY_MODE",
+            "value": "id_1696929760537_0"
+           },
+           {
+            "label": "KEY_SLIDER",
+            "value": "id_1666691116793_1"
+           }
+          ]
+         },
+         "placeholder": "请选择按键按键",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field651",
+         "searchSource": true,
+         "id": "id_1782970960277_1"
+        },
+        {
+         "__config__": {
+          "label": "IO",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 652,
+          "renderKey": "6521782970960277",
+          "eventField": [
+           "device",
+           "gpio"
+          ],
+          "saveWay": "code",
+          "defaultValue": "IO_PORTG_07",
+          "structProp": "key_io",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": []
+         },
+         "placeholder": "请选择IO",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field652",
+         "searchSource": true,
+         "id": "id_1782970960277_2"
+        },
+        {
+         "__config__": {
+          "label": "检测",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "8"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 653,
+          "renderKey": "6531782970960277",
+          "defaultValue": 0,
+          "saveWay": "code",
+          "structProp": "detect",
+          "eventField": []
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "低电平按下",
+            "value": 0
+           },
+           {
+            "label": "高电平按下",
+            "value": 1
+           }
+          ]
+         },
+         "placeholder": "请选择检测",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field653",
+         "id": "id_1782970960277_3"
+        },
+        {
+         "__config__": {
+          "label": "长按复位",
+          "tag": "el-switch",
+          "tagIcon": "switch",
+          "defaultValue": 0,
+          "span": 3,
+          "showLabel": true,
+          "labelWidth": 70,
+          "layout": "colFormItem",
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "status": 0,
+          "dataType": [
+           "8",
+           "1"
+          ],
+          "formId": 654,
+          "renderKey": "6541782970960277",
+          "eventField": [],
+          "saveWay": "code",
+          "originValue": 0,
+          "structProp": "long_press_reset_enable"
+         },
+         "style": {},
+         "disabled": false,
+         "active-text": "",
+         "inactive-text": "",
+         "active-color": null,
+         "inactive-color": null,
+         "active-value": 1,
+         "inactive-value": 0,
+         "id": "id_1782970960277_4",
+         "__vModel__": "field654"
+        },
+        {
+         "__config__": {
+          "label": "长按复位时间",
+          "showLabel": true,
+          "labelWidth": null,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "defaultValue": 8,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "status": 0,
+          "dataType": [
+           "1",
+           "8"
+          ],
+          "formId": 655,
+          "renderKey": "6551782970960277",
+          "eventField": [],
+          "originValue": 8,
+          "saveWay": "code",
+          "structProp": "long_press_reset_time"
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "1s",
+            "value": 1,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "2s",
+            "value": 2,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "4s",
+            "value": 4,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "8s",
+            "value": 8,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "16s",
+            "value": 16,
+            "hide": false,
+            "disabled": false
+           }
+          ]
+         },
+         "placeholder": "",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "id": "id_1782970960277_5",
+         "__vModel__": "field655"
+        }
+       ],
+       "saveWay": "code",
+       "uuid": "",
+       "paddingLeft": "40px",
+       "eventField": [],
+       "structDef": ""
+      },
+      "type": "default",
+      "justify": "start",
+      "align": "top",
+      "style": {
+       "height": "60px",
+       "paddingLeft": "0px"
+      },
+      "id": "id_1782970960277_0",
+      "fromTemplate": true
+     },
+     {
+      "__config__": {
+       "layout": "rowFormItem",
+       "tag": "group",
+       "tagIcon": "row",
+       "layoutTree": true,
+       "componentName": "row_656",
+       "showComponentName": false,
+       "dataType": [],
+       "document": "https://element.eleme.cn/#/zh-CN/component/layout#row-attributes",
+       "template": "",
+       "span": 24,
+       "formId": 656,
+       "renderKey": "6561782971007340",
+       "children": [
+        {
+         "__config__": {
+          "label": "按键",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 657,
+          "renderKey": "6571782971007340",
+          "eventField": [
+           "device",
+           "key"
+          ],
+          "saveWay": "code",
+          "defaultValue": "id_1653465071753_0",
+          "structProp": "key_value",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "KEY_POWER",
+            "value": "id_1653465071753_0"
+           },
+           {
+            "label": "KEY_NEXT",
+            "value": "id_1653465116259_1"
+           },
+           {
+            "label": "KEY_PREV",
+            "value": "id_1653465127430_2"
+           },
+           {
+            "label": "KEY_PLAY",
+            "value": "id_1696929790319_1"
+           },
+           {
+            "label": "KEY_MODE",
+            "value": "id_1696929760537_0"
+           },
+           {
+            "label": "KEY_SLIDER",
+            "value": "id_1666691116793_1"
+           }
+          ]
+         },
+         "placeholder": "请选择按键按键",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field657",
+         "searchSource": true,
+         "id": "id_1782971007340_7"
+        },
+        {
+         "__config__": {
+          "label": "IO",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 658,
+          "renderKey": "6581782971007340",
+          "eventField": [
+           "device",
+           "gpio"
+          ],
+          "saveWay": "code",
+          "defaultValue": "IO_PORTB_02",
+          "structProp": "key_io",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": []
+         },
+         "placeholder": "请选择IO",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field658",
+         "searchSource": true,
+         "id": "id_1782971007340_8"
+        },
+        {
+         "__config__": {
+          "label": "检测",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "8"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 659,
+          "renderKey": "6591782971007340",
+          "defaultValue": 0,
+          "saveWay": "code",
+          "structProp": "detect",
+          "eventField": []
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "低电平按下",
+            "value": 0
+           },
+           {
+            "label": "高电平按下",
+            "value": 1
+           }
+          ]
+         },
+         "placeholder": "请选择检测",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field659",
+         "id": "id_1782971007340_9"
+        },
+        {
+         "__config__": {
+          "label": "长按复位",
+          "tag": "el-switch",
+          "tagIcon": "switch",
+          "defaultValue": 0,
+          "span": 3,
+          "showLabel": true,
+          "labelWidth": 70,
+          "layout": "colFormItem",
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "status": 0,
+          "dataType": [
+           "8",
+           "1"
+          ],
+          "formId": 660,
+          "renderKey": "6601782971007340",
+          "eventField": [],
+          "saveWay": "code",
+          "originValue": 0,
+          "structProp": "long_press_reset_enable"
+         },
+         "style": {},
+         "disabled": false,
+         "active-text": "",
+         "inactive-text": "",
+         "active-color": null,
+         "inactive-color": null,
+         "active-value": 1,
+         "inactive-value": 0,
+         "id": "id_1782971007340_10",
+         "__vModel__": "field660"
+        },
+        {
+         "__config__": {
+          "label": "长按复位时间",
+          "showLabel": true,
+          "labelWidth": null,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "defaultValue": 8,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "status": 0,
+          "dataType": [
+           "1",
+           "8"
+          ],
+          "formId": 661,
+          "renderKey": "6611782971007340",
+          "eventField": [],
+          "originValue": 8,
+          "saveWay": "code",
+          "structProp": "long_press_reset_time"
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "1s",
+            "value": 1,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "2s",
+            "value": 2,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "4s",
+            "value": 4,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "8s",
+            "value": 8,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "16s",
+            "value": 16,
+            "hide": false,
+            "disabled": false
+           }
+          ]
+         },
+         "placeholder": "",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "id": "id_1782971007340_11",
+         "__vModel__": "field661"
+        }
+       ],
+       "saveWay": "code",
+       "uuid": "",
+       "paddingLeft": "40px",
+       "eventField": [],
+       "structDef": ""
+      },
+      "type": "default",
+      "justify": "start",
+      "align": "top",
+      "style": {
+       "height": "60px",
+       "paddingLeft": "0px"
+      },
+      "id": "id_1782971007340_6",
+      "fromTemplate": true
+     },
+     {
+      "__config__": {
+       "layout": "rowFormItem",
+       "tag": "group",
+       "tagIcon": "row",
+       "layoutTree": true,
+       "componentName": "row_662",
+       "showComponentName": false,
+       "dataType": [],
+       "document": "https://element.eleme.cn/#/zh-CN/component/layout#row-attributes",
+       "template": "",
+       "span": 24,
+       "formId": 662,
+       "renderKey": "6621782971037722",
+       "children": [
+        {
+         "__config__": {
+          "label": "按键",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 663,
+          "renderKey": "6631782971037722",
+          "eventField": [
+           "device",
+           "key"
+          ],
+          "saveWay": "code",
+          "defaultValue": "id_1653465071753_0",
+          "structProp": "key_value",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "KEY_POWER",
+            "value": "id_1653465071753_0"
+           },
+           {
+            "label": "KEY_NEXT",
+            "value": "id_1653465116259_1"
+           },
+           {
+            "label": "KEY_PREV",
+            "value": "id_1653465127430_2"
+           },
+           {
+            "label": "KEY_PLAY",
+            "value": "id_1696929790319_1"
+           },
+           {
+            "label": "KEY_MODE",
+            "value": "id_1696929760537_0"
+           },
+           {
+            "label": "KEY_SLIDER",
+            "value": "id_1666691116793_1"
+           }
+          ]
+         },
+         "placeholder": "请选择按键按键",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field663",
+         "searchSource": true,
+         "id": "id_1782971037722_13"
+        },
+        {
+         "__config__": {
+          "label": "IO",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 664,
+          "renderKey": "6641782971037722",
+          "eventField": [
+           "device",
+           "gpio"
+          ],
+          "saveWay": "code",
+          "defaultValue": "IO_PORTB_04",
+          "structProp": "key_io",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": []
+         },
+         "placeholder": "请选择IO",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field664",
+         "searchSource": true,
+         "id": "id_1782971037722_14"
+        },
+        {
+         "__config__": {
+          "label": "检测",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "8"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 665,
+          "renderKey": "6651782971037722",
+          "defaultValue": 0,
+          "saveWay": "code",
+          "structProp": "detect",
+          "eventField": []
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "低电平按下",
+            "value": 0
+           },
+           {
+            "label": "高电平按下",
+            "value": 1
+           }
+          ]
+         },
+         "placeholder": "请选择检测",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field665",
+         "id": "id_1782971037722_15"
+        },
+        {
+         "__config__": {
+          "label": "长按复位",
+          "tag": "el-switch",
+          "tagIcon": "switch",
+          "defaultValue": 0,
+          "span": 3,
+          "showLabel": true,
+          "labelWidth": 70,
+          "layout": "colFormItem",
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "status": 0,
+          "dataType": [
+           "8",
+           "1"
+          ],
+          "formId": 666,
+          "renderKey": "6661782971037722",
+          "eventField": [],
+          "saveWay": "code",
+          "originValue": 0,
+          "structProp": "long_press_reset_enable"
+         },
+         "style": {},
+         "disabled": false,
+         "active-text": "",
+         "inactive-text": "",
+         "active-color": null,
+         "inactive-color": null,
+         "active-value": 1,
+         "inactive-value": 0,
+         "id": "id_1782971037722_16",
+         "__vModel__": "field666"
+        },
+        {
+         "__config__": {
+          "label": "长按复位时间",
+          "showLabel": true,
+          "labelWidth": null,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "defaultValue": 8,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "status": 0,
+          "dataType": [
+           "1",
+           "8"
+          ],
+          "formId": 667,
+          "renderKey": "6671782971037722",
+          "eventField": [],
+          "originValue": 8,
+          "saveWay": "code",
+          "structProp": "long_press_reset_time"
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "1s",
+            "value": 1,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "2s",
+            "value": 2,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "4s",
+            "value": 4,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "8s",
+            "value": 8,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "16s",
+            "value": 16,
+            "hide": false,
+            "disabled": false
+           }
+          ]
+         },
+         "placeholder": "",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "id": "id_1782971037722_17",
+         "__vModel__": "field667"
+        }
+       ],
+       "saveWay": "code",
+       "uuid": "",
+       "paddingLeft": "40px",
+       "eventField": [],
+       "structDef": ""
+      },
+      "type": "default",
+      "justify": "start",
+      "align": "top",
+      "style": {
+       "height": "60px",
+       "paddingLeft": "0px"
+      },
+      "id": "id_1782971037722_12",
+      "fromTemplate": true
+     },
+     {
+      "__config__": {
+       "layout": "rowFormItem",
+       "tag": "group",
+       "tagIcon": "row",
+       "layoutTree": true,
+       "componentName": "row_668",
+       "showComponentName": false,
+       "dataType": [],
+       "document": "https://element.eleme.cn/#/zh-CN/component/layout#row-attributes",
+       "template": "",
+       "span": 24,
+       "formId": 668,
+       "renderKey": "6681782971053100",
+       "children": [
+        {
+         "__config__": {
+          "label": "按键",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 669,
+          "renderKey": "6691782971053100",
+          "eventField": [
+           "device",
+           "key"
+          ],
+          "saveWay": "code",
+          "defaultValue": "id_1653465071753_0",
+          "structProp": "key_value",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "KEY_POWER",
+            "value": "id_1653465071753_0"
+           },
+           {
+            "label": "KEY_NEXT",
+            "value": "id_1653465116259_1"
+           },
+           {
+            "label": "KEY_PREV",
+            "value": "id_1653465127430_2"
+           },
+           {
+            "label": "KEY_PLAY",
+            "value": "id_1696929790319_1"
+           },
+           {
+            "label": "KEY_MODE",
+            "value": "id_1696929760537_0"
+           },
+           {
+            "label": "KEY_SLIDER",
+            "value": "id_1666691116793_1"
+           }
+          ]
+         },
+         "placeholder": "请选择按键按键",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field669",
+         "searchSource": true,
+         "id": "id_1782971053100_19"
+        },
+        {
+         "__config__": {
+          "label": "IO",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "macro"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 670,
+          "renderKey": "6701782971053100",
+          "eventField": [
+           "device",
+           "gpio"
+          ],
+          "saveWay": "code",
+          "defaultValue": "IO_PORTG_08",
+          "structProp": "key_io",
+          "originValue": ""
+         },
+         "__slot__": {
+          "options": []
+         },
+         "placeholder": "请选择IO",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field670",
+         "searchSource": true,
+         "id": "id_1782971053100_20"
+        },
+        {
+         "__config__": {
+          "label": "检测",
+          "showLabel": true,
+          "labelWidth": 40,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "dataType": [
+           "8"
+          ],
+          "document": "https://element.eleme.cn/#/zh-CN/component/select",
+          "formId": 671,
+          "renderKey": "6711782971053100",
+          "defaultValue": 0,
+          "saveWay": "code",
+          "structProp": "detect",
+          "eventField": []
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "低电平按下",
+            "value": 0
+           },
+           {
+            "label": "高电平按下",
+            "value": 1
+           }
+          ]
+         },
+         "placeholder": "请选择检测",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "__vModel__": "field671",
+         "id": "id_1782971053100_21"
+        },
+        {
+         "__config__": {
+          "label": "长按复位",
+          "tag": "el-switch",
+          "tagIcon": "switch",
+          "defaultValue": 0,
+          "span": 3,
+          "showLabel": true,
+          "labelWidth": 70,
+          "layout": "colFormItem",
+          "required": false,
+          "regList": [],
+          "changeTag": true,
+          "status": 0,
+          "dataType": [
+           "8",
+           "1"
+          ],
+          "formId": 672,
+          "renderKey": "6721782971053100",
+          "eventField": [],
+          "saveWay": "code",
+          "originValue": 0,
+          "structProp": "long_press_reset_enable"
+         },
+         "style": {},
+         "disabled": false,
+         "active-text": "",
+         "inactive-text": "",
+         "active-color": null,
+         "inactive-color": null,
+         "active-value": 1,
+         "inactive-value": 0,
+         "id": "id_1782971053100_22",
+         "__vModel__": "field672"
+        },
+        {
+         "__config__": {
+          "label": "长按复位时间",
+          "showLabel": true,
+          "labelWidth": null,
+          "tag": "el-select",
+          "tagIcon": "select",
+          "layout": "colFormItem",
+          "span": 4,
+          "required": false,
+          "defaultValue": 8,
+          "regList": [],
+          "changeTag": true,
+          "searchSource": false,
+          "status": 0,
+          "dataType": [
+           "1",
+           "8"
+          ],
+          "formId": 673,
+          "renderKey": "6731782971053100",
+          "eventField": [],
+          "originValue": 8,
+          "saveWay": "code",
+          "structProp": "long_press_reset_time"
+         },
+         "__slot__": {
+          "options": [
+           {
+            "label": "1s",
+            "value": 1,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "2s",
+            "value": 2,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "4s",
+            "value": 4,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "8s",
+            "value": 8,
+            "hide": false,
+            "disabled": false
+           },
+           {
+            "label": "16s",
+            "value": 16,
+            "hide": false,
+            "disabled": false
+           }
+          ]
+         },
+         "placeholder": "",
+         "style": {
+          "width": "100%"
+         },
+         "clearable": true,
+         "disabled": false,
+         "filterable": false,
+         "multiple": false,
+         "id": "id_1782971053100_23",
+         "__vModel__": "field673"
+        }
+       ],
+       "saveWay": "code",
+       "uuid": "",
+       "paddingLeft": "40px",
+       "eventField": [],
+       "structDef": ""
+      },
+      "type": "default",
+      "justify": "start",
+      "align": "top",
+      "style": {
+       "height": "60px",
+       "paddingLeft": "0px"
+      },
+      "id": "id_1782971053100_18",
       "fromTemplate": true
      }
     ],
@@ -2827,7 +4015,7 @@
  "disabled": false,
  "span": 4,
  "formBtns": false,
- "maxFormId": 649,
+ "maxFormId": 673,
  "version": {
   "code": 1,
   "tool": "4.4.0"

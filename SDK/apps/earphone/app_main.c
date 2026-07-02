@@ -261,6 +261,9 @@ void app_var_init(void)
 u8 get_power_on_status(void)
 {
     u8 flag = 0;
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    flag = (gpio_read(TCFG_DIP_SWITCH_POWER_IO) == 0) ? 1 : 0;
+#else
 #if TCFG_IOKEY_ENABLE
     if (is_iokey_press_down()) {
         flag = 1;
@@ -278,6 +281,7 @@ u8 get_power_on_status(void)
         flag = 1;
     }
 #endif
+#endif // TCFG_DIP_SWITCH_POWER_ENABLE
     return flag;
 }
 
@@ -286,6 +290,14 @@ u8 get_power_on_status(void)
 
 void check_power_on_key(void)
 {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (get_power_on_status()) {
+        app_var.poweron_reason = SYS_POWERON_BY_KEY;
+    } else {
+        app_var.poweroff_reason = SYS_POWEROFF_BY_KEY;
+        power_set_soft_poweroff();
+    }
+#else
     u32 delay_10ms_cnt = 0;
     static u8 key_press = 0;
     int value = 0;
@@ -309,6 +321,7 @@ void check_power_on_key(void)
             power_set_soft_poweroff();
         }
     }
+#endif // TCFG_DIP_SWITCH_POWER_ENABLE
 }
 
 

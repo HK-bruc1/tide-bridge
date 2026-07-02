@@ -84,10 +84,38 @@ const struct gpio_cfg_item g_io_cfg_at_poweroff [] =  {
 const struct iokey_info g_iokey_info [] =  {
     {
         .key_value = KEY_POWER,
-        .key_io = IO_PORTB_01,
+        .key_io = IO_PORTC_02,
         .detect = 0,
         .long_press_reset_enable = 0,
         .long_press_reset_time = 16
+    },
+    {
+        .key_value = KEY_POWER,
+        .key_io = IO_PORTG_07,
+        .detect = 0,
+        .long_press_reset_enable = 0,
+        .long_press_reset_time = 8
+    },
+    {
+        .key_value = KEY_POWER,
+        .key_io = IO_PORTB_02,
+        .detect = 0,
+        .long_press_reset_enable = 0,
+        .long_press_reset_time = 8
+    },
+    {
+        .key_value = KEY_POWER,
+        .key_io = IO_PORTB_04,
+        .detect = 0,
+        .long_press_reset_enable = 0,
+        .long_press_reset_time = 8
+    },
+    {
+        .key_value = KEY_POWER,
+        .key_io = IO_PORTG_08,
+        .detect = 0,
+        .long_press_reset_enable = 0,
+        .long_press_reset_time = 8
     }
 };
 #endif // TCFG_IOKEY_ENABLE
@@ -142,4 +170,3 @@ const struct touch_key_cfg lp_touch_key_table [] =  {
         }
     }
 };
-

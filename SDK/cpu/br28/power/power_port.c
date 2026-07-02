@@ -116,6 +116,10 @@ void gpio_config_soft_poweroff(void)
     soff_gpio_protect(get_irkey_io());
 #endif
 
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    soff_gpio_protect(TCFG_DIP_SWITCH_POWER_IO);
+#endif
+
     board_set_soft_poweroff_common(NULL);
 }
 

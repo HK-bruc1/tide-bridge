@@ -2,6 +2,7 @@
 #define APP_CONFIG_H
 
 #include "sdk_config.h"
+#include "t2620_project_config.h"
 #include "board_config.h"
 #include "audio_cvp_def.h"
 #include "rcsp_define.h"
@@ -1100,4 +1101,3 @@
 #endif
 
 #endif
-
