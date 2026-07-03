@@ -71,6 +71,8 @@ void rdx_dip_switch_init(void)
     }
     s_init_done = true;
 
+    os_time_dly(2);
+
     int level = gpio_read(TCFG_DIP_SWITCH_POWER_IO);
 
     // Set edge to opposite of current level so next flip is detected
