@@ -500,6 +500,8 @@ int __dev_manager_add(char *logo, u8 need_mount)
 						}
 						os_time_dly(50);
 
+						// "storage/sd0/C/" 路径保留原 FAT 子类型（FAT12/16/32→同类型重建）,
+						// 仅清空数据不改变文件系统类型；若需强制 FAT32，改用 "sd0" 路径。
 						int ret = f_format("storage/sd0/C/", "fat", 0);
 						if (ret == 0) {
 							u32 free_kb = 0;
