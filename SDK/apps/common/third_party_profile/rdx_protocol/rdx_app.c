@@ -2276,7 +2276,7 @@ int rdx_app_key_msg_handler(int *msg)
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-    y_printf("\n ====== rdx_app_key_msg_handler called: key_value=%d, key_event=%d \r", key->value, key->event);
+
     
     rdx_app_earphone_key_remap(&key_msg, msg);
     // log_info("key_msg:%d\n", key_msg);

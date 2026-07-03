@@ -225,7 +225,7 @@
            "key"
           ],
           "saveWay": "code",
-          "defaultValue": "id_1653465071753_0",
+          "defaultValue": "KEY_IO_NUM0",
           "structProp": "key_value",
           "originValue": ""
          },
@@ -522,7 +522,7 @@
            "key"
           ],
           "saveWay": "code",
-          "defaultValue": "id_1653465071753_0",
+          "defaultValue": "KEY_IO_NUM1",
           "structProp": "key_value",
           "originValue": ""
          },
@@ -768,7 +768,7 @@
        "uuid": "",
        "paddingLeft": "40px",
        "eventField": [],
-       "structDef": ""
+       "structDef": "const struct iokey_info g_iokey_info"
       },
       "type": "default",
       "justify": "start",
@@ -819,7 +819,7 @@
            "key"
           ],
           "saveWay": "code",
-          "defaultValue": "id_1653465071753_0",
+          "defaultValue": "KEY_IO_NUM2",
           "structProp": "key_value",
           "originValue": ""
          },
@@ -1065,7 +1065,7 @@
        "uuid": "",
        "paddingLeft": "40px",
        "eventField": [],
-       "structDef": ""
+       "structDef": "const struct iokey_info g_iokey_info"
       },
       "type": "default",
       "justify": "start",
@@ -1116,7 +1116,7 @@
            "key"
           ],
           "saveWay": "code",
-          "defaultValue": "id_1653465071753_0",
+          "defaultValue": "KEY_IO_NUM3",
           "structProp": "key_value",
           "originValue": ""
          },
@@ -1362,7 +1362,7 @@
        "uuid": "",
        "paddingLeft": "40px",
        "eventField": [],
-       "structDef": ""
+       "structDef": "const struct iokey_info g_iokey_info"
       },
       "type": "default",
       "justify": "start",
@@ -1413,7 +1413,7 @@
            "key"
           ],
           "saveWay": "code",
-          "defaultValue": "id_1653465071753_0",
+          "defaultValue": "KEY_IO_NUM4",
           "structProp": "key_value",
           "originValue": ""
          },
@@ -1659,7 +1659,7 @@
        "uuid": "",
        "paddingLeft": "40px",
        "eventField": [],
-       "structDef": ""
+       "structDef": "const struct iokey_info g_iokey_info"
       },
       "type": "default",
       "justify": "start",

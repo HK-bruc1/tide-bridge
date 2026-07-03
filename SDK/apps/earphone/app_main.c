@@ -426,6 +426,16 @@ static struct app_mode *app_task_init()
 
     key_driver_init();
 
+#if 0
+    // DEBUG: print 5 physical key GPIO levels after key driver init
+    printf("[KEY-GPIO] PC2=%d, PG7=%d, PB2=%d, PB4=%d, PG8=%d\n",
+           gpio_read(IO_PORTC_02),
+           gpio_read(IO_PORTG_07),
+           gpio_read(IO_PORTB_02),
+           gpio_read(IO_PORTB_04),
+           gpio_read(IO_PORTG_08));
+#endif
+
     do_initcall();
     do_module_initcall();
     do_late_initcall();
@@ -669,6 +679,40 @@ static void test_printf(void *_arg)
 }
 #endif
 
+#if 0
+// DEBUG: 1s poll 5 key GPIOs; flip KEY2+KEY5 each cycle to prove dispatch path
+static void key_gpio_poll_printf(void *_arg)
+{
+    static u8 beat = 0;
+
+    printf("[KEY-GPIO-POLL] PC2=%d, PG7=%d, PB2=%d, PB4=%d, PG8=%d (beat=%d)\n",
+           gpio_read(IO_PORTC_02),
+           gpio_read(IO_PORTG_07),
+           gpio_read(IO_PORTB_02),
+           gpio_read(IO_PORTB_04),
+           gpio_read(IO_PORTG_08),
+           beat);
+
+    // KEY5 4-beat: press→release→rest→rest→loop (1s/beat, 录音灯效可见)
+    // beat0: LONG→flag=1, beat1: UP→录音开始亮灯
+    // beat2,3: 录音运行 2s 观察灯效
+    // beat4: LONG→停止, beat5: UP, beat6,7: 空闲
+    // switch (beat) {
+    // case 0: case 4:
+    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTG_08), PORT_OUTPUT_LOW);
+    //     printf("[KEY-SIM] PG8 LOW  -- press\r\n");
+    //     break;
+    // case 1: case 5:
+    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTG_08), PORT_INPUT_PULLUP_10K);
+    //     printf("[KEY-SIM] PG8 HIGH -- release\r\n");
+    //     break;
+    // default:
+    //     break;
+    // }
+    // beat = (beat + 1) & 7;
+}
+#endif
+
 static void app_task_loop(void *p)
 {
     struct app_mode *mode;
@@ -676,6 +720,7 @@ static void app_task_loop(void *p)
     mode = app_task_init();
 
     //sys_timer_add(NULL, test_printf, 2000);  //定时调试打印
+    //sys_timer_add(NULL, key_gpio_poll_printf, 1000);  //1s poll 5 key GPIOs; KEY5 flip test
 #if CONFIG_FINDMY_INFO_ENABLE || (THIRD_PARTY_PROTOCOLS_SEL & REALME_EN)
 #if (VFS_ENABLE == 1)
     if (mount(NULL, "mnt/sdfile", "sdfile", 0, NULL)) {

@@ -42,7 +42,7 @@
         "gpio"
        ],
        "saveWay": "macro",
-       "defaultValue": "id_1685018829257_14",
+       "defaultValue": "IO_PORTA_03",
        "uuid": "TCFG_DEBUG_UART_TX_PIN"
       },
       "__slot__": {

@@ -16,26 +16,6 @@
 static struct iokey_port iokey_ports[CONFIG_IOKEY_MAX_NUM];
 static struct iokey_platform_data platform_data;
 
-static const u16 key_uuid_table[][2] = {
-    { 0xaefa, KEY_POWER },
-    { 0x368c, KEY_NEXT },
-    { 0x842a, KEY_PREV },
-    { 0x0bb0, KEY_SLIDER },
-    { 0xd212, KEY_MODE },
-    { 0x6a23, KEY_PLAY },
-};
-
-u8 uuid2keyValue(u16 uuid)
-{
-    for (int i = 0; i < ARRAY_SIZE(key_uuid_table); i++) {
-        if (key_uuid_table[i][0] == uuid) {
-            return key_uuid_table[i][1];
-        }
-    }
-
-    return 0xff;
-}
-
 const struct iokey_platform_data *get_iokey_platform_data()
 {
     const struct iokey_info *info = g_iokey_info;

@@ -33,7 +33,7 @@
 
 /******************************************************************************
 * Macro Define Section
-******************************************************************************/ 
+******************************************************************************/
 
 
 /******************************************************************************
@@ -71,8 +71,19 @@ extern u8 key_table_wifi_r[KEY_ACTION_MAX];
 
 
 /******************************************************************************
+* IO NUM key tables — 5 physical buttons (KEY_IO_NUM0~4)
+******************************************************************************/
+extern u8 key_table_io_num0_normal[KEY_ACTION_MAX];
+extern u8 key_table_io_num1_normal[KEY_ACTION_MAX];
+extern u8 key_table_io_num2_normal[KEY_ACTION_MAX];
+extern u8 key_table_io_num3_normal[KEY_ACTION_MAX];
+extern u8 key_table_io_num4_normal[KEY_ACTION_MAX];
+
+/******************************************************************************
 * Function Section
 ******************************************************************************/
 
+u8 *rdx_key_get_io_num_table(int num_idx, int scene);
+void rdx_key_io_num_log(int num_idx, int action);
 
 #endif

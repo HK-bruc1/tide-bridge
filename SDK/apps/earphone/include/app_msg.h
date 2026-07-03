@@ -255,6 +255,10 @@ enum {
     APP_MSG_RECORD_CHAT_SWITCH,
     APP_MSG_RECORD_OFF,
     APP_MSG_RECORD_ON,
+    APP_MSG_REC_PREV,          // 上一个录音文件
+    APP_MSG_REC_NEXT,          // 下一个录音文件
+    APP_MSG_REC_FR,            // 快退
+    APP_MSG_REC_FF,            // 快进
     APP_MSG_BT_PAIR_SET_DEFAULT,
     APP_MSG_BLE_PAIR_SET_DEFAULT,
     APP_MSG_ANC_SET_TRANSPARENCY,

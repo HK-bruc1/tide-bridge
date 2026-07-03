@@ -11,6 +11,5 @@ struct iokey_info {
     u8 long_press_reset_time;       //长按复位时间(s)
 };
 
-u8 uuid2keyValue(u16 uuid);
 
 #endif

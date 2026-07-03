@@ -83,35 +83,35 @@ const struct gpio_cfg_item g_io_cfg_at_poweroff [] =  {
 #if TCFG_IOKEY_ENABLE
 const struct iokey_info g_iokey_info [] =  {
     {
-        .key_value = KEY_POWER,
+        .key_value = KEY_IO_NUM0,
         .key_io = IO_PORTC_02,
         .detect = 0,
         .long_press_reset_enable = 0,
         .long_press_reset_time = 16
     },
     {
-        .key_value = KEY_POWER,
+        .key_value = KEY_IO_NUM1,
         .key_io = IO_PORTG_07,
         .detect = 0,
         .long_press_reset_enable = 0,
         .long_press_reset_time = 8
     },
     {
-        .key_value = KEY_POWER,
+        .key_value = KEY_IO_NUM2,
         .key_io = IO_PORTB_02,
         .detect = 0,
         .long_press_reset_enable = 0,
         .long_press_reset_time = 8
     },
     {
-        .key_value = KEY_POWER,
+        .key_value = KEY_IO_NUM3,
         .key_io = IO_PORTB_04,
         .detect = 0,
         .long_press_reset_enable = 0,
         .long_press_reset_time = 8
     },
     {
-        .key_value = KEY_POWER,
+        .key_value = KEY_IO_NUM4,
         .key_io = IO_PORTG_08,
         .detect = 0,
         .long_press_reset_enable = 0,

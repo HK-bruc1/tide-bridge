@@ -438,9 +438,166 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
     APP_MSG_NULL
 };
 
+// ============================================================
+// IO NUM 映射表 — 5 个物理 IO 键 (KEY_IO_NUM0~4)
+// 格式与业务按键表对齐: 每个 KEY_ACTION 位置一行 + 中文注释
+// key scan 驱动对持续按下只产生 LONG/HOLD/UP, 不产生 CLICK;
+// 因此主要动作放在 LONG[1], CLICK[0] 留给多击场景
+// ============================================================
+
+// NUM0 (KEY1 — PC2): 上一个录音文件, 长按快退
+u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,              //短按 (CLICK: 多击场景用)
+    APP_MSG_REC_FR,            //长按 (LONG: 快退)
+    APP_MSG_NULL,              //hold
+    APP_MSG_NULL,              //长按抬起
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+// NUM1 (KEY2 — PG7): 下一个录音文件, 长按快进
+u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,              //短按
+    APP_MSG_REC_FF,            //长按 (LONG: 快进)
+    APP_MSG_NULL,              //hold
+    APP_MSG_NULL,              //长按抬起
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+// NUM2 (KEY3 — PB2): 音量加
+u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
+    APP_MSG_VOL_UP,            //短按
+    APP_MSG_VOL_UP,            //长按
+    APP_MSG_NULL,              //hold
+    APP_MSG_NULL,              //长按抬起
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+// NUM3 (KEY4 — PB4): 音量减
+u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,          //短按
+    APP_MSG_RECORD_SWITCH,          //长按
+    APP_MSG_NULL,              //hold
+    APP_MSG_LONG_PRESS_HOLDUP,              //长按抬起
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+// NUM4 (KEY5 — PG8): 录音开关
+// 触发链: LONG → APP_MSG_RECORD_SWITCH → flag=1, UP → APP_MSG_LONG_PRESS_HOLDUP → 启动录音
+u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,              //短按
+    APP_MSG_RECORD_SWITCH,     //长按 (LONG: 录音开关)
+    APP_MSG_NULL,              //hold
+    APP_MSG_LONG_PRESS_HOLDUP, //长按抬起 (UP: 释放后真正触发录音)
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+static u8 *g_num_normal_tables[] = {
+	key_table_io_num0_normal,
+	key_table_io_num1_normal,
+	key_table_io_num2_normal,
+	key_table_io_num3_normal,
+	key_table_io_num4_normal,
+};
+
+u8 *rdx_key_get_io_num_table(int num_idx, int scene)
+{
+	if (num_idx < 0 || num_idx > 4) {
+		return NULL;
+	}
+	// scene: 0=IDLE, 1=NORMAL, 2=RECORDING, 3=WIFI, 4=DUT, 5=OTA
+	switch (scene) {
+	case 4:  // DUT  — 物理按键不应干扰测试
+	case 5:  // OTA — 物理按键不应干扰升级
+		return NULL;
+	default:
+		return g_num_normal_tables[num_idx];
+	}
+}
+
+// DEBUG: print which IO NUM key triggered
+void rdx_key_io_num_log(int num_idx, int action)
+{
+	y_printf("\n ====== rdx_key_io_num_log: num_idx=%d, action=%d \r", num_idx+1, action);
+}
+
 /******************************************************************************
 * Local Variables Section
-******************************************************************************/ 
+******************************************************************************/
 
 /******************************************************************************
 * Function Declaration Section
@@ -448,6 +605,6 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 
 /******************************************************************************
 * Function Section
-******************************************************************************/ 
+******************************************************************************/
 
 
