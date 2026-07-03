@@ -21,9 +21,12 @@
 #include "app_config.h"
 #include "system/includes.h"
 #include "rdx_commonDef.h"
+#include "rdx_app_config.h"
 #include "rdx_wifi_event.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+
+#if RDX_WIFI_ENABLE
 
 static rdx_wifi_event_fn s_wifi_event_cb = NULL;
 
@@ -54,5 +57,18 @@ void rdx_wifi_event_post_ctrl(u8 cmd)
 {
     _rdx_wifi_event_dispatch(RDX_WIFI_EVENT_CTRL, &cmd, 1);
 }
+
+#else /* !RDX_WIFI_ENABLE — 当前硬件无 WiFi 模块 */
+
+void rdx_wifi_event_register(rdx_wifi_event_fn cb) { (void)cb; }
+void rdx_wifi_event_unregister(void) {}
+// _rdx_wifi_event_dispatch is called from xxpUart library; keep stub
+void _rdx_wifi_event_dispatch(RdxWifiEvent event, void *data, u32 len)
+{
+    (void)event; (void)data; (void)len;
+}
+void rdx_wifi_event_post_ctrl(u8 cmd) { (void)cmd; }
+
+#endif /* RDX_WIFI_ENABLE */
 
 #endif /* (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */

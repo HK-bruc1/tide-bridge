@@ -31,8 +31,10 @@
 /******************************************************************************
 * Function Section
 ******************************************************************************/ 
+#if (RDX_SUPPORT_MOTOR == 1)
 extern void motor_on(void);
 extern void motor_off(void);
+#endif
 
 
 #endif

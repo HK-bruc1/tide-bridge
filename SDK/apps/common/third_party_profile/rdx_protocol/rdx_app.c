@@ -194,12 +194,14 @@ static const RdxProtocolIndicateOps* g_protocol_ops = NULL;
 
 /* WiFi AP 产品配置 - 在 rdx_app_tasks_init() 通过 xxp_uart_register_wifi_cfg()
  * 注入到 xxpUart 库. lib 不再直接读 WIFI_AP_SSID 等产品宏, 完全由这里传入. */
+#if RDX_WIFI_ENABLE
 static const RdxWifiCfg wifi_cfg = {
     .ap_ssid            = WIFI_AP_SSID,
     .ap_password        = WIFI_AP_PASSWORD,
     .dynamic_psw_enable = WIFI_AP_SSID_PSW_DYN_GENERATE,
     .ssid_suffix_mode   = WIFI_AP_SSID_SUFFIX_MODE,
 };
+#endif
 
 
 /******************************************************************************
@@ -207,8 +209,10 @@ static const RdxWifiCfg wifi_cfg = {
 ******************************************************************************/ 
 extern u8 get_remote_dev_company(void);
 extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
+#if RDX_WIFI_ENABLE
 extern void xxp_esp32_wifi_close(void);
 extern void xxp_esp32_wifi_control(void);
+#endif
 extern void rdx_ble_server_app_disconnect(void);
 extern void sd_set_power(u8 enable);
 extern void power_set_soft_poweroff();
@@ -225,8 +229,10 @@ extern void motor_init(void);
 extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);
 extern void rdx_ble_server_adv_data_changed(void);
+#if RDX_WIFI_ENABLE
 extern void xxp_esp32_wifi_open(void);
 extern void xxp_esp32_wifi_close(void);
+#endif
 extern u16 rdx_ble_server_get_conn_handle(void);
 extern void rdx_record_process(void);
 extern void rdx_record_motor_state_clear(void);
@@ -559,6 +565,8 @@ void rdx_app_volume_indicate(s8 volume)
  * param (int) *msg
  * return (*)
  **************************************************************************/
+static int rdx_app_get_scene(void);
+
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
     /*----------------------------------------------------------------*/
@@ -569,17 +577,16 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
     u8 *pk_l = NULL;
     u8 *pk_r = NULL;
     RecordStatus* rp = rdx_record_get_status();
+#if RDX_WIFI_ENABLE
     RdxWifiInfo* p = rdx_app_get_wifi_info();
+#endif
     bool format_state = rdx_uxfile_sd_format_status_check();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     // g_printf("key_remap: 0x%x, 0x%x, 0x%x, 0x%x \r", index, msg[0], msg[1], key->value);
-    if(key->value != 0){
-        return;
-    }
-	// rdx_app_emmc_poweron();
-	
+
+    // ---- 通用保护（所有键值共享） ----
     // OLED 功能已删除
     if(0){ // if(oled_get_mainpage_displaying()){
         g_printf("%s --> key invalid in main page loading! \r", __func__);
@@ -594,6 +601,24 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         return;
     }
 
+    // ---- IO NUM 键值分发 (KEY_IO_NUM0~4) ----
+    if (key->value >= KEY_IO_NUM0 && key->value <= KEY_IO_NUM4) {
+        int num_idx = key->value - KEY_IO_NUM0;         // 0~4
+        int scene = rdx_app_get_scene();
+        rdx_key_io_num_log(num_idx, index);             // DEBUG
+        pk_r = rdx_key_get_io_num_table(num_idx, scene);
+        if (pk_r) {
+            *value = pk_r[index];
+        }
+        return;
+    }
+
+    // ---- KEY_POWER 原有逻辑 (TWS L/R) ----
+    if(key->value != 0){
+        return;
+    }
+	// rdx_app_emmc_poweron();
+
     if (app_in_mode(APP_MODE_IDLE)){
         // g_printf("%s --> in idle mode now! \r", __func__);
         pk_r = key_table_incharge_r;
@@ -603,11 +628,14 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
             *value = pk_r[index];
             return;
         }
+#if RDX_WIFI_ENABLE
         //wifi open?
         if(p->onoff == TRANSFER_BY_WIFI_ON){
             // g_printf("%s --> in wifi mode now! \r", __func__);
             pk_r = key_table_wifi_r;
-        }else{
+        }else
+#endif
+        {
             //dut?
             if(rdx_dut_mode){
                 // g_printf("%s --> in dut mode now! \r", __func__);
@@ -617,7 +645,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
                 if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
                     // y_printf("=== %s -->recording scene", __FUNCTION__);
                     //normal mode.
-                    pk_r = key_table_recording_r;  
+                    pk_r = key_table_recording_r;
                 }else{
                     if (get_ota_status()){
                         // y_printf("=== %s -->ota scene", __FUNCTION__);
@@ -632,9 +660,32 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
             }
         }
     }
-    
+
     *value = pk_r[index];
     // g_printf("== %s -->index = %d, *value = %d \r", __FUNCTION__, index, *value);
+}
+
+/**************************************************************************
+ * function: rdx_app_get_scene
+ * description: 提取当前产品场景，供按键映射表查询
+ **************************************************************************/
+int rdx_app_get_scene(void)
+{
+    RecordStatus* rp = rdx_record_get_status();
+#if RDX_WIFI_ENABLE
+    RdxWifiInfo* p = rdx_app_get_wifi_info();
+#endif
+
+    if (app_in_mode(APP_MODE_IDLE))  return 0;   // IDLE
+    if (app_is_idle == TRUE)         return 0;
+    if (get_ota_status())            return 5;   // OTA
+    if (rdx_dut_mode)                return 4;   // DUT
+#if RDX_WIFI_ENABLE
+    if (p->onoff == TRANSFER_BY_WIFI_ON) return 3;   // WIFI
+#endif
+    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
+                                     return 2;   // RECORDING
+    return 1;   // NORMAL
 }
 
 /**************************************************************************
@@ -839,8 +890,10 @@ DevBaseInfo* rdx_app_get_dev_base_info(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
+#if RDX_WIFI_ENABLE
     ApInfo* p = xxp_uart_get_wifi_AP_info();
-    
+#endif
+
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
@@ -851,14 +904,18 @@ DevBaseInfo* rdx_app_get_dev_base_info(void)
     le_controller_get_mac(devBaseInfo.ble_mac);
     
     rdx_auth_info_t* p_auth = rdx_vm_get_auth_info();
+#if RDX_WIFI_ENABLE
     memcpy(devBaseInfo.wifi_mac, p->mac_bytes, 6);
+#endif
     memcpy(devBaseInfo.auth, p_auth->AuthKey, RDX_BLE_DEVICE_AUTH_KEY_SIZE);
     //ble mac.
     sprintf(devBaseInfo.bt_mac_str, "%02X%02X%02X%02X%02X%02X", devBaseInfo.bt_mac[5], devBaseInfo.bt_mac[4], devBaseInfo.bt_mac[3], devBaseInfo.bt_mac[2], devBaseInfo.bt_mac[1], devBaseInfo.bt_mac[0]);
     sprintf(devBaseInfo.ble_mac_str, "%02X%02X%02X%02X%02X%02X", devBaseInfo.ble_mac[5], devBaseInfo.ble_mac[4], devBaseInfo.ble_mac[3], devBaseInfo.ble_mac[2], devBaseInfo.ble_mac[1], devBaseInfo.ble_mac[0]);
 
     b_printf("=====> ble mac --> %02X%02X%02X%02X%02X%02X", devBaseInfo.ble_mac[5], devBaseInfo.ble_mac[4], devBaseInfo.ble_mac[3], devBaseInfo.ble_mac[2], devBaseInfo.ble_mac[1], devBaseInfo.ble_mac[0]);
+#if RDX_WIFI_ENABLE
     sprintf(devBaseInfo.wifi_mac_str, "%02X%02X%02X%02X%02X%02X", p->mac_bytes[0], p->mac_bytes[1], p->mac_bytes[2], p->mac_bytes[3], p->mac_bytes[4], p->mac_bytes[5]);
+#endif
 
     sprintf((char *)devBaseInfo.label_sn, "%s", p_auth->label_sn);
     b_printf("=====> label_sn --> %s", devBaseInfo.label_sn)
@@ -1110,8 +1167,10 @@ void rdx_app_normal_poweroff_cb(void* priv)
 
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
-    
+
+#if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
+#endif
     gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 
     sys_enter_soft_poweroff(POWEROFF_NORMAL);
@@ -1129,7 +1188,9 @@ void rdx_app_normal_poweroff(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
+#if RDX_WIFI_ENABLE
     RdxWifiInfo* pw = rdx_app_get_wifi_info();
+#endif
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -1141,9 +1202,11 @@ void rdx_app_normal_poweroff(void)
         rdx_record_process();
     }
 
+#if RDX_WIFI_ENABLE
     if(pw->onoff == TRANSFER_BY_WIFI_ON){
         rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
     }
+#endif
 
     rdx_ble_server_app_disconnect();
     //stop ble.
@@ -1630,17 +1693,27 @@ void rdx_app_single_click_handle(void)
     }else{
     #if TDX_HAS_RECMARK_ABILITY
         if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+#if RDX_WIFI_ENABLE
             if(!get_ota_status() && wifiInfo.onoff != TRANSFER_BY_WIFI_ON){
+#else
+            if(!get_ota_status()){
+#endif
                 rdx_record_add_mark(RDX_MARK_SOURCE_KEY);
                 return;
             }
         }
     #endif
         // 非 DUT 模式下，按键单击重新唤醒快速广播
-        if(wifiInfo.onoff != TRANSFER_BY_WIFI_ON 
-            && rp->run != RECORD_STATE_START 
+#if RDX_WIFI_ENABLE
+        if(wifiInfo.onoff != TRANSFER_BY_WIFI_ON
+            && rp->run != RECORD_STATE_START
             && rp->run != RECORD_STATE_RESUME
             && !get_ota_status()){
+#else
+        if(rp->run != RECORD_STATE_START
+            && rp->run != RECORD_STATE_RESUME
+            && !get_ota_status()){
+#endif
             rdx_ble_server_fast_adv_restart();
         }
     }    
@@ -1664,7 +1737,11 @@ void rdx_app_double_click_handle(void)
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_DOUBLE_CLICK);
     }else{
+#if RDX_WIFI_ENABLE
         if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
+#else
+        if(get_ota_status()){
+#endif
             r_printf("====== %s --> not on normal status, do nothing \r", __func__);
             return;
         }
@@ -1696,7 +1773,11 @@ void rdx_app_triple_click_handle(void)
             log_info("====== %s --> 非DUT模式下录音中,三击功能无效 \r", __func__);
             return;
         }
+#if RDX_WIFI_ENABLE
         if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON || get_ota_status()){
+#else
+        if(get_ota_status()){
+#endif
             r_printf("====== %s --> not on normal status, do nothing \r", __func__);
             return;
         }
@@ -1727,10 +1808,12 @@ void rdx_app_quadruple_click_handle(void)
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_QUADRUPLE_CLICK);
     }else{
+#if RDX_WIFI_ENABLE
         if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
             r_printf("====== %s --> wifi is on \r", __func__);
             return;
         }
+#endif
 
         ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
         y_printf("rf_info->file_send_busy = %d \r", rf_info->file_send_busy);
@@ -1747,11 +1830,17 @@ void rdx_app_quadruple_click_handle(void)
         y_printf("===%s --> auth: %s \r", __func__, temp);
         y_printf("===%s --> bt_mac: %s\r", __func__, devBaseInfo.bt_mac_str);
         y_printf("===%s --> ble_mac: %s \r", __func__, devBaseInfo.ble_mac_str);
+#if RDX_WIFI_ENABLE
         y_printf("===%s --> wifi_mac: %s \r", __func__, devBaseInfo.wifi_mac_str);
+#endif
         y_printf("===%s --->label_sn: %s \r", __func__, devBaseInfo.label_sn);
-    
+
         memset(qr_code, 0, sizeof(qr_code));
+#if RDX_WIFI_ENABLE
         sprintf((char *)qr_code, "%s\t%s\t%s\t%s\r", devBaseInfo.auth, devBaseInfo.ble_mac_str, devBaseInfo.wifi_mac_str, devBaseInfo.label_sn);
+#else
+        sprintf((char *)qr_code, "%s\t%s\t%s\r", devBaseInfo.auth, devBaseInfo.ble_mac_str, devBaseInfo.label_sn);
+#endif
     #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
 QR_CODE, qr_code);
     #endif
@@ -1822,10 +1911,11 @@ RdxWifiInfo* rdx_app_get_wifi_info(void)
  **************************************************************************/
 void rdx_app_wifi_handle(u8 cmd)
 {
+#if RDX_WIFI_ENABLE
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    
+
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -1849,6 +1939,9 @@ void rdx_app_wifi_handle(u8 cmd)
 		xxp_esp32_wifi_close();
         rdx_led_ctrl_restore_system_state();
 	}
+#else
+    (void)cmd;
+#endif
 }
 
 /**************************************************************************
@@ -2064,7 +2157,31 @@ int rdx_app_msg_handler(int *msg)
             key_press_record_ready_flag = 1;
             log_info("=== %s ---> key_press_record_ready \r", __FUNCTION__);
             break;
-            
+
+        case APP_MSG_REC_PREV:
+            log_info("=== %s ---> APP_MSG_REC_PREV \r", __FUNCTION__);
+            // TODO: 对接录音播放模块 — 切换到上一个录音文件播放
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_NEXT:
+            log_info("=== %s ---> APP_MSG_REC_NEXT \r", __FUNCTION__);
+            // TODO: 对接录音播放模块 — 切换到下一个录音文件播放
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_FR:
+            log_info("=== %s ---> APP_MSG_REC_FR \r", __FUNCTION__);
+            // TODO: 对接录音播放模块 — 快退
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_FF:
+            log_info("=== %s ---> APP_MSG_REC_FF \r", __FUNCTION__);
+            // TODO: 对接录音播放模块 — 快进
+            ret = TRUE;
+            break;
+
         // OLED 相关事件已删除
 
         case APP_MSG_TWS_START_PAIR:
@@ -2155,10 +2272,11 @@ int rdx_app_key_msg_handler(int *msg)
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
     int key_msg = 0;
+    struct key_event *key = (struct key_event *)msg;
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-    // g_printf("rdx app key msg receive:0x%x\n", msg[1]);
+    y_printf("\n ====== rdx_app_key_msg_handler called: key_value=%d, key_event=%d \r", key->value, key->event);
     
     rdx_app_earphone_key_remap(&key_msg, msg);
     // log_info("key_msg:%d\n", key_msg);
@@ -2713,9 +2831,11 @@ static void rdx_app_emmc_poweroff_check_timer_start(void)
     // if(0xffff != con_hdl && 0 != con_hdl){
     //     return; //ble connected, do not start timer.
     // }
+#if RDX_WIFI_ENABLE
     if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
         return;
     }
+#endif
     if(emmc_poweroff_check_timer == 0){
         emmc_poweroff_check_timer = sys_timeout_add(NULL, rdx_app_emmc_poweroff_check_timer_cb, EMMC_LDO_POWER_OFF_CHECK_TIMEOUT);
     }
@@ -2742,6 +2862,7 @@ void rdx_app_emmc_poweroff_check(void)
  *   / app_core depending on producer. Heavy work (record / BLE / UI) must be
  *   re-posted to app_core via os_taskq_post_type.
  **************************************************************************/
+#if RDX_WIFI_ENABLE
 static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
 {
     switch (event) {
@@ -2782,6 +2903,7 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
             break;
     }
 }
+#endif
 
 
 /**
@@ -3119,8 +3241,10 @@ void rdx_app_tasks_init(void)
     g_protocol_ops = rdx_protocol_get_indicate_ops();
 	
 	//do wifi regist.
+#if RDX_WIFI_ENABLE
     xxp_uart_register_wifi_cfg(&wifi_cfg);
     rdx_wifi_event_register(rdx_app_wifi_event_handle);
+#endif
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 1)
     if (get_charge_online_flag()) {
@@ -3207,14 +3331,18 @@ void rdx_app_all_init(void)
 	rdx_record_task_create();
 
     //wifi init.
+#if RDX_WIFI_ENABLE
     memset(&wifiInfo, 0, sizeof(wifiInfo));
+#endif
 
 #if (RDX_AI_TRANSLATE_SUPPORT == 1)
     memset(&aiModeInfo, 0, sizeof(AImodeInfo));
 #endif
 
     //wifi power shutoff.
+#if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
+#endif
 
     //power on vdd.
     gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
@@ -3223,7 +3351,9 @@ void rdx_app_all_init(void)
     rdx_rtc_init();
     
     //spi irq init.
+#if RDX_WIFI_ENABLE
     rdx_spi_init_irq();
+#endif
 
     //dip switch power init.
 #if TCFG_DIP_SWITCH_POWER_ENABLE
@@ -3357,7 +3487,9 @@ static void rdx_app_idle_handle(void* priv)
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
     
+#if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
+#endif
     gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 }
 
@@ -3373,7 +3505,9 @@ void rdx_app_enter_idle(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();
+#if RDX_WIFI_ENABLE
     RdxWifiInfo* pw = rdx_app_get_wifi_info();
+#endif
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -3391,9 +3525,11 @@ void rdx_app_enter_idle(void)
 
     rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
 
+#if RDX_WIFI_ENABLE
     if(pw->onoff == TRANSFER_BY_WIFI_ON){
         rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
     }
+#endif
 
     rdx_app_idle_handle(0);
 }

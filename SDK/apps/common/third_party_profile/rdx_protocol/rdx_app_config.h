@@ -105,7 +105,9 @@
 
 #define RDX_PRODUCT_IS_RECORD_CARD						(!RDX_PRODUCT_IS_CHARGE_CASE)
 
-#define RDX_SUPPORT_MOTOR								(1)
+#define RDX_SUPPORT_MOTOR								(0) // 当前硬件无马达
+
+#define RDX_WIFI_ENABLE									(0) // 当前硬件无 WiFi 模块
 
 #define RDX_SUPPORT_OLED								(0x01)
 #define RDX_SUPPORT_EMMC								(0x10)

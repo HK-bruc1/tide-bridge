@@ -328,10 +328,11 @@ bool rdx_dut_oled_is_running(void)
  **************************************************************************/
 static void rdx_dut_motor_timer_cb(void *priv)
 {
+#if (RDX_SUPPORT_MOTOR == 1)
     if(rdx_dut_info.current_func != DUT_FUNC_MOTOR){
         return;
     }
-    
+
     if(rdx_dut_info.motor_run == TRUE){
         motor_off();
         rdx_dut_info.motor_run = FALSE;
@@ -341,6 +342,7 @@ static void rdx_dut_motor_timer_cb(void *priv)
         rdx_dut_info.motor_run = TRUE;
         sys_timer_modify(rdx_dut_info.motor_timer, 2000);
     }
+#endif
 }
 
 /**************************************************************************
@@ -348,20 +350,22 @@ static void rdx_dut_motor_timer_cb(void *priv)
  **************************************************************************/
 void rdx_dut_motor_start(void)
 {
+#if (RDX_SUPPORT_MOTOR == 1)
     DUT_LOG("Motor test START\r");
-    
+
     if(rdx_dut_info.current_func != DUT_FUNC_NONE){
         DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
         return;
     }
-    
+
     rdx_dut_info.current_func = DUT_FUNC_MOTOR;
-    
+
     if(rdx_dut_info.motor_timer == 0){
         rdx_dut_info.motor_timer = sys_timer_add(NULL, rdx_dut_motor_timer_cb, 2000);
         motor_on();
         rdx_dut_info.motor_run = TRUE;
     }
+#endif
 }
 
 /**************************************************************************
@@ -369,21 +373,23 @@ void rdx_dut_motor_start(void)
  **************************************************************************/
 void rdx_dut_motor_stop(void)
 {
+#if (RDX_SUPPORT_MOTOR == 1)
     DUT_LOG("Motor test STOP\r");
-    
+
     if(rdx_dut_info.motor_timer){
         sys_timer_del(rdx_dut_info.motor_timer);
         rdx_dut_info.motor_timer = 0;
     }
-    
+
     motor_off();
     rdx_dut_info.motor_run = FALSE;
-    
+
     if(rdx_dut_info.current_func == DUT_FUNC_MOTOR){
         rdx_dut_info.current_func = DUT_FUNC_NONE;
     }
-    
+
     rdx_dut_show();
+#endif
 }
 
 /**************************************************************************
