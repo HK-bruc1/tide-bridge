@@ -84,6 +84,21 @@
 #define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE 0x0014
 #define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE 0x0015
 
+// HOGP HID Service handles (appended after RDX services)
+#define HID_SERVICE_HANDLE                                              0x0016
+#define HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE                         0x0017
+#define HID_PROTOCOL_MODE_VALUE_HANDLE                                  0x0018
+#define HID_INPUT_REPORT_CHARACTERISTIC_HANDLE                          0x0019
+#define HID_INPUT_REPORT_VALUE_HANDLE                                   0x001a
+#define HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE                    0x001b
+#define HID_INPUT_REPORT_REFERENCE_HANDLE                               0x001c
+#define HID_REPORT_MAP_CHARACTERISTIC_HANDLE                            0x001d
+#define HID_REPORT_MAP_VALUE_HANDLE                                     0x001e
+#define HID_INFORMATION_CHARACTERISTIC_HANDLE                           0x001f
+#define HID_INFORMATION_VALUE_HANDLE                                    0x0020
+#define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE                         0x0021
+#define HID_CONTROL_POINT_VALUE_HANDLE                                  0x0022
+
 
 //0 ~ 5 reserved.
 #define ADV_MODE_BIT_MASK_AI_MODE                       (7)
@@ -125,6 +140,97 @@ static rdx_ble_server_info_t g_rdx_ble_server_info = {
 };
 
 static u16 g_syn_data_timer = 0;
+
+/*=====================================================================================
+ * HOGP (HID over GATT Profile) extension
+ * Phase 1: minimal HID keyboard service attached to RDX profile data
+ *=====================================================================================*/
+static volatile u8 hogp_mode = 0;              // 1: HOGP keyboard mode
+static volatile u8 hogp_connected = 0;         // 1: PC connected in HOGP mode
+static volatile u8 hid_notify_enabled = 0;     // Input Report CCC notify enabled
+static u16 hid_con_handle = 0;                 // current HID connection handle
+
+// Standard 8-byte boot keyboard Report Map
+static const u8 hid_report_map[] = {
+    0x05, 0x01,        // Usage Page (Generic Desktop)
+    0x09, 0x06,        // Usage (Keyboard)
+    0xA1, 0x01,        // Collection (Application)
+    0x05, 0x07,        //   Usage Page (Key Codes)
+    0x19, 0xE0,        //   Usage Minimum (224)
+    0x29, 0xE7,        //   Usage Maximum (231)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x01,        //   Logical Maximum (1)
+    0x75, 0x01,        //   Report Size (1)
+    0x95, 0x08,        //   Report Count (8)
+    0x81, 0x02,        //   Input (Data, Variable, Absolute)
+    0x95, 0x01,        //   Report Count (1)
+    0x75, 0x08,        //   Report Size (8)
+    0x81, 0x01,        //   Input (Constant)
+    0x95, 0x06,        //   Report Count (6)
+    0x75, 0x08,        //   Report Size (8)
+    0x15, 0x00,        //   Logical Minimum (0)
+    0x25, 0x65,        //   Logical Maximum (101)
+    0x05, 0x07,        //   Usage Page (Key Codes)
+    0x19, 0x00,        //   Usage Minimum (0)
+    0x29, 0x65,        //   Usage Maximum (101)
+    0x81, 0x00,        //   Input (Data, Array)
+    0xC0               // End Collection
+};
+
+static const u8 hid_information[] = {0x11, 0x01, 0x00, 0x03}; // bcdHID=1.11, country=0, flags=3
+static u8 hid_protocol_mode = 1;  // Report Protocol
+static u8 hid_input_report[8] = {0};
+
+static uint16_t hid_read_helper(const u8 *data, u16 data_len,
+                                uint16_t offset, uint8_t *buffer,
+                                uint16_t buffer_size)
+{
+    if (offset >= data_len) {
+        return 0;
+    }
+    uint16_t len = data_len - offset;
+    if (buffer) {
+        if (len > buffer_size) {
+            len = buffer_size;
+        }
+        memcpy(buffer, data + offset, len);
+    }
+    return len;
+}
+
+static uint16_t hid_att_read(uint16_t att_handle, uint16_t offset,
+                             uint8_t *buffer, uint16_t buffer_size)
+{
+    switch (att_handle) {
+    case HID_PROTOCOL_MODE_VALUE_HANDLE:
+        return hid_read_helper(&hid_protocol_mode, 1, offset, buffer, buffer_size);
+    case HID_REPORT_MAP_VALUE_HANDLE:
+        return hid_read_helper(hid_report_map, sizeof(hid_report_map), offset, buffer, buffer_size);
+    case HID_INFORMATION_VALUE_HANDLE:
+        return hid_read_helper(hid_information, sizeof(hid_information), offset, buffer, buffer_size);
+    case HID_INPUT_REPORT_VALUE_HANDLE:
+        return hid_read_helper(hid_input_report, sizeof(hid_input_report), offset, buffer, buffer_size);
+    default:
+        return 0;
+    }
+}
+
+static int hid_att_write(uint16_t att_handle, uint8_t *buffer, uint16_t buffer_size)
+{
+    switch (att_handle) {
+    case HID_CONTROL_POINT_VALUE_HANDLE:
+        // PC sends Suspend(0x00)/Unsuspend(0x01). Log if needed, otherwise ignore.
+        return 0;
+    case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+        if (buffer_size >= 2) {
+            hid_notify_enabled = (buffer[0] & 0x01);
+            att_set_ccc_config(att_handle, buffer[0]);
+        }
+        return 0;
+    default:
+        return 0;
+    }
+}
 
 const char *const rdx_phy_result[] = {
     "None",
@@ -210,12 +316,53 @@ const uint8_t rdx_profile_data[] = {
     0x1b, 0x00, 0x02, 0x00, 0x13, 0x00, 0x03, 0x28, 0x10, 0x14, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf2, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x8f, 0x9a, 0x23, 0x00,
     // 0x0014 VALUE 00239A8F-C616-89BB-3374-F25AF588A7B3 NOTIFY  
     0x16, 0x00, 0x10, 0x02, 0x14, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf2, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x8f, 0x9a, 0x23, 0x00,
-    // 0x0015 CLIENT_CHARACTERISTIC_CONFIGURATION 
+    // 0x0015 CLIENT_CHARACTERISTIC_CONFIGURATION
     0x0a, 0x00, 0x0a, 0x01, 0x15, 0x00, 0x02, 0x29, 0x00, 0x00,
 
+    //////////////////////////////////////////////////////
+    //
+    // 0x0016 PRIMARY_SERVICE  0x1812 (HID)
+    //
+    //////////////////////////////////////////////////////
+    0x0a, 0x00, 0x02, 0x00, 0x16, 0x00, 0x00, 0x28, 0x12, 0x18,
+
+     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE, value=0x01 */
+    // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE
+    0x0d, 0x00, 0x02, 0x00, 0x17, 0x00, 0x03, 0x28, 0x06, 0x18, 0x00, 0x4e, 0x2a,
+    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE
+    0x09, 0x00, 0x06, 0x00, 0x18, 0x00, 0x4e, 0x2a, 0x01,
+
+     /* CHARACTERISTIC,  2A4D, READ | WRITE | NOTIFY | DYNAMIC */
+    // 0x0019 CHARACTERISTIC 2A4D READ | WRITE | NOTIFY | DYNAMIC
+    0x0d, 0x00, 0x02, 0x00, 0x19, 0x00, 0x03, 0x28, 0x1a, 0x1a, 0x00, 0x4d, 0x2a,
+    // 0x001a VALUE 2A4D READ | WRITE | NOTIFY | DYNAMIC
+    0x08, 0x00, 0x1a, 0x01, 0x1a, 0x00, 0x4d, 0x2a,
+    // 0x001b CLIENT_CHARACTERISTIC_CONFIGURATION
+    0x0a, 0x00, 0x0a, 0x01, 0x1b, 0x00, 0x02, 0x29, 0x00, 0x00,
+    // 0x001c REPORT_REFERENCE, report_id=1, report_type=1 (Input)
+    0x0a, 0x00, 0x02, 0x00, 0x1c, 0x00, 0x08, 0x29, 0x01, 0x01,
+
+     /* CHARACTERISTIC,  2A4B, READ | DYNAMIC */
+    // 0x001d CHARACTERISTIC 2A4B READ | DYNAMIC
+    0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x4b, 0x2a,
+    // 0x001e VALUE 2A4B READ | DYNAMIC
+    0x08, 0x00, 0x02, 0x01, 0x1e, 0x00, 0x4b, 0x2a,
+
+     /* CHARACTERISTIC,  2A4A, READ | DYNAMIC */
+    // 0x001f CHARACTERISTIC 2A4A READ | DYNAMIC
+    0x0d, 0x00, 0x02, 0x00, 0x1f, 0x00, 0x03, 0x28, 0x02, 0x20, 0x00, 0x4a, 0x2a,
+    // 0x0020 VALUE 2A4A READ | DYNAMIC
+    0x08, 0x00, 0x02, 0x01, 0x20, 0x00, 0x4a, 0x2a,
+
+     /* CHARACTERISTIC,  2A4C, WRITE_WITHOUT_RESPONSE | DYNAMIC */
+    // 0x0021 CHARACTERISTIC 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
+    0x0d, 0x00, 0x02, 0x00, 0x21, 0x00, 0x03, 0x28, 0x04, 0x22, 0x00, 0x4c, 0x2a,
+    // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
+    0x08, 0x00, 0x04, 0x01, 0x22, 0x00, 0x4c, 0x2a,
+
     // END
-    0x00, 0x00, 
-}; 
+    0x00, 0x00,
+};
 
 /******************************************************************************
 * Function Declaration Section
@@ -1305,7 +1452,14 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
                     buffer[0] = master_bat;
                 }   
             #endif  
-            }    
+            }
+            break;
+
+        case HID_PROTOCOL_MODE_VALUE_HANDLE:
+        case HID_REPORT_MAP_VALUE_HANDLE:
+        case HID_INFORMATION_VALUE_HANDLE:
+        case HID_INPUT_REPORT_VALUE_HANDLE:
+            att_value_len = hid_att_read(handle, offset, buffer, buffer_size);
             break;
 
         default:
@@ -1450,6 +1604,11 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             // rdx_ble_server_check_connetion_updata_deal();
             log_info("\n ota character write ccc:%04x, %02x\n", handle, buffer[0]);
             att_set_ccc_config(handle, buffer[0]);
+            break;
+
+        case HID_CONTROL_POINT_VALUE_HANDLE:
+        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+            hid_att_write(handle, buffer, buffer_size);
             break;
 
         default:
