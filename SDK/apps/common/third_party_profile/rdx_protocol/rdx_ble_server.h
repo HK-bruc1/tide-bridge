@@ -127,4 +127,10 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void);
 int rdx_ble_server_bt_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);
 int rdx_ble_server_ble_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);
 
+/* HOGP (HID over GATT Profile) extension APIs */
+void hogp_mode_set(u8 enable);
+u8 hogp_mode_get(void);
+void hogp_key_send(u8 key_index, u8 pressed);
+void hogp_key_click_send(u8 key_index);
+
 #endif

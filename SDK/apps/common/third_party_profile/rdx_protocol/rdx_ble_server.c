@@ -215,21 +215,191 @@ static uint16_t hid_att_read(uint16_t att_handle, uint16_t offset,
     }
 }
 
-static int hid_att_write(uint16_t att_handle, uint8_t *buffer, uint16_t buffer_size)
+static int hid_att_write(hci_con_handle_t connection_handle, uint16_t att_handle, uint8_t *buffer, uint16_t buffer_size)
 {
     switch (att_handle) {
     case HID_CONTROL_POINT_VALUE_HANDLE:
-        // PC sends Suspend(0x00)/Unsuspend(0x01). Log if needed, otherwise ignore.
+        if (buffer_size >= 1) {
+            y_printf("[HOGP] ctrl point hdl=0x%04x val=0x%02x\r", att_handle, buffer[0]);
+        }
         return 0;
     case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
         if (buffer_size >= 2) {
-            hid_notify_enabled = (buffer[0] & 0x01);
-            att_set_ccc_config(att_handle, buffer[0]);
+            u16 cfg = buffer[0] | (buffer[1] << 8);
+            hid_notify_enabled = (cfg & 0x01);
+            multi_att_set_ccc_config(connection_handle, att_handle, cfg);
+            y_printf("[HOGP] CCC write hdl=0x%04x cfg=0x%04x notify=%d\r", att_handle, cfg, hid_notify_enabled);
         }
         return 0;
     default:
         return 0;
     }
+}
+
+// forward declarations for HOGP mode advertising control
+static void hogp_adv_start(void);
+static void hogp_adv_stop(void);
+extern void rdx_ble_server_app_disconnect(void);
+
+void hogp_mode_set(u8 enable)
+{
+    u8 new_mode = enable ? 1 : 0;
+
+    if (new_mode == hogp_mode) {
+        return;
+    }
+
+    /* If there is an active BLE connection, disconnect first so that
+     * the peer (PC or phone) reconnects under the new advertising identity. */
+    if (g_rdx_ble_server_info.ble_conn) {
+        y_printf("[HOGP] active ble conn, disconnect before mode switch\r");
+        rdx_ble_server_app_disconnect();
+    }
+
+    if (new_mode) {
+        hogp_mode = 1;
+        hogp_adv_start();
+    } else {
+        hogp_adv_stop();
+        hogp_mode = 0;
+        hogp_connected = 0;
+        hid_con_handle = 0;
+        hid_notify_enabled = 0;
+    }
+}
+
+u8 hogp_mode_get(void)
+{
+    return hogp_mode;
+}
+
+// 5-key HID usage IDs (A, B, C, D, E)
+static const u8 key_to_hid_usage[5] = {
+    0x04,  // A
+    0x05,  // B
+    0x06,  // C
+    0x07,  // D
+    0x08,  // E
+};
+
+void hogp_key_send(u8 key_index, u8 pressed)
+{
+    u8 report[8] = {0};
+
+    if (key_index >= 5) {
+        y_printf("[HOGP] err: key_index %d out of range\r", key_index);
+        return;
+    }
+
+    if (pressed) {
+        report[2] = key_to_hid_usage[key_index];
+    }
+
+    y_printf("[HOGP] key_send idx=%d pressed=%d report[2]=0x%02x conn=%d notify=%d\r",
+             key_index, pressed, report[2], hogp_connected, hid_notify_enabled);
+
+    if (!hogp_connected) {
+        y_printf("[HOGP] key_send skipped: not connected\r");
+        return;
+    }
+    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
+        y_printf("[HOGP] key_send skipped: server hdl NULL\r");
+        return;
+    }
+    if (!hid_notify_enabled) {
+        y_printf("[HOGP] key_send skipped: notify not enabled\r");
+        return;
+    }
+
+    int ret = app_ble_att_send_data(g_rdx_ble_server_info.rdx_ble_server_hdl,
+                                    HID_INPUT_REPORT_VALUE_HANDLE,
+                                    report, sizeof(report),
+                                    ATT_OP_AUTO_READ_CCC);
+    y_printf("[HOGP] key_send ret=%d\r", ret);
+}
+
+static void hogp_key_up_timeout(void *priv)
+{
+    u8 key_index = (u8)(u32)priv;
+    hogp_key_send(key_index, 0);
+}
+
+void hogp_key_click_send(u8 key_index)
+{
+    if (key_index >= 5) {
+        return;
+    }
+    hogp_key_send(key_index, 1);
+    sys_timeout_add((void *)(u32)key_index, hogp_key_up_timeout, 20);
+}
+
+static int hogp_fill_adv_data(u8 *advData)
+{
+    u8 offset = 0;
+
+    // Flags: LE General Discoverable
+    offset += make_eir_packet_val(&advData[offset], offset,
+                                  HCI_EIR_DATATYPE_FLAGS, 0x06, 1);
+
+    // Complete List of 16-bit Service UUIDs: 0x1812
+    u8 hid_uuid[] = {0x12, 0x18};
+    offset += make_eir_packet_data(&advData[offset], offset,
+                                   HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS,
+                                   hid_uuid, sizeof(hid_uuid));
+
+    // Appearance: HID Keyboard (0x03C1)
+    offset += make_eir_packet_val(&advData[offset], offset,
+                                  HCI_EIR_DATATYPE_APPEARANCE_DATA, 0x03C1, 2);
+
+    // Complete Local Name
+    const char *name = "VibeKeyboard";
+    offset += make_eir_packet_data(&advData[offset], offset,
+                                   HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME,
+                                   (u8 *)name, strlen(name));
+
+    return offset;
+}
+
+static void hogp_adv_start(void)
+{
+    u8 advData[ADV_RSP_PACKET_MAX];
+    u8 len;
+
+    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
+        return;
+    }
+
+    // stop RDX advertising first
+    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 0);
+
+    // clear previous scan response to avoid stale RDX data on active scan
+    app_ble_rsp_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, NULL, 0);
+
+    // set HID advertising data
+    len = hogp_fill_adv_data(advData);
+    app_ble_set_adv_param(g_rdx_ble_server_info.rdx_ble_server_hdl,
+                          g_rdx_ble_server_info.adv_interval_min,
+                          APP_ADV_IND, APP_ADV_CHANNEL_ALL);
+    app_ble_adv_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, advData, len);
+
+    // start HID advertising
+    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 1);
+
+    y_printf("[HOGP] HID advertising started\r");
+}
+
+static void hogp_adv_stop(void)
+{
+    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
+        return;
+    }
+
+    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 0);
+
+    // restore RDX advertising
+    rdx_ble_server_adv_enable(1);
+
+    y_printf("[HOGP] HID advertising stopped, restore RDX advertising\r");
 }
 
 const char *const rdx_phy_result[] = {
@@ -1203,6 +1373,13 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             r_printf("---------> HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE \n");
                             con_handle = little_endian_read_16(packet, 4);
                             log_info("HCI_SUBEVENT_LE_CONNECTION_COMPLETE: %0x", con_handle);
+
+                            // HOGP mode connection tracking (same as normal connection complete)
+                            if (hogp_mode) {
+                                hogp_connected = 1;
+                                hid_con_handle = con_handle;
+                                y_printf("[HOGP] conn complete (enhanced) hdl=0x%04x\r", con_handle);
+                            }
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
                         }
                         break;
@@ -1213,6 +1390,13 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 
                         //set connect handle.
                         rdx_ble_server_set_conn_handle(con_handle);
+
+                        // HOGP mode connection tracking
+                        if (hogp_mode) {
+                            hogp_connected = 1;
+                            hid_con_handle = con_handle;
+                            y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
+                        }
 
                         //ble conn state.
                         rdx_ble_server_set_ble_work_state(BLE_ST_CONNECT);
@@ -1268,8 +1452,16 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     con_handle = 0;
                     rdx_ble_server_set_conn_handle(con_handle);
                     //set connect state.
-                    rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN); 
+                    rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
                     // ble_op_att_send_init(con_handle, 0, 0, 0);
+
+                    // HOGP mode disconnect tracking
+                    if (hogp_mode) {
+                        hogp_connected = 0;
+                        hid_con_handle = 0;
+                        hid_notify_enabled = 0;
+                        y_printf("[HOGP] disconnect\r");
+                    }
 
                     rdx_ble_server_reset_send_fail_cnt();
 
@@ -1460,6 +1652,18 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_INFORMATION_VALUE_HANDLE:
         case HID_INPUT_REPORT_VALUE_HANDLE:
             att_value_len = hid_att_read(handle, offset, buffer, buffer_size);
+            if (att_value_len) {
+                y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
+            }
+            break;
+
+        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+            att_value_len = 2;
+            if (buffer) {
+                buffer[0] = multi_att_get_ccc_config(connection_handle, handle) & 0xFF;
+                buffer[1] = 0;
+                y_printf("[HOGP] CCC read hdl=0x%04x cfg=0x%02x%02x\r", handle, buffer[0], buffer[1]);
+            }
             break;
 
         default:
@@ -1608,7 +1812,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
 
         case HID_CONTROL_POINT_VALUE_HANDLE:
         case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-            hid_att_write(handle, buffer, buffer_size);
+            hid_att_write(connection_handle, handle, buffer, buffer_size);
             break;
 
         default:
