@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project overview
 
@@ -110,67 +110,19 @@ The RDX stack lives in `SDK/apps/common/third_party_profile/rdx_protocol/` and i
 
 ### HOGP keyboard extension
 
-The HOGP feature is implemented by extending the same RDX GATT server instead of creating a separate one. All attributes live in `rdx_profile_data[]` and share the single `app_ble` wrapper handle allocated by RDX.
+The HOGP feature is implemented by extending the same RDX GATT server instead of creating a separate one:
 
-#### GATT handle layout
+- HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0022`
+- `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report)
+- `rdx_ble_server_att_write_callback()` handles HID Control Point and CCC writes
+- HID reports are sent via `app_ble_att_send_data()` on the RDX wrapper handle
+- Mode toggle and key injection live in `rdx_app.c` (`rdx_app_earphone_key_remap`) and `rdx_ble_server.c` (`hogp_mode_set`, `hogp_key_send`, `hogp_key_click_send`)
 
-```text
-0x0001–0x0003: GAP Service (0x1800): Device Name
-0x0004–0x000b: RDX custom 128-bit UUID service
-0x000c–0x000f: Battery Service (0x180F)
-0x0010–0x0015: RDX notify service
-0x0016–0x0022: HID Service (0x1812)
-0x0023–0x0027: Device Information Service (0x180A)
-0x0028–0x002a: Output Report (0x2A4D) + Report Reference
-```
-
-HID Service details:
-
-| Handle | Type | UUID | Purpose |
-|--------|------|------|---------|
-| 0x0016 | Service Declaration | 0x1812 | HID Service |
-| 0x0018 | Value | 0x2A4E | Protocol Mode (Report Protocol = 0x01) |
-| 0x001a | Value | 0x2A4D | Input Report (8-byte keyboard report) |
-| 0x001b | Descriptor | 0x2902 | Input Report CCC |
-| 0x001c | Descriptor | 0x2908 | Report Reference (ID=1, Type=Input) |
-| 0x001e | Value | 0x2A4B | Report Map |
-| 0x0020 | Value | 0x2A4A | HID Information |
-| 0x0022 | Value | 0x2A4C | HID Control Point |
-
-#### Data flow
-
-1. User short-presses IO NUM0 → `rdx_app_earphone_key_remap()` calls `hogp_mode_set(1)`
-2. `hogp_mode_set()` stops RDX advertising, clears stale scan response, and starts HID advertising with UUID `0x1812` and Appearance `0x03C1`
-3. PC discovers the device and connects
-4. On `HCI_SUBEVENT_LE_CONNECTION_COMPLETE`, the firmware records the handle and calls `sm_api_request_pairing()`
-5. `rdx_ble_server_sm_event_callback()` handles `SM_EVENT_JUST_WORKS_REQUEST` and confirms pairing
-6. On `HCI_EVENT_ENCRYPTION_CHANGE`, the `hogp_encrypted` flag is set
-7. PC reads Report Map, HID Information, and writes `0x0001` to the Input Report CCC (`hid_notify_enabled = 1`)
-8. Short-pressing IO NUM1~4 triggers `hogp_key_click_send()` → `hogp_key_send(pressed=1)` → 20 ms later `hogp_key_send(pressed=0)`
-9. `app_ble_att_send_data()` sends the 8-byte Input Report via ATT notify
-
-#### Key implementation points
+Key points:
 
 - `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
 - HOGP and RDX advertising are mutually exclusive; the firmware switches advertising data when toggling HOGP mode
-- PC-visible name in HOGP mode is taken from `rdx_ble_server_get_local_name()` so it matches the GAP Device Name
-- Input Reports are **8-byte payloads** (`modifier` + `reserved` + 6 key slots). The key code goes at `report[2]`.
-- **Do not prefix a Report ID byte in the ATT payload.** The Report ID (`0x01`) is declared inside the Report Map (`0x85, 0x01`) and associated with the characteristic via the Report Reference descriptor. This is the single biggest HOGP pitfall: USB HID prefixes reports with Report ID when multiple reports share an endpoint; BLE HID gives each report its own characteristic, so the payload is just the report body.
-- Reports are only sent after `HCI_EVENT_ENCRYPTION_CHANGE` sets the `hogp_encrypted` flag
-- Output Report (`0x0029`) receives Windows LED state writes (Caps/Num/Scroll Lock). T2620 has no physical LED, so MVP only logs the value.
-
-#### Common HOGP issues
-
-| Symptom | Likely cause | Where to look |
-|---------|--------------|---------------|
-| PC disconnects right after connection (reason 0x0D) | Advertising name ≠ GAP Device Name | `hogp_fill_adv_data()` must use `rdx_ble_server_get_local_name()` |
-| No SM/paring logs, then disconnect | `config_le_sm_support_enable = 0` | `SDK/apps/earphone/log_config/lib_btstack_config.c` |
-| Pairing request not confirmed | Missing SM event callback / `sm_just_works_confirm()` | `rdx_ble_server_sm_event_callback()` registration in `rdx_ble_server_init()` |
-| `key_send ret=0` but no letters | Input Report payload includes Report ID byte (wrong format) | `hogp_key_send()` must send 8 bytes with keycode at `report[2]`; see HOGP_MVP_实施方案.md 坑5 |
-| `key_send skipped: notify not enabled` | PC never wrote CCC | Check `HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE` write path; open `rdx_ble_server_att_write_callback()` debug print |
-| After disconnect, PC sees RDX broadcast instead of HOGP | HOGP disconnect handler falls through to RDX disconnect logic | Add `break` in the HOGP branch of `HCI_EVENT_DISCONNECTION_COMPLETE` |
-
-For the full step-by-step troubleshooting record, see `HOGP_MVP_实施方案.md` (especially the “踩坑记录” section).
+- PC-visible name in HOGP mode is **VibeKeyboard**
 
 ### T2620 project config overlay
 

@@ -22,8 +22,7 @@ dx_ble_server_get_local_name() 统一名称 |
 | PC 发起配对后设备无响应 | 设备未主动发起 Security Request | HOGP 连接完成时调用 sm_api_request_pairing(con_handle) |
 | Just Works 配对确认缺失 | 缺少 SM 事件回调处理 SM_EVENT_JUST_WORKS_REQUEST | 注册回调并在 HOGP 模式下调用 sm_just_works_confirm() |
 
-**待解决（下一阶段）：** 按键发送 
-et=0 但 PC 输入框无字母输出。日志显示 PC 未写入 CCCD（CCC read cfg=0x0000），Input Report 通知未被订阅。SM Just Works 确认日志未出现，配对流程可能尚未完全走完。此问题留待后续排查。
+**已解决：** 按键发送 ret=0 但 PC 输入框无字母输出的问题已定位并修复，详见“坑5”。当前 HOGP MVP 已全部打通：PC 可发现、配对、连接，短按 IO NUM1~4 能在记事本输出 A/B/C/D。
 
 ---
 
@@ -105,7 +104,36 @@ eturn/reak，代码落入 RDX 断连逻辑。
 **修复：** HOGP 断连跟踪块内加 reak;，阻止执行 RDX 的 
 dx_ble_server_disconnected_handle()。
 
----
+### 坑5：Input Report payload 里多塞了一个 Report ID 字节
+
+**现象：** PC 能发现、配对、连接，CCC 也订阅了（CCC write cfg=0x0001），`app_ble_att_send_data()` 返回 0，但记事本就是不出现字母。
+
+**排查过程：**
+1. 日志确认 `report=00 00 04 00 00 00 00 00` 已经发出（keycode 0x04 = A 在 index 2），ret=0；
+2. 怀疑是 CCC 问题，但 CCC read 最终显示已订阅；删除 PC 配对重连问题依旧；
+3. 对照 AC63 参考工程 `fw-AC63_BT_SDK/apps/hid/examples/standard_keyboard/app_standard_keyboard.c`，发现其发送的是 8 字节 report，keycode 在 index 2，没有 Report ID 前缀；
+4. 再对照 `fw-AC63_BT_SDK/apps/hid/modules/bt/ble_hogp.c` 的 `ble_hid_data_send()`，它直接发 `data`，不在 payload 前补 Report ID；
+5. 回头看当前代码：`hogp_key_send()` 里 `u8 report[9]`，先写 `report[0] = 0x01`（Report ID），再把 keycode 放到 `report[3]`。发给 Windows 的 9 字节被解析成：byte0=modifier、byte1=reserved、byte2=keycode[0]，导致 keycode 被错位丢弃。
+
+**根因：** 混淆了 USB HID 和 BLE HID 的 Report ID 用法。
+- USB HID：多个 report 共享一个 endpoint，数据包前需要 Report ID 字节。
+- BLE HID：每个 report 有独立的 characteristic handle，`Report Reference` descriptor（0x2908）已经把 Report ID 和 Type 告诉主机，ATT payload 只发 report 本体。
+
+**修复：**
+1. `hid_input_report[9]` → `hid_input_report[8]`；
+2. `hogp_key_send()` 里 `u8 report[8]`，删除 `report[0] = 0x01`；
+3. keycode 从 `report[3]` 改到 `report[2]`；
+4. `app_ble_att_send_data()` 发送 `sizeof(report)` = 8 字节；
+5. `hid_att_read()` 中 `HID_INPUT_REPORT_VALUE_HANDLE` 返回 8 字节。
+
+**验证日志（COM3_2026-07-09_16-45-05.log）：**
+```text
+[HOGP] key_send idx=0 pressed=1 report=00 00 04 00 00 00 00 00 conn=1 notify=1 encrypted=1
+[HOGP] key_send ret=0
+```
+PC 记事本成功输出字母 A/B/C/D。
+
+**教训：** 不要凭 USB HID 惯性在 BLE HID 的 ATT payload 里加 Report ID。Report ID 只写在 Report Map（0x85, 0x01）和 Report Reference descriptor 里即可。
 
 ---
 
@@ -132,7 +160,9 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 0x0004–0x000b: 自定义 128-bit UUID Service (RDX 协议通道)
 0x000c–0x000f: Battery Service (0x180F)
 0x0010–0x0015: 另一个自定义 128-bit UUID Service (Notify 通道)
-0x0016–0x0022: 【HID Service (0x1812)】← 新增
+0x0016–0x0022: HID Service (0x1812)
+0x0023–0x0027: Device Information Service (0x180A)
+0x0028–0x002a: Output Report (0x2A4D) + Report Reference
 ```
 
 ### HID Service 详细 attribute 表
@@ -147,11 +177,19 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 | 0x001b | Descriptor | 0x2902 | Read, Write | CCC（Client Characteristic Configuration） |
 | 0x001c | Descriptor | 0x2908 | Read | Report Reference (ID=1, Type=Input) |
 | 0x001d | Characteristic | 0x2A4B | — | Report Map 声明 |
-| 0x001e | Value | 0x2A4B | Read, Dynamic | Report Map（标准 8 字节键盘） |
+| 0x001e | Value | 0x2A4B | Read, Dynamic | Report Map（标准 8 字节键盘，含 Output LED 描述） |
 | 0x001f | Characteristic | 0x2A4A | — | HID Information 声明 |
 | 0x0020 | Value | 0x2A4A | Read, Dynamic | HID Information (bcd=1.11, country=0, flags=3) |
 | 0x0021 | Characteristic | 0x2A4C | — | HID Control Point 声明 |
 | 0x0022 | Value | 0x2A4C | Write w/o Resp, Dynamic | HID Control Point |
+| 0x0023 | Service Declaration | 0x180A | — | Device Information Service |
+| 0x0024 | Characteristic | 0x2A50 | — | PnP ID 声明 |
+| 0x0025 | Value | 0x2A50 | Read | PnP ID (USB-IF, VID=0x1234, PID=0x0001, Ver=0x0001) |
+| 0x0026 | Characteristic | 0x2A29 | — | Manufacturer Name 声明 |
+| 0x0027 | Value | 0x2A29 | Read | Manufacturer Name ("JieLi") |
+| 0x0028 | Characteristic | 0x2A4D | — | Output Report 声明 |
+| 0x0029 | Value | 0x2A4D | Read, Write, Write w/o Resp | Output Report 值 (1 字节 LED 状态) |
+| 0x002a | Descriptor | 0x2908 | Read | Report Reference (ID=1, Type=Output) |
 
 ### Handle 宏定义（实际代码）
 
@@ -169,6 +207,18 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 #define HID_INFORMATION_VALUE_HANDLE                0x0020
 #define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE     0x0021
 #define HID_CONTROL_POINT_VALUE_HANDLE              0x0022
+
+// Device Information Service (0x180A)
+#define DIS_SERVICE_HANDLE                          0x0023
+#define DIS_PNP_ID_CHARACTERISTIC_HANDLE            0x0024
+#define DIS_PNP_ID_VALUE_HANDLE                     0x0025
+#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE 0x0026
+#define DIS_MANUFACTURER_NAME_VALUE_HANDLE          0x0027
+
+// Output Report
+#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE     0x0028
+#define HID_OUTPUT_REPORT_VALUE_HANDLE              0x0029
+#define HID_OUTPUT_REPORT_REFERENCE_HANDLE          0x002a
 ```
 
 ### Report Map（标准 8 字节 Boot Keyboard）
@@ -187,17 +237,17 @@ static volatile u8 hid_notify_enabled = 0;
 ### HID read / write 分发函数
 
 - `hid_read_helper(data, len, offset, buffer, buffer_size)` — 手动 memcpy 长数据
-- `hid_att_read(att_handle, offset, buffer, buffer_size)` — 4 个 value handle 分发
-- `hid_att_write(connection_handle, att_handle, buffer, buffer_size)` — CCC + Control Point 分发，使用 `multi_att_set_ccc_config(connection_handle, att_handle, cfg)` 写入带连接句柄的 CCC 表
+- `hid_att_read(att_handle, offset, buffer, buffer_size)` — HID value handle + DIS value handle 分发
+- `hid_att_write(connection_handle, att_handle, buffer, buffer_size)` — CCC + Control Point + Output Report 分发，使用 `multi_att_set_ccc_config(connection_handle, att_handle, cfg)` 写入带连接句柄的 CCC 表
 
 ### Read / Write callback 扩展
 
 在 `rdx_ble_server_att_read_callback()` 的 switch 中：
-- 新增 4 个 HID value handle case → 调用 `hid_att_read()` → break（落到统一 return）
+- 新增 HID value handle case + DIS value handle case → 调用 `hid_att_read()` → break（落到统一 return）
 - 新增 `HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE` case → `multi_att_get_ccc_config(connection_handle, handle)` → 返回 2 字节 CCC 值
 
 在 `rdx_ble_server_att_write_callback()` 的 switch 中：
-- 新增 HID Control Point + CCC case → 调用 `hid_att_write(connection_handle, ...)` → break（落到统一 `return 0`）
+- 新增 HID Control Point + CCC + Output Report case → 调用 `hid_att_write(connection_handle, ...)` → break（落到统一 `return 0`）
 
 ### GATT 注册
 
@@ -270,6 +320,7 @@ if (hogp_mode_get()) {
 static volatile u8 hogp_mode = 0;          // 1: HOGP 键盘模式
 static volatile u8 hogp_connected = 0;     // 1: PC 已连接且当前处于 HOGP 模式
 static volatile u8 hid_notify_enabled = 0; // Input Report CCC 已使能
+static volatile u8 hogp_encrypted = 0;     // 1: HOGP 连接已加密
 static u16 hid_con_handle = 0;             // 当前 HID 连接句柄
 ```
 
@@ -291,10 +342,13 @@ void hogp_key_send(u8 key_index, u8 pressed)
         report[2] = key_to_hid_usage[key_index];
     }
 
-    y_printf("[HOGP] key_send idx=%d pressed=%d report[2]=0x%02x conn=%d notify=%d\r",
-             key_index, pressed, report[2], hogp_connected, hid_notify_enabled);
+    y_printf("[HOGP] key_send idx=%d pressed=%d report=%02x %02x %02x %02x %02x %02x %02x %02x conn=%d notify=%d encrypted=%d\r",
+             key_index, pressed,
+             report[0], report[1], report[2], report[3],
+             report[4], report[5], report[6], report[7],
+             hogp_connected, hid_notify_enabled, hogp_encrypted);
 
-    // 三层检查，逐层 log
+    // 四层检查，逐层 log
     if (!hogp_connected) {
         y_printf("[HOGP] key_send skipped: not connected\r");
         return;
@@ -307,11 +361,15 @@ void hogp_key_send(u8 key_index, u8 pressed)
         y_printf("[HOGP] key_send skipped: notify not enabled\r");
         return;
     }
+    if (!hogp_encrypted) {
+        y_printf("[HOGP] key_send skipped: not encrypted\r");
+        return;
+    }
 
     int ret = app_ble_att_send_data(g_rdx_ble_server_info.rdx_ble_server_hdl,
                                     HID_INPUT_REPORT_VALUE_HANDLE,
                                     report, sizeof(report),
-                                    ATT_OP_AUTO_READ_CCC);
+                                    ATT_OP_NOTIFY);
     y_printf("[HOGP] key_send ret=%d\r", ret);
 }
 ```
@@ -348,8 +406,20 @@ if (hogp_mode) {
     hogp_connected = 0;
     hid_con_handle = 0;
     hid_notify_enabled = 0;
+    hogp_encrypted = 0;
     y_printf("[HOGP] disconnect\r");
     break;   // 防止执行下面的 RDX 断连逻辑（恢复 RDX 广播会覆盖 HOGP 状态）
+}
+
+// HCI_EVENT_ENCRYPTION_CHANGE:
+if (hogp_mode) {
+    u16 enc_handle = hci_event_encryption_change_get_connection_handle(packet);
+    u8 enc_enabled = hci_event_encryption_change_get_encryption_enabled(packet);
+    u8 enc_status = hci_event_encryption_change_get_status(packet);
+    if (enc_handle == hid_con_handle && enc_enabled && enc_status == 0) {
+        hogp_encrypted = 1;
+        y_printf("[HOGP] link encrypted\r");
+    }
 }
 ```
 
@@ -493,7 +563,7 @@ void hogp_mode_set(u8 enable)
 
 1. 设备上电，RDX 模式正常运行
 2. **短按 IO NUM0** → 进入 HOGP 模式
-3. PC 蓝牙扫描 → 发现 "VibeKeyboard" 键盘 → 连接
+3. PC 蓝牙扫描 → 发现键盘图标设备（名称与 GAP Device Name 一致，例如 "Beanstalk RKB 0002"）→ 连接
 4. 打开记事本
 5. **短按 IO NUM1~4** → 记事本出现 A / B / C / D
 6. **长按 IO NUM0** → 退出 HOGP 模式，恢复 RDX 广播
@@ -505,16 +575,18 @@ void hogp_mode_set(u8 enable)
 [HOGP] active ble conn, disconnect before mode switch   ← 如果切换时已连接
 [HOGP] HID advertising started
        ← PC 连接 →
-[HOGP] conn complete hdl=0x0001
+[HOGP] conn complete hdl=0x0050
 [HOGP] Just Works pairing request, confirm               ← SM 回调确认配对
        ← 加密完成 →
-[HOGP] read hdl=0x001e offset=0 len=45   ← PC 读 Report Map
+[HOGP] encryption_change hdl=0x0050 enabled=1 status=0
+[HOGP] link encrypted
+[HOGP] read hdl=0x001e offset=0 len=70   ← PC 读 Report Map
 [HOGP] read hdl=0x0020 offset=0 len=4    ← PC 读 HID Information
 [HOGP] CCC write hdl=0x001b cfg=0x0001 notify=1   ← PC 使能 notify
        ← 短按 IO NUM1 →
-[HOGP] key_send idx=0 pressed=1 report[2]=0x04 conn=1 notify=1
+[HOGP] key_send idx=0 pressed=1 report=00 00 04 00 00 00 00 00 conn=1 notify=1 encrypted=1
 [HOGP] key_send ret=0
-[HOGP] key_send idx=0 pressed=0 report[2]=0x00 conn=1 notify=1
+[HOGP] key_send idx=0 pressed=0 report=00 00 00 00 00 00 00 00 conn=1 notify=1 encrypted=1
 [HOGP] key_send ret=0
 ```
 
@@ -535,10 +607,12 @@ void hogp_mode_set(u8 enable)
 | 模式切换后按键发不出 | `active ble conn, disconnect before mode switch` | 正常：切换前有活跃连接，已断开。对端需重连 |
 | **HOGP 断连后 PC 搜不到 HOGP 广播，变回 RDX 广播** | 断开 log 后紧跟 RDX 广播恢复 log | `HCI_EVENT_DISCONNECTION_COMPLETE` 的 HOGP 分支缺少 `break;`，执行流落入 RDX 断连逻辑 |
 | PC 连接后按键无响应（无 key_send log） | 有 CCC write 但无 key_send | 检查 NUM1~4 的 KEY_ACTION_CLICK 是否被识别；确认 num_idx-1 映射正确 |
+| **PC 连接、CCC 已订阅、ret=0，但记事本无字母** | `report=00 00 04 00 00 00 00 00` 但无输出 | Input Report payload 里多塞了 Report ID。参考坑5：BLE HID 的 ATT payload 只发 report 本体，Report ID 由 Report Reference descriptor 标识 |
+| PC 连接后 Output Report 写不进来 | 无 `output report write` log | Output Report handle 路由是否正确；检查 characteristic properties 是否包含 Write |
 
 ### 已知风险
 
-**Output Report 缺失：** 当前 Input Report characteristic 的 properties 包含 Write（0x1a），但 `hid_att_write` 的 default case 吞掉了对该 handle 的写入。Windows 连接 HID 键盘后通常会写 Output Report 来设置 LED 状态（CapsLock/NumLock）。由于写操作返回 0（成功但忽略），大多数 Windows 版本可容忍。如果实测遇到"连接成功但按键无响应"，优先用 BLE 抓包确认 PC 是否在写 0x001a handle，再决定是否增加 Output Report characteristic。
+**Output Report 已实现：** 当前已在 handle `0x0028–0x002a` 增加独立的 Output Report characteristic（Report ID=1, Type=Output），Windows 写 LED 状态时会触发 `HID_OUTPUT_REPORT_VALUE_HANDLE` 的 write 回调。T2620 没有物理 LED 指示灯，MVP 阶段仅打印日志；后续如需驱动 LED，可在 `hid_att_write()` 的 Output Report case 中增加回调。
 
 ---
 
@@ -546,11 +620,13 @@ void hogp_mode_set(u8 enable)
 
 | 文件 | 改动内容 |
 |------|----------|
-| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 主要改动文件：扩展 rdx_profile_data[]（追加 HID Service 0x0016–0x0022）、扩展 read/write callback、增加 HOGP 状态变量、HID read/write/CCC 辅助函数、hogp_mode_set/key_send/key_click_send API、hogp_fill_adv_data/hogp_adv_start/hogp_adv_stop 广播切换、HCI 事件中连接/断开跟踪、SM 事件回调注册与 Just Works 配对确认 |
+| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 主要改动文件：扩展 rdx_profile_data[]（追加 HID Service 0x0016–0x0022、Device Information Service 0x0023–0x0027、Output Report 0x0028–0x002a）、扩展 read/write callback、增加 HOGP 状态变量、HID read/write/CCC/Output Report 辅助函数、hogp_mode_set/key_send/key_click_send API、hogp_fill_adv_data/hogp_adv_start/hogp_adv_stop 广播切换、HCI 事件中连接/断开/加密跟踪、SM 事件回调注册与 Just Works 配对确认 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.h` | 新增 HOGP API 声明 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` | 在 `rdx_app_earphone_key_remap()` 的 IO NUM 键值分发处增加 HOGP 模式拦截 |
+| `SDK/apps/earphone/log_config/lib_btstack_config.c` | `config_le_sm_support_enable` 改为 1，使 SM 配对模块编译进固件 |
+| `SDK/apps/common/third_party_profile/multi_protocol_main.c` | 调整 SM 初始化参数，配合 HOGP 配对流程 |
 
-**未修改的文件：** Makefile、lib_btstack_config.c、multi_protocol_main.c、bt_key_msg_table.c（按键在 rdx_app.c 层拦截，未走 key table 方案）。
+**未修改的文件：** Makefile、bt_key_msg_table.c（按键在 rdx_app.c 层拦截，未走 key table 方案）。
 
 ---
 

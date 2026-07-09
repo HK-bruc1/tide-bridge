@@ -86,8 +86,8 @@ const int CONFIG_BTSTACK_TWS_AUDIO_SHARE_ENABLE  = 0;
    		const int config_le_sm_sub_sc_enable = 1;            /*SC加密模式使能,need config_le_sm_support_enable = 1*/
    		const int config_le_sm_sub_sc_bridge_edr_enable = 1; /*SC加密模式下,ios app ble配对快连edr,need config_le_sm_sub_sc_enable = 1*/
    #else
-   		const int config_le_sm_sub_sc_enable = 0;
-   		const int config_le_sm_sub_sc_bridge_edr_enable = 0;
+   		const int config_le_sm_sub_sc_enable = 1;            /*SC加密模式使能,need config_le_sm_support_enable = 1*/
+   		const int config_le_sm_sub_sc_bridge_edr_enable = 0; /*SC加密模式下,ios app ble配对快连edr,need config_le_sm_sub_sc_enable = 1*/
    #endif
 #endif
 
