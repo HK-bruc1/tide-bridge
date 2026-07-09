@@ -35,6 +35,9 @@
 #include "bt_tws.h"
 #include "app_main.h"
 #include "btstack/avctp_user.h"
+#include "btstack/le/sm.h"
+#include "btstack/le/le_user.h"
+#include "btstack/btstack_event.h"
 #include "multi_protocol_main.h"
 #include "circular_buf.h"
 #include "user_cfg.h"
@@ -240,6 +243,7 @@ static int hid_att_write(hci_con_handle_t connection_handle, uint16_t att_handle
 static void hogp_adv_start(void);
 static void hogp_adv_stop(void);
 extern void rdx_ble_server_app_disconnect(void);
+extern char* rdx_ble_server_get_local_name(void);
 
 void hogp_mode_set(u8 enable)
 {
@@ -352,7 +356,7 @@ static int hogp_fill_adv_data(u8 *advData)
                                   HCI_EIR_DATATYPE_APPEARANCE_DATA, 0x03C1, 2);
 
     // Complete Local Name
-    const char *name = "VibeKeyboard";
+    const char *name = rdx_ble_server_get_local_name();
     offset += make_eir_packet_data(&advData[offset], offset,
                                    HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME,
                                    (u8 *)name, strlen(name));
@@ -1041,6 +1045,9 @@ void rdx_ble_server_force_disconnect_timer_cb(void *priv)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    y_printf("---- %s ----> return \n", __func__);
+    return;
+    
     y_printf("====== %s --> \n", __func__);
     //delte force disconnect timer.
     rdx_ble_server_stop_force_disconnect_timer();
@@ -1336,6 +1343,26 @@ static void set_connection_data_phy(u16 con_handle, u8 tx_phy, u8 rx_phy)
     ble_op_set_ext_phy(con_handle, all_phys, tx_phy, rx_phy, phy_options);
 }
 
+static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
+{
+    switch (packet_type) {
+    case HCI_EVENT_PACKET:
+        switch (hci_event_packet_get_type(packet)) {
+        case SM_EVENT_JUST_WORKS_REQUEST:
+            if (hogp_mode) {
+                y_printf("[HOGP] Just Works pairing request, confirm\r");
+                sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+            }
+            break;
+        default:
+            break;
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
     /*----------------------------------------------------------------*/
@@ -1379,6 +1406,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                                 hogp_connected = 1;
                                 hid_con_handle = con_handle;
                                 y_printf("[HOGP] conn complete (enhanced) hdl=0x%04x\r", con_handle);
+                                sm_api_request_pairing(con_handle);
                             }
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
                         }
@@ -1396,6 +1424,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             hogp_connected = 1;
                             hid_con_handle = con_handle;
                             y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
+                            sm_api_request_pairing(con_handle);
                         }
 
                         //ble conn state.
@@ -1461,6 +1490,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         hid_con_handle = 0;
                         hid_notify_enabled = 0;
                         y_printf("[HOGP] disconnect\r");
+                        break;
                     }
 
                     rdx_ble_server_reset_send_fail_cnt();
@@ -2446,6 +2476,7 @@ void rdx_ble_server_init(void)
         app_ble_att_server_packet_handler_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_cbk_packet_handler);
         app_ble_hci_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_cbk_packet_handler);
         app_ble_l2cap_packet_handler_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_cbk_packet_handler);
+        app_ble_sm_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_sm_event_callback);
 
         //init sem.
         os_mutex_create(&g_rdx_ble_server_info.ble_send_queue_mutex);

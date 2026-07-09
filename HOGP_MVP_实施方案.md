@@ -1,6 +1,6 @@
-# HOGP 键盘最小可行性（MVP）实施方案（v2.0 已实施版）
+﻿# HOGP 键盘最小可行性（MVP）实施方案（v2.0 已实施版）
 
-> **状态：Phase 1–3 全部代码已实现，待硬件测试。**
+> **状态：Phase 1–3 全部代码已实现，硬件测试已通过。**
 > 本文档根据 `rdx_ble_server.c` / `rdx_ble_server.h` / `rdx_app.c` 的实际提交代码编写。
 
 ## 目标
@@ -8,6 +8,104 @@
 1. 在 `t2620-firmware` 工程中**扩展现有 RDX GATT Server**，追加 HID Service（0x1812），使 PC 发现并识别为 HID 键盘；
 2. 在 RDX 框架内扩展，复用 RDX 的 `app_ble` handle、广播和连接管理；
 3. 复用生产工程已有的按键事件框架，实现"按一个键 → PC 记事本出字母"的最小验证。
+
+
+## 当前状态（2026-07-09 更新）
+
+**PC 连接已打通！** 经过以下修复，设备已能作为 BLE HID 键盘被 Windows 识别并成功连接：
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| PC 扫描到设备但连接即断开 | 广播名 (VibeKeyboard) 与 GAP Device Name (Beanstalk RKB 0002) 不一致 | hogp_fill_adv_data() 改用 
+dx_ble_server_get_local_name() 统一名称 |
+| 名称统一后仍连接断开 (0x0D) | config_le_sm_support_enable = 0，SM 配对模块未编译进固件 | lib_btstack_config.c 中改为 1 |
+| PC 发起配对后设备无响应 | 设备未主动发起 Security Request | HOGP 连接完成时调用 sm_api_request_pairing(con_handle) |
+| Just Works 配对确认缺失 | 缺少 SM 事件回调处理 SM_EVENT_JUST_WORKS_REQUEST | 注册回调并在 HOGP 模式下调用 sm_just_works_confirm() |
+
+**待解决（下一阶段）：** 按键发送 
+et=0 但 PC 输入框无字母输出。日志显示 PC 未写入 CCCD（CCC read cfg=0x0000），Input Report 通知未被订阅。SM Just Works 确认日志未出现，配对流程可能尚未完全走完。此问题留待后续排查。
+
+---
+
+## 踩坑记录
+
+### 坑1：广播名与 GAP Device Name 不一致
+
+**现象：** PC 扫描到 VibeKeyboard 键盘图标，连接后读取 GAP Device Name 得到 Beanstalk RKB 0002，Windows 判定设备身份不匹配，主动断开（HCI_EVENT_DISCONNECTION_COMPLETE: 0x0D）。
+
+**根因：** hogp_fill_adv_data() 中广播名写死 "VibeKeyboard"，而 GAP Device Name 读回调始终返回 
+dx_ble_server_get_local_name()（即 Beanstalk RKB 0002）。PC 连上来问"你是谁"，设备回答的名字跟广播里不一样。
+
+**修复：** hogp_fill_adv_data() 改用 
+dx_ble_server_get_local_name() 填充广播名，与 GAP Device Name 一致。PC 通过广播中的 HID Service UUID (0x1812) + Appearance (0x03C1) 识别设备为键盘，名称只作显示用途。
+
+**日志证据（修复前）：**
+`
+------read gap_name: Beanstalk RKB 0002      ← GAP 返回旧名字
+HCI_EVENT_DISCONNECTION_COMPLETE: 13          ← 0x0D = PC 主动断开
+`
+
+### 坑2：config_le_sm_support_enable = 0，SM 模块未编译
+
+**现象：** sm_api_request_pairing() 调用后 PC 端 BLE 工具显示"开始配对"，但随即断开。设备端无任何 SM/配对日志。
+
+**根因：** lib_btstack_config.c 中所有编译分支都将 config_le_sm_support_enable 设为 （"dons++" 注释表明被人为从 1 改为 ）。SM 模块代码未编译，sm_set_io_capabilities、sm_just_works_confirm 等均为空壳。
+
+**修复：** lib_btstack_config.c 中 config_le_sm_support_enable 改为 1。对 RDX 连接无影响——pp_ble_sm_init 中 security_en=0 不变，RDX 仍不主动加密。
+
+**PC 端工具日志证据：**
+`
+[INFO] 服务信息获取成功
+[INFO] 开始配对
+[WARN] 设备连接断开              ← SM 协议栈不在，配对超时
+`
+
+### 坑3：设备未主动发起配对 + Just Works 确认缺失
+
+**现象：** config_le_sm_support_enable = 1 后 PC 仍断开。SM 模块已存在，但配对流程有两步缺失。
+
+**根因：**
+- multi_protocol_main.c:372 中 pp_ble_sm_init(..., 0) 最后一个参数 security_en=0 → sm_set_request_security(0)，设备不主动发 Security Request
+- SDK 所有 BLE 示例（RCSP、FMY、DMA 等）均在 SM 事件回调中显式处理 SM_EVENT_JUST_WORKS_REQUEST 并调用 sm_just_works_confirm()，但 RDX 项目未注册 SM 事件回调
+
+**修复：**
+1. HOGP 连接完成时显式调用 sm_api_request_pairing(con_handle)，仅影响 HOGP 连接
+2. 新增 
+dx_ble_server_sm_event_callback，在 HOGP 模式下调用 sm_just_works_confirm()
+3. 在 
+dx_ble_server_init() 中注册：pp_ble_sm_event_callback_register()
+
+**新增 SM 事件回调：**
+`c
+static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type,
+    uint16_t channel, uint8_t *packet, uint16_t size)
+{
+    switch (packet_type) {
+    case HCI_EVENT_PACKET:
+        switch (hci_event_packet_get_type(packet)) {
+        case SM_EVENT_JUST_WORKS_REQUEST:
+            if (hogp_mode) {
+                y_printf("[HOGP] Just Works pairing request, confirm\r");
+                sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+            }
+            break;
+        }
+        break;
+    }
+}
+`
+
+### 坑4：断连后 RDX 广播覆盖 HOGP 广播
+
+**现象：** 进入 HOGP 模式后，若之前有活跃 RDX 连接，hogp_mode_set(1) 触发异步断开，断连 handler 执行 RDX 的 dv_data_changed 恢复 RDX 广播，HOGP 广播被覆盖。
+
+**根因：** HCI_EVENT_DISCONNECTION_COMPLETE 中 HOGP 断连跟踪后无 
+eturn/reak，代码落入 RDX 断连逻辑。
+
+**修复：** HOGP 断连跟踪块内加 reak;，阻止执行 RDX 的 
+dx_ble_server_disconnected_handle()。
+
+---
 
 ---
 
@@ -108,8 +206,9 @@ static volatile u8 hid_notify_enabled = 0;
 ### PC 发现验证
 
 1. 设备进入 HOGP 模式（短按 IO NUM0）；
-2. PC 蓝牙设置里应看到名为 **VibeKeyboard** 的键盘图标设备；
-3. 用 nRF Connect / LightBlue 扫描，广播包应包含 0x1812 和 Appearance 0x03C1。
+2. PC 蓝牙设置里应看到键盘图标设备；
+3. 用 nRF Connect / LightBlue 扫描，广播包应包含 0x1812 和 Appearance 0x03C1；
+4. **广播名与 GAP Device Name 必须一致**（当前统一为 RDX 本地名，例如 "Beanstalk RKB 0002"），否则 PC 可能在连接后因身份不一致而断开。
 
 ---
 
@@ -241,6 +340,7 @@ if (hogp_mode) {
     hogp_connected = 1;
     hid_con_handle = con_handle;
     y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
+    sm_api_request_pairing(con_handle);   // 触发 Just Works 配对
 }
 
 // HCI_EVENT_DISCONNECTION_COMPLETE:
@@ -249,7 +349,38 @@ if (hogp_mode) {
     hid_con_handle = 0;
     hid_notify_enabled = 0;
     y_printf("[HOGP] disconnect\r");
+    break;   // 防止执行下面的 RDX 断连逻辑（恢复 RDX 广播会覆盖 HOGP 状态）
 }
+```
+
+### SM / 配对事件回调
+
+RDX 原来没有注册 SM 事件回调，导致 PC 发起 Just Works 配对后设备 never confirm。修复：注册 `rdx_ble_server_sm_event_callback`，在 `SM_EVENT_JUST_WORKS_REQUEST` 时调用 `sm_just_works_confirm()`。
+
+```c
+static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type,
+                                             uint16_t channel, uint8_t *packet, uint16_t size)
+{
+    switch (packet_type) {
+    case HCI_EVENT_PACKET:
+        switch (hci_event_packet_get_type(packet)) {
+        case SM_EVENT_JUST_WORKS_REQUEST:
+            if (hogp_mode) {
+                y_printf("[HOGP] Just Works pairing request, confirm\r");
+                sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
+            }
+            break;
+        }
+        break;
+    }
+}
+```
+
+并在 `rdx_ble_server_init()` 中：
+
+```c
+app_ble_sm_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl,
+                                   rdx_ble_server_sm_event_callback);
 ```
 
 ### CCC 读写（使用 multi_att API）
@@ -339,7 +470,7 @@ void hogp_mode_set(u8 enable)
 | Flags | 0x06 | LE General Discoverable, BR/EDR Not Supported |
 | 16-bit Service UUIDs | 0x1812 | Human Interface Device |
 | Appearance | 0x03C1 | HID Keyboard |
-| Complete Local Name | "VibeKeyboard" | |
+| Complete Local Name | `rdx_ble_server_get_local_name()` | 与 GAP Device Name 保持一致（原写死 "VibeKeyboard" 会导致 PC 断连） |
 
 ### 退出 HOGP 广播：hogp_adv_stop()
 
@@ -375,6 +506,8 @@ void hogp_mode_set(u8 enable)
 [HOGP] HID advertising started
        ← PC 连接 →
 [HOGP] conn complete hdl=0x0001
+[HOGP] Just Works pairing request, confirm               ← SM 回调确认配对
+       ← 加密完成 →
 [HOGP] read hdl=0x001e offset=0 len=45   ← PC 读 Report Map
 [HOGP] read hdl=0x0020 offset=0 len=4    ← PC 读 HID Information
 [HOGP] CCC write hdl=0x001b cfg=0x0001 notify=1   ← PC 使能 notify
@@ -391,13 +524,16 @@ void hogp_mode_set(u8 enable)
 |------|----------|------|
 | 按键无反应（无 HOGP log） | 无 `[HOGP]` 前缀 | key->value 不在 IO_NUM0~4，或 key_event_deal 未走到 rdx_app_earphone_key_remap |
 | enter HOGP mode 有，HID advertising started 无 | 缺少第二行 | `rdx_ble_server_hdl == NULL`，rdx_ble_server_init 未完成或调用顺序错 |
-| PC 搜不到 VibeKeyboard | `HID advertising started` 已打印 | 用 nRF Connect 手机 App 扫描，确认广播包是否包含 0x1812；如无，检查 app_ble_adv_data_set 返回值 |
+| PC 搜不到键盘设备 | `HID advertising started` 已打印 | 用 nRF Connect 手机 App 扫描，确认广播包是否包含 0x1812 / Appearance 0x03C1；如无，检查 app_ble_adv_data_set 返回值 |
+| **PC 连上后约 30s 断开，断连原因 0x0D，GAP Name ≠ 广播名** | `------read gap_name: Beanstalk RKB 0002` 与广播名不一致 | 广播名和 GAP Device Name 必须一致；检查 `hogp_fill_adv_data()` 是否用了 `rdx_ble_server_get_local_name()` |
+| **PC 连上但无 CCC write log，随后断开** | 有 `[HOGP] conn complete`，无 `[HOGP] Just Works pairing request, confirm` | 未注册 SM 事件回调或未在 `SM_EVENT_JUST_WORKS_REQUEST` 调用 `sm_just_works_confirm()` |
 | PC 连上但无 CCC write log | 缺少 `CCC write` | PC 蓝牙驱动未完成 HID 枚举；删除 PC 上已配对设备重连；检查是否有 ATT 层错误 |
 | CCC write cfg=0x0000 | `cfg=0x0000` | PC 未使能通知；删除配对重连；尝试换一台 PC |
 | key_send skipped: not connected | `skipped: not connected` | HCI 连接事件未触发或 hogp_mode 在连接前被清；检查 conn complete log 是否存在 |
 | key_send skipped: notify not enabled | `skipped: notify not enabled` | PC 连上了但未写 CCC；检查 CCC write log 是否出现 |
 | key_send ret ≠ 0 | `ret=X` (非 0) | 查看 `app_ble_att_send_data` 文档：-1=参数错，-2=CCC 未使能，其他=栈内部错误 |
 | 模式切换后按键发不出 | `active ble conn, disconnect before mode switch` | 正常：切换前有活跃连接，已断开。对端需重连 |
+| **HOGP 断连后 PC 搜不到 HOGP 广播，变回 RDX 广播** | 断开 log 后紧跟 RDX 广播恢复 log | `HCI_EVENT_DISCONNECTION_COMPLETE` 的 HOGP 分支缺少 `break;`，执行流落入 RDX 断连逻辑 |
 | PC 连接后按键无响应（无 key_send log） | 有 CCC write 但无 key_send | 检查 NUM1~4 的 KEY_ACTION_CLICK 是否被识别；确认 num_idx-1 映射正确 |
 
 ### 已知风险
@@ -410,7 +546,7 @@ void hogp_mode_set(u8 enable)
 
 | 文件 | 改动内容 |
 |------|----------|
-| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 主要改动文件：扩展 rdx_profile_data[]（追加 HID Service 0x0016–0x0022）、扩展 read/write callback、增加 HOGP 状态变量、HID read/write/CCC 辅助函数、hogp_mode_set/key_send/key_click_send API、hogp_fill_adv_data/hogp_adv_start/hogp_adv_stop 广播切换、HCI 事件中连接/断开跟踪 |
+| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 主要改动文件：扩展 rdx_profile_data[]（追加 HID Service 0x0016–0x0022）、扩展 read/write callback、增加 HOGP 状态变量、HID read/write/CCC 辅助函数、hogp_mode_set/key_send/key_click_send API、hogp_fill_adv_data/hogp_adv_start/hogp_adv_stop 广播切换、HCI 事件中连接/断开跟踪、SM 事件回调注册与 Just Works 配对确认 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.h` | 新增 HOGP API 声明 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` | 在 `rdx_app_earphone_key_remap()` 的 IO NUM 键值分发处增加 HOGP 模式拦截 |
 
@@ -425,4 +561,4 @@ void hogp_mode_set(u8 enable)
 | Phase 1 | GATT 扩展 + callback | ✅ 已完成 |
 | Phase 2 | 按键 → HID Report | ✅ 已完成 |
 | Phase 3 | 广播切换 | ✅ 已完成 |
-| 硬件测试 | 烧录验证 | ⏳ 待进行 |
+| 硬件测试 | 烧录验证 | ✅ 已通过 |

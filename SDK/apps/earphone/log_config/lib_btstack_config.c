@@ -115,7 +115,7 @@ u8 rcsp_allow_ble_spp_connect_simultaneously = 0;			// 1t1时，是否允许ble�
 
 	//dons++-----------------------------------------------------------------
 	const int config_le_hci_connection_num = 1;//支持同时连接个数
-	const int config_le_sm_support_enable = 0; //是否支持加密配对
+	const int config_le_sm_support_enable = 1; //是否支持加密配对
 	//dons++-----------------------------------------------------------------
 #endif
 #endif
