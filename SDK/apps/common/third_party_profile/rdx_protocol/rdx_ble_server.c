@@ -45,6 +45,7 @@
 #include "app_config.h"
 
 #include "rdx_ble_server.h"
+#include "rdx_hogp_keyboard.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
@@ -151,295 +152,6 @@ static rdx_ble_server_info_t g_rdx_ble_server_info = {
 };
 
 static u16 g_syn_data_timer = 0;
-
-/*=====================================================================================
- * HOGP (HID over GATT Profile) extension
- * Phase 1: minimal HID keyboard service attached to RDX profile data
- *=====================================================================================*/
-static volatile u8 hogp_mode = 0;              // 1: HOGP keyboard mode
-static volatile u8 hogp_connected = 0;         // 1: PC connected in HOGP mode
-static volatile u8 hid_notify_enabled = 0;     // Input Report CCC notify enabled
-static volatile u8 hogp_encrypted = 0;         // 1: link encrypted in HOGP mode
-static u16 hid_con_handle = 0;                 // current HID connection handle
-
-// Standard 8-byte boot keyboard Report Map
-static const u8 hid_report_map[] = {
-    0x05, 0x01,        // Usage Page (Generic Desktop)
-    0x09, 0x06,        // Usage (Keyboard)
-    0xA1, 0x01,        // Collection (Application)
-    0x85, 0x01,        //   Report ID (1)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0xE0,        //   Usage Minimum (224)
-    0x29, 0xE7,        //   Usage Maximum (231)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x75, 0x01,        //   Report Size (1)
-    0x95, 0x08,        //   Report Count (8)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
-    0x95, 0x01,        //   Report Count (1)
-    0x75, 0x08,        //   Report Size (8)
-    0x81, 0x01,        //   Input (Constant)
-    0x95, 0x06,        //   Report Count (6)
-    0x75, 0x08,        //   Report Size (8)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0x00,        //   Usage Minimum (0)
-    0x29, 0xFF,        //   Usage Maximum (255)
-    0x81, 0x00,        //   Input (Data, Array)
-    0x05, 0x08,        //   Usage Page (LEDs)
-    0x19, 0x01,        //   Usage Minimum (Num Lock)
-    0x29, 0x03,        //   Usage Maximum (Scroll Lock)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x95, 0x03,        //   Report Count (3)
-    0x75, 0x01,        //   Report Size (1)
-    0x91, 0x02,        //   Output (Data, Variable, Absolute)
-    0x95, 0x01,        //   Report Count (1)
-    0x75, 0x05,        //   Report Size (5)
-    0x91, 0x01,        //   Output (Constant)
-    0xC0               // End Collection
-};
-
-static const u8 hid_information[] = {0x11, 0x01, 0x00, 0x03}; // bcdHID=1.11, country=0, flags=3
-static u8 hid_protocol_mode = 1;  // Report Protocol
-static u8 hid_input_report[8] = {0};
-
-static uint16_t hid_read_helper(const u8 *data, u16 data_len,
-                                uint16_t offset, uint8_t *buffer,
-                                uint16_t buffer_size)
-{
-    if (offset >= data_len) {
-        return 0;
-    }
-    uint16_t len = data_len - offset;
-    if (buffer) {
-        if (len > buffer_size) {
-            len = buffer_size;
-        }
-        memcpy(buffer, data + offset, len);
-    }
-    return len;
-}
-
-static uint16_t hid_att_read(uint16_t att_handle, uint16_t offset,
-                             uint8_t *buffer, uint16_t buffer_size)
-{
-    switch (att_handle) {
-    case HID_PROTOCOL_MODE_VALUE_HANDLE:
-        return hid_read_helper(&hid_protocol_mode, 1, offset, buffer, buffer_size);
-    case HID_REPORT_MAP_VALUE_HANDLE:
-        return hid_read_helper(hid_report_map, sizeof(hid_report_map), offset, buffer, buffer_size);
-    case HID_INFORMATION_VALUE_HANDLE:
-        return hid_read_helper(hid_information, sizeof(hid_information), offset, buffer, buffer_size);
-    case HID_INPUT_REPORT_VALUE_HANDLE:
-        return hid_read_helper(hid_input_report, sizeof(hid_input_report), offset, buffer, buffer_size);
-    default:
-        return 0;
-    }
-}
-
-static int hid_att_write(hci_con_handle_t connection_handle, uint16_t att_handle, uint8_t *buffer, uint16_t buffer_size)
-{
-    switch (att_handle) {
-    case HID_CONTROL_POINT_VALUE_HANDLE:
-        if (buffer_size >= 1) {
-            y_printf("[HOGP] ctrl point hdl=0x%04x val=0x%02x\r", att_handle, buffer[0]);
-        }
-        return 0;
-    case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-        if (buffer_size >= 2) {
-            u16 cfg = buffer[0] | (buffer[1] << 8);
-            hid_notify_enabled = (cfg & 0x01);
-            multi_att_set_ccc_config(connection_handle, att_handle, cfg);
-            y_printf("[HOGP] CCC write hdl=0x%04x cfg=0x%04x notify=%d\r", att_handle, cfg, hid_notify_enabled);
-        }
-        return 0;
-    case HID_INPUT_REPORT_VALUE_HANDLE:
-        // Windows 在缺少独立 Output Report 时可能把 LED 状态写到这里
-        y_printf("[HOGP] input report write hdl=0x%04x len=%d data[0]=0x%02x\r",
-                 att_handle, buffer_size, buffer_size ? buffer[0] : 0);
-        return 0;
-    default:
-        y_printf("[HOGP] write default hdl=0x%04x len=%d data[0]=0x%02x\r",
-                 att_handle, buffer_size, buffer_size ? buffer[0] : 0);
-        return 0;
-    }
-}
-
-// forward declarations for HOGP mode advertising control
-static void hogp_adv_start(void);
-static void hogp_adv_stop(void);
-extern void rdx_ble_server_app_disconnect(void);
-extern char* rdx_ble_server_get_local_name(void);
-
-void hogp_mode_set(u8 enable)
-{
-    u8 new_mode = enable ? 1 : 0;
-
-    if (new_mode == hogp_mode) {
-        return;
-    }
-
-    /* If there is an active BLE connection, disconnect first so that
-     * the peer (PC or phone) reconnects under the new advertising identity. */
-    if (g_rdx_ble_server_info.ble_conn) {
-        y_printf("[HOGP] active ble conn, disconnect before mode switch\r");
-        rdx_ble_server_app_disconnect();
-    }
-
-    if (new_mode) {
-        hogp_mode = 1;
-        hogp_adv_start();
-    } else {
-        hogp_adv_stop();
-        hogp_mode = 0;
-        hogp_connected = 0;
-        hid_con_handle = 0;
-        hid_notify_enabled = 0;
-    }
-}
-
-u8 hogp_mode_get(void)
-{
-    return hogp_mode;
-}
-
-// 5-key HID usage IDs (A, B, C, D, E)
-static const u8 key_to_hid_usage[5] = {
-    0x04,  // A
-    0x05,  // B
-    0x06,  // C
-    0x07,  // D
-    0x08,  // E
-};
-
-void hogp_key_send(u8 key_index, u8 pressed)
-{
-    u8 report[8] = {0};
-
-    if (key_index >= 5) {
-        y_printf("[HOGP] err: key_index %d out of range\r", key_index);
-        return;
-    }
-
-    if (pressed) {
-        report[2] = key_to_hid_usage[key_index];
-    }
-
-    y_printf("[HOGP] key_send idx=%d pressed=%d report=%02x %02x %02x %02x %02x %02x %02x %02x conn=%d notify=%d encrypted=%d\r",
-             key_index, pressed,
-             report[0], report[1], report[2], report[3],
-             report[4], report[5], report[6], report[7],
-             hogp_connected, hid_notify_enabled, hogp_encrypted);
-
-    if (!hogp_connected) {
-        y_printf("[HOGP] key_send skipped: not connected\r");
-        return;
-    }
-    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
-        y_printf("[HOGP] key_send skipped: server hdl NULL\r");
-        return;
-    }
-    if (!hid_notify_enabled) {
-        y_printf("[HOGP] key_send skipped: notify not enabled\r");
-        return;
-    }
-    if (!hogp_encrypted) {
-        y_printf("[HOGP] key_send skipped: not encrypted\r");
-        return;
-    }
-
-    int ret = app_ble_att_send_data(g_rdx_ble_server_info.rdx_ble_server_hdl,
-                                    HID_INPUT_REPORT_VALUE_HANDLE,
-                                    report, sizeof(report),
-                                    ATT_OP_NOTIFY);
-    y_printf("[HOGP] key_send ret=%d\r", ret);
-}
-
-static void hogp_key_up_timeout(void *priv)
-{
-    u8 key_index = (u8)(u32)priv;
-    hogp_key_send(key_index, 0);
-}
-
-void hogp_key_click_send(u8 key_index)
-{
-    if (key_index >= 5) {
-        return;
-    }
-    hogp_key_send(key_index, 1);
-    sys_timeout_add((void *)(u32)key_index, hogp_key_up_timeout, 20);
-}
-
-static int hogp_fill_adv_data(u8 *advData)
-{
-    u8 offset = 0;
-
-    // Flags: LE General Discoverable
-    offset += make_eir_packet_val(&advData[offset], offset,
-                                  HCI_EIR_DATATYPE_FLAGS, 0x06, 1);
-
-    // Complete List of 16-bit Service UUIDs: 0x1812
-    u8 hid_uuid[] = {0x12, 0x18};
-    offset += make_eir_packet_data(&advData[offset], offset,
-                                   HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS,
-                                   hid_uuid, sizeof(hid_uuid));
-
-    // Appearance: HID Keyboard (0x03C1)
-    offset += make_eir_packet_val(&advData[offset], offset,
-                                  HCI_EIR_DATATYPE_APPEARANCE_DATA, 0x03C1, 2);
-
-    // Complete Local Name
-    const char *name = rdx_ble_server_get_local_name();
-    offset += make_eir_packet_data(&advData[offset], offset,
-                                   HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME,
-                                   (u8 *)name, strlen(name));
-
-    return offset;
-}
-
-static void hogp_adv_start(void)
-{
-    u8 advData[ADV_RSP_PACKET_MAX];
-    u8 len;
-
-    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
-        return;
-    }
-
-    // stop RDX advertising first
-    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 0);
-
-    // clear previous scan response to avoid stale RDX data on active scan
-    app_ble_rsp_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, NULL, 0);
-
-    // set HID advertising data
-    len = hogp_fill_adv_data(advData);
-    app_ble_set_adv_param(g_rdx_ble_server_info.rdx_ble_server_hdl,
-                          g_rdx_ble_server_info.adv_interval_min,
-                          APP_ADV_IND, APP_ADV_CHANNEL_ALL);
-    app_ble_adv_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, advData, len);
-
-    // start HID advertising
-    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 1);
-
-    y_printf("[HOGP] HID advertising started\r");
-}
-
-static void hogp_adv_stop(void)
-{
-    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
-        return;
-    }
-
-    app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 0);
-
-    // restore RDX advertising
-    rdx_ble_server_adv_enable(1);
-
-    y_printf("[HOGP] HID advertising stopped, restore RDX advertising\r");
-}
 
 const char *const rdx_phy_result[] = {
     "None",
@@ -1406,22 +1118,10 @@ static void set_connection_data_phy(u16 con_handle, u8 tx_phy, u8 rx_phy)
 
 static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
-    switch (packet_type) {
-    case HCI_EVENT_PACKET:
-        switch (hci_event_packet_get_type(packet)) {
-        case SM_EVENT_JUST_WORKS_REQUEST:
-            if (hogp_mode) {
-                y_printf("[HOGP] Just Works pairing request, confirm\r");
-                sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
-            }
-            break;
-        default:
-            break;
-        }
-        break;
-    default:
-        break;
-    }
+    (void)hdl;
+    (void)channel;
+
+    rdx_hogp_on_sm_event(packet_type, packet, size);
 }
 
 static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -1462,13 +1162,9 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             con_handle = little_endian_read_16(packet, 4);
                             log_info("HCI_SUBEVENT_LE_CONNECTION_COMPLETE: %0x", con_handle);
 
-                            // HOGP mode connection tracking (same as normal connection complete)
-                            if (hogp_mode) {
-                                hogp_connected = 1;
-                                hid_con_handle = con_handle;
-                                hogp_encrypted = 0;
-                                y_printf("[HOGP] conn complete (enhanced) hdl=0x%04x\r", con_handle);
-                                sm_api_request_pairing(con_handle);
+                            // HOGP mode connection tracking (forward to submodule)
+                            if (hogp_mode_get()) {
+                                rdx_hogp_on_connected(con_handle);
                             }
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
                         }
@@ -1482,12 +1178,8 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         rdx_ble_server_set_conn_handle(con_handle);
 
                         // HOGP mode connection tracking
-                        if (hogp_mode) {
-                            hogp_connected = 1;
-                            hid_con_handle = con_handle;
-                            hogp_encrypted = 0;
-                            y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
-                            sm_api_request_pairing(con_handle);
+                        if (hogp_mode_get()) {
+                            rdx_hogp_on_connected(con_handle);
                             break;  // 阻止后续 RDX 连接初始化
                         }
 
@@ -1503,13 +1195,9 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
 
                         // rdx_ble_server_send_request_connect_parameter(1);
-                        
+
                         //deal connect handle.
-                        if (!hogp_mode) {
-                            rdx_ble_server_connected_handle();
-                        } else {
-                            y_printf("[HOGP] skip RDX connected_handle\r");
-                        }
+                        rdx_ble_server_connected_handle();
                         // int msg[2];
                         // msg[0] = (int)rdx_ble_server_connected_handle;
                         // msg[1] = 0;
@@ -1553,12 +1241,8 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     // ble_op_att_send_init(con_handle, 0, 0, 0);
 
                     // HOGP mode disconnect tracking
-                    if (hogp_mode) {
-                        hogp_connected = 0;
-                        hid_con_handle = 0;
-                        hid_notify_enabled = 0;
-                        hogp_encrypted = 0;
-                        y_printf("[HOGP] disconnect\r");
+                    if (hogp_mode_get()) {
+                        rdx_hogp_on_disconnected(con_handle);
                         break;
                     }
 
@@ -1576,12 +1260,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     u16 enc_handle = hci_event_encryption_change_get_connection_handle(packet);
                     u8 enc_enabled = hci_event_encryption_change_get_encryption_enabled(packet);
                     u8 enc_status = hci_event_encryption_change_get_status(packet);
-                    y_printf("[HOGP] encryption_change hdl=0x%04x enabled=%d status=%d\r",
-                             enc_handle, enc_enabled, enc_status);
-                    if (hogp_mode && enc_handle == hid_con_handle && enc_enabled && enc_status == 0) {
-                        hogp_encrypted = 1;
-                        y_printf("[HOGP] link encrypted\r");
-                    }
+                    rdx_hogp_on_encryption_change(enc_handle, enc_enabled, enc_status);
                 }
                 break;
 
@@ -1764,7 +1443,7 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_REPORT_MAP_VALUE_HANDLE:
         case HID_INFORMATION_VALUE_HANDLE:
         case HID_INPUT_REPORT_VALUE_HANDLE:
-            att_value_len = hid_att_read(handle, offset, buffer, buffer_size);
+            att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
             if (att_value_len) {
                 y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
             }
@@ -1876,8 +1555,8 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
 
     // In HOGP mode, route all HID Service writes to the HOGP handler so
     // that default branches in the RDX switch do not swallow them.
-    if (hogp_mode && handle >= HID_SERVICE_HANDLE && handle <= HID_CONTROL_POINT_VALUE_HANDLE) {
-        return hid_att_write(connection_handle, handle, buffer, buffer_size);
+    if (hogp_mode_get() && handle >= HID_SERVICE_HANDLE && handle <= HID_CONTROL_POINT_VALUE_HANDLE) {
+        return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
     }
 
     switch (handle) {
@@ -1929,16 +1608,11 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             att_set_ccc_config(handle, buffer[0]);
             break;
 
-        case HID_CONTROL_POINT_VALUE_HANDLE:
-        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-            hid_att_write(connection_handle, handle, buffer, buffer_size);
-            break;
-
-                    case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state)
-                        if (buffer_size >= 1) {
-                            y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
-                        }
-                        return 0;
+        case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state)
+            if (buffer_size >= 1) {
+                y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
+            }
+            return 0;
 
         default:
             break;
@@ -2572,6 +2246,9 @@ void rdx_ble_server_init(void)
         app_ble_hci_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_cbk_packet_handler);
         app_ble_l2cap_packet_handler_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_cbk_packet_handler);
         app_ble_sm_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_sm_event_callback);
+
+        //init HOGP submodule.
+        rdx_hogp_init(g_rdx_ble_server_info.rdx_ble_server_hdl);
 
         //init sem.
         os_mutex_create(&g_rdx_ble_server_info.ble_send_queue_mutex);
