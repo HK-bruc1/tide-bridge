@@ -50,6 +50,24 @@
 /* #define LOG_DUMP_ENABLE */
 #define LOG_CLI_ENABLE
 #include "debug.h"
+
+/******************************************************************************
+* Logging macros
+******************************************************************************/
+#if RDX_HOGP_LOG_ENABLE
+#define RDX_HOGP_LOG(fmt, ...)     y_printf("[HOGP] " fmt "\r", ##__VA_ARGS__)
+#define RDX_HOGP_ERROR(fmt, ...)   y_printf("[HOGP_ERR] " fmt "\r", ##__VA_ARGS__)
+#if RDX_HOGP_VERBOSE_LOG
+#define RDX_HOGP_VERBOSE(fmt, ...) y_printf("[HOGP] " fmt "\r", ##__VA_ARGS__)
+#else
+#define RDX_HOGP_VERBOSE(fmt, ...) /* no verbose log */
+#endif
+#else
+#define RDX_HOGP_LOG(fmt, ...)     /* no log */
+#define RDX_HOGP_ERROR(fmt, ...)   /* no log */
+#define RDX_HOGP_VERBOSE(fmt, ...) /* no log */
+#endif
+
 /******************************************************************************
 * Local variables Section
 ******************************************************************************/
@@ -124,7 +142,7 @@ static void hogp_adv_start_internal(void)
     app_ble_adv_data_set(s_hogp_app_ble_hdl, advData, len);
     app_ble_adv_enable(s_hogp_app_ble_hdl, 1);
 
-    y_printf("[HOGP] HID advertising started\r");
+    RDX_HOGP_LOG("HID advertising started");
 }
 
 static void hogp_adv_stop_internal(void)
@@ -136,7 +154,7 @@ static void hogp_adv_stop_internal(void)
     app_ble_adv_enable(s_hogp_app_ble_hdl, 0);
     rdx_ble_server_adv_enable(1);
 
-    y_printf("[HOGP] HID advertising stopped, restore RDX advertising\r");
+    RDX_HOGP_LOG("HID advertising stopped, restore RDX advertising");
 }
 
 /******************************************************************************
@@ -151,6 +169,7 @@ void rdx_hogp_init(void *app_ble_hdl)
     s_hogp_encrypted = 0;
     s_hid_con_handle = 0;
     memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
+    rdx_hogp_dump_state();
 }
 
 void rdx_hogp_deinit(void)
@@ -176,13 +195,14 @@ void rdx_hogp_mode_set(u8 enable)
     }
 
     if (rdx_ble_server_get_info()->ble_conn) {
-        y_printf("[HOGP] active ble conn, disconnect before mode switch\r");
+        RDX_HOGP_LOG("active ble conn, disconnect before mode switch");
         rdx_ble_server_app_disconnect();
     }
 
     if (new_mode) {
         s_hogp_mode = 1;
         hogp_adv_start_internal();
+        rdx_hogp_dump_state();
     } else {
         hogp_adv_stop_internal();
         s_hogp_mode = 0;
@@ -190,6 +210,7 @@ void rdx_hogp_mode_set(u8 enable)
         s_hid_con_handle = 0;
         s_hid_notify_enabled = 0;
         s_hogp_encrypted = 0;
+        rdx_hogp_dump_state();
     }
 }
 
@@ -221,7 +242,7 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
         if (buffer && buffer_size >= 2) {
             buffer[0] = multi_att_get_ccc_config(connection_handle, att_handle) & 0xFF;
             buffer[1] = 0;
-            y_printf("[HOGP] CCC read hdl=0x%04x cfg=0x%02x%02x\r", att_handle, buffer[0], buffer[1]);
+            RDX_HOGP_VERBOSE("CCC read hdl=0x%04x cfg=0x%02x%02x", att_handle, buffer[0], buffer[1]);
         }
         return 2;
     default:
@@ -242,7 +263,7 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
     switch (att_handle) {
     case HID_CONTROL_POINT_VALUE_HANDLE:
         if (buffer_size >= 1) {
-            y_printf("[HOGP] ctrl point hdl=0x%04x val=0x%02x\r", att_handle, buffer[0]);
+            RDX_HOGP_VERBOSE("ctrl point hdl=0x%04x val=0x%02x", att_handle, buffer[0]);
         }
         return 0;
     case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
@@ -250,15 +271,16 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
             u16 cfg = buffer[0] | (buffer[1] << 8);
             s_hid_notify_enabled = (cfg & 0x01);
             multi_att_set_ccc_config(connection_handle, att_handle, cfg);
-            y_printf("[HOGP] CCC write hdl=0x%04x cfg=0x%04x notify=%d\r", att_handle, cfg, s_hid_notify_enabled);
+            RDX_HOGP_LOG("CCC write hdl=0x%04x cfg=0x%04x notify=%d", att_handle, cfg, s_hid_notify_enabled);
+            rdx_hogp_dump_state();
         }
         return 0;
     case HID_INPUT_REPORT_VALUE_HANDLE:
-        y_printf("[HOGP] input report write hdl=0x%04x len=%d data[0]=0x%02x\r",
+        RDX_HOGP_VERBOSE("input report write hdl=0x%04x len=%d data[0]=0x%02x",
                  att_handle, buffer_size, buffer_size ? buffer[0] : 0);
         return 0;
     default:
-        y_printf("[HOGP] write default hdl=0x%04x len=%d data[0]=0x%02x\r",
+        RDX_HOGP_VERBOSE("write default hdl=0x%04x len=%d data[0]=0x%02x",
                  att_handle, buffer_size, buffer_size ? buffer[0] : 0);
         return 0;
     }
@@ -267,6 +289,17 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
 /******************************************************************************
 * Connection / security events
 ******************************************************************************/
+void rdx_hogp_dump_state(void)
+{
+    RDX_HOGP_LOG("state mode=%d conn=%d con=0x%04x ccc=%d enc=%d hdl=%p",
+                 s_hogp_mode,
+                 s_hogp_connected,
+                 s_hid_con_handle,
+                 s_hid_notify_enabled,
+                 s_hogp_encrypted,
+                 s_hogp_app_ble_hdl);
+}
+
 void rdx_hogp_on_connected(u16 con_handle)
 {
     if (!s_hogp_mode) {
@@ -275,10 +308,11 @@ void rdx_hogp_on_connected(u16 con_handle)
     s_hogp_connected = 1;
     s_hid_con_handle = con_handle;
     s_hogp_encrypted = 0;
-    y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
+    RDX_HOGP_LOG("conn complete hdl=0x%04x", con_handle);
 #if RDX_HOGP_ENCRYPTION_REQUIRED
     sm_api_request_pairing(con_handle);
 #endif
+    rdx_hogp_dump_state();
 }
 
 void rdx_hogp_on_disconnected(u16 con_handle)
@@ -291,17 +325,19 @@ void rdx_hogp_on_disconnected(u16 con_handle)
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
     s_hogp_encrypted = 0;
-    y_printf("[HOGP] disconnect\r");
+    RDX_HOGP_LOG("disconnect");
+    rdx_hogp_dump_state();
 }
 
 void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status)
 {
-    y_printf("[HOGP] encryption_change hdl=0x%04x enabled=%d status=%d\r",
+    RDX_HOGP_LOG("encryption_change hdl=0x%04x enabled=%d status=%d",
              con_handle, enabled, status);
     if (s_hogp_mode && con_handle == s_hid_con_handle && enabled && status == 0) {
         s_hogp_encrypted = 1;
-        y_printf("[HOGP] link encrypted\r");
+        RDX_HOGP_LOG("link encrypted");
     }
+    rdx_hogp_dump_state();
 }
 
 void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size)
@@ -315,7 +351,7 @@ void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size)
     switch (hci_event_packet_get_type(packet)) {
     case SM_EVENT_JUST_WORKS_REQUEST:
         if (s_hogp_mode) {
-            y_printf("[HOGP] Just Works pairing request, confirm\r");
+            RDX_HOGP_LOG("Just Works pairing request, confirm");
             sm_just_works_confirm(sm_event_just_works_request_get_handle(packet));
         }
         break;
@@ -381,27 +417,31 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
         report[2] = usage;
     }
 
-    y_printf("[HOGP] key_send usage=0x%02x pressed=%d report=%02x %02x %02x %02x %02x %02x %02x %02x conn=%d notify=%d encrypted=%d\r",
+    RDX_HOGP_LOG("key_send usage=0x%02x pressed=%d report=%02x %02x %02x %02x %02x %02x %02x %02x conn=%d notify=%d encrypted=%d",
              usage, pressed,
              report[0], report[1], report[2], report[3],
              report[4], report[5], report[6], report[7],
              s_hogp_connected, s_hid_notify_enabled, s_hogp_encrypted);
 
     if (!s_hogp_connected) {
-        y_printf("[HOGP] key_send skipped: not connected\r");
+        RDX_HOGP_ERROR("key_send skipped: not connected");
+        rdx_hogp_dump_state();
         return -1;
     }
     if (s_hogp_app_ble_hdl == NULL) {
-        y_printf("[HOGP] key_send skipped: server hdl NULL\r");
+        RDX_HOGP_ERROR("key_send skipped: server hdl NULL");
+        rdx_hogp_dump_state();
         return -1;
     }
     if (!s_hid_notify_enabled) {
-        y_printf("[HOGP] key_send skipped: notify not enabled\r");
+        RDX_HOGP_ERROR("key_send skipped: notify not enabled");
+        rdx_hogp_dump_state();
         return -1;
     }
 #if RDX_HOGP_ENCRYPTION_REQUIRED
     if (!s_hogp_encrypted) {
-        y_printf("[HOGP] key_send skipped: not encrypted\r");
+        RDX_HOGP_ERROR("key_send skipped: not encrypted");
+        rdx_hogp_dump_state();
         return -1;
     }
 #endif
@@ -410,7 +450,11 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
                                     HID_INPUT_REPORT_VALUE_HANDLE,
                                     report, sizeof(report),
                                     ATT_OP_NOTIFY);
-    y_printf("[HOGP] key_send ret=%d\r", ret);
+    RDX_HOGP_LOG("key_send ret=%d", ret);
+    if (ret != APP_BLE_NO_ERROR) {
+        RDX_HOGP_ERROR("key_send failed ret=%d", ret);
+        rdx_hogp_dump_state();
+    }
     return ret;
 }
 
@@ -434,7 +478,7 @@ int rdx_hogp_on_io_num_key(u8 num_idx, u8 action)
     if (!s_hogp_mode) {
         if (num_idx == 0 && action == KEY_ACTION_CLICK) {
             rdx_hogp_mode_set(1);
-            y_printf("[HOGP] enter HOGP mode\r");
+            RDX_HOGP_LOG("enter HOGP mode");
             return 0;
         }
         return -1;
@@ -443,7 +487,7 @@ int rdx_hogp_on_io_num_key(u8 num_idx, u8 action)
     if (num_idx == 0) {
         if (action == KEY_ACTION_LONG) {
             rdx_hogp_mode_set(0);
-            y_printf("[HOGP] exit HOGP mode\r");
+            RDX_HOGP_LOG("exit HOGP mode");
             return 0;
         }
         return -1;
@@ -472,7 +516,7 @@ u8 hogp_mode_get(void)
 void hogp_key_send(u8 key_index, u8 pressed)
 {
     if (key_index >= 5) {
-        y_printf("[HOGP] err: key_index %d out of range\r", key_index);
+        RDX_HOGP_ERROR("key_index %d out of range", key_index);
         return;
     }
     rdx_hogp_key_send_usage(key_to_hid_usage[key_index], pressed);
@@ -510,6 +554,7 @@ int  rdx_hogp_key_send_usage(u8 usage, u8 pressed) { (void)usage; (void)pressed;
 int  rdx_hogp_key_click_usage(u8 usage) { (void)usage; return -1; }
 int  rdx_hogp_key_click_index(u8 key_index) { (void)key_index; return -1; }
 int  rdx_hogp_on_io_num_key(u8 num_idx, u8 action) { (void)num_idx; (void)action; return -1; }
+void rdx_hogp_dump_state(void) {}
 
 /* Legacy wrappers — stubs */
 void hogp_mode_set(u8 enable) { (void)enable; }

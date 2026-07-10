@@ -93,6 +93,17 @@ extern "C" {
 #define RDX_HOGP_KEYMAP_E                    0x08   /* E */
 #endif
 
+/******************************************************************************
+* Logging
+******************************************************************************/
+#ifndef RDX_HOGP_LOG_ENABLE
+#define RDX_HOGP_LOG_ENABLE                   1   /* 0 = strip all HOGP logs */
+#endif
+
+#ifndef RDX_HOGP_VERBOSE_LOG
+#define RDX_HOGP_VERBOSE_LOG                  0   /* 0 = only state changes and errors; 1 = per-packet read/write */
+#endif
+
 #ifdef __cplusplus
 }
 #endif
