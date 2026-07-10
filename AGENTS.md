@@ -67,15 +67,20 @@ The post-build script `SDK/cpu/br28/tools/download.bat` converts `sdk.elf` into 
 
 ## Tests
 
-There is one host-side validation test:
+Run all host-side software validation tests through the unified entry point:
 
 ```powershell
-.\tests\host\test_t2620_config_overlay.ps1
+.\tests\host\run_host_tests.ps1
 ```
 
-It verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
+The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script.
 
-There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell overlay check, and on-device testing.
+The host test runner currently covers:
+
+- `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
+- `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
+
+There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
 ## High-level architecture
 
@@ -153,10 +158,13 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 1. Edit product configs in JL Studio; it regenerates `src/*.json` and `SDK/apps/earphone/board/br28/sdk_config.h/c`
 2. Add project-specific overrides only in `SDK/apps/earphone/include/t2620_project_config.h`
 3. Build: `cd SDK && make`
-4. Validate overlay: `.\tests\host\test_t2620_config_overlay.ps1`
+4. Run host software checks: `.\tests\host\run_host_tests.ps1`
 5. Flash via JL Studio / `ISD_download.exe` using files in `SDK/cpu/br28/tools/download/earphone/` or copied `output/`
 
 ## Important files to know
+
+- `tests/host/run_host_tests.ps1` - unified host-side software test entry point
+- `tests/host/test_hogp_profile_contract.ps1` - host-side HOGP profile contract validation
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
 - `SDK/apps/earphone/app_main.c` — tasks, main init

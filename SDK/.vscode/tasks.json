@@ -25,12 +25,12 @@
             "group": "build"
         },
         {
-            "label": "test: config overlay",
+            "label": "test: host software",
             "type": "shell",
             "windows": {
-                "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/../tests/host/test_t2620_config_overlay.ps1"
+                "command": "powershell -NoProfile -ExecutionPolicy Bypass -File ${workspaceFolder}/../tests/host/run_host_tests.ps1"
             },
-            "command": "pwsh -NoProfile -File ${workspaceFolder}/../tests/host/test_t2620_config_overlay.ps1",
+            "command": "pwsh -NoProfile -File ${workspaceFolder}/../tests/host/run_host_tests.ps1",
             "problemMatcher": [],
             "group": {
                 "kind": "test",

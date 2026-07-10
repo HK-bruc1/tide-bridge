@@ -61,21 +61,37 @@ C:/JL/pi32/bin/pi32v2-lto-wrapper.exe
 
 On Linux, install the toolchain under `/opt/jieli` and run `ulimit -n 8096` before linking (see Makefile comments).
 
+### VS Code tasks
+
+`SDK/.vscode/tasks.json` exposes three tasks:
+- `all` — build the firmware (Windows uses `.vscode/winmk.bat all`)
+- `clean` — remove `objs/` and `sdk.elf`
+- `test: host software` — run `.\tests\host\run_host_tests.ps1`
+
 ## Flash / download
 
 The post-build script `SDK/cpu/br28/tools/download.bat` converts `sdk.elf` into flashable binaries and calls `SDK/cpu/br28/tools/download/earphone/download.bat`. In practice flashing is done through JL's `ISD_download.exe` or the JL Studio IDE, not from the command line in this repo.
 
 ## Tests
 
-There is one host-side validation test:
+Run all host-side software validation tests through the unified entry point:
+
+```powershell
+.\tests\host\run_host_tests.ps1
+```
+
+The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script. To run a single test directly:
 
 ```powershell
 .\tests\host\test_t2620_config_overlay.ps1
+.\tests\host\test_hogp_profile_contract.ps1
 ```
 
-It verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
+`test_t2620_config_overlay.ps1` verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
 
-There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell overlay check, and on-device testing.
+`test_hogp_profile_contract.ps1` verifies that the frozen HOGP external contract has not regressed: HID handle macros in `rdx_hogp_profile.h`, Report Map length and byte sequence in `rdx_hogp_profile.c`, the 8-byte Input Report payload without a Report ID prefix in `rdx_hogp_keyboard.c`, and HID Service attribute order and byte-level values in `rdx_ble_server.c`. It reads the C source/header files and does not build or flash firmware.
+
+There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
 ## High-level architecture
 
@@ -201,7 +217,7 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 1. Edit product configs in JL Studio; it regenerates `src/*.json` and `SDK/apps/earphone/board/br28/sdk_config.h/c`
 2. Add project-specific overrides only in `SDK/apps/earphone/include/t2620_project_config.h`
 3. Build: `cd SDK && make`
-4. Validate overlay: `.\tests\host\test_t2620_config_overlay.ps1`
+4. Run host-side checks: `.\tests\host\run_host_tests.ps1`
 5. Flash via JL Studio / `ISD_download.exe` using files in `SDK/cpu/br28/tools/download/earphone/` or copied `output/`
 
 ## Important files to know
@@ -214,6 +230,8 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` — RDX GATT server and HOGP extension
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` — RDX app logic and key remapping
 - `SDK/apps/earphone/board/iokey_config.c` — runtime IO key platform data builder
+- `tests/host/run_host_tests.ps1` — unified entry point for host-side validation
 - `tests/host/test_t2620_config_overlay.ps1` — host-side config overlay validation
+- `tests/host/test_hogp_profile_contract.ps1` — host-side HOGP contract regression test
 - `HOGP_MVP_实施方案.md` — detailed HOGP implementation notes
 - `HOGP键盘移植最终评估.md` — HOGP architecture assessment and handle layout
