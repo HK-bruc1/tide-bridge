@@ -27,6 +27,7 @@ extern "C" {
 ******************************************************************************/
 void rdx_hogp_init(void *app_ble_hdl);
 void rdx_hogp_deinit(void);
+void rdx_hogp_runtime_cleanup(void);
 
 /******************************************************************************
 * Diagnostics

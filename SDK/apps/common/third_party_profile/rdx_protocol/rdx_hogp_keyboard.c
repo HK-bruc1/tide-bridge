@@ -192,6 +192,11 @@ static void hogp_runtime_cleanup(void)
     s_hogp_generation++;
 }
 
+void rdx_hogp_runtime_cleanup(void)
+{
+    hogp_runtime_cleanup();
+}
+
 static void hogp_module_cleanup(void)
 {
     hogp_runtime_cleanup();
@@ -493,6 +498,12 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
     }
 #endif
 
+    if (!rdx_ble_connection_owner_is_hogp()) {
+        RDX_HOGP_ERROR("key_send skipped: not HOGP owner");
+        rdx_hogp_dump_state();
+        return -1;
+    }
+
     int ret = app_ble_att_send_data(s_hogp_app_ble_hdl,
                                     HID_INPUT_REPORT_VALUE_HANDLE,
                                     report, sizeof(report),
@@ -528,21 +539,20 @@ int rdx_hogp_key_click_index(u8 key_index)
 
 int rdx_hogp_on_io_num_key(u8 num_idx, u8 action)
 {
-    if (!s_hogp_mode) {
-        if (num_idx == 0 && action == KEY_ACTION_CLICK) {
-            rdx_hogp_mode_set(1);
-            RDX_HOGP_LOG("enter HOGP mode");
-            return 0;
-        }
-        return -1;
+#if RDX_BLE_DEBUG_MODE_SWITCH_KEY
+    if (num_idx == 0 && action == KEY_ACTION_CLICK && !s_hogp_mode) {
+        rdx_ble_mode_request_hogp(1);
+        RDX_HOGP_LOG("enter HOGP mode");
+        return 0;
     }
+    if (num_idx == 0 && action == KEY_ACTION_LONG && s_hogp_mode) {
+        rdx_ble_mode_request_hogp(0);
+        RDX_HOGP_LOG("exit HOGP mode");
+        return 0;
+    }
+#endif
 
-    if (num_idx == 0) {
-        if (action == KEY_ACTION_LONG) {
-            rdx_hogp_mode_set(0);
-            RDX_HOGP_LOG("exit HOGP mode");
-            return 0;
-        }
+    if (!s_hogp_mode) {
         return -1;
     }
 
@@ -587,6 +597,7 @@ void hogp_key_click_send(u8 key_index)
 
 void rdx_hogp_init(void *app_ble_hdl) { (void)app_ble_hdl; }
 void rdx_hogp_deinit(void) {}
+void rdx_hogp_runtime_cleanup(void) {}
 u8   rdx_hogp_mode_get(void) { return 0; }
 void rdx_hogp_mode_set(u8 enable) { (void)enable; }
 u8   rdx_hogp_is_handle(u16 att_handle) { (void)att_handle; return 0; }

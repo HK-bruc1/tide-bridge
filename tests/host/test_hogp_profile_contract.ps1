@@ -25,6 +25,7 @@ $HeaderPath = Join-Path $ProtocolDir 'rdx_hogp_profile.h'
 $ProfileCPath = Join-Path $ProtocolDir 'rdx_hogp_profile.c'
 $KeyboardPath = Join-Path $ProtocolDir 'rdx_hogp_keyboard.c'
 $ServerPath = Join-Path $ProtocolDir 'rdx_ble_server.c'
+$DutPath = Join-Path $ProtocolDir 'rdx_dut.c'
 
 $CheckResults = [System.Collections.Generic.List[object]]::new()
 $Failed = 0
@@ -423,6 +424,332 @@ $outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n\s*//\s*0x002
 $isOutputReportGated = $ServerText -match $outputReportGatedPattern
 Add-CheckResult -Name 'OUTPUT_REPORT_GATED' -Passed $isOutputReportGated `
     -Message $(if ($isOutputReportGated) { '' } else { 'Output Report block (0x0028-0x002a) is not wrapped in #if TCFG_RDX_HOGP_ENABLE / #endif' })
+
+# -----------------------------------------------------------------------------
+# Phase 6 C1 checks: mode controller and owner authorization
+# -----------------------------------------------------------------------------
+$ServerHPath = Join-Path $ProtocolDir 'rdx_ble_server.h'
+$ServerHText = Get-Content -Raw -Path $ServerHPath
+
+# Build a comment-stripped view of server.c so static checks do not treat
+# commented-out type definitions as valid code.
+$serverCodeOnly = [regex]::Replace($ServerText, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+
+# 1) Private mode controller lives in server.c, not in public header
+$hasPrivateController = $serverCodeOnly -match 'static\s+rdx_ble_mode_controller_t\s+s_ble_mode'
+Add-CheckResult -Name 'C1_PRIVATE_MODE_CONTROLLER' -Passed $hasPrivateController `
+    -Message $(if ($hasPrivateController) { '' } else { 'static rdx_ble_mode_controller_t s_ble_mode not found in rdx_ble_server.c (may be commented out)' })
+
+$modeTypeDefinedInCode = ($serverCodeOnly -match 'typedef\s+enum\s*\{\s*RDX_BLE_MODE_CONFIG\s*=\s*0,\s*RDX_BLE_MODE_HOGP,\s*\}\s*rdx_ble_mode_t') -and
+                         ($serverCodeOnly -match 'typedef\s+struct\s*\{[\s\S]*?rdx_ble_mode_t\s+requested_mode;[\s\S]*?\}\s*rdx_ble_mode_controller_t\s*;')
+Add-CheckResult -Name 'C1_MODE_TYPES_DEFINED_IN_CODE' -Passed $modeTypeDefinedInCode `
+    -Message $(if ($modeTypeDefinedInCode) { '' } else { 'rdx_ble_mode_t / rdx_ble_mode_controller_t not defined outside comments in rdx_ble_server.c' })
+
+$hasPublicModeField = $ServerHText -match 'rdx_ble_mode_t|rdx_ble_connection_owner_t'
+Add-CheckResult -Name 'C1_MODE_TYPES_NOT_PUBLIC' -Passed (-not $hasPublicModeField) `
+    -Message $(if (-not $hasPublicModeField) { '' } else { 'rdx_ble_mode_t or rdx_ble_connection_owner_t found in public header rdx_ble_server.h' })
+
+# 2) Public wrappers declared in header and implemented in server.c
+$hasModeRequestDecl = $ServerHText -match 'void\s+rdx_ble_mode_request_hogp\s*\(\s*u8\s+enable\s*\)'
+$hasOwnerCheckDecl = $ServerHText -match 'u8\s+rdx_ble_connection_owner_is_hogp\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C1_PUBLIC_WRAPPERS_DECLARED' -Passed ($hasModeRequestDecl -and $hasOwnerCheckDecl) `
+    -Message $(if ($hasModeRequestDecl -and $hasOwnerCheckDecl) { '' } else { 'rdx_ble_mode_request_hogp or rdx_ble_connection_owner_is_hogp not declared in rdx_ble_server.h' })
+
+$hasModeRequestImpl = $serverCodeOnly -match 'void\s+rdx_ble_mode_request_hogp\s*\(\s*u8\s+enable\s*\)'
+$hasOwnerCheckImpl = $serverCodeOnly -match 'u8\s+rdx_ble_connection_owner_is_hogp\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C1_PUBLIC_WRAPPERS_IMPLEMENTED' -Passed ($hasModeRequestImpl -and $hasOwnerCheckImpl) `
+    -Message $(if ($hasModeRequestImpl -and $hasOwnerCheckImpl) { '' } else { 'rdx_ble_mode_request_hogp or rdx_ble_connection_owner_is_hogp not implemented outside comments in rdx_ble_server.c' })
+
+# 3) Public info struct must not carry the new mode/owner fields
+$infoStructMatch = [regex]::Match($ServerHText, '(?s)typedef\s+struct\s*\{\s*(.*?)\s*\}\s*rdx_ble_server_info_t\s*;')
+$infoStructCarriesMode = $false
+if ($infoStructMatch.Success) {
+    $infoStructBody = $infoStructMatch.Groups[1].Value
+    $infoStructCarriesMode = ($infoStructBody -match 'rdx_ble_mode_t') -or ($infoStructBody -match 'rdx_ble_connection_owner_t')
+}
+Add-CheckResult -Name 'C1_INFO_STRUCT_NO_MODE_FIELDS' -Passed (-not $infoStructCarriesMode) `
+    -Message $(if (-not $infoStructCarriesMode) { '' } else { 'rdx_ble_server_info_t contains rdx_ble_mode_t/rdx_ble_connection_owner_t fields' })
+
+# 4) Disconnection complete dispatches by previous owner, force-applies pending mode, restarts HOGP advertising
+$disconnBlockMatch = [regex]::Match($serverCodeOnly,
+    '(?s)case\s+HCI_EVENT_DISCONNECTION_COMPLETE:\s*\{(.*?)\}\s*break;')
+$disconnBlockOk = $false
+$disconnMessage = 'HCI_EVENT_DISCONNECTION_COMPLETE block not found'
+if ($disconnBlockMatch.Success) {
+    $disconnBlock = $disconnBlockMatch.Groups[1].Value
+    $hasPrevOwner = $disconnBlock -match 'prev_owner\s*=\s*s_ble_mode\.connection_owner'
+    $hasHogpDisconnect = $disconnBlock -match 'rdx_hogp_on_disconnected\s*\('
+    $hasConfigCleanup = $disconnBlock -match 'rdx_ble_server_disconnected_cleanup_internal\s*\('
+    $hasForceApply = $disconnBlock -match 'rdx_ble_mode_apply_requested_force\s*\('
+    $hasHogpRestart = $disconnBlock -match 'rdx_ble_mode_restart_hogp_advertising\s*\('
+    $disconnBlockOk = $hasPrevOwner -and $hasHogpDisconnect -and $hasConfigCleanup -and $hasForceApply -and $hasHogpRestart
+    $parts = @()
+    if (-not $hasPrevOwner) { $parts += 'prev_owner capture' }
+    if (-not $hasHogpDisconnect) { $parts += 'hogp disconnect' }
+    if (-not $hasConfigCleanup) { $parts += 'config cleanup' }
+    if (-not $hasForceApply) { $parts += 'force mode apply' }
+    if (-not $hasHogpRestart) { $parts += 'hogp restart' }
+    if ($parts.Count -gt 0) {
+        $disconnMessage = 'missing: ' + ($parts -join ', ')
+    } else {
+        $disconnMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_DISCONNECTION_DISPATCH' -Passed $disconnBlockOk -Message $disconnMessage
+
+# 4b) Force-apply helper actually transitions advertised_mode and clears pending
+$applyForceFunctionMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+void\s+rdx_ble_mode_apply_requested_force\s*\([^)]*\)\s*\{(.*?)^\}')
+$forceCallsInternal = $false
+if ($applyForceFunctionMatch.Success) {
+    $forceCallsInternal = $applyForceFunctionMatch.Groups[1].Value -match 'rdx_ble_mode_apply_requested_internal\s*\('
+}
+
+$applyInternalFunctionMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+void\s+rdx_ble_mode_apply_requested_internal\s*\([^)]*\)\s*\{(.*?)^\}')
+$applyForceOk = $false
+$applyForceMessage = 'rdx_ble_mode_apply_requested_force() / rdx_ble_mode_apply_requested_internal() not found'
+if ($applyForceFunctionMatch.Success -and $applyInternalFunctionMatch.Success) {
+    $applyInternalBody = $applyInternalFunctionMatch.Groups[1].Value
+    $hasPendingClear = $applyInternalBody -match 'switch_pending\s*=\s*0'
+    $hasAdvUpdate = $applyInternalBody -match 'advertised_mode\s*=\s*s_ble_mode\.requested_mode'
+    $applyForceOk = $forceCallsInternal -and $hasPendingClear -and $hasAdvUpdate
+    $parts = @()
+    if (-not $forceCallsInternal) { $parts += 'force calls internal' }
+    if (-not $hasPendingClear) { $parts += 'pending clear' }
+    if (-not $hasAdvUpdate) { $parts += 'advertised_mode update' }
+    if ($parts.Count -gt 0) {
+        $applyForceMessage = 'rdx_ble_mode_apply_requested_force() missing: ' + ($parts -join ', ')
+    } else {
+        $applyForceMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_DISCONNECTION_FORCE_APPLY_TRANSITION' -Passed $applyForceOk -Message $applyForceMessage
+
+# 4c) Switching to CONFIG clears HOGP runtime mode without touching advertising
+$KeyboardText = Get-Content -Raw -Path $KeyboardPath
+$keyboardCodeOnly = [regex]::Replace($KeyboardText, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
+$advertisingApiPattern = 'rdx_ble_server_adv_enable|rdx_ble_mode_start_config_advertising|rdx_ble_mode_start_hogp_advertising|rdx_ble_mode_restart_hogp_advertising|rdx_hogp_adv_start|rdx_hogp_adv_stop|hogp_adv_start_internal|hogp_adv_stop_internal|hogp_mode_set|app_ble_adv_enable|app_ble_adv_data_set'
+
+$hogpClearMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+void\s+rdx_ble_mode_sync_hogp_runtime\s*\([^)]*\)\s*\{(.*?)^\}')
+$hogpClearOk = $false
+$hogpClearMessage = 'rdx_ble_mode_sync_hogp_runtime() not found'
+$applyInternalCallsSync = $false
+if ($applyInternalFunctionMatch.Success) {
+    $applyInternalCallsSync = $applyInternalFunctionMatch.Groups[1].Value -match 'rdx_ble_mode_sync_hogp_runtime\s*\('
+}
+$runtimeCleanupInKeyboardMatch = [regex]::Match($keyboardCodeOnly,
+    '(?sm)void\s+rdx_hogp_runtime_cleanup\s*\([^)]*\)\s*\{(.*?)^\}')
+if ($hogpClearMatch.Success -and $runtimeCleanupInKeyboardMatch.Success) {
+    $hogpClearBody = $hogpClearMatch.Groups[1].Value
+    $hasConfigCheck = $hogpClearBody -match 'advertised_mode\s*==\s*RDX_BLE_MODE_CONFIG'
+    $hasHogpGet = $hogpClearBody -match 'hogp_mode_get\s*\('
+    $hasRuntimeCleanup = $hogpClearBody -match 'rdx_hogp_runtime_cleanup\s*\('
+    $syncHasNoAdvertising = $hogpClearBody -notmatch $advertisingApiPattern
+    $cleanupHasNoAdvertising = $runtimeCleanupInKeyboardMatch.Groups[1].Value -notmatch $advertisingApiPattern
+    $hogpClearOk = $hasConfigCheck -and $hasHogpGet -and $hasRuntimeCleanup -and $applyInternalCallsSync -and $syncHasNoAdvertising -and $cleanupHasNoAdvertising
+    $parts = @()
+    if (-not $hasConfigCheck) { $parts += 'CONFIG branch' }
+    if (-not $hasHogpGet) { $parts += 'hogp_mode_get()' }
+    if (-not $hasRuntimeCleanup) { $parts += 'rdx_hogp_runtime_cleanup()' }
+    if (-not $applyInternalCallsSync) { $parts += 'called from apply_internal' }
+    if (-not $syncHasNoAdvertising) { $parts += 'sync helper must not call advertising APIs' }
+    if (-not $cleanupHasNoAdvertising) { $parts += 'rdx_hogp_runtime_cleanup() must not call advertising APIs' }
+    if ($parts.Count -gt 0) {
+        $hogpClearMessage = 'HOGP runtime clear contract missing: ' + ($parts -join ', ')
+    } else {
+        $hogpClearMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_HOGP_RUNTIME_CLEARED_ON_CONFIG' -Passed $hogpClearOk -Message $hogpClearMessage
+
+# 4d) Force-apply path (start_adv == 0) must not trigger any advertising API
+$forceApplyNoAdvOk = $false
+$forceApplyNoAdvMessage = 'rdx_ble_mode_apply_requested_force() not found'
+if ($applyForceFunctionMatch.Success -and $applyInternalFunctionMatch.Success) {
+    $forceBody = $applyForceFunctionMatch.Groups[1].Value
+    $internalBody = $applyInternalFunctionMatch.Groups[1].Value
+    $forceBodyNoAdv = $forceBody -notmatch $advertisingApiPattern
+    # Remove the "if (start_adv) { ... }" block from internal body, then verify
+    # no advertising calls remain outside that conditional.  Match uses the same
+    # indentation for the closing brace as the if line.
+    $startAdvBlockPattern = '(?m)^(\s*)if\s*\(\s*start_adv\s*\)\s*\{[\s\S]*?^\1\}'
+    $internalBodyWithoutStartAdv = [regex]::Replace($internalBody, $startAdvBlockPattern, '')
+    $internalNoAdvOutsideStart = $internalBodyWithoutStartAdv -notmatch $advertisingApiPattern
+    $forceApplyNoAdvOk = $forceBodyNoAdv -and $internalNoAdvOutsideStart
+    $parts = @()
+    if (-not $forceBodyNoAdv) { $parts += 'force wrapper calls advertising API' }
+    if (-not $internalNoAdvOutsideStart) { $parts += 'apply_internal calls advertising API outside if (start_adv)' }
+    if ($parts.Count -gt 0) {
+        $forceApplyNoAdvMessage = 'Force-apply advertising leak: ' + ($parts -join ', ')
+    } else {
+        $forceApplyNoAdvMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_FORCE_APPLY_NO_ADVERTISING' -Passed $forceApplyNoAdvOk -Message $forceApplyNoAdvMessage
+
+# 4e+) apply_internal() checks broadcast suppression inside the start_adv branch
+$applySuppressOk = $false
+$applySuppressMessage = 'rdx_ble_mode_apply_requested_internal() not found'
+if ($applyInternalFunctionMatch.Success) {
+    $applyBody = $applyInternalFunctionMatch.Groups[1].Value
+    $startAdvSegments = $applyBody -split 'if\s*\(\s*start_adv\s*\)'
+    if ($startAdvSegments.Count -ge 2) {
+        $insideStartAdv = $startAdvSegments[1]
+        $hasSuppressedCheck = $insideStartAdv -match 'rdx_ble_mode_broadcast_suppressed\s*\('
+        $hasAdvDisable = $insideStartAdv -match 'rdx_ble_server_adv_enable\s*\(\s*0\s*\)'
+        $hasReturn = $insideStartAdv -match 'return\s*;'
+        $applySuppressOk = $hasSuppressedCheck -and $hasAdvDisable -and $hasReturn
+        $parts = @()
+        if (-not $hasSuppressedCheck) { $parts += 'broadcast_suppressed() check' }
+        if (-not $hasAdvDisable) { $parts += 'disable advertising when suppressed' }
+        if (-not $hasReturn) { $parts += 'early return when suppressed' }
+        if ($parts.Count -gt 0) {
+            $applySuppressMessage = 'apply_internal suppression contract missing: ' + ($parts -join ', ')
+        } else {
+            $applySuppressMessage = ''
+        }
+    } else {
+        $applySuppressMessage = 'start_adv branch not found in apply_internal()'
+    }
+}
+Add-CheckResult -Name 'C1_APPLY_INTERNAL_SUPPRESSES_BROADCAST' -Passed $applySuppressOk -Message $applySuppressMessage
+
+# 4e) CONFIG advertising start must stop current broadcast and refresh RDX data
+$configStartMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+void\s+rdx_ble_mode_start_config_advertising\s*\([^)]*\)\s*\{(.*?)^\}')
+$configStartOk = $false
+$configStartMessage = 'rdx_ble_mode_start_config_advertising() not found'
+if ($configStartMatch.Success) {
+    $configStartBody = $configStartMatch.Groups[1].Value
+    $hasAdvDisable = $configStartBody -match 'rdx_ble_server_adv_enable\s*\(\s*0\s*\)'
+    $hasAdvEnable = $configStartBody -match 'rdx_ble_server_adv_enable\s*\(\s*1\s*\)'
+    $hasNoHogpModeSet = $configStartBody -notmatch '\bhogp_mode_set\s*\('
+    $configStartOk = $hasAdvDisable -and $hasAdvEnable -and $hasNoHogpModeSet
+    $parts = @()
+    if (-not $hasAdvDisable) { $parts += 'disable advertising' }
+    if (-not $hasAdvEnable) { $parts += 'enable RDX advertising' }
+    if (-not $hasNoHogpModeSet) { $parts += 'must not call hogp_mode_set()' }
+    if ($parts.Count -gt 0) {
+        $configStartMessage = 'CONFIG advertising start contract missing: ' + ($parts -join ', ')
+    } else {
+        $configStartMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_CONFIG_START_REFRESHES_ADV' -Passed $configStartOk -Message $configStartMessage
+
+$DutText = Get-Content -Raw -Path $DutPath
+
+# 4f) DUT enter/exit request CONFIG mode through the narrow public wrapper
+$enterBlockMatch = [regex]::Match($DutText,
+    '(?s)rdx_dut_info\.dut_mode = TRUE;.*?rdx_ble_mode_request_hogp\s*\(\s*0\s*\).*?rdx_ble_server_app_disconnect\s*\(')
+Add-CheckResult -Name 'C1_DUT_ENTER_REQUESTS_CONFIG' -Passed $enterBlockMatch.Success `
+    -Message $(if ($enterBlockMatch.Success) { '' } else { 'DUT enter does not request CONFIG mode before disconnecting' })
+
+$exitBlockMatch = [regex]::Match($DutText,
+    '(?s)rdx_dut_info\.dut_mode = FALSE;.*?rdx_ble_mode_request_hogp\s*\(\s*0\s*\).*?rdx_ble_server_adv_data_changed\s*\(')
+Add-CheckResult -Name 'C1_DUT_EXIT_REQUESTS_CONFIG' -Passed $exitBlockMatch.Success `
+    -Message $(if ($exitBlockMatch.Success) { '' } else { 'DUT exit does not request CONFIG mode before refreshing broadcast' })
+
+# 4g) HOGP advertising restart is suppressed under the same conditions as RDX restart
+$restartFunctionMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+void\s+rdx_ble_mode_restart_hogp_advertising\s*\([^)]*\)\s*\{(.*?)^\}')
+$broadcastSuppressedMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)static\s+u8\s+rdx_ble_mode_broadcast_suppressed\s*\([^)]*\)\s*\{(.*?)^\}')
+$hogpRestartSuppressedOk = $false
+$hogpRestartSuppressedMessage = 'rdx_ble_mode_restart_hogp_advertising() not found'
+if ($restartFunctionMatch.Success -and $broadcastSuppressedMatch.Success) {
+    $restartBody = $restartFunctionMatch.Groups[1].Value
+    $suppressedBody = $broadcastSuppressedMatch.Groups[1].Value
+    $hasSuppressedCall = $restartBody -match 'rdx_ble_mode_broadcast_suppressed\s*\('
+    $hasAdvDisable = $restartBody -match 'rdx_ble_server_adv_enable\s*\(\s*0\s*\)'
+    $hasDutCheck = $suppressedBody -match 'rdx_app_get_dut_status\s*\('
+    $hogpRestartSuppressedOk = $hasSuppressedCall -and $hasAdvDisable -and $hasDutCheck
+    $parts = @()
+    if (-not $hasSuppressedCall) { $parts += 'calls broadcast_suppressed()' }
+    if (-not $hasAdvDisable) { $parts += 'disables advertising when suppressed' }
+    if (-not $hasDutCheck) { $parts += 'broadcast_suppressed() checks DUT status' }
+    if ($parts.Count -gt 0) {
+        $hogpRestartSuppressedMessage = 'HOGP restart suppression contract missing: ' + ($parts -join ', ')
+    } else {
+        $hogpRestartSuppressedMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_HOGP_RESTART_SUPPRESSES_DUT' -Passed $hogpRestartSuppressedOk -Message $hogpRestartSuppressedMessage
+
+# 4h) adv_data_changed() routes to the current advertised identity
+$advDataChangedMatch = [regex]::Match($serverCodeOnly,
+    '(?sm)void\s+rdx_ble_server_adv_data_changed\s*\([^)]*\)\s*\{(.*?)^\}')
+$advDataIdentityOk = $false
+$advDataIdentityMessage = 'rdx_ble_server_adv_data_changed() not found'
+if ($advDataChangedMatch.Success) {
+    $advBody = $advDataChangedMatch.Groups[1].Value
+    $beforeAdvOff = ($advBody -split 'rdx_ble_server_adv_enable\s*\(\s*0\s*\)')[0]
+    $hasHogpBranch = ($beforeAdvOff -match 's_ble_mode\.advertised_mode\s*==\s*RDX_BLE_MODE_HOGP') -and
+                     ($beforeAdvOff -match 'rdx_ble_mode_restart_hogp_advertising\s*\(')
+    $hasReturn = $beforeAdvOff -match 'return\s*;'
+    $advDataIdentityOk = $hasHogpBranch -and $hasReturn
+    $parts = @()
+    if (-not $hasHogpBranch) { $parts += 'HOGP branch before RDX adv off' }
+    if (-not $hasReturn) { $parts += 'HOGP branch returns early' }
+    if ($parts.Count -gt 0) {
+        $advDataIdentityMessage = 'adv_data_changed identity routing missing: ' + ($parts -join ', ')
+    } else {
+        $advDataIdentityMessage = ''
+    }
+}
+Add-CheckResult -Name 'C1_ADV_DATA_CHANGED_IDENTITY_ROUTES' -Passed $advDataIdentityOk -Message $advDataIdentityMessage
+
+# 5) Server exit resets mode controller
+$exitFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)void\s+rdx_ble_server_exit\s*\([^)]*\)\s*\{(.*?)^\}')
+$exitResetsMode = $false
+if ($exitFunctionMatch.Success) {
+    $exitBody = $exitFunctionMatch.Groups[1].Value
+    $exitResetsMode = $exitBody -match 'rdx_ble_mode_controller_reset\s*\('
+}
+Add-CheckResult -Name 'C1_EXIT_RESETS_MODE_CONTROLLER' -Passed $exitResetsMode `
+    -Message $(if ($exitResetsMode) { '' } else { 'rdx_ble_mode_controller_reset() not called in rdx_ble_server_exit()' })
+
+# 6) Output Report write has owner authorization
+$writeFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+int\s+rdx_ble_server_att_write_callback\s*\([^)]*\)\s*\{(.*?)^\}')
+$outputReportOwnerCheck = $false
+if ($writeFunctionMatch.Success) {
+    $writeBody = $writeFunctionMatch.Groups[1].Value
+    $outputReportOwnerCheck = ($writeBody -match 'HID_OUTPUT_REPORT_VALUE_HANDLE') -and
+                              ($writeBody -match 'rdx_ble_connection_owner_is_hogp\s*\(')
+}
+Add-CheckResult -Name 'C1_OUTPUT_REPORT_OWNER_CHECK' -Passed $outputReportOwnerCheck `
+    -Message $(if ($outputReportOwnerCheck) { '' } else { 'Output Report write does not check HOGP owner' })
+
+# 7) RDX notify send paths reject non-CONFIG owner
+$sendFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)int\s+rdx_ble_server_send\s*\([^)]*\)\s*\{(.*?)^\}')
+$sendOwnerCheck = $false
+if ($sendFunctionMatch.Success) {
+    $sendBody = $sendFunctionMatch.Groups[1].Value
+    $sendOwnerCheck = $sendBody -match 'connection_owner\s*!=\s*RDX_BLE_OWNER_CONFIG'
+}
+Add-CheckResult -Name 'C1_SERVER_SEND_OWNER_CHECK' -Passed $sendOwnerCheck `
+    -Message $(if ($sendOwnerCheck) { '' } else { 'rdx_ble_server_send() does not reject non-CONFIG owner' })
+
+$otaSendFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)int\s+rdx_ble_server_ota_send\s*\([^)]*\)\s*\{(.*?)^\}')
+$otaSendOwnerCheck = $false
+if ($otaSendFunctionMatch.Success) {
+    $otaSendBody = $otaSendFunctionMatch.Groups[1].Value
+    $otaSendOwnerCheck = $otaSendBody -match 'connection_owner\s*!=\s*RDX_BLE_OWNER_CONFIG'
+}
+Add-CheckResult -Name 'C1_OTA_SEND_OWNER_CHECK' -Passed $otaSendOwnerCheck `
+    -Message $(if ($otaSendOwnerCheck) { '' } else { 'rdx_ble_server_ota_send() does not reject non-CONFIG owner' })
+
+# 8) RDX App write/CCC checks reject OWNER_NONE and OWNER_HOGP by using != CONFIG
+$rdxWriteCheckPattern = 'if\s*\(\s*s_ble_mode\.connection_owner\s*!=\s*RDX_BLE_OWNER_CONFIG\s*\)'
+$rdxWriteChecks = [regex]::Matches($ServerText, $rdxWriteCheckPattern).Count
+Add-CheckResult -Name 'C1_RDX_APP_OWNER_REJECTION' -Passed ($rdxWriteChecks -ge 2) `
+    -Message $(if ($rdxWriteChecks -ge 2) { '' } else { "expected at least 2 '!= RDX_BLE_OWNER_CONFIG' owner checks for RDX App handles, found $rdxWriteChecks" })
 
 # -----------------------------------------------------------------------------
 # Summary
