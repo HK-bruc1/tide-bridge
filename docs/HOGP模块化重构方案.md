@@ -4,6 +4,8 @@
 >
 > 第一阶段的核心原则是：**内部结构可以变化，PC 端看到的 GATT Profile、Report Map、广播身份和 Input Report 行为必须保持不变。**
 
+> 产品边界更新：VibeCoding Keyboard 的 BLE App 部分全盘复用现有 RDX BLE App 底座，只在 RDX 业务命令层增加按键设置能力。HOGP 不承担 App 配置协议、鉴权、OTA、Flash 保存或 Keymap 解释，只提供稳定的 HID Profile 和 Keyboard Report 传输能力。
+
 ## 1. 背景与当前问题
 
 当前 HOGP MVP 已经完成：
@@ -17,8 +19,8 @@
 
 - HOGP 状态变量、HID attribute read/write、SM 事件、HCI 连接事件、广播切换、按键发送都集中在 `rdx_ble_server.c`；
 - HID handle 布局、Report Map、HID Information、Report Reference 等硬编码在 RDX profile data 中；
-- `rdx_app.c` 直接知道 HOGP 的模式和按键发送 API；
-- 缺少统一配置入口，后续修改键位、Report Map、广播名策略、加密策略都容易误伤已稳定链路；
+- `rdx_app.c` 直接知道 HOGP 的模式和按键发送 API，产品按键语义与 HID 传输层耦合；
+- 临时键位映射与 HOGP 传输配置混在一起，后续接入 RDX App 按键设置时容易误伤已稳定链路；
 - HOGP 与 RDX BLE Server 的职责边界不清晰，后续排查问题时日志和状态不容易归因。
 
 ## 2. 总体目标
@@ -26,8 +28,8 @@
 1. 保持当前已验证的 BLE HID 键盘功能稳定。
 2. 将 HOGP 抽成 RDX BLE Server 下的子模块，而不是创建第二个 BLE Server。
 3. 固化 HOGP 外部契约：handle、Report Map、Report payload、广播字段在第一阶段不变。
-4. 将 HOGP 的状态、配置、事件处理、HID read/write、Report 发送集中到独立文件。
-5. 给后续产品化能力预留配置点：键位映射、模式切换策略、设备名策略、加密策略、Output Report、Profile v2。
+4. 将 HOGP 的协议状态、事件处理、HID read/write、Report 当前值和 Report 发送集中到独立文件。
+5. 给后续产品化能力预留稳定边界：RDX App 负责按键设置，Key Action Executor 负责 Keymap/Macro/Layer，HOGP 只接收标准 Keyboard Report。
 
 ## 3. 不做的事
 
@@ -41,6 +43,8 @@
 - 不改变当前能出字母的 Input Report payload 格式；
 - 不改变 HOGP 与 RDX 广播互斥的模式切换语义；
 - 不把 HOGP 逻辑迁移到 JL 官方独立 HOGP Server 框架。
+- 不新建独立 BLE App 配置 GATT 服务；
+- 不让 HOGP 解析 RDX App 配置帧、保存 Flash 或解释 Keymap/Macro/Layer。
 
 这些变化可以放到后续 Profile v2 阶段单独评估。
 
@@ -109,11 +113,18 @@ rdx_ble_server.c
 ├─ app_ble handle 分配与注册
 ├─ RDX profile data 总表
 ├─ RDX 原有 read/write/event 处理
+├─ RDX BLE App 连接、鉴权、收发、OTA 和业务命令
 └─ HOGP 集成胶水
    ├─ 转发 HID handle read/write
    ├─ 转发 HCI/SM 事件
    ├─ 调用 HOGP 广播构造
    └─ 调用 HOGP Report 发送
+
+RDX App / Key Action 层
+├─ 复用 RDX BLE App 协议处理按键设置
+├─ 管理 Keymap / Macro / Layer / 触发模式配置
+├─ 将物理按键事件转换为 Keyboard Report
+└─ 不直接操作 HID handle 或 ATT notify
 
 rdx_hogp_keyboard.c
 ├─ HOGP 模式状态
@@ -121,8 +132,8 @@ rdx_hogp_keyboard.c
 ├─ HID attribute read/write
 ├─ SM Just Works 处理
 ├─ HOGP 广播 payload 构造
-├─ Input Report 发送
-└─ 按键映射处理
+├─ Input Report 当前值
+└─ Keyboard Report 发送
 
 rdx_hogp_profile.h
 ├─ HID handle 宏
@@ -132,7 +143,7 @@ rdx_hogp_profile.h
 └─ handle range 判断
 
 rdx_hogp_config.h
-└─ 产品级配置宏与默认键位映射
+└─ HOGP 编译期开关、加密、广播名和传输策略默认值
 ```
 
 ## 6. 建议文件拆分
@@ -155,13 +166,15 @@ SDK/apps/common/third_party_profile/rdx_protocol/rdx_hogp_keyboard.c
 - RDX 原有 profile data 总数组；
 - RDX 原有 ATT read/write；
 - RDX 原有 HCI/L2CAP/SM 注册；
+- RDX BLE App 原有连接、鉴权、收发、OTA 和业务命令入口；
 - 调用 HOGP 模块的转发点。
 
 `rdx_app.c` 保留：
 
 - 生产按键事件入口；
-- HOGP 模式下调用模块级按键处理 API；
-- 不再直接构造 HID usage 或 report。
+- RDX App 按键设置命令的业务处理入口；
+- 向 Key Action Executor 转发物理按键事件和配置变更；
+- 不再直接构造 HID usage、HID report 或访问 HOGP 私有状态。
 
 ## 7. 模块 API 设计
 
@@ -199,6 +212,21 @@ int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len);
 void rdx_hogp_adv_start(void);
 void rdx_hogp_adv_stop(void);
 
+typedef struct {
+    u8 modifiers;
+    u8 reserved;
+    u8 usages[6];
+} rdx_hogp_keyboard_report_t;
+
+int rdx_hogp_keyboard_report_send(
+    const rdx_hogp_keyboard_report_t *report);
+int rdx_hogp_keyboard_release_all(void);
+u8 rdx_hogp_keyboard_is_ready(void);
+```
+
+迁移期可以保留以下兼容 wrapper，方便 Phase 1-3 降低改动面；最终应由 Key Action Executor 生成完整 `rdx_hogp_keyboard_report_t` 后调用 HOGP：
+
+```c
 int rdx_hogp_key_send_usage(u8 usage, u8 pressed);
 int rdx_hogp_key_click_usage(u8 usage);
 int rdx_hogp_key_click_index(u8 key_index);
@@ -207,9 +235,16 @@ int rdx_hogp_on_io_num_key(u8 num_idx, u8 action);
 
 `rdx_ble_server.c` 不直接访问 HOGP 内部状态变量，只通过这些 API 交互。
 
+稳定边界要求：
+
+- RDX BLE App 解析配置帧并保存 Keymap；
+- Key Action Executor 把物理按键、宏和 Layer 转换为 `rdx_hogp_keyboard_report_t`；
+- HOGP 校验连接、加密、CCC、suspend 状态后发送 Report；
+- HOGP 不知道“Key1/Key5/NUM1/A 键/宏/Layer”的产品语义。
+
 ## 8. 配置项设计
 
-建议新增 `rdx_hogp_config.h`。
+建议新增 `rdx_hogp_config.h`，但它只保存 HOGP 传输层配置，不保存产品按键映射。
 
 ```c
 #ifndef RDX_HOGP_CONFIG_H
@@ -222,25 +257,20 @@ int rdx_hogp_on_io_num_key(u8 num_idx, u8 action);
 #define TCFG_RDX_HOGP_APPEARANCE              0x03C1
 #define TCFG_RDX_HOGP_NAME_USE_RDX_LOCAL_NAME 1
 
-#define RDX_HOGP_KEY_USAGE_A                  0x04
-#define RDX_HOGP_KEY_USAGE_B                  0x05
-#define RDX_HOGP_KEY_USAGE_C                  0x06
-#define RDX_HOGP_KEY_USAGE_D                  0x07
-#define RDX_HOGP_KEY_USAGE_E                  0x08
-
 #endif
 ```
 
-按键映射放到模块内默认表，后续产品可通过配置覆盖：
+按键映射不放入 HOGP。VibeCoding Keyboard 的 Keymap/Macro/Layer 由 RDX BLE App 按键设置命令写入配置存储，再由 Key Action Executor 解释：
 
-```c
-static const u8 rdx_hogp_default_keymap[] = {
-    RDX_HOGP_KEY_USAGE_A,
-    RDX_HOGP_KEY_USAGE_B,
-    RDX_HOGP_KEY_USAGE_C,
-    RDX_HOGP_KEY_USAGE_D,
-};
+```text
+RDX BLE App command
+    -> Config Storage / RAM candidate
+    -> Key Action Executor
+    -> rdx_hogp_keyboard_report_t
+    -> HOGP notify
 ```
+
+`TCFG_RDX_HOGP_KEY_UP_DELAY_MS` 属于迁移期兼容项。最终 release 节奏、宏步骤间隔和按键触发策略应下沉到 Key Action Executor。
 
 ## 9. 分阶段实施计划
 
@@ -372,11 +402,11 @@ hogp_key_click_send()
 - Windows 不删除已配对设备仍能输出 A/B/C/D。
 - 日志中 read/write handle 与 Phase 0 一致。
 
-## Phase 3：配置化
+## Phase 3：HOGP 传输配置化与 Keymap 外移
 
 ### 目标
 
-把产品级可变项抽到 `rdx_hogp_config.h`，让后续换键位、改延迟、改配对策略不需要改核心逻辑。
+把 HOGP 传输层可变项抽到 `rdx_hogp_config.h`，并明确按键映射不属于 HOGP。后续换键位、组合键、宏和 Layer 通过 RDX BLE App 按键设置与 Key Action Executor 完成，不修改 HOGP 核心逻辑。
 
 ### 工作内容
 
@@ -387,21 +417,17 @@ hogp_key_click_send()
    - `TCFG_RDX_HOGP_AUTO_REQUEST_PAIRING`；
    - `TCFG_RDX_HOGP_KEY_UP_DELAY_MS`；
    - `TCFG_RDX_HOGP_APPEARANCE`；
-   - `TCFG_RDX_HOGP_NAME_USE_RDX_LOCAL_NAME`；
-   - 默认按键映射。
-3. `rdx_app.c` 不再直接知道 NUM1=A、NUM2=B，而是调用：
-
-```c
-rdx_hogp_on_io_num_key(num_idx, action);
-```
-
-4. HOGP 模块内部根据 keymap 决定发送 usage。
-5. 所有配置宏提供默认值，避免未定义时报错。
+   - `TCFG_RDX_HOGP_NAME_USE_RDX_LOCAL_NAME`。
+3. 将默认 A/B/C/D 临时映射标记为迁移期测试入口，不作为 HOGP 长期配置模型。
+4. `rdx_app.c` 不再直接知道 NUM1=A、NUM2=B，而是向 Key Action Executor 转发标准化按键事件。
+5. Key Action Executor 根据 RDX App 写入的 Keymap 生成 `rdx_hogp_keyboard_report_t`。
+6. HOGP 模块只负责发送完整 Keyboard Report，不根据 keymap 决定 usage。
+7. 所有 HOGP 配置宏提供默认值，避免未定义时报错。
 
 ### 验收标准
 
 - 修改 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS` 后，release 延迟随配置变化。
-- 修改 keymap 后，NUM1 输出目标字母可改变。
+- 修改 RDX App Keymap 后，Key Action Executor 输出的 Report 变化，HOGP 发送路径不需要改动。
 - `TCFG_RDX_HOGP_ENABLE=0` 时，HOGP 代码可被编译排除或行为关闭，RDX 原功能正常。
 - 默认配置下，Windows 不删除已配对设备仍能输出 A/B/C/D。
 - `rdx_app.c` 不再直接调用低层 `hogp_key_send()`。
@@ -558,10 +584,9 @@ commit 7: log: standardize HOGP diagnostics
 本次模块化重构完成时，应满足：
 
 - HOGP 主要逻辑不再堆在 `rdx_ble_server.c`；
-- `rdx_ble_server.c` 只做 RDX BLE Server 生命周期和事件转发；
-- `rdx_app.c` 只做按键入口转发；
-- HOGP 的配置、profile 常量、状态机、ATT 处理、Report 发送有清晰文件边界；
+- `rdx_ble_server.c` 继续承载 RDX BLE Server/RDX App 底座，并只通过转发点接入 HOGP；
+- `rdx_app.c` 继续承载 RDX App 业务，并把物理按键和 App 按键设置转交给 Key Action/配置层；
+- HOGP 的传输配置、profile 常量、协议状态机、ATT 处理、Report 发送有清晰文件边界；
 - 默认配置下，Windows 旧配对不删除也能继续输出字母；
 - RDX 原有 BLE 功能不回归；
-- 后续改键位、改延迟、关 HOGP、试 Profile v2 都有明确入口。
-
+- 后续改键位走 RDX App 按键设置和 Key Action Executor，改 HOGP 传输策略、关 HOGP、试 Profile v2 都有明确入口。
