@@ -29,4 +29,8 @@
 #define TCFG_LP_TOUCH_KEY_ENABLE                  0
 #endif
 
+#ifndef TCFG_RDX_HOGP_ENABLE
+#define TCFG_RDX_HOGP_ENABLE                      1
+#endif
+
 #endif /* T2620_PROJECT_CONFIG_H */

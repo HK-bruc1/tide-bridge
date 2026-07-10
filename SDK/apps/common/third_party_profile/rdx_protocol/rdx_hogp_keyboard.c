@@ -21,12 +21,15 @@
 /******************************************************************************
 * Include files
 ******************************************************************************/
-#include "rdx_hogp_keyboard.h"
-
+/* Include project config first so TCFG_RDX_HOGP_ENABLE is resolved from
+ * t2620_project_config.h before rdx_hogp_config.h applies its default. */
 #include "sdk_config.h"
 #include "app_config.h"
+
+#include "rdx_hogp_keyboard.h"
 #include "system/includes.h"
 #include "rdx_hogp_profile.h"
+#include "rdx_hogp_config.h"
 #include "ble_user.h"
 #include "btstack/le/sm.h"
 #include "btstack/le/le_user.h"
@@ -38,7 +41,7 @@
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
 
-#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#if TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
 #define LOG_TAG                                     "[rdx_hogp]"
 #define LOG_ERROR_ENABLE
@@ -58,13 +61,13 @@ static volatile u8 s_hogp_encrypted = 0;
 static u16 s_hid_con_handle = 0;
 static u8 s_hid_input_report[8] = {0};
 
-/* Default 5-key keymap (A, B, C, D, E) — will become configurable in Phase 3 */
+/* Default 5-key keymap (A, B, C, D, E) — centralized in rdx_hogp_config.h */
 static const u8 key_to_hid_usage[5] = {
-    0x04,  // A
-    0x05,  // B
-    0x06,  // C
-    0x07,  // D
-    0x08,  // E
+    RDX_HOGP_KEYMAP_A,
+    RDX_HOGP_KEYMAP_B,
+    RDX_HOGP_KEYMAP_C,
+    RDX_HOGP_KEYMAP_D,
+    RDX_HOGP_KEYMAP_E,
 };
 
 static u8 hid_protocol_mode = 1;  // Report Protocol
@@ -273,7 +276,9 @@ void rdx_hogp_on_connected(u16 con_handle)
     s_hid_con_handle = con_handle;
     s_hogp_encrypted = 0;
     y_printf("[HOGP] conn complete hdl=0x%04x\r", con_handle);
+#if RDX_HOGP_ENCRYPTION_REQUIRED
     sm_api_request_pairing(con_handle);
+#endif
 }
 
 void rdx_hogp_on_disconnected(u16 con_handle)
@@ -335,9 +340,13 @@ int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len)
                                    hid_uuid, sizeof(hid_uuid));
 
     offset += make_eir_packet_val(&adv_data[offset], offset,
-                                  HCI_EIR_DATATYPE_APPEARANCE_DATA, 0x03C1, 2);
+                                  HCI_EIR_DATATYPE_APPEARANCE_DATA, RDX_HOGP_APPEARANCE, 2);
 
+#if RDX_HOGP_NAME_SOURCE == 0
     const char *name = rdx_ble_server_get_local_name();
+#else
+    const char *name = RDX_HOGP_CUSTOM_NAME;
+#endif
     u8 name_len = (u8)strlen(name);
     if (name_len > max_len - offset - 2) {
         name_len = max_len - offset - 2;
@@ -390,10 +399,12 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
         y_printf("[HOGP] key_send skipped: notify not enabled\r");
         return -1;
     }
+#if RDX_HOGP_ENCRYPTION_REQUIRED
     if (!s_hogp_encrypted) {
         y_printf("[HOGP] key_send skipped: not encrypted\r");
         return -1;
     }
+#endif
 
     int ret = app_ble_att_send_data(s_hogp_app_ble_hdl,
                                     HID_INPUT_REPORT_VALUE_HANDLE,
@@ -406,7 +417,7 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
 int rdx_hogp_key_click_usage(u8 usage)
 {
     int ret = rdx_hogp_key_send_usage(usage, 1);
-    sys_timeout_add((void *)(u32)usage, hogp_key_up_timeout, 20);
+    sys_timeout_add((void *)(u32)usage, hogp_key_up_timeout, RDX_HOGP_KEY_UP_DELAY_MS);
     return ret;
 }
 
@@ -475,4 +486,35 @@ void hogp_key_click_send(u8 key_index)
     rdx_hogp_key_click_index(key_index);
 }
 
-#endif /* (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */
+#else  /* !(TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)) — stubs */
+
+void rdx_hogp_init(void *app_ble_hdl) { (void)app_ble_hdl; }
+void rdx_hogp_deinit(void) {}
+u8   rdx_hogp_mode_get(void) { return 0; }
+void rdx_hogp_mode_set(u8 enable) { (void)enable; }
+u8   rdx_hogp_is_handle(u16 att_handle) { (void)att_handle; return 0; }
+u16  rdx_hogp_att_read(hci_con_handle_t ch, u16 h, u16 o, u8 *b, u16 bs) {
+    (void)ch; (void)h; (void)o; (void)b; (void)bs; return 0;
+}
+int  rdx_hogp_att_write(hci_con_handle_t ch, u16 h, u16 tm, u16 o, u8 *b, u16 bs) {
+    (void)ch; (void)h; (void)tm; (void)o; (void)b; (void)bs; return 0;
+}
+void rdx_hogp_on_connected(u16 con_handle) { (void)con_handle; }
+void rdx_hogp_on_disconnected(u16 con_handle) { (void)con_handle; }
+void rdx_hogp_on_encryption_change(u16 ch, u8 en, u8 st) { (void)ch; (void)en; (void)st; }
+void rdx_hogp_on_sm_event(u8 pt, u8 *pk, u16 sz) { (void)pt; (void)pk; (void)sz; }
+int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len) { (void)adv_data; (void)max_len; return 0; }
+void rdx_hogp_adv_start(void) {}
+void rdx_hogp_adv_stop(void) {}
+int  rdx_hogp_key_send_usage(u8 usage, u8 pressed) { (void)usage; (void)pressed; return -1; }
+int  rdx_hogp_key_click_usage(u8 usage) { (void)usage; return -1; }
+int  rdx_hogp_key_click_index(u8 key_index) { (void)key_index; return -1; }
+int  rdx_hogp_on_io_num_key(u8 num_idx, u8 action) { (void)num_idx; (void)action; return -1; }
+
+/* Legacy wrappers — stubs */
+void hogp_mode_set(u8 enable) { (void)enable; }
+u8   hogp_mode_get(void) { return 0; }
+void hogp_key_send(u8 key_index, u8 pressed) { (void)key_index; (void)pressed; }
+void hogp_key_click_send(u8 key_index) { (void)key_index; }
+
+#endif /* TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */

@@ -16,6 +16,7 @@
 #include "system/includes.h"
 #include "btstack/btstack_typedef.h"
 #include "ble_user.h"
+#include "rdx_hogp_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,10 +78,12 @@ int  rdx_hogp_on_io_num_key(u8 num_idx, u8 action);
 /******************************************************************************
 * Legacy compatibility wrappers (remove once rdx_app.c migrates to new API)
 ******************************************************************************/
+#if TCFG_RDX_HOGP_ENABLE
 void hogp_mode_set(u8 enable);
 u8   hogp_mode_get(void);
 void hogp_key_send(u8 key_index, u8 pressed);
 void hogp_key_click_send(u8 key_index);
+#endif
 
 #ifdef __cplusplus
 }

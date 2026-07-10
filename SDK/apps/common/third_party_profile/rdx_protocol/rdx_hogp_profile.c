@@ -16,13 +16,14 @@
 #endif
 
 #include "app_config.h"
+#include "rdx_hogp_config.h"
 #include "rdx_hogp_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) && TCFG_RDX_HOGP_ENABLE
 
 /******************************************************************************
 * Report Map (Standard 70-byte boot keyboard report descriptor)
@@ -80,7 +81,7 @@ typedef char rdx_hogp_hid_information_len_check[
     (sizeof(rdx_hogp_hid_information) == RDX_HOGP_HID_INFORMATION_LEN) ? 1 : -1
 ];
 
-#endif /* (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */
+#endif /* (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) && TCFG_RDX_HOGP_ENABLE */
 
 #ifdef __cplusplus
 }

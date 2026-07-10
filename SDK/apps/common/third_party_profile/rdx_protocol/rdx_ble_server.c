@@ -230,6 +230,7 @@ const uint8_t rdx_profile_data[] = {
     // 0x0016 PRIMARY_SERVICE  0x1812 (HID)
     //
     //////////////////////////////////////////////////////
+#if TCFG_RDX_HOGP_ENABLE
     0x0a, 0x00, 0x02, 0x00, 0x16, 0x00, 0x00, 0x28, 0x12, 0x18,
 
      /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE, value=0x01 */
@@ -265,6 +266,7 @@ const uint8_t rdx_profile_data[] = {
     0x0d, 0x00, 0x02, 0x00, 0x21, 0x00, 0x03, 0x28, 0x04, 0x22, 0x00, 0x4c, 0x2a,
     // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
     0x08, 0x00, 0x04, 0x01, 0x22, 0x00, 0x4c, 0x2a,
+#endif /* TCFG_RDX_HOGP_ENABLE */
 
     //////////////////////////////////////////////////////
     //
@@ -1106,7 +1108,13 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
     (void)hdl;
     (void)channel;
 
+#if TCFG_RDX_HOGP_ENABLE
     rdx_hogp_on_sm_event(packet_type, packet, size);
+#else
+    (void)packet_type;
+    (void)packet;
+    (void)size;
+#endif
 }
 
 static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -1148,9 +1156,11 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             log_info("HCI_SUBEVENT_LE_CONNECTION_COMPLETE: %0x", con_handle);
 
                             // HOGP mode connection tracking (forward to submodule)
+#if TCFG_RDX_HOGP_ENABLE
                             if (hogp_mode_get()) {
                                 rdx_hogp_on_connected(con_handle);
                             }
+#endif
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
                         }
                         break;
@@ -1163,10 +1173,12 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         rdx_ble_server_set_conn_handle(con_handle);
 
                         // HOGP mode connection tracking
+#if TCFG_RDX_HOGP_ENABLE
                         if (hogp_mode_get()) {
                             rdx_hogp_on_connected(con_handle);
                             break;  // 阻止后续 RDX 连接初始化
                         }
+#endif
 
                         //ble conn state.
                         rdx_ble_server_set_ble_work_state(BLE_ST_CONNECT);
@@ -1226,10 +1238,12 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     // ble_op_att_send_init(con_handle, 0, 0, 0);
 
                     // HOGP mode disconnect tracking
+#if TCFG_RDX_HOGP_ENABLE
                     if (hogp_mode_get()) {
                         rdx_hogp_on_disconnected(con_handle);
                         break;
                     }
+#endif
 
                     rdx_ble_server_reset_send_fail_cnt();
 
@@ -1245,7 +1259,9 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     u16 enc_handle = hci_event_encryption_change_get_connection_handle(packet);
                     u8 enc_enabled = hci_event_encryption_change_get_encryption_enabled(packet);
                     u8 enc_status = hci_event_encryption_change_get_status(packet);
+#if TCFG_RDX_HOGP_ENABLE
                     rdx_hogp_on_encryption_change(enc_handle, enc_enabled, enc_status);
+#endif
                 }
                 break;
 
@@ -1429,10 +1445,12 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_INFORMATION_VALUE_HANDLE:
         case HID_INPUT_REPORT_VALUE_HANDLE:
         case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+#if TCFG_RDX_HOGP_ENABLE
             att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
             if (att_value_len) {
                 y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
             }
+#endif
             break;
 
 
@@ -1533,9 +1551,11 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
 
     // In HOGP mode, route all HID Service writes to the HOGP handler so
     // that default branches in the RDX switch do not swallow them.
+#if TCFG_RDX_HOGP_ENABLE
     if (hogp_mode_get() && handle >= HID_SERVICE_START_HANDLE && handle <= HID_SERVICE_END_HANDLE) {
         return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
     }
+#endif
 
     switch (handle) {
         case ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE:
@@ -1586,10 +1606,12 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             att_set_ccc_config(handle, buffer[0]);
             break;
 
-        case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state)
+        case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state), only valid when HOGP compiled in
+#if TCFG_RDX_HOGP_ENABLE
             if (buffer_size >= 1) {
                 y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
             }
+#endif
             return 0;
 
         default:
@@ -2226,7 +2248,9 @@ void rdx_ble_server_init(void)
         app_ble_sm_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_sm_event_callback);
 
         //init HOGP submodule.
+#if TCFG_RDX_HOGP_ENABLE
         rdx_hogp_init(g_rdx_ble_server_info.rdx_ble_server_hdl);
+#endif
 
         //init sem.
         os_mutex_create(&g_rdx_ble_server_info.ble_send_queue_mutex);

@@ -1,0 +1,100 @@
+/*=====================================================================================
+ HEADER NAME: rdx_hogp_config.h
+ MODULE NAME: RDX BLE HID-over-GATT keyboard compile-time configuration.
+
+ GENERAL DESCRIPTION:
+    Centralized tunables for the HOGP keyboard module. Every macro uses an
+    #ifndef guard so project-level overrides (t2620_project_config.h) take
+    precedence. This file is included by rdx_hogp_keyboard.c, rdx_hogp_keyboard.h,
+    rdx_hogp_profile.c, and rdx_ble_server.c. This ensures all four files see the
+    same fallback defaults.
+
+=======================================================================================*/
+
+#ifndef _RDX_HOGP_CONFIG_H_
+#define _RDX_HOGP_CONFIG_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/******************************************************************************
+* Master Enable
+*
+* TCFG_RDX_HOGP_ENABLE is the project-level kill switch. Define it in
+* t2620_project_config.h. Defaults to 0 (disabled) if not defined, so
+* non-HOGP products never pay code size.
+*
+* IMPORTANT: include app_config.h (which pulls in t2620_project_config.h)
+* BEFORE including this header, otherwise this fallback will lock the macro
+* to 0 and the project override will be ignored.
+*
+* Override in t2620_project_config.h or board-specific config:
+*   #define TCFG_RDX_HOGP_ENABLE 1
+
+******************************************************************************/
+#ifndef TCFG_RDX_HOGP_ENABLE
+#define TCFG_RDX_HOGP_ENABLE                  0
+#endif
+
+/******************************************************************************
+* Security
+******************************************************************************/
+#ifndef RDX_HOGP_ENCRYPTION_REQUIRED
+#define RDX_HOGP_ENCRYPTION_REQUIRED          1
+#endif
+
+#ifndef RDX_HOGP_PAIRING_MODE
+#define RDX_HOGP_PAIRING_MODE                 0   /* 0=Just Works, 1/2 reserved */
+#endif
+
+#if RDX_HOGP_PAIRING_MODE != 0
+#error "RDX_HOGP_PAIRING_MODE: only mode 0 (Just Works) is implemented in Phase 3"
+#endif
+
+/******************************************************************************
+* Timing
+******************************************************************************/
+#ifndef RDX_HOGP_KEY_UP_DELAY_MS
+#define RDX_HOGP_KEY_UP_DELAY_MS             20
+#endif
+
+/******************************************************************************
+* Advertising
+******************************************************************************/
+#ifndef RDX_HOGP_APPEARANCE
+#define RDX_HOGP_APPEARANCE                  0x03C1   /* Keyboard */
+#endif
+
+#ifndef RDX_HOGP_NAME_SOURCE
+#define RDX_HOGP_NAME_SOURCE                 0   /* 0=server local name, 1=custom */
+#endif
+
+#ifndef RDX_HOGP_CUSTOM_NAME
+#define RDX_HOGP_CUSTOM_NAME                 "VibeKeyboard"
+#endif
+
+/******************************************************************************
+* Default Keymap (USB HID Keyboard Usage IDs)
+******************************************************************************/
+#ifndef RDX_HOGP_KEYMAP_A
+#define RDX_HOGP_KEYMAP_A                    0x04   /* A */
+#endif
+#ifndef RDX_HOGP_KEYMAP_B
+#define RDX_HOGP_KEYMAP_B                    0x05   /* B */
+#endif
+#ifndef RDX_HOGP_KEYMAP_C
+#define RDX_HOGP_KEYMAP_C                    0x06   /* C */
+#endif
+#ifndef RDX_HOGP_KEYMAP_D
+#define RDX_HOGP_KEYMAP_D                    0x07   /* D */
+#endif
+#ifndef RDX_HOGP_KEYMAP_E
+#define RDX_HOGP_KEYMAP_E                    0x08   /* E */
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _RDX_HOGP_CONFIG_H_ */

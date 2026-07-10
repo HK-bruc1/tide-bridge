@@ -611,27 +611,12 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         //   IO NUM0 短按 → 进入 HOGP 模式
         //   IO NUM0 长按 → 退出 HOGP 模式
         //   IO NUM1~4 短按 → 发送字母 A~D
-        if (hogp_mode_get()) {
-            if (num_idx == 0) {
-                if (index == KEY_ACTION_LONG) {
-                    hogp_mode_set(0);
-                    y_printf("[HOGP] exit HOGP mode\r");
-                }
-            } else {
-                if (index == KEY_ACTION_CLICK) {
-                    hogp_key_click_send(num_idx - 1);   // NUM1=A, NUM2=B, NUM3=C, NUM4=D
-                }
-            }
+#if TCFG_RDX_HOGP_ENABLE
+        if (rdx_hogp_on_io_num_key(num_idx, index) == 0) {
             *value = APP_MSG_NULL;
             return;
-        } else {
-            if (num_idx == 0 && index == KEY_ACTION_CLICK) {
-                hogp_mode_set(1);
-                y_printf("[HOGP] enter HOGP mode\r");
-                *value = APP_MSG_NULL;
-                return;
-            }
         }
+#endif
 
         pk_r = rdx_key_get_io_num_table(num_idx, scene);
         if (pk_r) {
