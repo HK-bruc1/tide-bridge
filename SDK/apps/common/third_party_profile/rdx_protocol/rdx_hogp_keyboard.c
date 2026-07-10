@@ -26,6 +26,7 @@
 #include "sdk_config.h"
 #include "app_config.h"
 #include "system/includes.h"
+#include "rdx_hogp_profile.h"
 #include "ble_user.h"
 #include "btstack/le/sm.h"
 #include "btstack/le/le_user.h"
@@ -46,26 +47,6 @@
 /* #define LOG_DUMP_ENABLE */
 #define LOG_CLI_ENABLE
 #include "debug.h"
-
-/******************************************************************************
-* Local Macro Define Section
-******************************************************************************/
-/* Temporary handle macros — will be centralized in rdx_hogp_profile.h in Phase 2 */
-#define HID_SERVICE_HANDLE                                              0x0016
-#define HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE                         0x0017
-#define HID_PROTOCOL_MODE_VALUE_HANDLE                                  0x0018
-#define HID_INPUT_REPORT_CHARACTERISTIC_HANDLE                          0x0019
-#define HID_INPUT_REPORT_VALUE_HANDLE                                   0x001a
-#define HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE                    0x001b
-#define HID_INPUT_REPORT_REFERENCE_HANDLE                               0x001c
-#define HID_REPORT_MAP_CHARACTERISTIC_HANDLE                            0x001d
-#define HID_REPORT_MAP_VALUE_HANDLE                                     0x001e
-#define HID_INFORMATION_CHARACTERISTIC_HANDLE                           0x001f
-#define HID_INFORMATION_VALUE_HANDLE                                    0x0020
-#define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE                         0x0021
-#define HID_CONTROL_POINT_VALUE_HANDLE                                  0x0022
-#define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0029
-
 /******************************************************************************
 * Local variables Section
 ******************************************************************************/
@@ -86,45 +67,6 @@ static const u8 key_to_hid_usage[5] = {
     0x08,  // E
 };
 
-static const u8 hid_report_map[] = {
-    0x05, 0x01,        // Usage Page (Generic Desktop)
-    0x09, 0x06,        // Usage (Keyboard)
-    0xA1, 0x01,        // Collection (Application)
-    0x85, 0x01,        //   Report ID (1)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0xE0,        //   Usage Minimum (224)
-    0x29, 0xE7,        //   Usage Maximum (231)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x75, 0x01,        //   Report Size (1)
-    0x95, 0x08,        //   Report Count (8)
-    0x81, 0x02,        //   Input (Data, Variable, Absolute)
-    0x95, 0x01,        //   Report Count (1)
-    0x75, 0x08,        //   Report Size (8)
-    0x81, 0x01,        //   Input (Constant)
-    0x95, 0x06,        //   Report Count (6)
-    0x75, 0x08,        //   Report Size (8)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x26, 0xFF, 0x00,  //   Logical Maximum (255)
-    0x05, 0x07,        //   Usage Page (Key Codes)
-    0x19, 0x00,        //   Usage Minimum (0)
-    0x29, 0xFF,        //   Usage Maximum (255)
-    0x81, 0x00,        //   Input (Data, Array)
-    0x05, 0x08,        //   Usage Page (LEDs)
-    0x19, 0x01,        //   Usage Minimum (Num Lock)
-    0x29, 0x03,        //   Usage Maximum (Scroll Lock)
-    0x15, 0x00,        //   Logical Minimum (0)
-    0x25, 0x01,        //   Logical Maximum (1)
-    0x95, 0x03,        //   Report Count (3)
-    0x75, 0x01,        //   Report Size (1)
-    0x91, 0x02,        //   Output (Data, Variable, Absolute)
-    0x95, 0x01,        //   Report Count (1)
-    0x75, 0x05,        //   Report Size (5)
-    0x91, 0x01,        //   Output (Constant)
-    0xC0               // End Collection
-};
-
-static const u8 hid_information[] = {0x11, 0x01, 0x00, 0x03};
 static u8 hid_protocol_mode = 1;  // Report Protocol
 
 /******************************************************************************
@@ -253,7 +195,7 @@ void rdx_hogp_mode_set(u8 enable)
 ******************************************************************************/
 u8 rdx_hogp_is_handle(u16 att_handle)
 {
-    return (att_handle >= HID_SERVICE_HANDLE && att_handle <= HID_CONTROL_POINT_VALUE_HANDLE) ? 1 : 0;
+    return (att_handle >= HID_SERVICE_START_HANDLE && att_handle <= HID_SERVICE_END_HANDLE) ? 1 : 0;
 }
 
 u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
@@ -262,17 +204,23 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
                       u8 *buffer,
                       u16 buffer_size)
 {
-    (void)connection_handle;
 
     switch (att_handle) {
     case HID_PROTOCOL_MODE_VALUE_HANDLE:
         return hid_read_helper(&hid_protocol_mode, 1, offset, buffer, buffer_size);
     case HID_REPORT_MAP_VALUE_HANDLE:
-        return hid_read_helper(hid_report_map, sizeof(hid_report_map), offset, buffer, buffer_size);
+        return hid_read_helper(rdx_hogp_report_map, RDX_HOGP_REPORT_MAP_LEN, offset, buffer, buffer_size);
     case HID_INFORMATION_VALUE_HANDLE:
-        return hid_read_helper(hid_information, sizeof(hid_information), offset, buffer, buffer_size);
+        return hid_read_helper(rdx_hogp_hid_information, RDX_HOGP_HID_INFORMATION_LEN, offset, buffer, buffer_size);
     case HID_INPUT_REPORT_VALUE_HANDLE:
         return hid_read_helper(s_hid_input_report, sizeof(s_hid_input_report), offset, buffer, buffer_size);
+    case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+        if (buffer && buffer_size >= 2) {
+            buffer[0] = multi_att_get_ccc_config(connection_handle, att_handle) & 0xFF;
+            buffer[1] = 0;
+            y_printf("[HOGP] CCC read hdl=0x%04x cfg=0x%02x%02x\r", att_handle, buffer[0], buffer[1]);
+        }
+        return 2;
     default:
         return 0;
     }
@@ -305,11 +253,6 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
     case HID_INPUT_REPORT_VALUE_HANDLE:
         y_printf("[HOGP] input report write hdl=0x%04x len=%d data[0]=0x%02x\r",
                  att_handle, buffer_size, buffer_size ? buffer[0] : 0);
-        return 0;
-    case HID_OUTPUT_REPORT_VALUE_HANDLE:
-        if (buffer_size >= 1) {
-            y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
-        }
         return 0;
     default:
         y_printf("[HOGP] write default hdl=0x%04x len=%d data[0]=0x%02x\r",

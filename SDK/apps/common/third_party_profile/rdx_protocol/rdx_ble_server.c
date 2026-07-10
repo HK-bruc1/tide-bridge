@@ -46,6 +46,7 @@
 
 #include "rdx_ble_server.h"
 #include "rdx_hogp_keyboard.h"
+#include "rdx_hogp_profile.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
@@ -88,28 +89,12 @@
 #define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE 0x0014
 #define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE 0x0015
 
-// HOGP HID Service handles (appended after RDX services)
-#define HID_SERVICE_HANDLE                                              0x0016
-#define HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE                         0x0017
-#define HID_PROTOCOL_MODE_VALUE_HANDLE                                  0x0018
-#define HID_INPUT_REPORT_CHARACTERISTIC_HANDLE                          0x0019
-#define HID_INPUT_REPORT_VALUE_HANDLE                                   0x001a
-#define HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE                    0x001b
-#define HID_INPUT_REPORT_REFERENCE_HANDLE                               0x001c
-#define HID_REPORT_MAP_CHARACTERISTIC_HANDLE                            0x001d
-#define HID_REPORT_MAP_VALUE_HANDLE                                     0x001e
-#define HID_INFORMATION_CHARACTERISTIC_HANDLE                           0x001f
-#define HID_INFORMATION_VALUE_HANDLE                                    0x0020
-#define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE                         0x0021
-#define HID_CONTROL_POINT_VALUE_HANDLE                                  0x0022
-
 // Device Information Service handles (appended after HID Service)
 #define DIS_SERVICE_HANDLE                                              0x0023
 #define DIS_PNP_ID_CHARACTERISTIC_HANDLE                                0x0024
 #define DIS_PNP_ID_VALUE_HANDLE                                         0x0025
 #define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE                     0x0026
 #define DIS_MANUFACTURER_NAME_VALUE_HANDLE                              0x0027
-#define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0029
 
 
 //0 ~ 5 reserved.
@@ -1443,20 +1428,13 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_REPORT_MAP_VALUE_HANDLE:
         case HID_INFORMATION_VALUE_HANDLE:
         case HID_INPUT_REPORT_VALUE_HANDLE:
+        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
             att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
             if (att_value_len) {
                 y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
             }
             break;
 
-        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-            att_value_len = 2;
-            if (buffer) {
-                buffer[0] = multi_att_get_ccc_config(connection_handle, handle) & 0xFF;
-                buffer[1] = 0;
-                y_printf("[HOGP] CCC read hdl=0x%04x cfg=0x%02x%02x\r", handle, buffer[0], buffer[1]);
-            }
-            break;
 
         default:
             break;
@@ -1555,7 +1533,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
 
     // In HOGP mode, route all HID Service writes to the HOGP handler so
     // that default branches in the RDX switch do not swallow them.
-    if (hogp_mode_get() && handle >= HID_SERVICE_HANDLE && handle <= HID_CONTROL_POINT_VALUE_HANDLE) {
+    if (hogp_mode_get() && handle >= HID_SERVICE_START_HANDLE && handle <= HID_SERVICE_END_HANDLE) {
         return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
     }
 
