@@ -417,6 +417,14 @@ function Test-ProfileAttributeOrder {
 Test-ProfileAttributeOrder
 
 # -----------------------------------------------------------------------------
+# CHECK: Output Report block (0x0028-0x002a) is gated by TCFG_RDX_HOGP_ENABLE
+# -----------------------------------------------------------------------------
+$outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n\s*//\s*0x0028\s+CHARACTERISTIC\s+0x2A4D.*?0x01,\s*0x02,\s*\r?\n\s*#endif\s*/\*\s*TCFG_RDX_HOGP_ENABLE\s*\*/'
+$isOutputReportGated = $ServerText -match $outputReportGatedPattern
+Add-CheckResult -Name 'OUTPUT_REPORT_GATED' -Passed $isOutputReportGated `
+    -Message $(if ($isOutputReportGated) { '' } else { 'Output Report block (0x0028-0x002a) is not wrapped in #if TCFG_RDX_HOGP_ENABLE / #endif' })
+
+# -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------
 Write-Host '---------------------------'

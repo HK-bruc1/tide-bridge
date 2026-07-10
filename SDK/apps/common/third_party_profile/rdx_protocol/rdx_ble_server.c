@@ -287,12 +287,14 @@ const uint8_t rdx_profile_data[] = {
     // 0x0027 VALUE 2A29 READ (static "JieLi")
     0x0d, 0x00, 0x02, 0x00, 0x27, 0x00, 0x29, 0x2a, 0x4a, 0x69, 0x65, 0x4c, 0x69,
 
+#if TCFG_RDX_HOGP_ENABLE
     // 0x0028 CHARACTERISTIC 0x2A4D (Output Report): Read | Write | Write Without Response
     0x0d, 0x00, 0x02, 0x00, 0x28, 0x00, 0x03, 0x28, 0x0e, 0x29, 0x00, 0x4d, 0x2a,
     // 0x0029 VALUE 0x2A4D (Output Report): Read | Write | Write Without Response, 1 byte LED state
     0x09, 0x00, 0x0e, 0x00, 0x29, 0x00, 0x4d, 0x2a, 0x00,
     // 0x002a REPORT_REFERENCE (ID=1, Type=2=Output)
     0x0a, 0x00, 0x02, 0x00, 0x2a, 0x00, 0x08, 0x29, 0x01, 0x02,
+#endif /* TCFG_RDX_HOGP_ENABLE */
 
     // END
     0x00, 0x00,
@@ -1606,13 +1608,13 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             att_set_ccc_config(handle, buffer[0]);
             break;
 
-        case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state), only valid when HOGP compiled in
 #if TCFG_RDX_HOGP_ENABLE
+        case HID_OUTPUT_REPORT_VALUE_HANDLE:  // Output Report (LED state), only valid when HOGP compiled in
             if (buffer_size >= 1) {
                 y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
             }
-#endif
             return 0;
+#endif
 
         default:
             break;
@@ -2286,6 +2288,8 @@ void rdx_ble_server_exit(void)
     rdx_ble_server_app_disconnect();
     rdx_ble_server_adv_enable(0);
     
+    rdx_hogp_deinit();
+
     app_ble_hdl_free(g_rdx_ble_server_info.rdx_ble_server_hdl);
     g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
 }

@@ -78,6 +78,9 @@ static volatile u8 s_hid_notify_enabled = 0;
 static volatile u8 s_hogp_encrypted = 0;
 static u16 s_hid_con_handle = 0;
 static u8 s_hid_input_report[8] = {0};
+static u16 s_hogp_key_up_timer = 0;
+static u32 s_hogp_generation = 0;
+static u32 s_hogp_key_generation = 0;
 
 /* Default 5-key keymap (A, B, C, D, E) — centralized in rdx_hogp_config.h */
 static const u8 key_to_hid_usage[5] = {
@@ -117,9 +120,29 @@ static uint16_t hid_read_helper(const u8 *data, u16 data_len,
     return len;
 }
 
+static void hogp_cancel_key_up_timer(void)
+{
+    if (s_hogp_key_up_timer) {
+        sys_timeout_del(s_hogp_key_up_timer);
+        s_hogp_key_up_timer = 0;
+    }
+}
+
 static void hogp_key_up_timeout(void *priv)
 {
     u8 usage = (u8)(u32)priv;
+
+    s_hogp_key_up_timer = 0;
+
+    if (s_hogp_app_ble_hdl == NULL) {
+        RDX_HOGP_ERROR("key_up timeout ignored: server hdl NULL");
+        return;
+    }
+    if (s_hogp_generation != s_hogp_key_generation) {
+        RDX_HOGP_ERROR("key_up timeout ignored: stale generation");
+        return;
+    }
+
     rdx_hogp_key_send_usage(usage, 0);
 }
 
@@ -157,11 +180,31 @@ static void hogp_adv_stop_internal(void)
     RDX_HOGP_LOG("HID advertising stopped, restore RDX advertising");
 }
 
+static void hogp_runtime_cleanup(void)
+{
+    hogp_cancel_key_up_timer();
+    memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
+    s_hogp_mode = 0;
+    s_hogp_connected = 0;
+    s_hid_con_handle = 0;
+    s_hid_notify_enabled = 0;
+    s_hogp_encrypted = 0;
+    s_hogp_generation++;
+}
+
+static void hogp_module_cleanup(void)
+{
+    hogp_runtime_cleanup();
+    s_hogp_app_ble_hdl = NULL;
+}
+
 /******************************************************************************
 * Lifecycle
 ******************************************************************************/
 void rdx_hogp_init(void *app_ble_hdl)
 {
+    hogp_cancel_key_up_timer();
+    s_hogp_generation++;
     s_hogp_app_ble_hdl = app_ble_hdl;
     s_hogp_mode = 0;
     s_hogp_connected = 0;
@@ -174,8 +217,7 @@ void rdx_hogp_init(void *app_ble_hdl)
 
 void rdx_hogp_deinit(void)
 {
-    rdx_hogp_mode_set(0);
-    s_hogp_app_ble_hdl = NULL;
+    hogp_module_cleanup();
 }
 
 /******************************************************************************
@@ -205,11 +247,7 @@ void rdx_hogp_mode_set(u8 enable)
         rdx_hogp_dump_state();
     } else {
         hogp_adv_stop_internal();
-        s_hogp_mode = 0;
-        s_hogp_connected = 0;
-        s_hid_con_handle = 0;
-        s_hid_notify_enabled = 0;
-        s_hogp_encrypted = 0;
+        hogp_runtime_cleanup();
         rdx_hogp_dump_state();
     }
 }
@@ -228,6 +266,9 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
                       u8 *buffer,
                       u16 buffer_size)
 {
+    if (s_hogp_app_ble_hdl == NULL) {
+        return 0;
+    }
 
     switch (att_handle) {
     case HID_PROTOCOL_MODE_VALUE_HANDLE:
@@ -257,6 +298,10 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
                         u8 *buffer,
                         u16 buffer_size)
 {
+    if (s_hogp_app_ble_hdl == NULL) {
+        return 0;
+    }
+
     (void)transaction_mode;
     (void)offset;
 
@@ -321,6 +366,8 @@ void rdx_hogp_on_disconnected(u16 con_handle)
     if (!s_hogp_mode) {
         return;
     }
+    hogp_cancel_key_up_timer();
+    memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
@@ -461,7 +508,13 @@ int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
 int rdx_hogp_key_click_usage(u8 usage)
 {
     int ret = rdx_hogp_key_send_usage(usage, 1);
-    sys_timeout_add((void *)(u32)usage, hogp_key_up_timeout, RDX_HOGP_KEY_UP_DELAY_MS);
+
+    if (ret == APP_BLE_NO_ERROR) {
+        hogp_cancel_key_up_timer();
+        s_hogp_key_generation = s_hogp_generation;
+        s_hogp_key_up_timer = sys_timeout_add((void *)(u32)usage, hogp_key_up_timeout, RDX_HOGP_KEY_UP_DELAY_MS);
+    }
+
     return ret;
 }
 
