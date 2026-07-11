@@ -131,7 +131,4 @@ u8   rdx_ble_connection_owner_is_hogp(void);
 int rdx_ble_server_bt_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);
 int rdx_ble_server_ble_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);
 
-/* HOGP (HID over GATT Profile) extension API — implemented in rdx_hogp_keyboard.c */
-#include "rdx_hogp_keyboard.h"
-
 #endif

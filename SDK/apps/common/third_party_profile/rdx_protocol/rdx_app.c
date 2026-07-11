@@ -67,6 +67,8 @@
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
 #include "rdx_ble_server.h"
+#include "rdx_hogp_config.h"
+#include "rdx_hogp_keyboard.h"
 #include "rdx_protocol.h"
 #include "xxpUart.h"
 #include "rdx_key.h"
@@ -558,9 +560,84 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
+#if TCFG_RDX_HOGP_ENABLE
+
+#define RDX_APP_HOGP_DEBUG_KEY_UP_DELAY_MS  20
+
+static u16 s_rdx_app_hogp_release_timer = 0;
+
+static const u8 s_rdx_app_hogp_debug_usages[] = {
+    0x04,  /* A */
+    0x05,  /* B */
+    0x06,  /* C */
+    0x07,  /* D */
+};
+
+static void rdx_app_hogp_cancel_release_timer(void)
+{
+    if (s_rdx_app_hogp_release_timer) {
+        sys_timeout_del(s_rdx_app_hogp_release_timer);
+        s_rdx_app_hogp_release_timer = 0;
+    }
+}
+
+static void rdx_app_hogp_release_timer_cb(void *priv)
+{
+    (void)priv;
+    s_rdx_app_hogp_release_timer = 0;
+    rdx_hogp_keyboard_release_all();
+}
+
+static int rdx_app_hogp_debug_click_usage(u8 usage)
+{
+    rdx_hogp_keyboard_report_t report = {0};
+    int ret;
+
+    report.usages[0] = usage;
+    ret = rdx_hogp_keyboard_report_send(&report);
+    if (ret == APP_BLE_NO_ERROR) {
+        rdx_app_hogp_cancel_release_timer();
+        s_rdx_app_hogp_release_timer =
+            sys_timeout_add(NULL,
+                            rdx_app_hogp_release_timer_cb,
+                            RDX_APP_HOGP_DEBUG_KEY_UP_DELAY_MS);
+    }
+
+    return ret;
+}
+
+static int rdx_app_hogp_debug_num_key(u8 num_idx, u8 action)
+{
+#if RDX_BLE_DEBUG_MODE_SWITCH_KEY
+    if (num_idx == 0 && action == KEY_ACTION_CLICK) {
+        rdx_ble_mode_request_hogp(1);
+        return 0;
+    }
+
+    if (num_idx == 0 && action == KEY_ACTION_LONG) {
+        rdx_app_hogp_cancel_release_timer();
+        rdx_ble_mode_request_hogp(0);
+        return 0;
+    }
+#endif
+
+    if (action != KEY_ACTION_CLICK) {
+        return -1;
+    }
+
+    if (num_idx == 0 || num_idx > ARRAY_SIZE(s_rdx_app_hogp_debug_usages)) {
+        return -1;
+    }
+
+    return rdx_app_hogp_debug_click_usage(
+        s_rdx_app_hogp_debug_usages[num_idx - 1]);
+}
+
+#endif /* TCFG_RDX_HOGP_ENABLE */
+
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
- * description: 
+ * description:
  * param (int) *value
  * param (int) *msg
  * return (*)
@@ -612,7 +689,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         //   IO NUM0 长按 → 退出 HOGP 模式
         //   IO NUM1~4 短按 → 发送字母 A~D
 #if TCFG_RDX_HOGP_ENABLE
-        if (rdx_hogp_on_io_num_key(num_idx, index) == 0) {
+        if (rdx_app_hogp_debug_num_key(num_idx, index) == 0) {
             *value = APP_MSG_NULL;
             return;
         }

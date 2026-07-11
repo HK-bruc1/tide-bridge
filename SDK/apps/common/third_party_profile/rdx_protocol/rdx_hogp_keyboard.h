@@ -16,7 +16,6 @@
 #include "system/includes.h"
 #include "btstack/btstack_typedef.h"
 #include "ble_user.h"
-#include "rdx_hogp_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,22 +73,20 @@ void rdx_hogp_adv_start(void);
 void rdx_hogp_adv_stop(void);
 
 /******************************************************************************
-* Key input
+* Keyboard Report API
 ******************************************************************************/
-int  rdx_hogp_key_send_usage(u8 usage, u8 pressed);
-int  rdx_hogp_key_click_usage(u8 usage);
-int  rdx_hogp_key_click_index(u8 key_index);
-int  rdx_hogp_on_io_num_key(u8 num_idx, u8 action);
+#define RDX_HOGP_KEYBOARD_REPORT_LEN  8
 
-/******************************************************************************
-* Legacy compatibility wrappers (remove once rdx_app.c migrates to new API)
-******************************************************************************/
-#if TCFG_RDX_HOGP_ENABLE
-void hogp_mode_set(u8 enable);
-u8   hogp_mode_get(void);
-void hogp_key_send(u8 key_index, u8 pressed);
-void hogp_key_click_send(u8 key_index);
-#endif
+typedef struct {
+    u8 modifiers;
+    u8 reserved;
+    u8 usages[6];
+} rdx_hogp_keyboard_report_t;
+
+int rdx_hogp_keyboard_report_send(
+    const rdx_hogp_keyboard_report_t *report);
+int rdx_hogp_keyboard_release_all(void);
+u8  rdx_hogp_keyboard_is_ready(void);
 
 #ifdef __cplusplus
 }

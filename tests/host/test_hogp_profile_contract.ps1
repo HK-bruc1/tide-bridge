@@ -169,27 +169,28 @@ if ($ProfileCText -match 'const\s+u8\s+rdx_hogp_report_map\[\]\s*=\s*\{([^}]+)\}
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: Input Report payload inside rdx_hogp_key_send_usage()
+# CHECK: Input Report payload inside rdx_hogp_keyboard_report_send()
 # -----------------------------------------------------------------------------
 $KeyboardText = Get-Content -Raw -Path $KeyboardPath
 
 $sendFunctionMatch = [regex]::Match($KeyboardText,
-    '(?sm)int\s+rdx_hogp_key_send_usage\s*\([^)]*\)\s*\{(.*?)^\}')
+    '(?sm)int\s+rdx_hogp_keyboard_report_send\s*\([^)]*\)\s*\{(.*?)^\}')
 
 if ($sendFunctionMatch.Success) {
     $sendFunctionBody = $sendFunctionMatch.Groups[1].Value
 
-    $hasReport8 = $sendFunctionBody -match 'u8\s+report\s*\[\s*8\s*\]'
-    Add-CheckResult -Name 'INPUT_REPORT_LENGTH' -Passed $hasReport8 `
-        -Message $(if ($hasReport8) { '' } else { 'local report array is not u8 report[8]' })
+    $payloadPattern = 'u8\s+payload\s*\[\s*RDX_HOGP_KEYBOARD_REPORT_LEN\s*\]'
+    $hasPayload = $sendFunctionBody -match $payloadPattern
+    Add-CheckResult -Name 'INPUT_REPORT_LENGTH' -Passed $hasPayload `
+        -Message $(if ($hasPayload) { '' } else { 'local payload array is not u8 payload[RDX_HOGP_KEYBOARD_REPORT_LEN]' })
 
-    $sendCallPattern = 'app_ble_att_send_data\s*\([^,]+,\s*HID_INPUT_REPORT_VALUE_HANDLE\s*,\s*report\s*,\s*sizeof\s*\(\s*report\s*\)'
+    $sendCallPattern = 'app_ble_att_send_data\s*\([^,]+,\s*HID_INPUT_REPORT_VALUE_HANDLE\s*,\s*payload\s*,\s*sizeof\s*\(\s*payload\s*\)'
     $hasSendCall = $sendFunctionBody -match $sendCallPattern
     Add-CheckResult -Name 'NO_REPORT_ID_PREFIX' -Passed $hasSendCall `
-        -Message $(if ($hasSendCall) { '' } else { 'notify call does not use (report, sizeof(report)) exactly' })
+        -Message $(if ($hasSendCall) { '' } else { 'notify call does not use (payload, sizeof(payload)) exactly' })
 } else {
-    Add-CheckResult -Name 'INPUT_REPORT_LENGTH' -Passed $false -Message 'rdx_hogp_key_send_usage() not found'
-    Add-CheckResult -Name 'NO_REPORT_ID_PREFIX' -Passed $false -Message 'rdx_hogp_key_send_usage() not found'
+    Add-CheckResult -Name 'INPUT_REPORT_LENGTH' -Passed $false -Message 'rdx_hogp_keyboard_report_send() not found'
+    Add-CheckResult -Name 'NO_REPORT_ID_PREFIX' -Passed $false -Message 'rdx_hogp_keyboard_report_send() not found'
 }
 
 # -----------------------------------------------------------------------------
@@ -529,7 +530,7 @@ Add-CheckResult -Name 'C1_DISCONNECTION_FORCE_APPLY_TRANSITION' -Passed $applyFo
 # 4c) Switching to CONFIG clears HOGP runtime mode without touching advertising
 $KeyboardText = Get-Content -Raw -Path $KeyboardPath
 $keyboardCodeOnly = [regex]::Replace($KeyboardText, '/\*.*?\*/', '', [System.Text.RegularExpressions.RegexOptions]::Singleline)
-$advertisingApiPattern = 'rdx_ble_server_adv_enable|rdx_ble_mode_start_config_advertising|rdx_ble_mode_start_hogp_advertising|rdx_ble_mode_restart_hogp_advertising|rdx_hogp_adv_start|rdx_hogp_adv_stop|hogp_adv_start_internal|hogp_adv_stop_internal|hogp_mode_set|app_ble_adv_enable|app_ble_adv_data_set'
+$advertisingApiPattern = 'rdx_ble_server_adv_enable|rdx_ble_mode_start_config_advertising|rdx_ble_mode_start_hogp_advertising|rdx_ble_mode_restart_hogp_advertising|rdx_hogp_adv_start|rdx_hogp_adv_stop|hogp_adv_start_internal|hogp_adv_stop_internal|rdx_hogp_mode_set|app_ble_adv_enable|app_ble_adv_data_set'
 
 $hogpClearMatch = [regex]::Match($serverCodeOnly,
     '(?sm)static\s+void\s+rdx_ble_mode_sync_hogp_runtime\s*\([^)]*\)\s*\{(.*?)^\}')
@@ -544,14 +545,14 @@ $runtimeCleanupInKeyboardMatch = [regex]::Match($keyboardCodeOnly,
 if ($hogpClearMatch.Success -and $runtimeCleanupInKeyboardMatch.Success) {
     $hogpClearBody = $hogpClearMatch.Groups[1].Value
     $hasConfigCheck = $hogpClearBody -match 'advertised_mode\s*==\s*RDX_BLE_MODE_CONFIG'
-    $hasHogpGet = $hogpClearBody -match 'hogp_mode_get\s*\('
+    $hasHogpGet = $hogpClearBody -match 'rdx_hogp_mode_get\s*\('
     $hasRuntimeCleanup = $hogpClearBody -match 'rdx_hogp_runtime_cleanup\s*\('
     $syncHasNoAdvertising = $hogpClearBody -notmatch $advertisingApiPattern
     $cleanupHasNoAdvertising = $runtimeCleanupInKeyboardMatch.Groups[1].Value -notmatch $advertisingApiPattern
     $hogpClearOk = $hasConfigCheck -and $hasHogpGet -and $hasRuntimeCleanup -and $applyInternalCallsSync -and $syncHasNoAdvertising -and $cleanupHasNoAdvertising
     $parts = @()
     if (-not $hasConfigCheck) { $parts += 'CONFIG branch' }
-    if (-not $hasHogpGet) { $parts += 'hogp_mode_get()' }
+    if (-not $hasHogpGet) { $parts += 'rdx_hogp_mode_get()' }
     if (-not $hasRuntimeCleanup) { $parts += 'rdx_hogp_runtime_cleanup()' }
     if (-not $applyInternalCallsSync) { $parts += 'called from apply_internal' }
     if (-not $syncHasNoAdvertising) { $parts += 'sync helper must not call advertising APIs' }
@@ -625,12 +626,12 @@ if ($configStartMatch.Success) {
     $configStartBody = $configStartMatch.Groups[1].Value
     $hasAdvDisable = $configStartBody -match 'rdx_ble_server_adv_enable\s*\(\s*0\s*\)'
     $hasAdvEnable = $configStartBody -match 'rdx_ble_server_adv_enable\s*\(\s*1\s*\)'
-    $hasNoHogpModeSet = $configStartBody -notmatch '\bhogp_mode_set\s*\('
+    $hasNoHogpModeSet = $configStartBody -notmatch '\brdx_hogp_mode_set\s*\('
     $configStartOk = $hasAdvDisable -and $hasAdvEnable -and $hasNoHogpModeSet
     $parts = @()
     if (-not $hasAdvDisable) { $parts += 'disable advertising' }
     if (-not $hasAdvEnable) { $parts += 'enable RDX advertising' }
-    if (-not $hasNoHogpModeSet) { $parts += 'must not call hogp_mode_set()' }
+    if (-not $hasNoHogpModeSet) { $parts += 'must not call rdx_hogp_mode_set()' }
     if ($parts.Count -gt 0) {
         $configStartMessage = 'CONFIG advertising start contract missing: ' + ($parts -join ', ')
     } else {
@@ -750,6 +751,143 @@ $rdxWriteCheckPattern = 'if\s*\(\s*s_ble_mode\.connection_owner\s*!=\s*RDX_BLE_O
 $rdxWriteChecks = [regex]::Matches($ServerText, $rdxWriteCheckPattern).Count
 Add-CheckResult -Name 'C1_RDX_APP_OWNER_REJECTION' -Passed ($rdxWriteChecks -ge 2) `
     -Message $(if ($rdxWriteChecks -ge 2) { '' } else { "expected at least 2 '!= RDX_BLE_OWNER_CONFIG' owner checks for RDX App handles, found $rdxWriteChecks" })
+
+# -----------------------------------------------------------------------------
+# C3 CHECKS: module boundary and Report API
+# -----------------------------------------------------------------------------
+$ServerHeaderText = Get-Content -Raw -Path (Join-Path $ProtocolDir 'rdx_ble_server.h')
+$KeyboardHeaderText = Get-Content -Raw -Path (Join-Path $ProtocolDir 'rdx_hogp_keyboard.h')
+$KeyboardCText = Get-Content -Raw -Path (Join-Path $ProtocolDir 'rdx_hogp_keyboard.c')
+$AppCText = Get-Content -Raw -Path (Join-Path $ProtocolDir 'rdx_app.c')
+
+# C3.1 Include boundaries
+$serverHeaderIncludesHogp = $ServerHeaderText -match '#include\s+"rdx_hogp_keyboard\.h"'
+Add-CheckResult -Name 'C3_SERVER_HEADER_NO_TRANSITIVE_HOGP' -Passed (-not $serverHeaderIncludesHogp) `
+    -Message 'rdx_ble_server.h must not include rdx_hogp_keyboard.h'
+
+$keyboardHeaderIncludesConfig = $KeyboardHeaderText -match '#include\s+"rdx_hogp_config\.h"'
+Add-CheckResult -Name 'C3_KEYBOARD_HEADER_NO_CONFIG' -Passed (-not $keyboardHeaderIncludesConfig) `
+    -Message 'rdx_hogp_keyboard.h must not include rdx_hogp_config.h'
+
+$keyboardCIncludesConfig = $KeyboardCText -match '#include\s+"rdx_hogp_config\.h"'
+Add-CheckResult -Name 'C3_KEYBOARD_C_INCLUDES_CONFIG' -Passed $keyboardCIncludesConfig `
+    -Message 'rdx_hogp_keyboard.c must explicitly include rdx_hogp_config.h'
+
+# C3.2 Report API surface
+$hasReportLen = $KeyboardHeaderText -match '#define\s+RDX_HOGP_KEYBOARD_REPORT_LEN\s+8'
+Add-CheckResult -Name 'C3_REPORT_LEN_8' -Passed $hasReportLen `
+    -Message 'RDX_HOGP_KEYBOARD_REPORT_LEN must be 8'
+
+$hasReportType = $KeyboardHeaderText -match 'typedef\s+struct\s*\{\s*u8\s+modifiers;\s*u8\s+reserved;\s*u8\s+usages\[6\];\s*\}\s*rdx_hogp_keyboard_report_t'
+Add-CheckResult -Name 'C3_REPORT_TYPE' -Passed $hasReportType `
+    -Message 'rdx_hogp_keyboard_report_t must have modifiers/reserved/usages[6]'
+
+$hasReportSend = $KeyboardHeaderText -match 'int\s+rdx_hogp_keyboard_report_send\s*\(\s*const\s+rdx_hogp_keyboard_report_t\s*\*\s*report\s*\)'
+Add-CheckResult -Name 'C3_REPORT_SEND_DECL' -Passed $hasReportSend `
+    -Message 'rdx_hogp_keyboard_report_send() declaration missing or wrong signature'
+
+$hasReleaseAll = $KeyboardHeaderText -match 'int\s+rdx_hogp_keyboard_release_all\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C3_RELEASE_ALL_DECL' -Passed $hasReleaseAll `
+    -Message 'rdx_hogp_keyboard_release_all() declaration missing or wrong signature'
+
+$hasIsReady = $KeyboardHeaderText -match 'u8\s+rdx_hogp_keyboard_is_ready\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C3_IS_READY_DECL' -Passed $hasIsReady `
+    -Message 'rdx_hogp_keyboard_is_ready() declaration missing or wrong signature'
+
+$releaseAllBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)int\s+rdx_hogp_keyboard_release_all\s*\(\s*void\s*\)\s*\{(.*?)^\}')
+if ($releaseAllBodyMatch.Success) {
+    $releaseAllBody = $releaseAllBodyMatch.Groups[1].Value
+    $releaseAllZero = $releaseAllBody -match 'rdx_hogp_keyboard_report_t\s+report\s*=\s*\{0\}'
+    Add-CheckResult -Name 'C3_RELEASE_ALL_ZERO' -Passed $releaseAllZero `
+        -Message 'release_all must build and send a zero-initialized report'
+} else {
+    Add-CheckResult -Name 'C3_RELEASE_ALL_ZERO' -Passed $false -Message 'rdx_hogp_keyboard_release_all() not found'
+}
+
+# C3.3 HOGP module no longer knows physical keys or legacy wrappers
+$forbiddenPatterns = @(
+    'KEY_IO_NUM',
+    'KEY_ACTION_',
+    'key_to_hid_usage',
+    'RDX_HOGP_KEYMAP_',
+    'rdx_hogp_on_io_num_key',
+    'rdx_hogp_key_click_index',
+    'hogp_key_send',
+    'hogp_key_click_send'
+)
+
+foreach ($pattern in $forbiddenPatterns) {
+    $found = $KeyboardCText -match [regex]::Escape($pattern)
+    Add-CheckResult -Name "C3_KEYBOARD_NO_$pattern" -Passed (-not $found) `
+        -Message "forbidden pattern '$pattern' found in rdx_hogp_keyboard.c"
+}
+
+# C3.4 BLE Server uses only formal rdx_hogp_mode_get/set
+$legacyModeGet = [regex]::Match($ServerText, '(?<!rdx_)\bhogp_mode_get\b')
+$legacyModeSet = [regex]::Match($ServerText, '(?<!rdx_)\bhogp_mode_set\b')
+Add-CheckResult -Name 'C3_SERVER_NO_LEGACY_HOGP_MODE_GET' -Passed (-not $legacyModeGet.Success) `
+    -Message 'rdx_ble_server.c must not call legacy hogp_mode_get()'
+Add-CheckResult -Name 'C3_SERVER_NO_LEGACY_HOGP_MODE_SET' -Passed (-not $legacyModeSet.Success) `
+    -Message 'rdx_ble_server.c must not call legacy hogp_mode_set()'
+
+$formalModeGet = $ServerText -match '\brdx_hogp_mode_get\b'
+$formalModeSet = $ServerText -match '\brdx_hogp_mode_set\b'
+Add-CheckResult -Name 'C3_SERVER_USES_FORMAL_MODE_GET' -Passed $formalModeGet `
+    -Message 'rdx_ble_server.c must call rdx_hogp_mode_get()'
+Add-CheckResult -Name 'C3_SERVER_USES_FORMAL_MODE_SET' -Passed $formalModeSet `
+    -Message 'rdx_ble_server.c must call rdx_hogp_mode_set()'
+
+# C3.5 rdx_app.c hosts the temporary NUM debug adapter
+$appIncludesHogp = $AppCText -match '#include\s+"rdx_hogp_keyboard\.h"'
+Add-CheckResult -Name 'C3_APP_INCLUDES_HOGP_HEADER' -Passed $appIncludesHogp `
+    -Message 'rdx_app.c must explicitly include rdx_hogp_keyboard.h'
+
+$appUsesOldEntry = $AppCText -match 'rdx_hogp_on_io_num_key'
+Add-CheckResult -Name 'C3_APP_NO_OLD_HOGP_ENTRY' -Passed (-not $appUsesOldEntry) `
+    -Message 'rdx_app.c must not call rdx_hogp_on_io_num_key()'
+
+$appUsesAdapter = $AppCText -match 'rdx_app_hogp_debug_num_key'
+Add-CheckResult -Name 'C3_APP_USES_DEBUG_ADAPTER' -Passed $appUsesAdapter `
+    -Message 'rdx_app.c must call rdx_app_hogp_debug_num_key()'
+
+# C3.6 Disabled stubs cover all public declarations
+$disabledBranchMatch = [regex]::Match($KeyboardCText,
+    '(?sm)#else[^\r\n]*TCFG_RDX_HOGP_ENABLE[^\r\n]*stubs[^\r\n]*\r?\n(.*?)#endif[^\r\n]*TCFG_RDX_HOGP_ENABLE')
+
+if ($disabledBranchMatch.Success) {
+    $disabledBranch = $disabledBranchMatch.Groups[1].Value
+    $requiredStubs = @(
+        'rdx_hogp_init',
+        'rdx_hogp_deinit',
+        'rdx_hogp_runtime_cleanup',
+        'rdx_hogp_mode_get',
+        'rdx_hogp_mode_set',
+        'rdx_hogp_is_handle',
+        'rdx_hogp_att_read',
+        'rdx_hogp_att_write',
+        'rdx_hogp_on_connected',
+        'rdx_hogp_on_disconnected',
+        'rdx_hogp_on_encryption_change',
+        'rdx_hogp_on_sm_event',
+        'rdx_hogp_fill_adv_data',
+        'rdx_hogp_adv_start',
+        'rdx_hogp_adv_stop',
+        'rdx_hogp_dump_state',
+        'rdx_hogp_keyboard_report_send',
+        'rdx_hogp_keyboard_release_all',
+        'rdx_hogp_keyboard_is_ready'
+    )
+
+    foreach ($stub in $requiredStubs) {
+        $found = $disabledBranch -match [regex]::Escape($stub)
+        Add-CheckResult -Name "C3_DISABLED_STUB_$stub" -Passed $found `
+            -Message "disabled branch missing stub for $stub"
+    }
+} else {
+    Add-CheckResult -Name 'C3_DISABLED_STUB_BRANCH' -Passed $false `
+        -Message 'could not locate disabled stub branch in rdx_hogp_keyboard.c'
+}
 
 # -----------------------------------------------------------------------------
 # Summary

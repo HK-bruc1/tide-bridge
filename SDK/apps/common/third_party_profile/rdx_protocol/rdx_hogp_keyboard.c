@@ -77,19 +77,7 @@ static volatile u8 s_hogp_connected = 0;
 static volatile u8 s_hid_notify_enabled = 0;
 static volatile u8 s_hogp_encrypted = 0;
 static u16 s_hid_con_handle = 0;
-static u8 s_hid_input_report[8] = {0};
-static u16 s_hogp_key_up_timer = 0;
-static u32 s_hogp_generation = 0;
-static u32 s_hogp_key_generation = 0;
-
-/* Default 5-key keymap (A, B, C, D, E) — centralized in rdx_hogp_config.h */
-static const u8 key_to_hid_usage[5] = {
-    RDX_HOGP_KEYMAP_A,
-    RDX_HOGP_KEYMAP_B,
-    RDX_HOGP_KEYMAP_C,
-    RDX_HOGP_KEYMAP_D,
-    RDX_HOGP_KEYMAP_E,
-};
+static rdx_hogp_keyboard_report_t s_hid_input_report = {0};
 
 static u8 hid_protocol_mode = 1;  // Report Protocol
 
@@ -118,32 +106,6 @@ static uint16_t hid_read_helper(const u8 *data, u16 data_len,
         memcpy(buffer, data + offset, len);
     }
     return len;
-}
-
-static void hogp_cancel_key_up_timer(void)
-{
-    if (s_hogp_key_up_timer) {
-        sys_timeout_del(s_hogp_key_up_timer);
-        s_hogp_key_up_timer = 0;
-    }
-}
-
-static void hogp_key_up_timeout(void *priv)
-{
-    u8 usage = (u8)(u32)priv;
-
-    s_hogp_key_up_timer = 0;
-
-    if (s_hogp_app_ble_hdl == NULL) {
-        RDX_HOGP_ERROR("key_up timeout ignored: server hdl NULL");
-        return;
-    }
-    if (s_hogp_generation != s_hogp_key_generation) {
-        RDX_HOGP_ERROR("key_up timeout ignored: stale generation");
-        return;
-    }
-
-    rdx_hogp_key_send_usage(usage, 0);
 }
 
 static void hogp_adv_start_internal(void)
@@ -182,14 +144,12 @@ static void hogp_adv_stop_internal(void)
 
 static void hogp_runtime_cleanup(void)
 {
-    hogp_cancel_key_up_timer();
-    memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
+    memset((void *)&s_hid_input_report, 0, sizeof(s_hid_input_report));
     s_hogp_mode = 0;
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
     s_hogp_encrypted = 0;
-    s_hogp_generation++;
 }
 
 void rdx_hogp_runtime_cleanup(void)
@@ -208,15 +168,13 @@ static void hogp_module_cleanup(void)
 ******************************************************************************/
 void rdx_hogp_init(void *app_ble_hdl)
 {
-    hogp_cancel_key_up_timer();
-    s_hogp_generation++;
     s_hogp_app_ble_hdl = app_ble_hdl;
     s_hogp_mode = 0;
     s_hogp_connected = 0;
     s_hid_notify_enabled = 0;
     s_hogp_encrypted = 0;
     s_hid_con_handle = 0;
-    memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
+    memset((void *)&s_hid_input_report, 0, sizeof(s_hid_input_report));
     rdx_hogp_dump_state();
 }
 
@@ -283,7 +241,9 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
     case HID_INFORMATION_VALUE_HANDLE:
         return hid_read_helper(rdx_hogp_hid_information, RDX_HOGP_HID_INFORMATION_LEN, offset, buffer, buffer_size);
     case HID_INPUT_REPORT_VALUE_HANDLE:
-        return hid_read_helper(s_hid_input_report, sizeof(s_hid_input_report), offset, buffer, buffer_size);
+        return hid_read_helper((const u8 *)&s_hid_input_report,
+                               RDX_HOGP_KEYBOARD_REPORT_LEN,
+                               offset, buffer, buffer_size);
     case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
         if (buffer && buffer_size >= 2) {
             buffer[0] = multi_att_get_ccc_config(connection_handle, att_handle) & 0xFF;
@@ -337,6 +297,70 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
 }
 
 /******************************************************************************
+* Keyboard Report API
+******************************************************************************/
+u8 rdx_hogp_keyboard_is_ready(void)
+{
+    if (!s_hogp_connected) {
+        return 0;
+    }
+    if (s_hogp_app_ble_hdl == NULL) {
+        return 0;
+    }
+    if (!s_hid_notify_enabled) {
+        return 0;
+    }
+#if RDX_HOGP_ENCRYPTION_REQUIRED
+    if (!s_hogp_encrypted) {
+        return 0;
+    }
+#endif
+    if (!rdx_ble_connection_owner_is_hogp()) {
+        return 0;
+    }
+    return 1;
+}
+
+int rdx_hogp_keyboard_report_send(
+    const rdx_hogp_keyboard_report_t *report)
+{
+    u8 payload[RDX_HOGP_KEYBOARD_REPORT_LEN];
+
+    if (report == NULL) {
+        return -1;
+    }
+
+    if (!rdx_hogp_keyboard_is_ready()) {
+        RDX_HOGP_ERROR("report_send skipped: not ready");
+        rdx_hogp_dump_state();
+        return -1;
+    }
+
+    memcpy(payload, report, sizeof(payload));
+
+    RDX_HOGP_LOG("report_send %02x %02x %02x %02x %02x %02x %02x %02x",
+                 payload[0], payload[1], payload[2], payload[3],
+                 payload[4], payload[5], payload[6], payload[7]);
+
+    int ret = app_ble_att_send_data(s_hogp_app_ble_hdl,
+                                    HID_INPUT_REPORT_VALUE_HANDLE,
+                                    payload, sizeof(payload),
+                                    ATT_OP_NOTIFY);
+    if (ret != APP_BLE_NO_ERROR) {
+        RDX_HOGP_ERROR("report_send failed ret=%d", ret);
+        rdx_hogp_dump_state();
+    }
+
+    return ret;
+}
+
+int rdx_hogp_keyboard_release_all(void)
+{
+    rdx_hogp_keyboard_report_t report = {0};
+    return rdx_hogp_keyboard_report_send(&report);
+}
+
+/******************************************************************************
 * Connection / security events
 ******************************************************************************/
 void rdx_hogp_dump_state(void)
@@ -371,8 +395,7 @@ void rdx_hogp_on_disconnected(u16 con_handle)
     if (!s_hogp_mode) {
         return;
     }
-    hogp_cancel_key_up_timer();
-    memset((void *)s_hid_input_report, 0, sizeof(s_hid_input_report));
+    memset((void *)&s_hid_input_report, 0, sizeof(s_hid_input_report));
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
@@ -458,141 +481,6 @@ void rdx_hogp_adv_stop(void)
     hogp_adv_stop_internal();
 }
 
-/******************************************************************************
-* Key input
-******************************************************************************/
-int rdx_hogp_key_send_usage(u8 usage, u8 pressed)
-{
-    u8 report[8] = {0};
-
-    if (pressed) {
-        report[2] = usage;
-    }
-
-    RDX_HOGP_LOG("key_send usage=0x%02x pressed=%d report=%02x %02x %02x %02x %02x %02x %02x %02x conn=%d notify=%d encrypted=%d",
-             usage, pressed,
-             report[0], report[1], report[2], report[3],
-             report[4], report[5], report[6], report[7],
-             s_hogp_connected, s_hid_notify_enabled, s_hogp_encrypted);
-
-    if (!s_hogp_connected) {
-        RDX_HOGP_ERROR("key_send skipped: not connected");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-    if (s_hogp_app_ble_hdl == NULL) {
-        RDX_HOGP_ERROR("key_send skipped: server hdl NULL");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-    if (!s_hid_notify_enabled) {
-        RDX_HOGP_ERROR("key_send skipped: notify not enabled");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-#if RDX_HOGP_ENCRYPTION_REQUIRED
-    if (!s_hogp_encrypted) {
-        RDX_HOGP_ERROR("key_send skipped: not encrypted");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-#endif
-
-    if (!rdx_ble_connection_owner_is_hogp()) {
-        RDX_HOGP_ERROR("key_send skipped: not HOGP owner");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-
-    int ret = app_ble_att_send_data(s_hogp_app_ble_hdl,
-                                    HID_INPUT_REPORT_VALUE_HANDLE,
-                                    report, sizeof(report),
-                                    ATT_OP_NOTIFY);
-    RDX_HOGP_LOG("key_send ret=%d", ret);
-    if (ret != APP_BLE_NO_ERROR) {
-        RDX_HOGP_ERROR("key_send failed ret=%d", ret);
-        rdx_hogp_dump_state();
-    }
-    return ret;
-}
-
-int rdx_hogp_key_click_usage(u8 usage)
-{
-    int ret = rdx_hogp_key_send_usage(usage, 1);
-
-    if (ret == APP_BLE_NO_ERROR) {
-        hogp_cancel_key_up_timer();
-        s_hogp_key_generation = s_hogp_generation;
-        s_hogp_key_up_timer = sys_timeout_add((void *)(u32)usage, hogp_key_up_timeout, RDX_HOGP_KEY_UP_DELAY_MS);
-    }
-
-    return ret;
-}
-
-int rdx_hogp_key_click_index(u8 key_index)
-{
-    if (key_index >= 5) {
-        return -1;
-    }
-    return rdx_hogp_key_click_usage(key_to_hid_usage[key_index]);
-}
-
-int rdx_hogp_on_io_num_key(u8 num_idx, u8 action)
-{
-#if RDX_BLE_DEBUG_MODE_SWITCH_KEY
-    if (num_idx == 0 && action == KEY_ACTION_CLICK && !s_hogp_mode) {
-        rdx_ble_mode_request_hogp(1);
-        RDX_HOGP_LOG("enter HOGP mode");
-        return 0;
-    }
-    if (num_idx == 0 && action == KEY_ACTION_LONG && s_hogp_mode) {
-        rdx_ble_mode_request_hogp(0);
-        RDX_HOGP_LOG("exit HOGP mode");
-        return 0;
-    }
-#endif
-
-    if (!s_hogp_mode) {
-        return -1;
-    }
-
-    if (action == KEY_ACTION_CLICK) {
-        return rdx_hogp_key_click_index(num_idx - 1);
-    }
-
-    return -1;
-}
-
-/******************************************************************************
-* Legacy compatibility wrappers
-******************************************************************************/
-void hogp_mode_set(u8 enable)
-{
-    rdx_hogp_mode_set(enable);
-}
-
-u8 hogp_mode_get(void)
-{
-    return rdx_hogp_mode_get();
-}
-
-void hogp_key_send(u8 key_index, u8 pressed)
-{
-    if (key_index >= 5) {
-        RDX_HOGP_ERROR("key_index %d out of range", key_index);
-        return;
-    }
-    rdx_hogp_key_send_usage(key_to_hid_usage[key_index], pressed);
-}
-
-void hogp_key_click_send(u8 key_index)
-{
-    if (key_index >= 5) {
-        return;
-    }
-    rdx_hogp_key_click_index(key_index);
-}
-
 #else  /* !(TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)) — stubs */
 
 void rdx_hogp_init(void *app_ble_hdl) { (void)app_ble_hdl; }
@@ -614,16 +502,23 @@ void rdx_hogp_on_sm_event(u8 pt, u8 *pk, u16 sz) { (void)pt; (void)pk; (void)sz;
 int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len) { (void)adv_data; (void)max_len; return 0; }
 void rdx_hogp_adv_start(void) {}
 void rdx_hogp_adv_stop(void) {}
-int  rdx_hogp_key_send_usage(u8 usage, u8 pressed) { (void)usage; (void)pressed; return -1; }
-int  rdx_hogp_key_click_usage(u8 usage) { (void)usage; return -1; }
-int  rdx_hogp_key_click_index(u8 key_index) { (void)key_index; return -1; }
-int  rdx_hogp_on_io_num_key(u8 num_idx, u8 action) { (void)num_idx; (void)action; return -1; }
 void rdx_hogp_dump_state(void) {}
 
-/* Legacy wrappers — stubs */
-void hogp_mode_set(u8 enable) { (void)enable; }
-u8   hogp_mode_get(void) { return 0; }
-void hogp_key_send(u8 key_index, u8 pressed) { (void)key_index; (void)pressed; }
-void hogp_key_click_send(u8 key_index) { (void)key_index; }
+int rdx_hogp_keyboard_report_send(
+    const rdx_hogp_keyboard_report_t *report)
+{
+    (void)report;
+    return -1;
+}
+
+int rdx_hogp_keyboard_release_all(void)
+{
+    return -1;
+}
+
+u8 rdx_hogp_keyboard_is_ready(void)
+{
+    return 0;
+}
 
 #endif /* TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */

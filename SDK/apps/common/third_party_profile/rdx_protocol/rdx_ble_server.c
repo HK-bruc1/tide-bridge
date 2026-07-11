@@ -2408,7 +2408,7 @@ static void rdx_ble_mode_start_hogp_advertising(void)
 {
     rdx_ble_server_adv_interval_change_timer_stop();
 #if TCFG_RDX_HOGP_ENABLE
-    hogp_mode_set(1);
+    rdx_hogp_mode_set(1);
 #else
     /* HOGP compiled off: fall back to RDX advertising */
     rdx_ble_server_adv_enable(1);
@@ -2457,10 +2457,10 @@ static void rdx_ble_mode_restart_hogp_advertising(void)
 
     rdx_ble_server_adv_interval_change_timer_stop();
 #if TCFG_RDX_HOGP_ENABLE
-    if (hogp_mode_get()) {
+    if (rdx_hogp_mode_get()) {
         rdx_hogp_adv_start();
     } else {
-        hogp_mode_set(1);
+        rdx_hogp_mode_set(1);
     }
 #else
     rdx_ble_server_adv_enable(1);
@@ -2471,7 +2471,7 @@ static void rdx_ble_mode_sync_hogp_runtime(void)
 {
 #if TCFG_RDX_HOGP_ENABLE
     if (s_ble_mode.advertised_mode == RDX_BLE_MODE_CONFIG) {
-        if (hogp_mode_get()) {
+        if (rdx_hogp_mode_get()) {
             rdx_hogp_runtime_cleanup();
         }
     }

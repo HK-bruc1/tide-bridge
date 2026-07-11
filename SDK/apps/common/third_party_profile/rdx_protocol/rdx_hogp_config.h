@@ -53,13 +53,6 @@ extern "C" {
 #endif
 
 /******************************************************************************
-* Timing
-******************************************************************************/
-#ifndef RDX_HOGP_KEY_UP_DELAY_MS
-#define RDX_HOGP_KEY_UP_DELAY_MS             20
-#endif
-
-/******************************************************************************
 * Advertising
 ******************************************************************************/
 #ifndef RDX_HOGP_APPEARANCE
@@ -72,25 +65,6 @@ extern "C" {
 
 #ifndef RDX_HOGP_CUSTOM_NAME
 #define RDX_HOGP_CUSTOM_NAME                 "VibeKeyboard"
-#endif
-
-/******************************************************************************
-* Default Keymap (USB HID Keyboard Usage IDs)
-******************************************************************************/
-#ifndef RDX_HOGP_KEYMAP_A
-#define RDX_HOGP_KEYMAP_A                    0x04   /* A */
-#endif
-#ifndef RDX_HOGP_KEYMAP_B
-#define RDX_HOGP_KEYMAP_B                    0x05   /* B */
-#endif
-#ifndef RDX_HOGP_KEYMAP_C
-#define RDX_HOGP_KEYMAP_C                    0x06   /* C */
-#endif
-#ifndef RDX_HOGP_KEYMAP_D
-#define RDX_HOGP_KEYMAP_D                    0x07   /* D */
-#endif
-#ifndef RDX_HOGP_KEYMAP_E
-#define RDX_HOGP_KEYMAP_E                    0x08   /* E */
 #endif
 
 /******************************************************************************
