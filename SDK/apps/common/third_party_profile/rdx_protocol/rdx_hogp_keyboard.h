@@ -68,8 +68,8 @@ void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size);
 /******************************************************************************
 * Advertising
 ******************************************************************************/
-int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len);
-void rdx_hogp_adv_start(void);
+int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len, const char *local_name);
+void rdx_hogp_adv_start(u16 adv_interval_min, const char *local_name);
 void rdx_hogp_adv_stop(void);
 
 /******************************************************************************

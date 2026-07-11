@@ -29,8 +29,37 @@ extern "C" {
 #define RDX_HOGP_UUID_HID_CONTROL_POINT                  0x2A4C
 #define RDX_HOGP_UUID_REPORT_REFERENCE                   0x2908
 #define RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION 0x2902
+#define RDX_HOGP_UUID_PRIMARY_SERVICE                    0x2800
+#define RDX_HOGP_UUID_CHARACTERISTIC                     0x2803
 
 #define RDX_HOGP_PROTOCOL_MODE_DEFAULT                   0x01
+
+/******************************************************************************
+* JL ATT attribute flags and characteristic properties used by Profile v1.
+******************************************************************************/
+#define RDX_HOGP_ATT_PROP_READ                           0x02
+#define RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE         0x04
+#define RDX_HOGP_ATT_PROP_WRITE                          0x08
+#define RDX_HOGP_ATT_PROP_NOTIFY                         0x10
+
+#define RDX_HOGP_ATT_FLAG_DYNAMIC                        0x0100
+
+#define RDX_HOGP_CHAR_PROP_PROTOCOL_MODE                 (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE)
+#define RDX_HOGP_CHAR_PROP_INPUT_REPORT                  (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE | RDX_HOGP_ATT_PROP_NOTIFY)
+#define RDX_HOGP_CHAR_PROP_REPORT_MAP                    RDX_HOGP_ATT_PROP_READ
+#define RDX_HOGP_CHAR_PROP_HID_INFORMATION               RDX_HOGP_ATT_PROP_READ
+#define RDX_HOGP_CHAR_PROP_CONTROL_POINT                 RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE
+#define RDX_HOGP_CHAR_PROP_OUTPUT_REPORT                 (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE | RDX_HOGP_ATT_PROP_WRITE)
+
+#define RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE           RDX_HOGP_CHAR_PROP_PROTOCOL_MODE
+#define RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE            (RDX_HOGP_CHAR_PROP_INPUT_REPORT | RDX_HOGP_ATT_FLAG_DYNAMIC)
+#define RDX_HOGP_ATT_FLAGS_REPORT_MAP_VALUE              (RDX_HOGP_CHAR_PROP_REPORT_MAP | RDX_HOGP_ATT_FLAG_DYNAMIC)
+#define RDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE         (RDX_HOGP_CHAR_PROP_HID_INFORMATION | RDX_HOGP_ATT_FLAG_DYNAMIC)
+#define RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE           (RDX_HOGP_CHAR_PROP_CONTROL_POINT | RDX_HOGP_ATT_FLAG_DYNAMIC)
+#define RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE           RDX_HOGP_CHAR_PROP_OUTPUT_REPORT
+
+#define RDX_HOGP_CCC_DEFAULT_VALUE                       0x0000
+#define RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE             0x00
 
 /******************************************************************************
 * HID Service handles (0x0016-0x0022)
@@ -54,14 +83,15 @@ extern "C" {
 #define HID_SERVICE_END_HANDLE                                          HID_CONTROL_POINT_VALUE_HANDLE
 
 /******************************************************************************
-* Output Report (not restructured in Phase 1/2)
+* Output Report (Profile v1 compatibility debt)
 *
 * Handle 0x0029 lives outside the HID Service range (0x0016-0x0022). It is
 * intentionally NOT included in HID_SERVICE_END_HANDLE; write routing must
-* handle it separately if it is ever forwarded to the HOGP module. In Phase 2
-* it remains handled inline inside rdx_ble_server.c.
+* handle it separately.
 ******************************************************************************/
+#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                         0x0028
 #define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0029
+#define HID_OUTPUT_REPORT_REFERENCE_HANDLE                              0x002a
 
 /******************************************************************************
 * Report Map (Standard 70-byte boot keyboard report descriptor)
@@ -84,6 +114,47 @@ extern const u8 rdx_hogp_hid_information[];
 #define RDX_HOGP_INPUT_REPORT_TYPE        0x01   /* Input */
 #define RDX_HOGP_OUTPUT_REPORT_ID         0x01
 #define RDX_HOGP_OUTPUT_REPORT_TYPE       0x02   /* Output */
+
+/******************************************************************************
+* ATT table byte helpers
+*
+* These helpers keep the HID section in rdx_profile_data[] tied to the profile
+* constants above. The expanded bytes intentionally match the frozen Profile v1
+* host contract.
+******************************************************************************/
+#define RDX_HOGP_ATT_U16_LE(value) \
+    ((u8)((value) & 0xff)), ((u8)(((value) >> 8) & 0xff))
+
+#define RDX_HOGP_ATT_HEADER(size, flags, handle, att_uuid) \
+    RDX_HOGP_ATT_U16_LE(size), \
+    RDX_HOGP_ATT_U16_LE(flags), \
+    RDX_HOGP_ATT_U16_LE(handle), \
+    RDX_HOGP_ATT_U16_LE(att_uuid)
+
+#define RDX_HOGP_ATT_PRIMARY_SERVICE_16(handle, service_uuid) \
+    RDX_HOGP_ATT_HEADER(0x000a, 0x0002, (handle), RDX_HOGP_UUID_PRIMARY_SERVICE), \
+    RDX_HOGP_ATT_U16_LE(service_uuid)
+
+#define RDX_HOGP_ATT_CHARACTERISTIC_16(handle, properties, value_handle, char_uuid) \
+    RDX_HOGP_ATT_HEADER(0x000d, 0x0002, (handle), RDX_HOGP_UUID_CHARACTERISTIC), \
+    ((u8)(properties)), \
+    RDX_HOGP_ATT_U16_LE(value_handle), \
+    RDX_HOGP_ATT_U16_LE(char_uuid)
+
+#define RDX_HOGP_ATT_VALUE_16(handle, flags, value_uuid) \
+    RDX_HOGP_ATT_HEADER(0x0008, (flags), (handle), (value_uuid))
+
+#define RDX_HOGP_ATT_VALUE_16_U8(handle, flags, value_uuid, value) \
+    RDX_HOGP_ATT_HEADER(0x0009, (flags), (handle), (value_uuid)), \
+    ((u8)(value))
+
+#define RDX_HOGP_ATT_CCC(handle, value) \
+    RDX_HOGP_ATT_HEADER(0x000a, 0x010a, (handle), RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION), \
+    RDX_HOGP_ATT_U16_LE(value)
+
+#define RDX_HOGP_ATT_REPORT_REFERENCE(handle, report_id, report_type) \
+    RDX_HOGP_ATT_HEADER(0x000a, 0x0002, (handle), RDX_HOGP_UUID_REPORT_REFERENCE), \
+    ((u8)(report_id)), ((u8)(report_type))
 
 #ifdef __cplusplus
 }

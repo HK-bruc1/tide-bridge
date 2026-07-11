@@ -93,13 +93,6 @@ static rdx_hogp_keyboard_report_t s_hid_input_report = {0};
 static volatile u8 s_hogp_suspended = 0;
 static u8 s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
 
-/******************************************************************************
-* Forward references to RDX BLE Server helpers
-******************************************************************************/
-extern char *rdx_ble_server_get_local_name(void);
-extern int rdx_ble_server_adv_enable(u8 enable);
-extern void rdx_ble_server_app_disconnect(void);
-
 static void rdx_hogp_current_report_clear(void)
 {
     memset((void *)&s_hid_input_report, 0, sizeof(s_hid_input_report));
@@ -111,6 +104,18 @@ static void rdx_hogp_current_report_set(const u8 *payload, u8 len)
         return;
     }
     memcpy((void *)&s_hid_input_report, payload, sizeof(s_hid_input_report));
+}
+
+static void hogp_runtime_state_reset(u8 mode_after_reset)
+{
+    rdx_hogp_current_report_clear();
+    s_hogp_mode = mode_after_reset ? 1 : 0;
+    s_hogp_connected = 0;
+    s_hid_con_handle = 0;
+    s_hid_notify_enabled = 0;
+    s_hogp_encrypted = 0;
+    s_hogp_suspended = 0;
+    s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
 }
 
 /******************************************************************************
@@ -133,7 +138,7 @@ static uint16_t hid_read_helper(const u8 *data, u16 data_len,
     return len;
 }
 
-static void hogp_adv_start_internal(void)
+static void hogp_adv_start_internal(u16 adv_interval_min, const char *local_name)
 {
     u8 advData[ADV_RSP_PACKET_MAX];
     u8 len;
@@ -145,13 +150,13 @@ static void hogp_adv_start_internal(void)
     app_ble_adv_enable(s_hogp_app_ble_hdl, 0);
     app_ble_rsp_data_set(s_hogp_app_ble_hdl, NULL, 0);
 
-    len = rdx_hogp_fill_adv_data(advData, sizeof(advData));
+    len = rdx_hogp_fill_adv_data(advData, sizeof(advData), local_name);
     if (len == 0) {
         RDX_HOGP_ERROR("HID adv data build failed");
         return;
     }
     app_ble_set_adv_param(s_hogp_app_ble_hdl,
-                          rdx_ble_server_get_info()->adv_interval_min,
+                          adv_interval_min,
                           APP_ADV_IND, APP_ADV_CHANNEL_ALL);
     app_ble_adv_data_set(s_hogp_app_ble_hdl, advData, len);
     app_ble_adv_enable(s_hogp_app_ble_hdl, 1);
@@ -166,20 +171,13 @@ static void hogp_adv_stop_internal(void)
     }
 
     app_ble_adv_enable(s_hogp_app_ble_hdl, 0);
-    rdx_ble_server_adv_enable(1);
 
-    RDX_HOGP_LOG("HID advertising stopped, restore RDX advertising");
+    RDX_HOGP_LOG("HID advertising stopped");
 }
 
 static void hogp_runtime_cleanup(void)
 {
-    rdx_hogp_current_report_clear();
-    s_hogp_mode = 0;
-    s_hogp_connected = 0;
-    s_hid_con_handle = 0;
-    s_hid_notify_enabled = 0;
-    s_hogp_encrypted = 0;
-    s_hogp_suspended = 0;
+    hogp_runtime_state_reset(0);
 }
 
 void rdx_hogp_runtime_cleanup(void)
@@ -199,14 +197,7 @@ static void hogp_module_cleanup(void)
 void rdx_hogp_init(void *app_ble_hdl)
 {
     s_hogp_app_ble_hdl = app_ble_hdl;
-    s_hogp_mode = 0;
-    s_hogp_connected = 0;
-    s_hid_notify_enabled = 0;
-    s_hogp_encrypted = 0;
-    s_hogp_suspended = 0;
-    s_hid_con_handle = 0;
-    s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
-    rdx_hogp_current_report_clear();
+    hogp_runtime_state_reset(0);
     rdx_hogp_dump_state();
 }
 
@@ -231,14 +222,8 @@ void rdx_hogp_mode_set(u8 enable)
         return;
     }
 
-    if (rdx_ble_server_get_info()->ble_conn) {
-        RDX_HOGP_LOG("active ble conn, disconnect before mode switch");
-        rdx_ble_server_app_disconnect();
-    }
-
     if (new_mode) {
-        s_hogp_mode = 1;
-        hogp_adv_start_internal();
+        hogp_runtime_state_reset(1);
         rdx_hogp_dump_state();
     } else {
         hogp_adv_stop_internal();
@@ -568,7 +553,7 @@ static u8 rdx_hogp_adv_append_val(u8 *adv_data,
     return rdx_hogp_adv_append_data(adv_data, max_len, offset, eir_type, buf, val_len);
 }
 
-int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len)
+int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len, const char *local_name)
 {
     u8 offset = 0;
 
@@ -595,7 +580,7 @@ int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len)
     }
 
 #if RDX_HOGP_NAME_SOURCE == 0
-    const char *name = rdx_ble_server_get_local_name();
+    const char *name = local_name ? local_name : "";
 #else
     const char *name = RDX_HOGP_CUSTOM_NAME;
 #endif
@@ -619,10 +604,10 @@ int rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len)
     return offset;
 }
 
-void rdx_hogp_adv_start(void)
+void rdx_hogp_adv_start(u16 adv_interval_min, const char *local_name)
 {
     if (s_hogp_mode) {
-        hogp_adv_start_internal();
+        hogp_adv_start_internal(adv_interval_min, local_name);
     }
 }
 
@@ -649,8 +634,12 @@ void rdx_hogp_on_connected(u16 con_handle) { (void)con_handle; }
 void rdx_hogp_on_disconnected(u16 con_handle) { (void)con_handle; }
 void rdx_hogp_on_encryption_change(u16 ch, u8 en, u8 st) { (void)ch; (void)en; (void)st; }
 void rdx_hogp_on_sm_event(u8 pt, u8 *pk, u16 sz) { (void)pt; (void)pk; (void)sz; }
-int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len) { (void)adv_data; (void)max_len; return 0; }
-void rdx_hogp_adv_start(void) {}
+int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len, const char *local_name) {
+    (void)adv_data; (void)max_len; (void)local_name; return 0;
+}
+void rdx_hogp_adv_start(u16 adv_interval_min, const char *local_name) {
+    (void)adv_interval_min; (void)local_name;
+}
 void rdx_hogp_adv_stop(void) {}
 void rdx_hogp_dump_state(void) {}
 

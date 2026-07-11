@@ -285,41 +285,63 @@ const uint8_t rdx_profile_data[] = {
     //
     //////////////////////////////////////////////////////
 #if TCFG_RDX_HOGP_ENABLE
-    0x0a, 0x00, 0x02, 0x00, 0x16, 0x00, 0x00, 0x28, 0x12, 0x18,
+    RDX_HOGP_ATT_PRIMARY_SERVICE_16(HID_SERVICE_HANDLE, RDX_HOGP_UUID_HID_SERVICE),
 
      /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE, value=0x01 */
     // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE
-    0x0d, 0x00, 0x02, 0x00, 0x17, 0x00, 0x03, 0x28, 0x06, 0x18, 0x00, 0x4e, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_PROTOCOL_MODE,
+                                   HID_PROTOCOL_MODE_VALUE_HANDLE, RDX_HOGP_UUID_PROTOCOL_MODE),
     // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE
-    0x09, 0x00, 0x06, 0x00, 0x18, 0x00, 0x4e, 0x2a, 0x01,
+    RDX_HOGP_ATT_VALUE_16_U8(HID_PROTOCOL_MODE_VALUE_HANDLE,
+                             RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE,
+                             RDX_HOGP_UUID_PROTOCOL_MODE, RDX_HOGP_PROTOCOL_MODE_DEFAULT),
 
      /* CHARACTERISTIC,  2A4D, READ | WRITE | NOTIFY | DYNAMIC */
     // 0x0019 CHARACTERISTIC 2A4D READ | WRITE | NOTIFY | DYNAMIC
-    0x0d, 0x00, 0x02, 0x00, 0x19, 0x00, 0x03, 0x28, 0x1a, 0x1a, 0x00, 0x4d, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INPUT_REPORT_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_INPUT_REPORT,
+                                   HID_INPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
     // 0x001a VALUE 2A4D READ | WRITE | NOTIFY | DYNAMIC
-    0x08, 0x00, 0x1a, 0x01, 0x1a, 0x00, 0x4d, 0x2a,
+    RDX_HOGP_ATT_VALUE_16(HID_INPUT_REPORT_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,
+                          RDX_HOGP_UUID_REPORT),
     // 0x001b CLIENT_CHARACTERISTIC_CONFIGURATION
-    0x0a, 0x00, 0x0a, 0x01, 0x1b, 0x00, 0x02, 0x29, 0x00, 0x00,
+    RDX_HOGP_ATT_CCC(HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE, RDX_HOGP_CCC_DEFAULT_VALUE),
     // 0x001c REPORT_REFERENCE, report_id=1, report_type=1 (Input)
-    0x0a, 0x00, 0x02, 0x00, 0x1c, 0x00, 0x08, 0x29, 0x01, 0x01,
+    RDX_HOGP_ATT_REPORT_REFERENCE(HID_INPUT_REPORT_REFERENCE_HANDLE,
+                                  RDX_HOGP_INPUT_REPORT_ID, RDX_HOGP_INPUT_REPORT_TYPE),
 
      /* CHARACTERISTIC,  2A4B, READ | DYNAMIC */
     // 0x001d CHARACTERISTIC 2A4B READ | DYNAMIC
-    0x0d, 0x00, 0x02, 0x00, 0x1d, 0x00, 0x03, 0x28, 0x02, 0x1e, 0x00, 0x4b, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_REPORT_MAP_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_REPORT_MAP,
+                                   HID_REPORT_MAP_VALUE_HANDLE, RDX_HOGP_UUID_REPORT_MAP),
     // 0x001e VALUE 2A4B READ | DYNAMIC
-    0x08, 0x00, 0x02, 0x01, 0x1e, 0x00, 0x4b, 0x2a,
+    RDX_HOGP_ATT_VALUE_16(HID_REPORT_MAP_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_REPORT_MAP_VALUE,
+                          RDX_HOGP_UUID_REPORT_MAP),
 
      /* CHARACTERISTIC,  2A4A, READ | DYNAMIC */
     // 0x001f CHARACTERISTIC 2A4A READ | DYNAMIC
-    0x0d, 0x00, 0x02, 0x00, 0x1f, 0x00, 0x03, 0x28, 0x02, 0x20, 0x00, 0x4a, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INFORMATION_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_HID_INFORMATION,
+                                   HID_INFORMATION_VALUE_HANDLE, RDX_HOGP_UUID_HID_INFORMATION),
     // 0x0020 VALUE 2A4A READ | DYNAMIC
-    0x08, 0x00, 0x02, 0x01, 0x20, 0x00, 0x4a, 0x2a,
+    RDX_HOGP_ATT_VALUE_16(HID_INFORMATION_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE,
+                          RDX_HOGP_UUID_HID_INFORMATION),
 
      /* CHARACTERISTIC,  2A4C, WRITE_WITHOUT_RESPONSE | DYNAMIC */
     // 0x0021 CHARACTERISTIC 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
-    0x0d, 0x00, 0x02, 0x00, 0x21, 0x00, 0x03, 0x28, 0x04, 0x22, 0x00, 0x4c, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CONTROL_POINT_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_CONTROL_POINT,
+                                   HID_CONTROL_POINT_VALUE_HANDLE,
+                                   RDX_HOGP_UUID_HID_CONTROL_POINT),
     // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
-    0x08, 0x00, 0x04, 0x01, 0x22, 0x00, 0x4c, 0x2a,
+    RDX_HOGP_ATT_VALUE_16(HID_CONTROL_POINT_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE,
+                          RDX_HOGP_UUID_HID_CONTROL_POINT),
 #endif /* TCFG_RDX_HOGP_ENABLE */
 
     //////////////////////////////////////////////////////
@@ -343,11 +365,18 @@ const uint8_t rdx_profile_data[] = {
 
 #if TCFG_RDX_HOGP_ENABLE
     // 0x0028 CHARACTERISTIC 0x2A4D (Output Report): Read | Write | Write Without Response
-    0x0d, 0x00, 0x02, 0x00, 0x28, 0x00, 0x03, 0x28, 0x0e, 0x29, 0x00, 0x4d, 0x2a,
+    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,
+                                   RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,
+                                   HID_OUTPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
     // 0x0029 VALUE 0x2A4D (Output Report): Read | Write | Write Without Response, 1 byte LED state
-    0x09, 0x00, 0x0e, 0x00, 0x29, 0x00, 0x4d, 0x2a, 0x00,
+    RDX_HOGP_ATT_VALUE_16_U8(HID_OUTPUT_REPORT_VALUE_HANDLE,
+                             RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
+                             RDX_HOGP_UUID_REPORT,
+                             RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE),
     // 0x002a REPORT_REFERENCE (ID=1, Type=2=Output)
-    0x0a, 0x00, 0x02, 0x00, 0x2a, 0x00, 0x08, 0x29, 0x01, 0x02,
+    RDX_HOGP_ATT_REPORT_REFERENCE(HID_OUTPUT_REPORT_REFERENCE_HANDLE,
+                                  RDX_HOGP_OUTPUT_REPORT_ID,
+                                  RDX_HOGP_OUTPUT_REPORT_TYPE),
 #endif /* TCFG_RDX_HOGP_ENABLE */
 
     // END
@@ -2435,6 +2464,8 @@ static void rdx_ble_mode_start_hogp_advertising(void)
     rdx_ble_server_adv_interval_change_timer_stop();
 #if TCFG_RDX_HOGP_ENABLE
     rdx_hogp_mode_set(1);
+    rdx_hogp_adv_start(g_rdx_ble_server_info.adv_interval_min,
+                       rdx_ble_server_get_local_name());
 #else
     /* HOGP compiled off: fall back to RDX advertising */
     rdx_ble_server_adv_enable(1);
@@ -2483,11 +2514,9 @@ static void rdx_ble_mode_restart_hogp_advertising(void)
 
     rdx_ble_server_adv_interval_change_timer_stop();
 #if TCFG_RDX_HOGP_ENABLE
-    if (rdx_hogp_mode_get()) {
-        rdx_hogp_adv_start();
-    } else {
-        rdx_hogp_mode_set(1);
-    }
+    rdx_hogp_mode_set(1);
+    rdx_hogp_adv_start(g_rdx_ble_server_info.adv_interval_min,
+                       rdx_ble_server_get_local_name());
 #else
     rdx_ble_server_adv_enable(1);
 #endif

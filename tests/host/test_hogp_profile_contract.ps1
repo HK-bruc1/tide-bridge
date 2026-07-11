@@ -96,6 +96,56 @@ $HandleSnapshot = [ordered]@{
 
 $HeaderText = Get-Content -Raw -Path $HeaderPath
 
+$ProfileConstantExprMap = @{}
+$ProfileConstantValueCache = @{}
+[regex]::Matches($HeaderText, '(?m)^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+)$') | ForEach-Object {
+    $name = $_.Groups[1].Value
+    $expr = $_.Groups[2].Value
+    $expr = [regex]::Replace($expr, '/\*.*?\*/', '')
+    $expr = $expr -replace '//.*$', ''
+    $expr = $expr.Trim()
+    if ($expr -and ($expr -notmatch '\\$')) {
+        $ProfileConstantExprMap[$name] = $expr
+    }
+}
+
+function Resolve-ProfileConstant {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Token
+    )
+
+    $normalized = $Token.Trim()
+    if ($normalized.StartsWith('(') -and $normalized.EndsWith(')')) {
+        $normalized = $normalized.Substring(1, $normalized.Length - 2).Trim()
+    }
+
+    if ($normalized -match '\|') {
+        $value = 0
+        foreach ($part in ($normalized -split '\|')) {
+            $value = $value -bor (Resolve-ProfileConstant -Token $part)
+        }
+        return $value
+    }
+
+    if ($normalized -match '^0x[0-9A-Fa-f]+$') {
+        return ConvertFrom-HexString -Value $normalized
+    }
+    if ($normalized -match '^\d+$') {
+        return [int]$normalized
+    }
+    if ($ProfileConstantValueCache.ContainsKey($normalized)) {
+        return $ProfileConstantValueCache[$normalized]
+    }
+    if ($ProfileConstantExprMap.ContainsKey($normalized)) {
+        $resolved = Resolve-ProfileConstant -Token $ProfileConstantExprMap[$normalized]
+        $ProfileConstantValueCache[$normalized] = $resolved
+        return $resolved
+    }
+
+    throw "Unknown HOGP profile constant '$normalized'"
+}
+
 foreach ($entry in $HandleSnapshot.GetEnumerator()) {
     $name = $entry.Key
     $expected = $entry.Value
@@ -221,6 +271,79 @@ $ExpectedAttributes = @(
     @{ Handle = 0x0022; Type = 'VALUE'; AttUuid = 0x2A4C }
 )
 
+function ConvertFrom-HogpAttributeMacro {
+    param(
+        [Parameter(Mandatory)]
+        [string]$MacroName,
+
+        [Parameter(Mandatory)]
+        [string]$ArgumentText
+    )
+
+    $args = $ArgumentText -split ',' | ForEach-Object { $_.Trim() }
+    switch ($MacroName) {
+        'RDX_HOGP_ATT_PRIMARY_SERVICE_16' {
+            if ($args.Count -ne 2) { throw "$MacroName expects 2 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'PRIMARY_SERVICE'
+                AttUuid     = Resolve-ProfileConstant 'RDX_HOGP_UUID_PRIMARY_SERVICE'
+                ServiceUuid = Resolve-ProfileConstant $args[1]
+            }
+        }
+        'RDX_HOGP_ATT_CHARACTERISTIC_16' {
+            if ($args.Count -ne 4) { throw "$MacroName expects 4 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'CHARACTERISTIC'
+                AttUuid     = Resolve-ProfileConstant 'RDX_HOGP_UUID_CHARACTERISTIC'
+                Properties  = Resolve-ProfileConstant $args[1]
+                ValueHandle = Resolve-ProfileConstant $args[2]
+                CharUuid    = Resolve-ProfileConstant $args[3]
+            }
+        }
+        'RDX_HOGP_ATT_VALUE_16' {
+            if ($args.Count -ne 3) { throw "$MacroName expects 3 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'VALUE'
+                AttUuid     = Resolve-ProfileConstant $args[2]
+            }
+        }
+        'RDX_HOGP_ATT_VALUE_16_U8' {
+            if ($args.Count -ne 4) { throw "$MacroName expects 4 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'VALUE'
+                AttUuid     = Resolve-ProfileConstant $args[2]
+                Value       = Resolve-ProfileConstant $args[3]
+            }
+        }
+        'RDX_HOGP_ATT_CCC' {
+            if ($args.Count -ne 2) { throw "$MacroName expects 2 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'CLIENT_CHARACTERISTIC_CONFIGURATION'
+                AttUuid     = Resolve-ProfileConstant 'RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION'
+                Value       = Resolve-ProfileConstant $args[1]
+            }
+        }
+        'RDX_HOGP_ATT_REPORT_REFERENCE' {
+            if ($args.Count -ne 3) { throw "$MacroName expects 3 args" }
+            return @{
+                Handle      = Resolve-ProfileConstant $args[0]
+                CommentType = 'REPORT_REFERENCE'
+                AttUuid     = Resolve-ProfileConstant 'RDX_HOGP_UUID_REPORT_REFERENCE'
+                ReportId    = Resolve-ProfileConstant $args[1]
+                ReportType  = Resolve-ProfileConstant $args[2]
+            }
+        }
+        default {
+            throw "Unsupported HOGP attribute macro '$MacroName'"
+        }
+    }
+}
+
 function Test-ProfileAttributeOrder {
     # Extract HID Service block from rdx_profile_data[]
     $blockMatch = [regex]::Match($ServerText,
@@ -232,118 +355,25 @@ function Test-ProfileAttributeOrder {
     }
 
     $block = $blockMatch.Value
-    $lines = $block -split "`r?`n"
-
-    $commentPattern = '^\s*//\s*0x(?<handle>[0-9A-Fa-f]{4})\s+(?<type>\S+)(?:\s+(?<uuid>0x[0-9A-Fa-f]+|[0-9A-Fa-f]+))?.*$'
+    $macroMatches = [regex]::Matches($block, '(?s)(RDX_HOGP_ATT_[A-Z0-9_]+)\s*\((.*?)\)')
+    if ($macroMatches.Count -eq 0) {
+        Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
+            -Message 'HID Service block must use RDX_HOGP_ATT_* profile macros'
+        return
+    }
 
     $parsedAttributes = [System.Collections.Generic.List[hashtable]]::new()
-    $currentEntry = $null
-    $script:parseFailed = $false
-
-    function Complete-CurrentEntry {
-        if ($null -eq $currentEntry) { return }
-
-        $bytes = [regex]::Matches(($currentEntry.ByteLines -join ' '), '0x([0-9A-Fa-f]{2})') | ForEach-Object {
-            ConvertFrom-HexString -Value ("0x" + $_.Groups[1].Value)
+    try {
+        foreach ($match in $macroMatches) {
+            $parsedAttributes.Add((ConvertFrom-HogpAttributeMacro `
+                -MacroName $match.Groups[1].Value `
+                -ArgumentText $match.Groups[2].Value))
         }
-
-        if ($bytes.Count -lt 8) {
-            Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                -Message "handle 0x$($currentEntry.Handle.ToString('X4')) has insufficient byte line data"
-            $script:parseFailed = $true
-            return
-        }
-
-        $size = $bytes[0] -bor ($bytes[1] -shl 8)
-        $flags = $bytes[2] -bor ($bytes[3] -shl 8)
-        $handle = $bytes[4] -bor ($bytes[5] -shl 8)
-        $attUuid = $bytes[6] -bor ($bytes[7] -shl 8)
-
-        $record = [ordered]@{
-            Handle      = $handle
-            CommentType = $currentEntry.Type
-            AttUuid     = $attUuid
-        }
-
-        switch ($currentEntry.Type) {
-            'PRIMARY_SERVICE' {
-                if ($bytes.Count -lt 10) {
-                    Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($handle.ToString('X4')) PRIMARY_SERVICE has no service UUID"
-                    $script:parseFailed = $true
-                    return
-                }
-                $record.ServiceUuid = $bytes[8] -bor ($bytes[9] -shl 8)
-            }
-            'CHARACTERISTIC' {
-                if ($bytes.Count -lt 13) {
-                    Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($handle.ToString('X4')) CHARACTERISTIC has insufficient bytes"
-                    $script:parseFailed = $true
-                    return
-                }
-                $record.Properties = $bytes[8]
-                $record.ValueHandle = $bytes[9] -bor ($bytes[10] -shl 8)
-                $record.CharUuid = $bytes[11] -bor ($bytes[12] -shl 8)
-            }
-            'VALUE' {
-                if ($bytes.Count -gt 8) {
-                    $record.Value = $bytes[8]
-                }
-            }
-            'CLIENT_CHARACTERISTIC_CONFIGURATION' {
-                if ($bytes.Count -lt 10) {
-                    Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($handle.ToString('X4')) CCC has no value"
-                    $script:parseFailed = $true
-                    return
-                }
-                $record.Value = $bytes[8] -bor ($bytes[9] -shl 8)
-            }
-            'REPORT_REFERENCE' {
-                if ($bytes.Count -lt 10) {
-                    Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($handle.ToString('X4')) REPORT_REFERENCE has no report id/type"
-                    $script:parseFailed = $true
-                    return
-                }
-                $record.ReportId = $bytes[8]
-                $record.ReportType = $bytes[9]
-            }
-            default {
-                Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                    -Message "handle 0x$($handle.ToString('X4')) has unknown attribute type '$($currentEntry.Type)'"
-                $script:parseFailed = $true
-                return
-            }
-        }
-
-        $parsedAttributes.Add($record)
-        $script:currentEntry = $null
+    } catch {
+        Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false -Message $_.Exception.Message
+        return
     }
 
-    foreach ($line in $lines) {
-        $cm = [regex]::Match($line, $commentPattern)
-        if ($cm.Success) {
-            Complete-CurrentEntry
-            if ($script:parseFailed) { return }
-
-            $currentEntry = @{
-                Handle    = ConvertFrom-HexString -Value ("0x" + $cm.Groups['handle'].Value)
-                Type      = $cm.Groups['type'].Value.Trim().TrimEnd(',').ToUpper()
-                ByteLines = [System.Collections.Generic.List[string]]::new()
-            }
-            continue
-        }
-
-        if (($line -match '0x[0-9A-Fa-f]{2}') -and ($null -ne $currentEntry)) {
-            $currentEntry.ByteLines.Add($line)
-        }
-    }
-    Complete-CurrentEntry
-    if ($script:parseFailed) { return }
-
-    # Compare parsed attributes against expected snapshot
     if ($parsedAttributes.Count -ne $ExpectedAttributes.Count) {
         Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
             -Message "expected $($ExpectedAttributes.Count) attributes, found $($parsedAttributes.Count)"
@@ -354,65 +384,65 @@ function Test-ProfileAttributeOrder {
         $exp = $ExpectedAttributes[$i]
         $act = $parsedAttributes[$i]
 
-        if ($act.Handle -ne $exp.Handle) {
+        if ($act['Handle'] -ne $exp.Handle) {
             Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                -Message "attribute at index $i expected handle 0x$($exp.Handle.ToString('X4')) but found 0x$($act.Handle.ToString('X4'))"
+                -Message "attribute at index $i expected handle 0x$($exp.Handle.ToString('X4')) but found 0x$($act['Handle'].ToString('X4'))"
             return
         }
-        if ($act.CommentType -ne $exp.Type) {
+        if ($act['CommentType'] -ne $exp.Type) {
             Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                -Message "handle 0x$($exp.Handle.ToString('X4')) expected type $($exp.Type) but found $($act.CommentType)"
+                -Message "handle 0x$($exp.Handle.ToString('X4')) expected type $($exp.Type) but found $($act['CommentType'])"
             return
         }
-        if ($act.AttUuid -ne $exp.AttUuid) {
+        if ($act['AttUuid'] -ne $exp.AttUuid) {
             Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                -Message "handle 0x$($exp.Handle.ToString('X4')) expected att_uuid 0x$($exp.AttUuid.ToString('X4')) but found 0x$($act.AttUuid.ToString('X4'))"
+                -Message "handle 0x$($exp.Handle.ToString('X4')) expected att_uuid 0x$($exp.AttUuid.ToString('X4')) but found 0x$($act['AttUuid'].ToString('X4'))"
             return
         }
 
         switch ($exp.Type) {
             'PRIMARY_SERVICE' {
-                if ($act.ServiceUuid -ne $exp.ServiceUuid) {
+                if ($act['ServiceUuid'] -ne $exp.ServiceUuid) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) PRIMARY_SERVICE expected service_uuid 0x$($exp.ServiceUuid.ToString('X4')) but found 0x$($act.ServiceUuid.ToString('X4'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) PRIMARY_SERVICE expected service_uuid 0x$($exp.ServiceUuid.ToString('X4')) but found 0x$($act['ServiceUuid'].ToString('X4'))"
                     return
                 }
             }
             'CHARACTERISTIC' {
-                if ($act.Properties -ne $exp.Properties) {
+                if ($act['Properties'] -ne $exp.Properties) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected properties 0x$($exp.Properties.ToString('X2')) but found 0x$($act.Properties.ToString('X2'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected properties 0x$($exp.Properties.ToString('X2')) but found 0x$($act['Properties'].ToString('X2'))"
                     return
                 }
-                if ($act.ValueHandle -ne $exp.ValueHandle) {
+                if ($act['ValueHandle'] -ne $exp.ValueHandle) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected value_handle 0x$($exp.ValueHandle.ToString('X4')) but found 0x$($act.ValueHandle.ToString('X4'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected value_handle 0x$($exp.ValueHandle.ToString('X4')) but found 0x$($act['ValueHandle'].ToString('X4'))"
                     return
                 }
-                if ($act.CharUuid -ne $exp.CharUuid) {
+                if ($act['CharUuid'] -ne $exp.CharUuid) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected characteristic_uuid 0x$($exp.CharUuid.ToString('X4')) but found 0x$($act.CharUuid.ToString('X4'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) CHARACTERISTIC expected characteristic_uuid 0x$($exp.CharUuid.ToString('X4')) but found 0x$($act['CharUuid'].ToString('X4'))"
                     return
                 }
             }
             'VALUE' {
-                if ($exp.ContainsKey('Value') -and ($act.Value -ne $exp.Value)) {
+                if ($exp.ContainsKey('Value') -and ($act['Value'] -ne $exp.Value)) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) VALUE expected value 0x$($exp.Value.ToString('X2')) but found 0x$($act.Value.ToString('X2'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) VALUE expected value 0x$($exp.Value.ToString('X2')) but found 0x$($act['Value'].ToString('X2'))"
                     return
                 }
             }
             'CLIENT_CHARACTERISTIC_CONFIGURATION' {
-                if ($act.Value -ne $exp.Value) {
+                if ($act['Value'] -ne $exp.Value) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) CCC expected value 0x$($exp.Value.ToString('X4')) but found 0x$($act.Value.ToString('X4'))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) CCC expected value 0x$($exp.Value.ToString('X4')) but found 0x$($act['Value'].ToString('X4'))"
                     return
                 }
             }
             'REPORT_REFERENCE' {
-                if ($act.ReportId -ne $exp.ReportId -or $act.ReportType -ne $exp.ReportType) {
+                if ($act['ReportId'] -ne $exp.ReportId -or $act['ReportType'] -ne $exp.ReportType) {
                     Add-CheckResult -Name 'PROFILE_ATTRIBUTE_ORDER' -Passed $false `
-                        -Message "handle 0x$($exp.Handle.ToString('X4')) REPORT_REFERENCE expected (id=0x$($exp.ReportId.ToString('X2')), type=0x$($exp.ReportType.ToString('X2'))) but found (id=0x$($act.ReportId.ToString('X2')), type=0x$($act.ReportType.ToString('X2')))"
+                        -Message "handle 0x$($exp.Handle.ToString('X4')) REPORT_REFERENCE expected (id=0x$($exp.ReportId.ToString('X2')), type=0x$($exp.ReportType.ToString('X2'))) but found (id=0x$($act['ReportId'].ToString('X2')), type=0x$($act['ReportType'].ToString('X2')))"
                     return
                 }
             }
@@ -427,10 +457,16 @@ Test-ProfileAttributeOrder
 # -----------------------------------------------------------------------------
 # CHECK: Output Report block (0x0028-0x002a) is gated by TCFG_RDX_HOGP_ENABLE
 # -----------------------------------------------------------------------------
-$outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n\s*//\s*0x0028\s+CHARACTERISTIC\s+0x2A4D.*?0x01,\s*0x02,\s*\r?\n\s*#endif\s*/\*\s*TCFG_RDX_HOGP_ENABLE\s*\*/'
+$outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n\s*//\s*0x0028\s+CHARACTERISTIC\s+0x2A4D.*?RDX_HOGP_ATT_CHARACTERISTIC_16\s*\(\s*HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE.*?RDX_HOGP_ATT_VALUE_16_U8\s*\(\s*HID_OUTPUT_REPORT_VALUE_HANDLE.*?RDX_HOGP_ATT_REPORT_REFERENCE\s*\(\s*HID_OUTPUT_REPORT_REFERENCE_HANDLE\s*,\s*RDX_HOGP_OUTPUT_REPORT_ID\s*,\s*RDX_HOGP_OUTPUT_REPORT_TYPE\s*\).*?#endif\s*/\*\s*TCFG_RDX_HOGP_ENABLE\s*\*/'
 $isOutputReportGated = $ServerText -match $outputReportGatedPattern
 Add-CheckResult -Name 'OUTPUT_REPORT_GATED' -Passed $isOutputReportGated `
     -Message $(if ($isOutputReportGated) { '' } else { 'Output Report block (0x0028-0x002a) is not wrapped in #if TCFG_RDX_HOGP_ENABLE / #endif' })
+
+$outputHandleMacrosOk = $HeaderText -match '#define\s+HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE\s+0x0028' -and
+                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_VALUE_HANDLE\s+0x0029' -and
+                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_REFERENCE_HANDLE\s+0x002a'
+Add-CheckResult -Name 'OUTPUT_REPORT_HANDLE_MACROS' -Passed $outputHandleMacrosOk `
+    -Message $(if ($outputHandleMacrosOk) { '' } else { 'Output Report handles 0x0028-0x002a must be defined in rdx_hogp_profile.h' })
 
 # -----------------------------------------------------------------------------
 # Phase 6 C1 checks: mode controller and owner authorization
@@ -570,6 +606,21 @@ if ($hogpClearMatch.Success -and $runtimeCleanupInKeyboardMatch.Success) {
     }
 }
 Add-CheckResult -Name 'C1_HOGP_RUNTIME_CLEARED_ON_CONFIG' -Passed $hogpClearOk -Message $hogpClearMessage
+
+# 4c.1) HOGP keyboard module must not own BLE Server lifecycle decisions
+$KeyboardHeaderTextEarly = Get-Content -Raw -Path (Join-Path $ProtocolDir 'rdx_hogp_keyboard.h')
+$hogpNoServerLifecycle = ($keyboardCodeOnly -notmatch 'rdx_ble_server_app_disconnect') -and
+                         ($keyboardCodeOnly -notmatch 'rdx_ble_server_adv_enable') -and
+                         ($keyboardCodeOnly -notmatch 'rdx_ble_server_get_local_name') -and
+                         ($keyboardCodeOnly -notmatch 'rdx_ble_server_get_info\s*\(\)\s*->\s*ble_conn') -and
+                         ($keyboardCodeOnly -notmatch 'rdx_ble_server_get_info\s*\(\)\s*->\s*adv_interval_min')
+Add-CheckResult -Name 'C1_HOGP_NO_SERVER_LIFECYCLE_CALLS' -Passed $hogpNoServerLifecycle `
+    -Message $(if ($hogpNoServerLifecycle) { '' } else { 'rdx_hogp_keyboard.c must not call Server disconnect/adv_enable/local_name or read ble_conn/adv_interval_min' })
+
+$hogpAdvStartTakesContext = $KeyboardHeaderTextEarly -match 'void\s+rdx_hogp_adv_start\s*\(\s*u16\s+adv_interval_min\s*,\s*const\s+char\s+\*\s*local_name\s*\)'
+$serverPassesAdvContext = $ServerText -match 'rdx_hogp_adv_start\s*\(\s*g_rdx_ble_server_info\.adv_interval_min\s*,\s*rdx_ble_server_get_local_name\s*\(\s*\)\s*\)'
+Add-CheckResult -Name 'C1_HOGP_ADV_CONTEXT_OWNED_BY_SERVER' -Passed ($hogpAdvStartTakesContext -and $serverPassesAdvContext) `
+    -Message $(if ($hogpAdvStartTakesContext -and $serverPassesAdvContext) { '' } else { 'Server must pass adv_interval_min and local name into rdx_hogp_adv_start()' })
 
 # 4d) Force-apply path (start_adv == 0) must not trigger any advertising API
 $forceApplyNoAdvOk = $false
@@ -1051,9 +1102,11 @@ $hogpNameSourceOk = $HogpConfigText -match '#define\s+RDX_HOGP_NAME_SOURCE\s+0'
 Add-CheckResult -Name 'C5_HOGP_NAME_SOURCE_SERVER' -Passed $hogpNameSourceOk `
     -Message $(if ($hogpNameSourceOk) { '' } else { 'RDX_HOGP_NAME_SOURCE must remain 0 (server local name)' })
 
-$hogpFillUsesLocalName = $KeyboardCText -match 'rdx_ble_server_get_local_name\s*\('
-Add-CheckResult -Name 'C5_HOGP_ADV_USES_SERVER_LOCAL_NAME' -Passed $hogpFillUsesLocalName `
-    -Message $(if ($hogpFillUsesLocalName) { '' } else { 'rdx_hogp_fill_adv_data() must use rdx_ble_server_get_local_name()' })
+$hogpFillTakesLocalName = $KeyboardCText -match 'int\s+rdx_hogp_fill_adv_data\s*\([^)]*const\s+char\s+\*\s*local_name'
+$hogpUsesInjectedLocalName = $KeyboardCText -match 'const\s+char\s+\*\s*name\s*=\s*local_name\s*\?\s*local_name\s*:\s*""'
+$serverInjectsLocalName = $ServerText -match 'rdx_hogp_adv_start\s*\([^;]*rdx_ble_server_get_local_name\s*\('
+Add-CheckResult -Name 'C5_HOGP_ADV_USES_SERVER_LOCAL_NAME' -Passed ($hogpFillTakesLocalName -and $hogpUsesInjectedLocalName -and $serverInjectsLocalName) `
+    -Message $(if ($hogpFillTakesLocalName -and $hogpUsesInjectedLocalName -and $serverInjectsLocalName) { '' } else { 'Server must inject local name into HOGP advertising; HOGP must consume local_name parameter' })
 
 # C5.4 Default mode is configurable and effective default respects HOGP master switch
 $defaultModeConstantsOk = $ServerHeaderText -match '#define\s+RDX_BLE_DEFAULT_MODE_CONFIG\s+0' -and
