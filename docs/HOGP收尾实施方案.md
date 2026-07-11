@@ -1,42 +1,39 @@
-# HOGP 收尾实施方案（代码现状版）
+# HOGP 收尾实施方案（当前代码事实版）
 
-> 文档状态：基于当前代码重新评估后重写。
+> 文档状态：已同步当前 `rdx_protocol` 实现与 host 契约测试结果；R3/R4/R5-A 软件收尾已关闭，R5-B/R5-C 等 BLE App 配置协议。
 > 适用项目：VibeCoding Keyboard / T2620 / JL AC701N（BR28）。
-> 输入文档：`docs/HOGP模块化重构方案.md`、当前 `rdx_protocol` 代码、`tests/host/test_hogp_profile_contract.ps1`。
+> 当前判断：R3 配置收口、R4 Mode Controller 轻量独立化、R5-A Key Action 内部整理已按当前软件验收关闭；Profile v1 软件侧收尾基本完成。剩余需要固件 enabled/disabled 构建与硬件回归确认。R5-B/R5-C 产品化部分等待 BLE App 配置协议。
 
-## 1. 文档目的
+## 1. 收尾目标
 
-当前 HOGP 已经不是 MVP 形态。Phase 1-5 的主要拆分已经完成，Phase 6 中连接归属、默认 HOGP、关闭态门控、Key Action 测试骨架等内容也已经大部分落地。
+HOGP 当前已经超过 MVP 状态。HID Profile、ATT read/write、广播、owner 授权、默认 HOGP、五键测试路径都已经落地，并通过 host 静态契约检查。
 
-本文件不再重复描述已完成的迁移步骤，而是记录当前代码事实、重新评估模块化/可配置化/复用性质量，并定义最后需要关闭的收尾项。
-
-收尾目标保持不变：
+本轮收尾目标保持不变：
 
 1. 不破坏当前 Profile v1 外部契约。
 2. 不新增第二个 GATT Server 或第二个 `app_ble` handle。
 3. 不改变 HID handle、Report Map、Input Report payload。
-4. 不让 HOGP 承担 RDX App 配置协议、Flash 保存、Keymap/Macro/Layer 解释。
-5. 为 RDX App 按键设置、Key Action Executor、PC Agent、HFP/Voice 和后续 Profile v2 留出稳定边界。
+4. 不让 HOGP 传输层承担 RDX App 配置协议、Flash 保存、Keymap/Macro/Layer 解释。
+5. 为后续 BLE App 按键设置、Key Action Executor 产品化、PC Agent、HFP/Voice 和 Profile v2 留出稳定边界。
 
 ## 2. 当前代码基线
 
-### 2.1 已实现的模块拆分
-
-当前 HOGP 相关文件职责如下：
+### 2.1 模块职责
 
 | 文件 | 当前职责 |
 |---|---|
-| `rdx_ble_server.c/.h` | 单 `app_ble` handle、总 ATT 表、RDX App BLE 通道、BLE 模式状态机、owner 授权、广播/断连实际调度 |
+| `rdx_ble_server.c/.h` | 单 `app_ble` handle、总 ATT 表、RDX App BLE 通道、mode request facade、owner 授权入口、广播/断连/suppression/runtime sync 等 BLE 实际调度 |
+| `rdx_ble_mode_controller.c/.h` | BLE mode controller 状态管理：requested/advertised mode、connection owner、switch pending、有效默认模式 |
 | `rdx_hogp_keyboard.c/.h` | HOGP runtime 状态、HID ATT read/write、Protocol Mode、Control Point、CCC、加密状态、Input Report 当前值、Keyboard Report notify、HOGP 广播 payload |
-| `rdx_hogp_profile.c/.h` | HID handle 宏、UUID、Report Map、HID Information、Report Reference 常量 |
-| `rdx_hogp_config.h` | HOGP 编译期开关、加密、广播名、Appearance、日志默认值 |
-| `rdx_hogp_key_action.c/.h` | 当前五键测试 Keymap、RAM active keymap、Keyboard Report 构造、release timer |
+| `rdx_hogp_profile.c/.h` | HID handle 宏、UUID、Report Map、HID Information、Report Reference 常量、ATT 表展开宏 |
+| `rdx_hogp_config.h` | HOGP 编译期开关、默认 BLE mode、key-up delay、加密、广播名、Appearance、日志默认值；主动 include `app_config.h` 以消除 include 顺序风险 |
+| `rdx_hogp_key_action.c/.h` | 当前五键测试 keymap、默认空 keymap、RAM active keymap、Keyboard Report 转换、click 后 release timer |
 | `rdx_app.c` | IO NUM 物理键分发、KEY1 三击模式切换、CLICK 转发到 Key Action，保留旧 RDX key table |
-| `tests/host/test_hogp_profile_contract.ps1` | HOGP Profile v1、模块边界、配置门控、模式控制、Key Action 测试骨架的静态契约检查 |
+| `tests/host/test_hogp_profile_contract.ps1` | Profile v1、模块边界、配置门控、mode controller、Key Action 测试路径的静态契约检查 |
 
-### 2.2 已冻结的外部契约
+### 2.2 冻结的 Profile v1 契约
 
-Profile v1 仍保持以下契约：
+以下内容本轮不得改变：
 
 | 项目 | 当前值 |
 |---|---|
@@ -46,199 +43,127 @@ Profile v1 仍保持以下契约：
 | Report Map handle | `0x001e` |
 | HID Information handle | `0x0020` |
 | HID Control Point handle | `0x0022` |
-| Output Report 兼容债务 | `0x0028-0x002a`，当前仍在 Device Information Service 后，受 `TCFG_RDX_HOGP_ENABLE` 门控 |
+| Output Report 兼容债务 | `0x0028-0x002a`，仍在 Device Information Service 后，受 `TCFG_RDX_HOGP_ENABLE` 门控 |
 | Report Map | 70 字节，Profile v1 冻结 |
 | Notify payload | 8 字节 `[modifier, reserved, key1..key6]`，不前置 Report ID |
 | BLE 架构 | 复用 RDX 单 `app_ble` handle 和单份静态 ATT 数据库 |
 | T2620 默认模式 | `RDX_BLE_DEFAULT_MODE_HOGP` |
 | HOGP 名称来源 | 默认复用 RDX Server local name |
 
-禁止在本轮收尾中改变以上契约。Consumer Control、规范化 Output Report 位置、Report ID 策略和 Windows GATT cache 迁移均属于 Profile v2 范围。
+Consumer Control、规范化 Output Report 位置、Report ID 策略、Windows GATT cache 迁移、独立 BLE App 配置 Service 都属于 Profile v2 或专项设计范围。
 
-### 2.3 当前验证入口
+### 2.3 当前验证结果
 
-主机侧验证统一入口：
+在 macOS 上直接执行子测试：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./tests/host/test_t2620_config_overlay.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./tests/host/test_hogp_profile_contract.ps1
 ```
 
-该入口当前覆盖：
+结果：
 
-- T2620 配置覆盖；
-- HOGP handle、Report Map、Input Report payload；
-- HID Service attribute 顺序和字节级值；
-- Output Report 门控；
-- BLE mode controller 静态边界；
-- HOGP 公共头、配置头、disabled stub；
-- Protocol Mode、Control Point、加密状态、当前 Report 同步；
-- 默认 HOGP 模式和五键 Key Action 测试骨架。
+- `test_t2620_config_overlay.ps1` 通过。
+- `test_hogp_profile_contract.ps1` 通过，当前为 133 项 HOGP profile contract checks。
 
-固件编译和硬件回归仍必须单独执行，host 脚本不能替代 Windows 配对、断连切换、CCC 订阅和真实按键 notify 验证。
+注意：`tests/host/run_host_tests.ps1` 当前硬性查找 `powershell.exe`。在 Windows PowerShell 环境中这是统一入口；在 macOS 上需要单独跑子脚本，或后续改 runner 同时支持 `pwsh`。
 
-## 3. 质量重新评估
+固件编译和硬件回归仍必须单独执行。host 脚本不能替代 Windows 配对、断连切换、CCC 订阅、真实按键 notify 和 on-device 压力测试。
 
-### 3.1 模块化质量：B+
+## 3. 当前收尾状态
 
-已达成：
+| 收尾项 | 状态 | 判断 |
+|---|---|---|
+| R1：Profile 字节表与宏统一 | 已完成 | HID block 和 Output Report block 已使用 `RDX_HOGP_ATT_*` 宏展开 |
+| R2：HOGP 与 Server 生命周期解耦 | 按当前验收已完成 | HOGP 不再主动断连、不读取 Server 连接状态、不恢复 Config 广播。剩余 owner 查询依赖归入 R4 |
+| R3：配置项收口 / include 顺序安全 | 已完成 | 配置入口集中到 `rdx_hogp_config.h`，release delay 配置化，默认 mode fallback 不再散落在 Server |
+| R4：Mode Controller 独立化 | 已完成 | 状态已拆到 `rdx_ble_mode_controller.c/.h`；Server 继续负责 BLE side effects |
+| R5：Key Action Executor 产品化 | 拆分处理 | R5-A 已完成最小内部整理；R5-B/R5-C 等 BLE App 配置协议 |
 
-- HOGP 主要逻辑已经从 `rdx_ble_server.c` 拆出。
-- HOGP 状态、ATT read/write、Report 发送集中在 `rdx_hogp_keyboard.c`。
-- HID handle、Report Map、HID Information 集中到 `rdx_hogp_profile.h/.c`。
-- Server 内部已有 `requested_mode`、`advertised_mode`、`connection_owner`、`switch_pending`。
-- ATT read/write、Output Report、RDX App 写入、RDX notify/OTA 入口都有 owner 授权。
-- `rdx_app.c` 不再构造 HID report，也不直接调用底层 notify。
-
-主要缺口：
-
-1. `rdx_profile_data[]` 中 HOGP attribute 字节仍是手写 literal，和 `rdx_hogp_profile.h` 的 handle/UUID 宏形成双重事实源。
-2. `rdx_hogp_keyboard.c` 仍反向依赖 Server helper，例如断连、广播恢复、`adv_interval_min`、`ble_conn` 和 owner 查询。
-3. Mode Controller 仍内嵌在 `rdx_ble_server.c`，当前可接受，但当 RDX App 配置、PC Agent、HFP 策略都需要请求模式时，应独立成模块。
-4. `rdx_hogp_mode_get/set()` 仍让 HOGP 保存一份模式状态，和 Server mode controller 存在语义重叠。
-
-### 3.2 可配置化质量：B
-
-已达成：
-
-- `TCFG_RDX_HOGP_ENABLE` 可关闭 HOGP，并提供 disabled stub。
-- T2620 项目配置在 `t2620_project_config.h` 中开启 HOGP、设置默认 HOGP 模式、打开测试 Key Action。
-- 加密、配对模式、Appearance、名称来源、custom name、日志级别都有默认宏。
-- HID Service 和 Output Report 均受主开关门控。
-- HOGP 公共 API 头不再包含配置头，降低了传递 include 污染。
-
-主要缺口：
-
-1. `rdx_hogp_config.h` 仍明确依赖 `app_config.h` 先被包含，否则 `TCFG_RDX_HOGP_ENABLE` fallback 可能提前锁成 `0`。
-2. Key Action release delay 仍在 `rdx_hogp_key_action.c` 中写死为 `20 ms`，尚未按 Phase 3 目标收口到配置项。
-3. `RDX_BLE_DEFAULT_MODE` 的默认值当前在 `rdx_ble_server.c` 兜底，项目覆盖在 `t2620_project_config.h`，配置入口不够集中。
-4. 测试 Keymap 开关在 `rdx_app_config.h` 有保守默认，在 T2620 项目覆盖中打开，长期产品配置入口还需要和 RDX App/VM 配置设计对齐。
-
-### 3.3 复用性质量：A-
-
-已达成：
-
-- HOGP 对外提供完整 8 字节 Keyboard Report API。
-- `rdx_hogp_keyboard_report_t` 能表达普通键和 modifiers 组合键。
-- `rdx_hogp_key_action_keymap_apply()` 提供 RAM active keymap 替换入口。
-- 当前 Consumer Control 未混入 Keyboard Report。
-- HOGP 传输层不解释物理键、宏、Layer、VM 或 HFP 业务。
-- `rdx_hogp_key_action.c` 不控制广播、断连、VM 或 HFP。
-
-主要缺口：
-
-1. `rdx_hogp_key_action_click()` 目前只表达单次 click，并在固定 delay 后 release，尚不能表达 press/release、宏序列、自定义 delay 或 Layer 状态。
-2. `rdx_hogp_key_action_keyboard_t` 与 `rdx_hogp_keyboard_report_t` 不完全同构，当前由 click path 手动补 `reserved = 0`，长期应保留明确转换函数。
-3. HOGP 仍通过 `rdx_ble_server.h` 获取 owner 查询；Mode Controller 独立后应改为依赖模式控制器公共头。
-4. 当前复用目标是“RDX BLE Server 子模块复用”，不是独立 HOGP library。跨项目复用仍需要带上 RDX app_ble/server glue。
+一句话结论：P0 的 Profile v1 软件侧核心收尾已经落地，R3/R4/R5-A 已按当前验收关闭。下一步重点是固件 enabled/disabled 构建和硬件回归。R5-B/R5-C 不应在 BLE App 配置协议未定时深度产品化。
 
 ## 4. 已关闭事项
 
-以下事项在当前代码中已经达到收尾方案要求，后续只做回归保护：
+### 4.1 R1 已关闭：Profile 字节表与宏统一
 
-1. HOGP 逻辑拆分到独立模块。
-2. HID handle、Report Map、HID Information 集中管理。
-3. 单 `app_ble` handle、单静态 ATT 数据库。
-4. HOGP/RDX Config 通过 owner 授权隔离。
-5. HOGP 关闭态不暴露 HID Service 和 Output Report。
-6. Server exit 调用 HOGP 和 Key Action deinit。
-7. 当前 Input Report read 返回最新发送值，release 后归零。
-8. Protocol Mode 和 HID Control Point 有合法值处理。
-9. HOGP 广播 payload 做容量检查。
-10. T2620 默认进入 HOGP，保留五键测试 Keymap 和 KEY1 三击模式切换。
-11. Host 契约测试覆盖当前 Profile v1 和 Phase 6 C1-C5 静态边界。
+代码事实：
 
-## 5. 剩余收尾项
+- `rdx_hogp_profile.h` 已定义 HID handle、UUID、Report Reference、ATT 属性展开宏。
+- `rdx_ble_server.c` 中 `rdx_profile_data[]` 的 HID Service block（`0x0016-0x0022`）使用 `RDX_HOGP_ATT_PRIMARY_SERVICE_16`、`RDX_HOGP_ATT_CHARACTERISTIC_16`、`RDX_HOGP_ATT_VALUE_16`、`RDX_HOGP_ATT_VALUE_16_U8`、`RDX_HOGP_ATT_CCC`、`RDX_HOGP_ATT_REPORT_REFERENCE`。
+- Output Report block（`0x0028-0x002a`）也使用同一套宏和 profile 常量。
+- host 测试已经检查 HID block 必须使用 `RDX_HOGP_ATT_*` 宏，并验证 attribute 顺序、handle、properties、UUID、Report Reference 值。
 
-### R1：关闭 Profile 字节表与宏的双重事实源
+后续要求：
 
-优先级：P0。
+- 不再手写 HID handle magic number。
+- 如果调整 profile 宏或 `rdx_profile_data[]`，必须保持 host 快照完全通过。
+- Profile v1 不改 handle、不改 Report Map、不改 notify payload。
 
-当前问题：
+### 4.2 R2 已关闭：HOGP 不再拥有 BLE Server 生命周期决策
 
-- `rdx_hogp_profile.h` 定义了 HID handle、UUID、Report Reference 常量。
-- `rdx_ble_server.c` 的 `rdx_profile_data[]` 仍手写 HID attribute 字节。
-- 当前依赖 host 测试解析注释和字节兜底，一旦人工修改字节表但忘记同步宏，编译期不会直接失败。
+代码事实：
 
-目标状态：
+- `rdx_hogp_keyboard.c` 不再直接调用 `rdx_ble_server_app_disconnect()`。
+- `rdx_hogp_keyboard.c` 不再调用 `rdx_ble_server_adv_enable()` 或 `rdx_ble_server_get_local_name()`。
+- `rdx_hogp_keyboard.c` 不再读取 `rdx_ble_server_get_info()->ble_conn` 或 `adv_interval_min`。
+- `rdx_hogp_adv_start(u16 adv_interval_min, const char *local_name)` 由 Server 注入广播间隔和名称。
+- 断连、pending mode apply、HOGP/Config 广播恢复、DUT/Poweroff/WiFi/SD format 抑制都在 Server mode controller 中决策。
 
-- HOGP HID block 的 handle、UUID、value handle、properties、Report Reference 字节由同一套宏展开。
-- 至少为每个关键 handle 建立编译期绑定检查。
-- Host 契约测试继续保留，作为外部 Profile v1 冻结测试，而不是唯一一致性保障。
+R4 关闭后的边界：
 
-建议做法：
+- `rdx_hogp_keyboard.c` 不再 include `rdx_ble_server.h`。
+- HOGP owner 查询来自 `rdx_ble_mode_controller.h`。
+- Server facade 继续对外提供带 BLE 副作用的 mode request wrapper，避免把断连/广播策略下沉到 HOGP。
 
-1. 在 `rdx_hogp_profile.h` 或 Server 私有头中增加 little-endian 字节展开宏。
-2. 将 `rdx_profile_data[]` 的 `0x0016-0x0022` HID block 改成宏展开。
-3. Output Report `0x0028-0x002a` 也引用 `HID_OUTPUT_REPORT_VALUE_HANDLE` 和 Report Reference 常量。
-4. 保持最终预处理后的字节与当前 host 快照完全一致。
+后续要求：
 
-验收标准：
+- HOGP 可以维护 runtime active 标志、构造 HID advertising payload、发送 Keyboard Report。
+- HOGP 不得恢复 RDX Config 广播。
+- HOGP 不得主动决定断连或模式切换。
 
-- `rdx_profile_data[]` HOGP block 不再重复手写 HID handle magic number。
-- `tests/host/test_hogp_profile_contract.ps1` 通过。
-- Report Map、handle、attribute 顺序、notify payload 不变。
-- Windows 不删除旧配对时仍能正常输入。
+### 4.3 Phase 6 C1-C5 静态契约已落地
 
-### R2：解耦 HOGP 与 Server 生命周期控制
+| 契约 | 当前状态 |
+|---|---|
+| C1 Mode Controller 私有状态机 | 已拆到 `rdx_ble_mode_controller.c`，Server 只执行 BLE side effects |
+| C1 owner 授权 | HID read/write、Output Report、RDX App 写、RDX notify/OTA send 均有 owner 检查 |
+| C3 模块边界 | HOGP 公共 API 头不 include 配置头；Server 头不传递 HOGP 头 |
+| C3 disabled stubs | `TCFG_RDX_HOGP_ENABLE=0` 分支覆盖 HOGP 公共函数 |
+| C4 HOGP runtime | Protocol Mode、Control Point、加密、suspend、当前 report 同步已检查 |
+| C5 默认 HOGP | T2620 overlay 设置 `RDX_BLE_DEFAULT_MODE_HOGP` |
+| C5 Key Action 测试路径 | KEY1 三击切换 HOGP/Config；五键 CLICK 走 executor；LONG/HOLD/UP 回旧 key table；R5-A 转换函数和 keymap loader 已检查 |
 
-优先级：P0。
+## 5. 已关闭：R3 配置项收口
 
-当前问题：
+优先级：P1，当前已按 host 静态契约关闭。
 
-`rdx_hogp_keyboard.c` 仍直接调用或读取 Server 细节：
+### 5.1 已解决问题
 
-- `rdx_ble_server_app_disconnect()`；
-- `rdx_ble_server_adv_enable()`；
-- `rdx_ble_server_get_info()->adv_interval_min`；
-- `rdx_ble_server_get_info()->ble_conn`；
-- `rdx_ble_connection_owner_is_hogp()`。
+1. `rdx_hogp_config.h` 主动 include `app_config.h`，项目 overlay 在任意 include 顺序下都能先解析。
+2. Key Action release delay 已收口为 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS`，不再在 executor 内硬编码私有 `20 ms` 宏。
+3. `RDX_BLE_DEFAULT_MODE` 默认值 fallback 已集中到 `rdx_hogp_config.h`，`rdx_ble_server.c` 不再兜底。
 
-其中 owner 查询是合理依赖，但应最终来自 Mode Controller；断连、模式切换和广播恢复不应由 HOGP 决策。
+### 5.2 当前实现
 
-目标状态：
-
-- Mode Controller 决定何时断连、何时进入 HOGP、何时恢复 Config 广播。
-- HOGP 只负责：
-  - 构造 HID advertising payload；
-  - 在 Server 明确要求时设置/停止 HID advertising；
-  - 维护 HOGP protocol runtime；
-  - 校验 ready 后发送 Keyboard Report。
-- `rdx_hogp_mode_set()` 不再承担“发现连接、主动断连、切广播”的完整模式切换逻辑。
-
-建议做法：
-
-1. 将断连前置逻辑完全保留在 `rdx_ble_mode_request()`。
-2. 将 `adv_interval_min` 作为参数传入 HOGP advertising start，或由 Server 调用 `rdx_hogp_fill_adv_data()` 后自行设置 adv param/data。
-3. 将 `rdx_hogp_mode_get/set()` 降级为内部 runtime active 标志，或删除公开声明。
-4. HOGP ready check 中的 owner 查询改为依赖未来 `rdx_ble_mode_controller.h`，当前阶段可先保留 Server wrapper。
-
-验收标准：
-
-- `rdx_hogp_keyboard.c` 不再直接引用 `rdx_ble_server_app_disconnect()`。
-- `rdx_hogp_keyboard.c` 不再读取 `rdx_ble_server_get_info()->ble_conn`。
-- HOGP 不负责恢复 RDX Config 广播。
-- 模式切换、断连后重启广播、DUT/Poweroff/WiFi/SD format 抑制逻辑仍全部通过 host 检查和硬件回归。
-
-### R3：配置项收口并消除 include 顺序风险
-
-优先级：P1。
-
-当前问题：
-
-- `rdx_hogp_config.h` 依赖调用方先 include `app_config.h`。
-- Key Action release delay 写死。
-- `RDX_BLE_DEFAULT_MODE` 默认值在 Server 中兜底，配置入口分散。
-
-目标状态：
-
-- HOGP/Key Action 相关默认配置集中在配置头。
-- 项目级覆盖仍只放在 `t2620_project_config.h`。
-- 公共 API 头不包含配置头。
-- 任意 `.c` 文件包含 `rdx_hogp_config.h` 时不会因为 include 顺序导致 HOGP 被静默关闭。
-
-建议配置项：
+- HOGP/Key Action 默认配置集中在配置头。
+- 项目级覆盖仍只放在 `t2620_project_config.h` 或项目 overlay。
+- HOGP 公共 API 头不 include 配置头。
+- 任意 `.c` 文件包含 HOGP resolved config 时，不会因为 include 顺序导致 HOGP 被静默关闭。
+- 修改 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS` 后，click release timer 使用新值。
+- 当前采用直接在 `rdx_hogp_config.h` include `app_config.h` 的实现，没有新增 resolved config 文件。
 
 ```c
+/* rdx_hogp_config.h */
+#include "app_config.h"
+
+#ifndef RDX_BLE_DEFAULT_MODE_CONFIG
+#define RDX_BLE_DEFAULT_MODE_CONFIG           0
+#endif
+
+#ifndef RDX_BLE_DEFAULT_MODE_HOGP
+#define RDX_BLE_DEFAULT_MODE_HOGP             1
+#endif
+
 #ifndef TCFG_RDX_HOGP_ENABLE
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
@@ -252,37 +177,45 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.
 #endif
 ```
 
-具体实现可选择以下一种：
+### 5.3 R3 验收结果
 
-1. 让 `rdx_hogp_config.h` 内部包含 `app_config.h`，并确认没有循环 include。
-2. 新增私有 `rdx_hogp_config_resolved.h`，由它固定先包含 `app_config.h` 再包含默认配置。
-3. 保持公共头无配置依赖，只要求所有 `.c` 统一包含 resolved config 头。
+- `rdx_hogp_key_action.c` 不再定义硬编码 `RDX_HOGP_KEY_ACTION_RELEASE_DELAY_MS 20`。
+- `sys_timeout_add(... release_timer_cb, ...)` 使用 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS`。
+- `RDX_BLE_DEFAULT_MODE` fallback 不再散落在 `rdx_ble_server.c`。
+- `RDX_BLE_DEFAULT_MODE_CONFIG` / `RDX_BLE_DEFAULT_MODE_HOGP` 不再要求 include `rdx_ble_server.h` 才能使用。
+- host 测试已覆盖 release delay 配置来源、include 顺序约束和默认 mode fallback 位置。
+- `TCFG_RDX_HOGP_ENABLE=1` 和 `TCFG_RDX_HOGP_ENABLE=0` 固件构建仍需在 JL toolchain 环境单独确认。
 
-验收标准：
+## 6. 已关闭：R4 Mode Controller 轻量独立化
 
-- `rdx_hogp_key_action.c` 不再硬编码 release delay。
-- 修改 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS` 后，release timer 使用新值。
-- host 测试覆盖配置默认值和 include 顺序约束。
-- HOGP enabled/disabled 两种配置均能编译。
+优先级：P1，当前已按轻量 Server-driven 模型关闭。
 
-### R4：Mode Controller 独立化
+原方案把 R4 定义为触发式拆分：当 RDX App 按键设置、PC Agent 或 HFP 策略开始调用模式切换时再拆。当前代码已经提前完成轻量独立化，拆分仅移动状态与窄查询 API，不新增业务策略。
 
-优先级：P1，触发条件为 RDX App 按键设置、PC Agent 或 HFP 策略开始调用模式切换。
+### 6.1 当前状态
 
-当前状态：
+Mode Controller 状态现在位于 `rdx_ble_mode_controller.c/.h`：
 
-Mode Controller 作为 `rdx_ble_server.c` 内部静态状态机存在，这是当前阶段可接受的实现。
+- `rdx_ble_mode_t`
+- `rdx_ble_connection_owner_t`
+- `s_ble_mode`
+- `rdx_ble_mode_is_hogp_requested()`
+- `rdx_ble_connection_owner_is_hogp()`
+- `rdx_ble_mode_get_requested()` / `rdx_ble_mode_get_advertised()`
+- `rdx_ble_mode_request_set()`
+- `rdx_ble_connection_owner_get()` / `rdx_ble_connection_owner_set()`
 
-拆分触发条件：
+`rdx_ble_server.c` 继续负责带副作用的行为：
 
-- RDX App 配置命令需要请求 HOGP/Config 切换；
-- PC Agent 需要观察模式事件；
-- HFP/Voice 策略需要根据模式进入/退出协调音频链路；
-- HOGP 模块需要 owner 查询但不应 include 整个 Server 头。
+- `rdx_ble_mode_request_hogp()`
+- `rdx_ble_mode_request_toggle()`
+- 广播开始、断连后恢复、pending apply、suppression 判断等 helper
 
-目标状态：
+公共头 `rdx_ble_server.h` 继续只暴露窄 wrapper，没有暴露 mode enum 和 owner enum。这一点需要保留。
 
-新增：
+### 6.2 当前 API
+
+已新增文件：
 
 ```text
 rdx_ble_mode_controller.h
@@ -292,72 +225,184 @@ rdx_ble_mode_controller.c
 公共 API：
 
 ```c
-int rdx_ble_mode_request(rdx_ble_mode_t mode);
-void rdx_ble_mode_request_hogp(u8 enable);
-void rdx_ble_mode_request_toggle(void);
+typedef enum {
+    RDX_BLE_MODE_CONFIG = 0,
+    RDX_BLE_MODE_HOGP,
+} rdx_ble_mode_t;
+
+typedef enum {
+    RDX_BLE_OWNER_NONE = 0,
+    RDX_BLE_OWNER_CONFIG,
+    RDX_BLE_OWNER_HOGP,
+} rdx_ble_connection_owner_t;
+
+void rdx_ble_mode_controller_init(void);
+void rdx_ble_mode_controller_reset(void);
+
+int  rdx_ble_mode_request_set(rdx_ble_mode_t mode);
+u8   rdx_ble_mode_is_hogp_requested(void);
+
 rdx_ble_mode_t rdx_ble_mode_get_requested(void);
 rdx_ble_mode_t rdx_ble_mode_get_advertised(void);
+void rdx_ble_mode_set_advertised(rdx_ble_mode_t mode);
+u8   rdx_ble_mode_switch_pending(void);
+void rdx_ble_mode_clear_pending(void);
+
 rdx_ble_connection_owner_t rdx_ble_connection_owner_get(void);
-u8 rdx_ble_connection_owner_is_hogp(void);
+void rdx_ble_connection_owner_set(rdx_ble_connection_owner_t owner);
+u8   rdx_ble_connection_owner_is_hogp(void);
 ```
 
-Server 仍负责底层 BLE 操作，Mode Controller 只管理状态和决策，必要时通过回调或 Server glue 执行断连/广播。
+底层 BLE 操作仍由 Server 执行：
 
-验收标准：
+- 断连；
+- 开关 advertising；
+- 设置 HOGP advertising；
+- 设置 Config advertising；
+- 读取 `ble_conn` / `ble_con_handle`；
+- 检查 DUT/Poweroff/WiFi/SD format suppression。
 
-- `rdx_ble_server.h` 不再暴露内部 mode field。
-- HOGP 只 include Mode Controller 公共头获取 owner。
-- RDX App/PC Agent/HFP 只通过 Mode Controller 请求或观察模式。
-- 模式切换 100 次硬件压力测试通过。
+Mode Controller 只管理状态和决策，不直接访问 HOGP profile bytes，不解释 keymap，不处理 VM/HFP/PC Agent 业务。
 
-### R5：Key Action Executor 产品化
+对外兼容状态：
 
-优先级：P1。
+- 现有 `rdx_ble_mode_request_hogp(u8 enable)` 和 `rdx_ble_mode_request_toggle(void)` 行为不变。
+- 这些带副作用的请求入口继续由 `rdx_ble_server.c` 作为 facade 提供，由 Server 调用 Mode Controller 状态 API 后自行决定是否断连、是否启动广播。
+- 后续如果需要让 RDX App/PC Agent/HFP 直接依赖 Mode Controller，再把 facade 收敛到 `rdx_ble_mode_controller.h`。
 
-当前状态：
+### 6.3 实际拆分方式
 
-`rdx_hogp_key_action.c` 是 C5 测试骨架，支持五键 click、RAM keymap apply、20 ms release timer。
+为降低风险，R4 只搬现有行为，不新增策略。
 
-缺口：
+当前采用 Server-driven 模型，不引入回调注册：
 
-- 不支持 press/release 分离。
-- 不支持宏序列和步骤 delay。
-- 不支持 Layer 状态。
-- 不支持 App 下发配置事务、VM 持久化和回滚。
-- `rdx_hogp_key_action_keyboard_t` 与 `rdx_hogp_keyboard_report_t` 之间转换是局部手写逻辑。
+1. `rdx_ble_mode_controller.c` 保存 `requested_mode`、`advertised_mode`、`connection_owner`、`switch_pending`。
+2. `rdx_ble_mode_controller.c` 提供 getter/setter/request state API。
+3. `rdx_ble_server.c` 在 init、connect、disconnect、adv refresh、mode request wrapper 中主动查询 mode controller 状态，并继续执行断连、广播、suppression、HOGP runtime sync 等底层动作。
 
-目标状态：
+这样可以避免 Mode Controller 反向调用 Server，也避免新增 callback 注册生命周期。
 
-- Key Action Executor 负责物理键事件到 Keyboard Report 序列的转换。
-- HOGP 仍只发送完整 Keyboard Report。
-- Release delay、宏 delay、Layer 切换策略不进入 HOGP 传输层。
+保守边界：
 
-建议 API 方向：
+- advertising/断连 helper 仍留在 Server。
+- DUT/Poweroff/WiFi/SD format suppression 仍留在 Server。
+- HOGP runtime sync 可以先留在 Server，后续有必要再抽象。
+- HOGP 只 include `rdx_ble_mode_controller.h` 获取 owner 查询。
+
+### 6.4 R4 验收结果
+
+- `rdx_hogp_keyboard.c` 不再 include `rdx_ble_server.h`。
+- HOGP owner 查询来自 `rdx_ble_mode_controller.h`。
+- `rdx_ble_server.h` 不暴露 `rdx_ble_mode_t` / `rdx_ble_connection_owner_t` 私有状态字段。
+- 模式切换行为保持：连接中 request 先断连，断连后 force apply，按当前 advertised identity 恢复广播。
+- DUT/Poweroff/WiFi/SD format suppression 行为保持在 Server。
+- 未引入 Mode Controller 到 Server 的 callback 注册机制。
+- host `C1_*`、`C3_*`、`C5_*` 契约已更新并通过。
+
+## 7. R5 Key Action Executor 拆分策略
+
+R5 产品化深度受 BLE App 配置协议约束。在不知道 APP 下发 keymap 格式、VM 持久化契约、配置事务语义前，不应贸然实现宏、Layer、VM 或完整配置下发。
+
+因此将 R5 拆成三段：
+
+| 阶段 | 状态 | 范围 |
+|---|---|---|
+| R5-A | 已完成 | 不依赖 BLE App 协议的内部整理，不新增物理按下/抬起语义 |
+| R5-B | 暂缓 | BLE App keymap 下发数据结构、RAM ABI、VM 持久化 |
+| R5-C | 暂缓 | Macro、Layer、配置事务、回滚、Profile v2 关联能力 |
+
+### 7.1 R5-A：已完成的内部整理
+
+已落地：
+
+1. 增加内部显式转换函数：
 
 ```c
-int rdx_hogp_key_action_event(u8 key_id, u8 action);
-int rdx_hogp_key_action_press(u8 key_id);
-int rdx_hogp_key_action_release(u8 key_id);
-int rdx_hogp_key_action_sequence_start(const void *sequence);
+static void rdx_hogp_key_action_to_keyboard_report(
+    const rdx_hogp_key_action_keyboard_t *action,
+    rdx_hogp_keyboard_report_t *report);
 ```
 
-或者让更上层宏执行器直接生成：
+该函数只做：
+
+- `report->modifiers = action->modifiers`;
+- `report->reserved = 0`;
+- copy `usages[6]`。
+
+2. 继续复用原生按键事件框架，不新增 HOGP 私有 press/release 语义。
+
+约束：
+
+- `rdx_app.c` 暂时仍只把 `KEY_ACTION_CLICK` 接到 executor。
+- `KEY_ACTION_LONG`、`KEY_ACTION_HOLD`、`KEY_ACTION_HOLDUP` 继续回旧 key table，直到产品按键语义确定。
+- HOGP click path 内部发送一次 key-down report，再用短 delay 发送 key-up report。这个 delay 是 HID 报告释放补包，不代表用户可感知的物理抬起事件。
+- 如果后续产品需要长按、保持、组合键、hold-tap 或 layer modifier，应优先从原生 `KEY_ACTION_*` 事件进入 executor，而不是另建一套 HOGP 物理按下/抬起框架。
+- 不做多键并发状态机、hold-tap、layer modifier、rollover 策略。
+
+3. 测试 keymap 与默认 keymap 加载骨架：
 
 ```c
-rdx_hogp_keyboard_report_t report;
-rdx_hogp_keyboard_report_send(&report);
+#if RDX_HOGP_KEY_ACTION_TEST_ENABLE
+    load_test_keymap();
+#else
+    load_default_keymap();
+#endif
 ```
 
-验收标准：
+当前 `rdx_hogp_key_action_load_default_keymap()` 只是清空 active keymap，不做 VM 恢复。
 
-- CLICK 测试路径仍可用。
-- KEY1 LONG/HOLD/UP 不被测试路径消费。
-- 后续 BLE App keymap 改变时，只更新 Key Action active config，不修改 HOGP 传输层。
-- 宏/Layer 实现不访问 HID handle、ATT notify、BLE 广播或连接状态。
+注释要求：
 
-## 6. 本轮明确不做
+- 当前默认 keymap 为空属于预期行为。
+- 非测试模式下，CLICK 进入 executor 后应返回未消费，继续回退到旧 key table。
+- 不要在 BLE App 配置协议未定前把空默认 keymap 解释成 VM 恢复失败。
 
-以下内容不进入当前收尾：
+4. release delay 已由 R3 收口到配置项：
+
+```c
+#ifndef TCFG_RDX_HOGP_KEY_UP_DELAY_MS
+#define TCFG_RDX_HOGP_KEY_UP_DELAY_MS         20
+#endif
+```
+
+### 7.2 R5-A 验收结果
+
+- `click()` 行为不变，五键测试路径仍可用。
+- `KEY1 TRIPLE_CLICK` 仍只负责模式切换。
+- `LONG/HOLD/UP` 不被测试 executor 消费。
+- `rdx_hogp_key_action.c` 不访问 advertising、disconnect、VM、HFP、mode private state。
+- 转换函数集中处理 `reserved = 0`。
+- 不新增 HOGP 私有 press/release API；多种按键事件继续由原生按键框架提供。
+- host 契约新增 `C5_R5A_REPORT_CONVERSION`、`C5_R5A_KEYMAP_LOADERS`、`C5_R5A_NO_PRIVATE_PRESS_RELEASE_API` 并通过。
+
+### 7.3 R5-B：等待 BLE App 配置协议
+
+暂缓内容：
+
+- keymap 下发 RAM ABI；
+- 结构体版本、长度、CRC；
+- 字段对齐和大小端；
+- 整表替换还是增量更新；
+- VM 持久化格式；
+- 配置失败回滚策略；
+- 出厂默认 keymap 与用户 keymap 的切换策略。
+
+### 7.4 R5-C：等待产品需求和 Profile v2
+
+暂缓内容：
+
+- Macro 执行引擎；
+- Macro delay 表示方式；
+- Layer 状态机；
+- Layer 切换规则；
+- Consumer Control；
+- 高层 action 解释器；
+- 配置事务、预览/应用/确认；
+- PC Agent 和 HFP/Voice 共存策略。
+
+## 8. 本轮明确不做
+
+以下内容不进入当前 Profile v1 收尾：
 
 1. 不改变 `config_le_gatt_server_num`。
 2. 不新增第二个 `app_ble` handle。
@@ -368,46 +413,60 @@ rdx_hogp_keyboard_report_send(&report);
 7. 不加入 Consumer Control。
 8. 不处理 Windows GATT cache 迁移策略。
 9. 不新建独立 BLE App 配置 GATT Service。
-10. 不在 HOGP 中实现 Flash 保存、Keymap 解释、宏解释或 HFP 策略。
+10. 不在 HOGP 传输层实现 Flash 保存、Keymap 解释、宏解释、Layer 或 HFP 策略。
+11. 不在 BLE App 配置协议未定前写 VM keymap 格式。
+12. 不改变当前 LONG/HOLD/UP 回旧 key table 的行为。
+13. 不为当前测试路径新增 HOGP 私有 press/release 按键框架。
 
-这些内容统一归入 Profile v2、RDX App 配置设计、Key Action 产品化或 HFP/PC Agent 专项。
+## 9. 提交拆分状态
 
-## 7. 推荐提交拆分
-
-建议按以下顺序提交，避免一次提交同时修改 Profile、生命周期、配置和产品行为：
+R3/R4 对应的提交范围已经明确，后续提交可按以下语义整理：
 
 ```text
-refactor(hogp): bind HID profile data to profile constants
-refactor(hogp): move BLE lifecycle decisions out of HOGP keyboard
-config(hogp): centralize release delay and default mode config
-refactor(ble): extract BLE mode controller when external callers arrive
-feat(hogp): extend key action executor for product keymaps
-test(hogp): extend host checks for final boundary contracts
-docs(hogp): record final HOGP closing state
+config(hogp): centralize HOGP defaults and key-up delay
+test(hogp): cover config include order and release delay source
+refactor(ble): extract BLE mode controller state from server
+test(hogp): update mode controller boundary checks
+refactor(hogp): normalize key action report conversion
+docs(hogp): update closing plan to current code state
 ```
 
-R1 和 R2 优先级最高。R4 可以等 RDX App 配置、PC Agent 或 HFP 策略真正接入时再拆，但拆分前不得让更多模块直接依赖 `rdx_ble_server.c` 私有状态。
+当前判断：
 
-## 8. 回归要求
+- 第 1-2 个提交关闭 R3，当前代码已满足。
+- 第 3-4 个提交关闭 R4，当前代码已满足。
+- 第 5 个提交只做 R5-A 的非行为整理，当前代码已满足。
+- R5-B/R5-C 不进入本轮。
 
-### 8.1 Host 侧
+## 10. 回归要求
 
-每次收尾提交后运行：
+### 10.1 Host 侧
+
+Windows 统一入口：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
+macOS 当前可直接运行子脚本：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./tests/host/test_t2620_config_overlay.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File ./tests/host/test_hogp_profile_contract.ps1
+```
+
 新增或扩展检查：
 
-- HOGP HID block 使用 profile 宏或编译期绑定。
-- `rdx_hogp_keyboard.c` 不直接调用 Server 断连和读取 `ble_conn`。
-- release delay 来自配置宏。
-- 公共 API 头无配置 include 依赖。
-- Mode Controller 独立后，HOGP 不 include `rdx_ble_server.h` 获取 owner。
-- Key Action 产品化后，HOGP 模块仍不出现物理键、宏、Layer、VM、HFP 私有语义。
+- `rdx_hogp_config.h` 或 resolved config 不再依赖调用方 include 顺序。
+- release delay 来自 `TCFG_RDX_HOGP_KEY_UP_DELAY_MS`。
+- `RDX_BLE_DEFAULT_MODE` 默认值入口集中。
+- R4 后 HOGP 不 include `rdx_ble_server.h` 获取 owner。
+- Mode Controller 公共头不暴露不必要的 Server internals。
+- R5-A 后 LONG/HOLD/UP 仍不被测试路径消费。
+- R5-A 后没有新增 HOGP 私有 press/release API。
+- R5-A 后 report conversion 和 default/test keymap loader 边界保持在 executor 内。
 
-### 8.2 固件构建
+### 10.2 固件构建
 
 ```text
 [ ] TCFG_RDX_HOGP_ENABLE=1 全量编译
@@ -416,7 +475,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.
 [ ] 确认 SDK/cpu/br28/tools/、output/ 等生成二进制不进入提交
 ```
 
-### 8.3 硬件回归
+### 10.3 硬件回归
 
 ```text
 [ ] 上电默认 HOGP 广播
@@ -433,17 +492,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.
 [ ] RDX App 原有 BLE 通道、OTA、断连恢复不回归
 ```
 
-## 9. 最终完成定义
+## 11. 当前完成定义
 
-HOGP 收尾完成必须同时满足：
+### 11.1 Profile v1 收尾完成
 
-- HOGP Profile v1 的 handle、Report Map、Report payload、广播身份保持不变。
-- `rdx_profile_data[]` HOGP block 与 `rdx_hogp_profile.h` 不再是人工双源。
-- HOGP 不再负责模式切换决策、主动断连或恢复 RDX Config 广播。
-- HOGP 公共 API 不依赖配置 include 顺序。
-- release delay 和默认模式等 tunable 有清晰默认值和项目覆盖入口。
-- Mode Controller 在外部调用方增加前后有明确边界，不让 PC Agent/RDX App/HFP 直接访问 Server 私有状态。
-- Key Action Executor 能承接 RDX App 下发的 active keymap，HOGP 仍只发送完整 Keyboard Report。
-- Host 测试、HOGP enabled/disabled 构建、Windows 硬件回归全部通过。
+Profile v1 收尾完成需要满足：
 
-完成后，下一阶段可以并行推进 RDX App 按键设置、VM 配置存储、宏/Layer、HFP 共存、PC Agent 和 Profile v2，而不再修改 HOGP Profile v1 的核心传输契约。
+- R1 已完成：Profile 字节表与宏统一。
+- R2 已完成：HOGP 不再拥有 Server 生命周期决策。
+- R3 已完成：配置项收口，include 顺序安全，release delay 配置化。
+- R4 已完成：Mode Controller 状态轻量独立化，HOGP 不再依赖 Server 私有状态。
+- 当前 host tests 全部通过。
+- HOGP enabled/disabled 构建通过。
+- 硬件回归通过。
+
+### 11.2 Key Action 产品化完成
+
+Key Action 产品化不作为当前 Profile v1 收尾的阻塞项。
+
+它需要等 BLE App 配置协议明确后再定义：
+
+- APP 下发 keymap 格式；
+- RAM ABI；
+- VM 格式；
+- 配置事务和回滚；
+- Macro/Layer 表达方式；
+- PC Agent / HFP / Profile v2 共存边界。
+
+当前只保留五键测试路径、默认空 keymap 和最小 executor 边界，确保硬件可以验证 HOGP Profile v1 的输入链路。

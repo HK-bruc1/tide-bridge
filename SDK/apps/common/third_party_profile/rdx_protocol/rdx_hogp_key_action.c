@@ -21,14 +21,13 @@
 ******************************************************************************/
 #include "app_config.h"
 #include "rdx_app_config.h"
+#include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_key_action.h"
 
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/
-#define RDX_HOGP_KEY_ACTION_RELEASE_DELAY_MS     20
-
 #define RDX_HOGP_KEY_ACTION_KEYMAP_VERSION       1
 
 /******************************************************************************
@@ -66,22 +65,56 @@ static void rdx_hogp_key_action_cancel_release_timer(void)
     }
 }
 
-/******************************************************************************
-* Public Function Section
-******************************************************************************/
-void rdx_hogp_key_action_init(void)
+static void rdx_hogp_key_action_clear_active_keymap(void)
 {
     memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
     s_rdx_hogp_key_action_active = 0;
-    s_rdx_hogp_key_action_release_timer = 0;
+}
+
+#if !(RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+static void rdx_hogp_key_action_load_default_keymap(void)
+{
+    /* Default keymap is intentionally empty until the BLE App keymap protocol
+     * and VM persistence ABI are defined. CLICK will return unconsumed and
+     * fall back to the legacy RDX key table in this mode. */
+    rdx_hogp_key_action_clear_active_keymap();
+}
+#endif
 
 #if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+static void rdx_hogp_key_action_load_test_keymap(void)
+{
+    rdx_hogp_key_action_clear_active_keymap();
+
     memcpy(s_rdx_hogp_key_action_active_keymap.keys,
            s_rdx_hogp_test_keymap,
            sizeof(s_rdx_hogp_test_keymap));
     s_rdx_hogp_key_action_active_keymap.version = RDX_HOGP_KEY_ACTION_KEYMAP_VERSION;
     s_rdx_hogp_key_action_active_keymap.key_count = RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT;
     s_rdx_hogp_key_action_active = 1;
+}
+#endif
+
+static void rdx_hogp_key_action_to_keyboard_report(
+    const rdx_hogp_key_action_keyboard_t *action,
+    rdx_hogp_keyboard_report_t *report)
+{
+    report->modifiers = action->modifiers;
+    report->reserved = 0;
+    memcpy(report->usages, action->usages, sizeof(report->usages));
+}
+
+/******************************************************************************
+* Public Function Section
+******************************************************************************/
+void rdx_hogp_key_action_init(void)
+{
+    s_rdx_hogp_key_action_release_timer = 0;
+
+#if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+    rdx_hogp_key_action_load_test_keymap();
+#else
+    rdx_hogp_key_action_load_default_keymap();
 #endif
 }
 
@@ -97,8 +130,7 @@ void rdx_hogp_key_action_deinit(void)
     rdx_hogp_key_action_cancel_release_timer();
     rdx_hogp_keyboard_release_all();
 
-    memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
-    s_rdx_hogp_key_action_active = 0;
+    rdx_hogp_key_action_clear_active_keymap();
 }
 
 int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
@@ -147,9 +179,7 @@ int rdx_hogp_key_action_click(u8 key_id)
 
     action = &s_rdx_hogp_key_action_active_keymap.keys[key_id];
 
-    report.modifiers = action->modifiers;
-    report.reserved = 0;
-    memcpy(report.usages, action->usages, sizeof(report.usages));
+    rdx_hogp_key_action_to_keyboard_report(action, &report);
 
     ret = rdx_hogp_keyboard_report_send(&report);
     if (ret != APP_BLE_NO_ERROR) {
@@ -159,7 +189,7 @@ int rdx_hogp_key_action_click(u8 key_id)
 
     rdx_hogp_key_action_cancel_release_timer();
     s_rdx_hogp_key_action_release_timer =
-        sys_timeout_add(NULL, rdx_hogp_key_action_release_timer_cb, RDX_HOGP_KEY_ACTION_RELEASE_DELAY_MS);
+        sys_timeout_add(NULL, rdx_hogp_key_action_release_timer_cb, TCFG_RDX_HOGP_KEY_UP_DELAY_MS);
     if (s_rdx_hogp_key_action_release_timer == 0) {
         y_printf("[HOGP_KEY_ACTION] key %d release timer failed, send immediate release\n", key_id);
         rdx_hogp_keyboard_release_all();

@@ -469,6 +469,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_dut.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_record.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_ble_mode_controller.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keyboard.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_profile.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_led_ctrl.c \

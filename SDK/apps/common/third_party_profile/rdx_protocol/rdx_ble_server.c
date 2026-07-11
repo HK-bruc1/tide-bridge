@@ -45,6 +45,8 @@
 #include "app_config.h"
 
 #include "rdx_ble_server.h"
+#include "rdx_hogp_config.h"
+#include "rdx_ble_mode_controller.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_key_action.h"
@@ -73,12 +75,6 @@
 #include "debug.h"
 
 //-----------------------------------------------------------------------------------------
-
-/* Phase 6 C5: default BLE mode at boot. Fallback must come after app_config.h
- * so project-level overrides (e.g. t2620_project_config.h) take effect. */
-#ifndef RDX_BLE_DEFAULT_MODE
-#define RDX_BLE_DEFAULT_MODE                        RDX_BLE_DEFAULT_MODE_CONFIG
-#endif
 
 #if (RDX_BLE_DEFAULT_MODE != RDX_BLE_DEFAULT_MODE_CONFIG) && \
     (RDX_BLE_DEFAULT_MODE != RDX_BLE_DEFAULT_MODE_HOGP)
@@ -119,43 +115,9 @@
 #define RDX_SELF_MARK                                   "NV"
 #define RDX_BLE_ADV_DEV_COLOR_POSITION                  (18)
 
-/*******************************************************************************
-* Structure and Enum Section
-*******************************************************************************/
-
-typedef enum {
-    RDX_BLE_MODE_CONFIG = 0,
-    RDX_BLE_MODE_HOGP,
-} rdx_ble_mode_t;
-
-typedef enum {
-    RDX_BLE_OWNER_NONE = 0,
-    RDX_BLE_OWNER_CONFIG,
-    RDX_BLE_OWNER_HOGP,
-} rdx_ble_connection_owner_t;
-
-typedef struct {
-    rdx_ble_mode_t requested_mode;
-    rdx_ble_mode_t advertised_mode;
-    rdx_ble_connection_owner_t connection_owner;
-    u8 switch_pending;
-} rdx_ble_mode_controller_t;
-
-/* Forward declarations for private mode controller helpers */
-static void rdx_ble_mode_controller_dump(const char *prefix);
-static const char *rdx_ble_owner_name(rdx_ble_connection_owner_t owner);
-static const char *rdx_ble_mode_name(rdx_ble_mode_t mode);
-static void rdx_ble_mode_controller_init(void);
-static void rdx_ble_mode_controller_reset(void);
-static void rdx_ble_mode_start_config_advertising(void);
-static void rdx_ble_mode_start_hogp_advertising(void);
-static u8   rdx_ble_mode_broadcast_suppressed(void);
-static void rdx_ble_mode_restart_hogp_advertising(void);
-static void rdx_ble_mode_sync_hogp_runtime(void);
-static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv);
-static void rdx_ble_mode_apply_requested(void);
-static void rdx_ble_mode_apply_requested_force(void);
-static int rdx_ble_mode_request(rdx_ble_mode_t mode);
+/******************************************************************************
+* Forward declarations
+******************************************************************************/
 static void rdx_ble_server_disconnected_cleanup_internal(void);
 static void rdx_ble_server_disconnected_adv_restart(void);
 
@@ -185,12 +147,6 @@ static rdx_ble_server_info_t g_rdx_ble_server_info = {
 };
 
 static u16 g_syn_data_timer = 0;
-static rdx_ble_mode_controller_t s_ble_mode = {
-    .requested_mode = RDX_BLE_MODE_CONFIG,
-    .advertised_mode = RDX_BLE_MODE_CONFIG,
-    .connection_owner = RDX_BLE_OWNER_NONE,
-    .switch_pending = 0,
-};
 
 const char *const rdx_phy_result[] = {
     "None",
@@ -1275,15 +1231,15 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             rdx_ble_server_set_conn_handle(con_handle);
                             g_rdx_ble_server_info.ble_conn = TRUE;
 
-                            if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
-                                s_ble_mode.connection_owner = RDX_BLE_OWNER_HOGP;
+                            if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
+                                rdx_ble_connection_owner_set(RDX_BLE_OWNER_HOGP);
                             } else {
-                                s_ble_mode.connection_owner = RDX_BLE_OWNER_CONFIG;
+                                rdx_ble_connection_owner_set(RDX_BLE_OWNER_CONFIG);
                             }
                             rdx_ble_mode_controller_dump("connected(enhanced)");
 
 #if TCFG_RDX_HOGP_ENABLE
-                            if (s_ble_mode.connection_owner == RDX_BLE_OWNER_HOGP) {
+                            if (rdx_ble_connection_owner_is_hogp()) {
                                 rdx_hogp_on_connected(con_handle);
                             }
 #endif
@@ -1298,20 +1254,20 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         rdx_ble_server_set_conn_handle(con_handle);
                         g_rdx_ble_server_info.ble_conn = TRUE;
 
-                        if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
-                            s_ble_mode.connection_owner = RDX_BLE_OWNER_HOGP;
+                        if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
+                            rdx_ble_connection_owner_set(RDX_BLE_OWNER_HOGP);
                         } else {
-                            s_ble_mode.connection_owner = RDX_BLE_OWNER_CONFIG;
+                            rdx_ble_connection_owner_set(RDX_BLE_OWNER_CONFIG);
                         }
                         rdx_ble_mode_controller_dump("connected");
 
 #if TCFG_RDX_HOGP_ENABLE
-                        if (s_ble_mode.connection_owner == RDX_BLE_OWNER_HOGP) {
+                        if (rdx_ble_connection_owner_is_hogp()) {
                             rdx_hogp_on_connected(con_handle);
                         }
 #endif
 
-                        if (s_ble_mode.connection_owner == RDX_BLE_OWNER_CONFIG) {
+                        if (rdx_ble_connection_owner_get() == RDX_BLE_OWNER_CONFIG) {
                             rdx_ble_server_set_ble_work_state(BLE_ST_CONNECT);
 
                             rdx_ble_server_reset_send_fail_cnt();
@@ -1365,7 +1321,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     g_rdx_ble_server_info.ble_conn = FALSE;
                     rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
 
-                    rdx_ble_connection_owner_t prev_owner = s_ble_mode.connection_owner;
+                    rdx_ble_connection_owner_t prev_owner = rdx_ble_connection_owner_get();
                     rdx_ble_mode_controller_dump("disconnecting");
 
 #if TCFG_RDX_HOGP_ENABLE
@@ -1380,7 +1336,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         rdx_ble_server_disconnected_cleanup_internal();
                     }
 
-                    s_ble_mode.connection_owner = RDX_BLE_OWNER_NONE;
+                    rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
                     rdx_ble_mode_controller_dump("disconnected");
 
                     /* Force-apply pending mode: wrapper handle may still be stale
@@ -1389,7 +1345,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     rdx_ble_mode_apply_requested_force();
 
                     /* 断连后保持当前广播身份：HOGP 强制重启 HID 广播，CONFIG 恢复 RDX 广播 */
-                    if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
+                    if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
                         rdx_ble_mode_restart_hogp_advertising();
                     } else {
                         rdx_ble_server_disconnected_adv_restart();
@@ -1590,7 +1546,7 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
 #if TCFG_RDX_HOGP_ENABLE
             if (!rdx_ble_connection_owner_is_hogp()) {
                 y_printf("[HOGP] read rejected: owner=%s\n",
-                         rdx_ble_owner_name(s_ble_mode.connection_owner));
+                         rdx_ble_owner_name(rdx_ble_connection_owner_get()));
                 break;
             }
             att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
@@ -1697,7 +1653,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     if (handle >= HID_SERVICE_START_HANDLE && handle <= HID_SERVICE_END_HANDLE) {
         if (!rdx_ble_connection_owner_is_hogp()) {
             y_printf("[HOGP] write rejected: owner=%s hdl=0x%04x\n",
-                     rdx_ble_owner_name(s_ble_mode.connection_owner), handle);
+                     rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
         return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
@@ -1707,7 +1663,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     if (handle == HID_OUTPUT_REPORT_VALUE_HANDLE) {
         if (!rdx_ble_connection_owner_is_hogp()) {
             y_printf("[HOGP] output report write rejected: owner=%s\n",
-                     rdx_ble_owner_name(s_ble_mode.connection_owner));
+                     rdx_ble_owner_name(rdx_ble_connection_owner_get()));
             return 0;
         }
         if (buffer_size >= 1) {
@@ -1720,18 +1676,18 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     /* RDX App Config handles: only CONFIG owner */
     if (handle == ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE ||
         handle == ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE) {
-        if (s_ble_mode.connection_owner != RDX_BLE_OWNER_CONFIG) {
+        if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
             y_printf("[BLE_MODE] RDX write rejected: owner=%s hdl=0x%04x\n",
-                     rdx_ble_owner_name(s_ble_mode.connection_owner), handle);
+                     rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
     }
 
     if (handle == ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE ||
         handle == ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE) {
-        if (s_ble_mode.connection_owner != RDX_BLE_OWNER_CONFIG) {
+        if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
             y_printf("[BLE_MODE] RDX CCC write rejected: owner=%s hdl=0x%04x\n",
-                     rdx_ble_owner_name(s_ble_mode.connection_owner), handle);
+                     rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
     }
@@ -2141,7 +2097,7 @@ void rdx_ble_server_adv_data_changed(void)
 
     /* Identity routing: callers such as DUT exit must not write RDX broadcast
      * data while the mode controller is still advertising HOGP. */
-    if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
+    if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
         rdx_ble_mode_restart_hogp_advertising();
         return;
     }
@@ -2217,9 +2173,9 @@ int rdx_ble_server_send(u8 *data, u32 len)
     /* Code Body													  */
     /*----------------------------------------------------------------*/
 
-    if (s_ble_mode.connection_owner != RDX_BLE_OWNER_CONFIG) {
+    if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
         y_printf("[BLE_MODE] RDX server send rejected: owner=%s\n",
-                 rdx_ble_owner_name(s_ble_mode.connection_owner));
+                 rdx_ble_owner_name(rdx_ble_connection_owner_get()));
         g_ble_send_fail_cnt++;
         return -1;
     }
@@ -2272,9 +2228,9 @@ int rdx_ble_server_ota_send(u8 *data, u32 len)
     // y_printf("---> rdx_ble_send len = %d \r", len);
     // put_buf(data, len);
 
-    if (s_ble_mode.connection_owner != RDX_BLE_OWNER_CONFIG) {
+    if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
         y_printf("[BLE_MODE] RDX OTA send rejected: owner=%s\n",
-                 rdx_ble_owner_name(s_ble_mode.connection_owner));
+                 rdx_ble_owner_name(rdx_ble_connection_owner_get()));
         return -1;
     }
     if(!data || len == 0){
@@ -2389,9 +2345,11 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
     return &g_rdx_ble_server_info;
 }
 /**************************************************************************
- * BLE mode controller (Phase 6 C1)
- * Private state machine for mode request, advertised identity, and
- * connection ownership.  All state is static to this file.
+ * BLE mode controller server actions (Phase 6 C1)
+ *
+ * Mode state (requested_mode, advertised_mode, connection_owner,
+ * switch_pending) lives in rdx_ble_mode_controller.c. This file only
+ * performs BLE operations and queries the controller state.
  **************************************************************************/
 
 static const char *rdx_ble_owner_name(rdx_ble_connection_owner_t owner)
@@ -2417,36 +2375,12 @@ static void rdx_ble_mode_controller_dump(const char *prefix)
 {
     y_printf("[BLE_MODE] %s req=%s adv=%s owner=%s pending=%d con=0x%04x conn=%d\n",
              prefix ? prefix : "",
-             rdx_ble_mode_name(s_ble_mode.requested_mode),
-             rdx_ble_mode_name(s_ble_mode.advertised_mode),
-             rdx_ble_owner_name(s_ble_mode.connection_owner),
-             s_ble_mode.switch_pending,
+             rdx_ble_mode_name(rdx_ble_mode_get_requested()),
+             rdx_ble_mode_name(rdx_ble_mode_get_advertised()),
+             rdx_ble_owner_name(rdx_ble_connection_owner_get()),
+             rdx_ble_mode_switch_pending(),
              g_rdx_ble_server_info.ble_con_handle,
              g_rdx_ble_server_info.ble_conn);
-}
-
-static rdx_ble_mode_t rdx_ble_mode_effective_default(void)
-{
-#if TCFG_RDX_HOGP_ENABLE
-    return (rdx_ble_mode_t)RDX_BLE_DEFAULT_MODE;
-#else
-    /* HOGP compiled out: always fall back to RDX Config regardless of project default. */
-    return RDX_BLE_MODE_CONFIG;
-#endif
-}
-
-static void rdx_ble_mode_controller_init(void)
-{
-    rdx_ble_mode_t default_mode = rdx_ble_mode_effective_default();
-    s_ble_mode.requested_mode = default_mode;
-    s_ble_mode.advertised_mode = default_mode;
-    s_ble_mode.connection_owner = RDX_BLE_OWNER_NONE;
-    s_ble_mode.switch_pending = 0;
-}
-
-static void rdx_ble_mode_controller_reset(void)
-{
-    rdx_ble_mode_controller_init();
 }
 
 static void rdx_ble_mode_start_config_advertising(void)
@@ -2525,7 +2459,7 @@ static void rdx_ble_mode_restart_hogp_advertising(void)
 static void rdx_ble_mode_sync_hogp_runtime(void)
 {
 #if TCFG_RDX_HOGP_ENABLE
-    if (s_ble_mode.advertised_mode == RDX_BLE_MODE_CONFIG) {
+    if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_CONFIG) {
         if (rdx_hogp_mode_get()) {
             // Phase 6 C5: clean up any pending key-up before leaving HOGP.
             rdx_hogp_key_action_reset();
@@ -2537,7 +2471,7 @@ static void rdx_ble_mode_sync_hogp_runtime(void)
 
 static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv)
 {
-    if (!s_ble_mode.switch_pending) {
+    if (!rdx_ble_mode_switch_pending()) {
         return;
     }
 
@@ -2548,14 +2482,14 @@ static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv)
         return;
     }
 
-    s_ble_mode.switch_pending = 0;
+    rdx_ble_mode_clear_pending();
 
-    if (s_ble_mode.requested_mode == s_ble_mode.advertised_mode) {
+    if (rdx_ble_mode_get_requested() == rdx_ble_mode_get_advertised()) {
         y_printf("[BLE_MODE] no broadcast change needed\n");
         return;
     }
 
-    s_ble_mode.advertised_mode = s_ble_mode.requested_mode;
+    rdx_ble_mode_set_advertised(rdx_ble_mode_get_requested());
     rdx_ble_mode_controller_dump("apply");
 
     rdx_ble_mode_sync_hogp_runtime();
@@ -2570,7 +2504,7 @@ static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv)
             return;
         }
 
-        if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
+        if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
             rdx_ble_mode_start_hogp_advertising();
         } else {
             rdx_ble_mode_start_config_advertising();
@@ -2590,18 +2524,11 @@ static void rdx_ble_mode_apply_requested_force(void)
 
 static int rdx_ble_mode_request(rdx_ble_mode_t mode)
 {
-    if (mode != RDX_BLE_MODE_CONFIG && mode != RDX_BLE_MODE_HOGP) {
-        y_printf("[BLE_MODE] invalid mode request %d\n", mode);
-        return -1;
+    int ret = rdx_ble_mode_request_set(mode);
+    if (ret) {
+        return ret;
     }
 
-    if (s_ble_mode.requested_mode == mode && !s_ble_mode.switch_pending) {
-        y_printf("[BLE_MODE] mode %s already requested, ignore\n", rdx_ble_mode_name(mode));
-        return 0;
-    }
-
-    s_ble_mode.requested_mode = mode;
-    s_ble_mode.switch_pending = 1;
     rdx_ble_mode_controller_dump("request");
 
     if (g_rdx_ble_server_info.ble_conn ||
@@ -2615,6 +2542,11 @@ static int rdx_ble_mode_request(rdx_ble_mode_t mode)
     return 0;
 }
 
+/* Public facades declared in rdx_ble_server.h. These must drive BLE side
+ * effects (disconnect/apply), so they are implemented here and call the
+ * static server-side request helper rather than only updating controller
+ * state. */
+
 void rdx_ble_mode_request_hogp(u8 enable)
 {
 #if TCFG_RDX_HOGP_ENABLE
@@ -2624,26 +2556,10 @@ void rdx_ble_mode_request_hogp(u8 enable)
 #endif
 }
 
-u8 rdx_ble_connection_owner_is_hogp(void)
-{
-    return (s_ble_mode.connection_owner == RDX_BLE_OWNER_HOGP) ? 1 : 0;
-}
-
-u8 rdx_ble_mode_is_hogp_requested(void)
-{
-#if TCFG_RDX_HOGP_ENABLE
-    return (s_ble_mode.requested_mode == RDX_BLE_MODE_HOGP) ? 1 : 0;
-#else
-    return 0;
-#endif
-}
-
 void rdx_ble_mode_request_toggle(void)
 {
 #if TCFG_RDX_HOGP_ENABLE
-    rdx_ble_mode_request_hogp(!rdx_ble_mode_is_hogp_requested());
-#else
-    /* HOGP compiled out: no-op. */
+    rdx_ble_mode_request(rdx_ble_mode_is_hogp_requested() ? RDX_BLE_MODE_CONFIG : RDX_BLE_MODE_HOGP);
 #endif
 }
 
@@ -2713,7 +2629,7 @@ void rdx_ble_server_init(void)
         if (rdx_ble_mode_broadcast_suppressed()) {
             y_printf("[BLE_MODE] default broadcast suppressed\n");
             rdx_ble_server_adv_enable(0);
-        } else if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
+        } else if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
             rdx_ble_mode_start_hogp_advertising();
         } else {
             rdx_ble_mode_start_config_advertising();

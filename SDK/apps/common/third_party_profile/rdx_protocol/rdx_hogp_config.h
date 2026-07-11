@@ -3,19 +3,34 @@
  MODULE NAME: RDX BLE HID-over-GATT keyboard compile-time configuration.
 
  GENERAL DESCRIPTION:
-    Centralized tunables for the HOGP keyboard module. Every macro uses an
-    #ifndef guard so project-level overrides (t2620_project_config.h) take
-    precedence. This file is included by rdx_hogp_keyboard.c, rdx_hogp_keyboard.h,
-    rdx_hogp_profile.c, and rdx_ble_server.c. This ensures all four files see the
-    same fallback defaults.
+    Centralized tunables for the HOGP keyboard module. This header includes
+    app_config.h before applying fallback defaults, so project-level overrides
+    from t2620_project_config.h are visible regardless of include order.
 
 =======================================================================================*/
 
 #ifndef _RDX_HOGP_CONFIG_H_
 #define _RDX_HOGP_CONFIG_H_
 
+#include "app_config.h"
+
 #ifdef __cplusplus
 extern "C" {
+#endif
+
+/******************************************************************************
+* BLE Mode Defaults
+******************************************************************************/
+#ifndef RDX_BLE_DEFAULT_MODE_CONFIG
+#define RDX_BLE_DEFAULT_MODE_CONFIG           0
+#endif
+
+#ifndef RDX_BLE_DEFAULT_MODE_HOGP
+#define RDX_BLE_DEFAULT_MODE_HOGP             1
+#endif
+
+#ifndef RDX_BLE_DEFAULT_MODE
+#define RDX_BLE_DEFAULT_MODE                  RDX_BLE_DEFAULT_MODE_CONFIG
 #endif
 
 /******************************************************************************
@@ -25,16 +40,19 @@ extern "C" {
 * t2620_project_config.h. Defaults to 0 (disabled) if not defined, so
 * non-HOGP products never pay code size.
 *
-* IMPORTANT: include app_config.h (which pulls in t2620_project_config.h)
-* BEFORE including this header, otherwise this fallback will lock the macro
-* to 0 and the project override will be ignored.
-*
 * Override in t2620_project_config.h or board-specific config:
 *   #define TCFG_RDX_HOGP_ENABLE 1
 
 ******************************************************************************/
 #ifndef TCFG_RDX_HOGP_ENABLE
 #define TCFG_RDX_HOGP_ENABLE                  0
+#endif
+
+/******************************************************************************
+* Key Action
+******************************************************************************/
+#ifndef TCFG_RDX_HOGP_KEY_UP_DELAY_MS
+#define TCFG_RDX_HOGP_KEY_UP_DELAY_MS         20
 #endif
 
 /******************************************************************************

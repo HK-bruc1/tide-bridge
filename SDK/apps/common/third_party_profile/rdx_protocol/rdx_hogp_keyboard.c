@@ -36,7 +36,7 @@
 #include "btstack/btstack_event.h"
 #include "multi_protocol_main.h"
 
-#include "rdx_ble_server.h"
+#include "rdx_ble_mode_controller.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
