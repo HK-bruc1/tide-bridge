@@ -479,6 +479,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_md5.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_rtc.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_key.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_hogp_key_action.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_charge.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spi.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_battery.c \

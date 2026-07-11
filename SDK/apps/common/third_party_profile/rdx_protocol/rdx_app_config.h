@@ -124,6 +124,13 @@
 #define RDX_RTC_PATH_SEL								RDX_RTC_PATH_HARDWARE
 #endif
 
+/* Phase 6 C5: unified gate for the built-in HOGP test keymap and KEY1
+ * triple-click mode toggle. Defaults to 0; T2620 enables it in
+ * t2620_project_config.h. */
+#ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
+#define RDX_HOGP_KEY_ACTION_TEST_ENABLE             0
+#endif
+
 #if (RDX_RTC_PATH_SEL != RDX_RTC_PATH_SOFTWARE) && (RDX_RTC_PATH_SEL != RDX_RTC_PATH_HARDWARE)
 #error "RDX_RTC_PATH_SEL must be RDX_RTC_PATH_SOFTWARE or RDX_RTC_PATH_HARDWARE"
 #endif

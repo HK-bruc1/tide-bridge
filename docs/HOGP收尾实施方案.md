@@ -14,7 +14,7 @@ Phase 1-5 已完成 HOGP 逻辑拆分、Profile 常量集中、编译期配置�
 - PC Agent；
 - 后续 Consumer Control 和 HOGP Profile v2。
 
-Phase 6 的 C1-C4 不以增加产品功能为目标。除 C5 明确列出的产品身份迁移外，现有 HID handle、Report Map 和 8 字节 Input Report 契约必须保持不变。
+Phase 6 的 C1-C4 不以增加产品功能为目标。C5 只对齐默认 HOGP 产品路径并建立最小 Key Action 测试骨架；产品自定义名称迁移留到客户需求明确后独立执行。现有 HID handle、Report Map 和 8 字节 Input Report 契约必须保持不变。
 
 > **分支与提交约定**：Phase 6 在当前 `HOGP` 分支执行。每个 Phase 独立提交，提交前必须经过人工评估，禁止把生成二进制（`SDK/cpu/br28/tools/`、`output/` 等）纳入提交。
 
@@ -51,7 +51,7 @@ App 配置模式：RDX BLE App Config，HOGP 断开且停止广播
 当前仓库基于 JL TWS earphone firmware，`app_main.c`、任务表、电源管理、TWS 配对、充电盒逻辑、BT 音乐和 HFP 都来自厂商默认产品形态。VibeCoding Keyboard 是利用该芯片和 SDK 能力重新定义的目标产品，Phase 6 不能在 HOGP 重构中顺手删除这些路径：
 
 - C1-C4 只调整 BLE/HOGP 模块内部边界，不改变 SDK 基座的主应用启动模型。
-- C5 才涉及默认上电 HOGP、广播名称和临时测试入口删除，是产品主路径对齐阶段，应单独提交和验收。
+- C5 负责默认上电 HOGP，并把临时按键注入升级为受单一宏门控的 Key Action 测试骨架；HOGP 继续复用 RDX BLE App local name，名称迁移和测试入口删除留到 BLE App 配置路径完成后独立执行。
 - Classic HFP 是产品技术栈的一部分，但启停策略由产品模式协调层决定，不由 HOGP 模块直接控制。
 - TWS 左右耳、充电盒、电量上报、BT 音乐和低功耗策略需要逐项判断是复用、裁剪还是保留为空路径；本文只要求 HOGP 不再依赖这些私有状态。
 
@@ -226,23 +226,23 @@ SDK/apps/earphone/include/t2620_project_config.h
 
 模块默认值继续放在 `rdx_hogp_config.h`，但公共 API 头不再包含配置头，也不再根据开关隐藏声明。关闭态由统一 stub 或链接门控提供，消除“必须先 include `app_config.h`”的顺序依赖。
 
-### 6.2 量产配置建议
+### 6.2 C5 产品配置
 
 ```c
 #define TCFG_RDX_HOGP_ENABLE                  1
 #define RDX_HOGP_ENCRYPTION_REQUIRED          1
-#define RDX_HOGP_NAME_SOURCE                  1
-#define RDX_HOGP_CUSTOM_NAME                  "VibeCoding Keyboard"
-#define RDX_BLE_DEFAULT_MODE                  RDX_BLE_MODE_HOGP
+#define RDX_HOGP_NAME_SOURCE                  0
+#define RDX_BLE_DEFAULT_MODE                  RDX_BLE_DEFAULT_MODE_HOGP
+#define RDX_HOGP_KEY_ACTION_TEST_ENABLE       1
 ```
 
-配置广播名称建议使用 `VibeCoding Config`。名称从当前 `VibeKeyboard` 迁移属于一次产品身份变更，应作为独立 commit/Phase 执行。Windows 已配对设备可能缓存旧名称和 Service UUID，验收时必须删除旧配对、重新配对并验证自动回连；未完成该验证前不得把 C5 合入量产分支。
+当前 HOGP 与 RDX BLE App Config 继续复用 `rdx_ble_server_get_local_name()` 返回的本地名称。后续客户需要独立产品名时，可把 `RDX_HOGP_NAME_SOURCE` 切换为 1 并覆盖 `RDX_HOGP_CUSTOM_NAME`；该迁移应独立提交，并覆盖 Windows 名称、配对和 GATT cache 风险。
 
-`RDX_HOGP_KEY_UP_DELAY_MS` 和固定 A-E keymap 后续应迁移到 Key Action Executor；它们是输入策略，不是 HOGP 传输配置。
+KEY1 三击模式切换和五键内置 Keymap 由 `RDX_HOGP_KEY_ACTION_TEST_ENABLE` 统一门控。固定测试 Keymap 和 active keymap 集中在 HOGP 专属 `rdx_hogp_key_action.c/.h`，该模块负责 Report 构造和 release delay；`rdx_key.c/.h` 保持原有 `APP_MSG_*` 映射职责。BLE App/VM 配置完成后关闭测试宏并替换 active 配置来源，不修改 HOGP 传输层。
 
 ## 7. 分阶段实施
 
-推荐落地顺序为 C2 -> C1 -> C3/C4 -> C5 -> C6。C2 风险最低，先消除关闭态和 timer/handle 悬挂；C1 依赖清晰的 deinit/断连清理；C5 涉及产品身份和默认模式，必须在 C1-C4 稳定且 Config 进入/退出路径明确后执行。
+推荐落地顺序为 C2 -> C1 -> C3/C4 -> C5 -> C6。C2 风险最低，先消除关闭态和 timer/handle 悬挂；C1 依赖清晰的 deinit/断连清理；C5 涉及默认模式和按键执行边界，必须在 C1-C4 稳定且 Config 进入/退出路径明确后执行。
 
 ### Phase C0：前置确认与开发约定
 
@@ -250,7 +250,7 @@ SDK/apps/earphone/include/t2620_project_config.h
 
 1. **产品目标确认**：默认上电 HOGP 键盘是目标形态，C1-C4 不改 `app_main.c` 启动模型。
 2. **RDX App 按键设置扩展确认**：当前不复用独立 Config GATT Service，`RDX_BLE_OWNER_CONFIG` 仅作为授权边界；若后续必须新增 handle，需同步扩展 host 契约测试。
-3. **调试入口保留**：C1-C2 阶段保留一个编译期调试入口（如 `RDX_BLE_DEBUG_MODE_SWITCH_KEY` 宏控制的 NUM0 长按），用于本地验证模式切换；C5 产品化时移除。
+3. **测试入口保留**：BLE App 键值下发和持久化完成前保留编译期测试入口；C5 将其升级为 `RDX_HOGP_KEY_ACTION_TEST_ENABLE` 统一门控的 KEY1 三击模式切换和五键混合 Keymap。
 4. **ATT error code 确认**：已确认 `SDK/interface/btstack/le/att.h` 未导出 `ATT_ERROR_*` 宏；C4 使用本地 `RDX_HOGP_ATT_ERR_*` 常量（`0x07`/`0x0d`/`0x13`），不得直接引用未定义的 `ATT_ERROR_INVALID_HANDLE_VALUE`。
 5. **增强连接事件确认**：确认 `rdx_ble_server_cbk_packet_handler()` 当前是否已分发 `HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE`；如未分发，C1 只处理普通连接完成事件。
 6. **HFP 共存预研**：HFP 音频活动时 HOGP 按键丢失/超时涉及任务优先级与 audio 抢占，单独列项跟踪，不在 Phase 6 一次性解决。
@@ -268,7 +268,7 @@ SDK/apps/earphone/include/t2620_project_config.h
 5. ATT callback 和 notify 入口增加 owner 授权，模式不匹配时返回明确错误。
 6. HOGP 和 RDX App 配置广播统一由 Server 启停。
 7. 所有切换步骤增加结构化日志，包含 requested、advertised、owner、pending 和 con_handle。
-8. **调试入口**：保留 `RDX_BLE_DEBUG_MODE_SWITCH_KEY` 宏控制的 NUM0 长按/单击用于本地验证；该宏默认开启，C5 关闭。
+8. **调试入口**：C1 阶段保留 `RDX_BLE_DEBUG_MODE_SWITCH_KEY` 宏控制的 NUM0 长按/单击用于本地验证；C5 删除该旧宏并迁移到统一 `RDX_HOGP_KEY_ACTION_TEST_ENABLE`。
 
 验收：RDX App 已连接进入 HOGP、HOGP 已连接进入 RDX App 配置模式、广播态直接切换三条路径均无残留连接状态，连续切换 100 次可恢复。
 
@@ -301,7 +301,7 @@ SDK/apps/earphone/include/t2620_project_config.h
 5. HOGP 删除 `KEY_IO_NUM*`、`KEY_ACTION_*` 和固定 5 键知识。
 6. 引入完整 8 字节 Keyboard Report API，并保持线上 payload 不变。
 
-验收：在 HOGP 模块内搜索不到物理键和产品动作常量；模拟 Ctrl+C 可通过统一 Report API 表达；现有 A-D 行为不回归。
+验收：在 HOGP 模块内搜索不到物理键和产品动作常量；模拟 Ctrl+C 可通过统一 Report API 表达；C3-C4 临时 A-D 行为在 C5 被五键混合测试 Keymap 替换。
 
 ### Phase C4：协议状态与 Profile 数据收口
 
@@ -319,19 +319,22 @@ SDK/apps/earphone/include/t2620_project_config.h
 
 验收：handle、Report Map、通知 payload 与 Phase 5 快照一致；Protocol Mode、suspend、加密降级和 Input Report read 行为可从日志验证。
 
-### Phase C5：产品身份与默认模式对齐
+### Phase C5：默认 HOGP 与专属 Key Action 测试骨架
 
-目标：从测试入口切换为 VibeCoding Keyboard 产品主路径。本阶段默认上电 HOGP 的方向已确认，但应在 C1-C4 稳定后作为独立产品身份迁移提交，不阻塞架构修复先行合入。
+目标：T2620 上电默认进入 HOGP，并把 C3-C4 临时按键 adapter 升级为可由后续 BLE App/VM 配置替换的 HOGP 专属 Key Action Executor。名称迁移不属于本阶段。
 
 实施项：
 
-1. T2620 默认进入 HOGP 广播，名称使用 `VibeCoding Keyboard`。
-2. 配置模式只通过产品定义的组合键或未来 RDX App/Mode API 进入；临时 NUM0 测试策略删除。
-3. 配置模式名称冻结为 `VibeCoding Config`。
-4. HFP 不由 HOGP 启停；产品模式协调层根据最终策略决定 Config 模式是否暂停 HFP。
-5. 明确 LED/UI 状态事件，但本阶段只提供模式通知，不实现完整交互。
+1. T2620 经统一 BLE mode controller 默认进入 HOGP；HOGP 编译关闭时强制回退 Config。
+2. 保持 `RDX_HOGP_NAME_SOURCE=0`，HOGP 与 Config 继续使用当前 RDX Server local name；保留未来 custom name 切换能力。
+3. 保持现有 `rdx_key.c/.h` 的物理键、场景和 `APP_MSG_*` 映射职责，不引入 HID usage、HOGP action 类型或测试宏。
+4. 新增 HOGP 专属 `rdx_hogp_key_action.c/.h`，集中内置测试表、active keymap、完整 Keyboard Report 构造和 20 ms release timer，不访问 VM 或控制 BLE 模式。
+5. 用单一 `RDX_HOGP_KEY_ACTION_TEST_ENABLE` 门控五键默认测试表：KEY1 `Ctrl+V`、KEY2 `A`、KEY3 `Enter`、KEY4 `Ctrl+C`、KEY5 `Backspace`；CLICK 正式路由只受 HOGP 主开关门控。
+6. KEY1 三击通过 Mode API 在 HOGP/Config 间切换；KEY1 `LONG/HOLD/UP` 不消费，保留给后续 HFP MIC。
+7. HFP 不由 HOGP 启停；产品模式协调层根据最终策略决定 Config 模式是否暂停 HFP。
+8. BLE App 命令、candidate/active 配置事务、CRC 和 VM 持久化后续独立设计。
 
-验收：上电可直接被 PC 发现为 `VibeCoding Keyboard`；进入配置模式后 PC HOGP 已断开；退出配置模式后恢复 HOGP 广播并自动回连；Windows 删除旧 `VibeKeyboard` 配对后重新配对成功，旧配对未清理时的异常行为已记录为迁移风险。
+验收：上电直接进入 HOGP 广播；五键单击动作和 release 正常；KEY1 三击进入 Config 时先断开 HOGP，三击退出后恢复 HOGP 广播并自动回连；两种模式沿用相同 RDX local name；KEY1 长按/保持/抬起不被测试路径消费。
 
 ### Phase C6：验证、文档与交接
 
@@ -380,8 +383,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.
 ```text
 [ ] 上电默认 HOGP 广播
 [ ] Windows 首次配对、加密、CCC 订阅
-[ ] A-D 基线输入与 release 正常
-[ ] Ctrl+C 等组合键 Report 正常
+[ ] 五键 Ctrl+V、A、Enter、Ctrl+C、Backspace 与 release 正常
+[ ] KEY1 三击模式切换正常，LONG/HOLD/UP 未被 HOGP 测试路径消费
 [ ] PC 休眠/唤醒后自动回连
 [ ] HOGP 已连接时切换 RDX App 配置模式，确认先断连后换广播
 [ ] RDX App 已连接时切回 HOGP，确认原连接完整清理
@@ -400,7 +403,7 @@ fix(hogp): close BLE mode transition and connection ownership
 fix(hogp): close lifecycle and disabled-profile gaps
 refactor(hogp): narrow module boundaries and report API
 fix(hogp): synchronize protocol state and profile definitions
-feat(hogp): align default mode and product identity
+feat(hogp): align default mode and add key action skeleton
 test(hogp): extend phase 6 regression coverage
 docs(hogp): record phase 6 architecture and downstream contracts
 ```
@@ -416,7 +419,7 @@ docs(hogp): record phase 6 architecture and downstream contracts
 - HOGP 不依赖物理键、宏、Layer、配置存储或 HFP 业务；
 - 上层可以通过完整 Keyboard Report API 实现单键和组合键；
 - Profile v1 外部契约测试、启用/禁用构建和硬件模式切换全部通过；
-- 默认工作模式、广播名称和配置模式符合 VibeCoding Keyboard 产品文档；
+- 默认工作模式符合产品要求，HOGP/Config 继续复用当前 RDX local name，并保留后续 custom name 配置入口；
 - RDX App 按键设置、Key Action Executor、HFP 和 PC Agent 的开发不需要访问 HOGP 私有状态；
 - Profile v2 的范围、配对迁移和 Windows GATT cache 风险已明确隔离。
 

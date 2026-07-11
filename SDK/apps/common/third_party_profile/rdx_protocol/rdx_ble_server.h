@@ -125,8 +125,13 @@ void rdx_ble_server_reset_send_fail_cnt(void);
 rdx_ble_server_info_t * rdx_ble_server_get_info(void);
 
 /* Phase 6 C1: BLE mode controller narrow public wrappers */
+#define RDX_BLE_DEFAULT_MODE_CONFIG             0
+#define RDX_BLE_DEFAULT_MODE_HOGP               1
+
 void rdx_ble_mode_request_hogp(u8 enable);
 u8   rdx_ble_connection_owner_is_hogp(void);
+u8   rdx_ble_mode_is_hogp_requested(void);
+void rdx_ble_mode_request_toggle(void);
 
 int rdx_ble_server_bt_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);
 int rdx_ble_server_ble_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);

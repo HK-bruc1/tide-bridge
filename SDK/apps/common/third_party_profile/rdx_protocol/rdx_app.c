@@ -72,6 +72,7 @@
 #include "rdx_protocol.h"
 #include "xxpUart.h"
 #include "rdx_key.h"
+#include "rdx_hogp_key_action.h"
 #include "rdx_charge.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
@@ -560,80 +561,9 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
-#if TCFG_RDX_HOGP_ENABLE
-
-#define RDX_APP_HOGP_DEBUG_KEY_UP_DELAY_MS  20
-
-static u16 s_rdx_app_hogp_release_timer = 0;
-
-static const u8 s_rdx_app_hogp_debug_usages[] = {
-    0x04,  /* A */
-    0x05,  /* B */
-    0x06,  /* C */
-    0x07,  /* D */
-};
-
-static void rdx_app_hogp_cancel_release_timer(void)
-{
-    if (s_rdx_app_hogp_release_timer) {
-        sys_timeout_del(s_rdx_app_hogp_release_timer);
-        s_rdx_app_hogp_release_timer = 0;
-    }
-}
-
-static void rdx_app_hogp_release_timer_cb(void *priv)
-{
-    (void)priv;
-    s_rdx_app_hogp_release_timer = 0;
-    rdx_hogp_keyboard_release_all();
-}
-
-static int rdx_app_hogp_debug_click_usage(u8 usage)
-{
-    rdx_hogp_keyboard_report_t report = {0};
-    int ret;
-
-    report.usages[0] = usage;
-    ret = rdx_hogp_keyboard_report_send(&report);
-    if (ret == APP_BLE_NO_ERROR) {
-        rdx_app_hogp_cancel_release_timer();
-        s_rdx_app_hogp_release_timer =
-            sys_timeout_add(NULL,
-                            rdx_app_hogp_release_timer_cb,
-                            RDX_APP_HOGP_DEBUG_KEY_UP_DELAY_MS);
-    }
-
-    return ret;
-}
-
-static int rdx_app_hogp_debug_num_key(u8 num_idx, u8 action)
-{
-#if RDX_BLE_DEBUG_MODE_SWITCH_KEY
-    if (num_idx == 0 && action == KEY_ACTION_CLICK) {
-        rdx_ble_mode_request_hogp(1);
-        return 0;
-    }
-
-    if (num_idx == 0 && action == KEY_ACTION_LONG) {
-        rdx_app_hogp_cancel_release_timer();
-        rdx_ble_mode_request_hogp(0);
-        return 0;
-    }
-#endif
-
-    if (action != KEY_ACTION_CLICK) {
-        return -1;
-    }
-
-    if (num_idx == 0 || num_idx > ARRAY_SIZE(s_rdx_app_hogp_debug_usages)) {
-        return -1;
-    }
-
-    return rdx_app_hogp_debug_click_usage(
-        s_rdx_app_hogp_debug_usages[num_idx - 1]);
-}
-
-#endif /* TCFG_RDX_HOGP_ENABLE */
+/* Phase 6 C5: temporary HOGP debug adapter removed.
+ * Key action execution moved to rdx_hogp_key_action.c; mode toggle uses
+ * rdx_ble_mode_request_toggle() via KEY1 triple-click. */
 
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
@@ -684,14 +614,25 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        // HOGP 模式测试入口：
-        //   IO NUM0 短按 → 进入 HOGP 模式
-        //   IO NUM0 长按 → 退出 HOGP 模式
-        //   IO NUM1~4 短按 → 发送字母 A~D
-#if TCFG_RDX_HOGP_ENABLE
-        if (rdx_app_hogp_debug_num_key(num_idx, index) == 0) {
+        // Phase 6 C5: HOGP key action routing.
+        //   KEY1 (IO_NUM0) TRIPLE_CLICK -> toggle HOGP/Config mode (test gate only).
+        //   KEY1~KEY5 CLICK             -> try HOGP active keymap executor.
+        //   Other actions (LONG/HOLD/UP/...) fall through to legacy RDX tables.
+#if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+        if (num_idx == 0 && index == KEY_ACTION_TRIPLE_CLICK) {
+            rdx_ble_mode_request_toggle();
             *value = APP_MSG_NULL;
             return;
+        }
+#endif
+
+#if TCFG_RDX_HOGP_ENABLE
+        if (index == KEY_ACTION_CLICK) {
+            int action_ret = rdx_hogp_key_action_click((u8)num_idx);
+            if (action_ret >= 0) {
+                *value = APP_MSG_NULL;
+                return;
+            }
         }
 #endif
 
@@ -3324,6 +3265,9 @@ void rdx_app_tasks_init(void)
     //rdx ble server initial.
     rdx_ble_server_init();
 
+    //key action executor initial (after BLE server / HOGP submodule).
+    rdx_hogp_key_action_init();
+
     //ble send task init.
     protocol_cbs.rdx_protocol_cb = rdx_app_protocol_handle;
     rdx_protocol_task_create(&protocol_cbs);
@@ -3651,5 +3595,4 @@ void rdx_app_auto_shutdown(void)
 
 
 #endif
-
 

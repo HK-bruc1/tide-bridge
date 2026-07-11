@@ -33,4 +33,14 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+/* Phase 6 C5: T2620 boots into HOGP by default and enables the built-in
+ * five-key test keymap plus KEY1 triple-click mode toggle. */
+#ifndef RDX_BLE_DEFAULT_MODE
+#define RDX_BLE_DEFAULT_MODE                      RDX_BLE_DEFAULT_MODE_HOGP
+#endif
+
+#ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
+#define RDX_HOGP_KEY_ACTION_TEST_ENABLE                1
+#endif
+
 #endif /* T2620_PROJECT_CONFIG_H */

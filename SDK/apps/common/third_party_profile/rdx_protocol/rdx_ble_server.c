@@ -47,6 +47,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_profile.h"
+#include "rdx_hogp_key_action.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
@@ -72,6 +73,17 @@
 #include "debug.h"
 
 //-----------------------------------------------------------------------------------------
+
+/* Phase 6 C5: default BLE mode at boot. Fallback must come after app_config.h
+ * so project-level overrides (e.g. t2620_project_config.h) take effect. */
+#ifndef RDX_BLE_DEFAULT_MODE
+#define RDX_BLE_DEFAULT_MODE                        RDX_BLE_DEFAULT_MODE_CONFIG
+#endif
+
+#if (RDX_BLE_DEFAULT_MODE != RDX_BLE_DEFAULT_MODE_CONFIG) && \
+    (RDX_BLE_DEFAULT_MODE != RDX_BLE_DEFAULT_MODE_HOGP)
+#error "RDX_BLE_DEFAULT_MODE must be RDX_BLE_DEFAULT_MODE_CONFIG or RDX_BLE_DEFAULT_MODE_HOGP"
+#endif
 
 #define MANUFAC_DATA_LENGTH                         (50)
 
@@ -1008,6 +1020,9 @@ static void rdx_ble_server_disconnected_cleanup_internal(void)
     
     //file free if needed.
     sys_timeout_add(NULL, rdx_ble_server_disconnected_delay_handle, 500);
+
+    // Phase 6 C5: cancel any pending key-up release timer on disconnect.
+    rdx_hogp_key_action_reset();
 }
 
 /**************************************************************************
@@ -2381,10 +2396,21 @@ static void rdx_ble_mode_controller_dump(const char *prefix)
              g_rdx_ble_server_info.ble_conn);
 }
 
+static rdx_ble_mode_t rdx_ble_mode_effective_default(void)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    return (rdx_ble_mode_t)RDX_BLE_DEFAULT_MODE;
+#else
+    /* HOGP compiled out: always fall back to RDX Config regardless of project default. */
+    return RDX_BLE_MODE_CONFIG;
+#endif
+}
+
 static void rdx_ble_mode_controller_init(void)
 {
-    s_ble_mode.requested_mode = RDX_BLE_MODE_CONFIG;
-    s_ble_mode.advertised_mode = RDX_BLE_MODE_CONFIG;
+    rdx_ble_mode_t default_mode = rdx_ble_mode_effective_default();
+    s_ble_mode.requested_mode = default_mode;
+    s_ble_mode.advertised_mode = default_mode;
     s_ble_mode.connection_owner = RDX_BLE_OWNER_NONE;
     s_ble_mode.switch_pending = 0;
 }
@@ -2472,6 +2498,8 @@ static void rdx_ble_mode_sync_hogp_runtime(void)
 #if TCFG_RDX_HOGP_ENABLE
     if (s_ble_mode.advertised_mode == RDX_BLE_MODE_CONFIG) {
         if (rdx_hogp_mode_get()) {
+            // Phase 6 C5: clean up any pending key-up before leaving HOGP.
+            rdx_hogp_key_action_reset();
             rdx_hogp_runtime_cleanup();
         }
     }
@@ -2572,6 +2600,24 @@ u8 rdx_ble_connection_owner_is_hogp(void)
     return (s_ble_mode.connection_owner == RDX_BLE_OWNER_HOGP) ? 1 : 0;
 }
 
+u8 rdx_ble_mode_is_hogp_requested(void)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    return (s_ble_mode.requested_mode == RDX_BLE_MODE_HOGP) ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
+void rdx_ble_mode_request_toggle(void)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    rdx_ble_mode_request_hogp(!rdx_ble_mode_is_hogp_requested());
+#else
+    /* HOGP compiled out: no-op. */
+#endif
+}
+
 /**************************************************************************
  * function: rdx_ble_server_init
  * description: 
@@ -2633,8 +2679,16 @@ void rdx_ble_server_init(void)
         //init sem.
         os_mutex_create(&g_rdx_ble_server_info.ble_send_queue_mutex);
 
-        //enable ble broadcast.
-        rdx_ble_server_adv_enable(1);
+        //enable ble broadcast based on effective default mode.
+        //DUT, poweroff, WiFi transfer and SD format suppress all broadcast activity.
+        if (rdx_ble_mode_broadcast_suppressed()) {
+            y_printf("[BLE_MODE] default broadcast suppressed\n");
+            rdx_ble_server_adv_enable(0);
+        } else if (s_ble_mode.advertised_mode == RDX_BLE_MODE_HOGP) {
+            rdx_ble_mode_start_hogp_advertising();
+        } else {
+            rdx_ble_mode_start_config_advertising();
+        }
     }
 }
 
@@ -2664,6 +2718,7 @@ void rdx_ble_server_exit(void)
     rdx_ble_server_app_disconnect();
     rdx_ble_server_adv_enable(0);
     
+    rdx_hogp_key_action_deinit();
     rdx_hogp_deinit();
     rdx_ble_mode_controller_reset();
 

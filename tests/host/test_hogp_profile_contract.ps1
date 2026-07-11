@@ -26,6 +26,12 @@ $ProfileCPath = Join-Path $ProtocolDir 'rdx_hogp_profile.c'
 $KeyboardPath = Join-Path $ProtocolDir 'rdx_hogp_keyboard.c'
 $ServerPath = Join-Path $ProtocolDir 'rdx_ble_server.c'
 $DutPath = Join-Path $ProtocolDir 'rdx_dut.c'
+$KeyActionPath = Join-Path $ProtocolDir 'rdx_hogp_key_action.c'
+$KeyPath = Join-Path $ProtocolDir 'rdx_key.c'
+$KeyHeaderPath = Join-Path $ProtocolDir 'rdx_key.h'
+$AppConfigPath = Join-Path $ProtocolDir 'rdx_app_config.h'
+$HogpConfigPath = Join-Path $ProtocolDir 'rdx_hogp_config.h'
+$ProjectConfigPath = Join-Path $RepoRoot 'SDK/apps/earphone/include/t2620_project_config.h'
 
 $CheckResults = [System.Collections.Generic.List[object]]::new()
 $Failed = 0
@@ -847,9 +853,9 @@ $appUsesOldEntry = $AppCText -match 'rdx_hogp_on_io_num_key'
 Add-CheckResult -Name 'C3_APP_NO_OLD_HOGP_ENTRY' -Passed (-not $appUsesOldEntry) `
     -Message 'rdx_app.c must not call rdx_hogp_on_io_num_key()'
 
-$appUsesAdapter = $AppCText -match 'rdx_app_hogp_debug_num_key'
-Add-CheckResult -Name 'C3_APP_USES_DEBUG_ADAPTER' -Passed $appUsesAdapter `
-    -Message 'rdx_app.c must call rdx_app_hogp_debug_num_key()'
+$appNoDebugAdapter = $AppCText -notmatch 'rdx_app_hogp_debug_num_key'
+Add-CheckResult -Name 'C3_APP_DEBUG_ADAPTER_REMOVED' -Passed $appNoDebugAdapter `
+    -Message $(if ($appNoDebugAdapter) { '' } else { 'rdx_app.c must remove the temporary rdx_app_hogp_debug_num_key() adapter' })
 
 # C3.6 Disabled stubs cover all public declarations
 $disabledBranchMatch = [regex]::Match($KeyboardCText,
@@ -1010,6 +1016,271 @@ $headerHasUuids = $HeaderText -match '#define\s+RDX_HOGP_UUID_HID_SERVICE\s+0x18
 $headerHasDefaultProtocolMode = $HeaderText -match '#define\s+RDX_HOGP_PROTOCOL_MODE_DEFAULT\s+0x01'
 Add-CheckResult -Name 'C4_PROFILE_CONSTANTS' -Passed ($headerHasUuids -and $headerHasDefaultProtocolMode) `
     -Message $(if ($headerHasUuids -and $headerHasDefaultProtocolMode) { '' } else { 'rdx_hogp_profile.h must define RDX_HOGP_UUID_* and RDX_HOGP_PROTOCOL_MODE_DEFAULT' })
+
+# -----------------------------------------------------------------------------
+# C5 CHECKS: default HOGP boot and Key Action test skeleton
+# -----------------------------------------------------------------------------
+$KeyActionText = Get-Content -Raw -Path $KeyActionPath
+$KeyText = Get-Content -Raw -Path $KeyPath
+$KeyHeaderText = Get-Content -Raw -Path $KeyHeaderPath
+$AppConfigText = Get-Content -Raw -Path $AppConfigPath
+$HogpConfigText = Get-Content -Raw -Path $HogpConfigPath
+$ProjectConfigText = Get-Content -Raw -Path $ProjectConfigPath
+
+# C5.1 Project config enables default HOGP and test keymap
+$projectDefaultModeOk = $ProjectConfigText -match '#define\s+RDX_BLE_DEFAULT_MODE\s+RDX_BLE_DEFAULT_MODE_HOGP'
+Add-CheckResult -Name 'C5_PROJECT_DEFAULT_MODE_HOGP' -Passed $projectDefaultModeOk `
+    -Message $(if ($projectDefaultModeOk) { '' } else { 't2620_project_config.h must define RDX_BLE_DEFAULT_MODE as RDX_BLE_DEFAULT_MODE_HOGP' })
+
+$projectTestEnableOk = $ProjectConfigText -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+1'
+Add-CheckResult -Name 'C5_PROJECT_TEST_ENABLE' -Passed $projectTestEnableOk `
+    -Message $(if ($projectTestEnableOk) { '' } else { 't2620_project_config.h must define RDX_HOGP_KEY_ACTION_TEST_ENABLE as 1' })
+
+# C5.2 Public fallback defaults are conservative and old debug macro is gone
+$appConfigTestFallbackOk = $AppConfigText -match '#ifndef\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s*\r?\n\s*#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+0'
+Add-CheckResult -Name 'C5_APP_CONFIG_TEST_FALLBACK' -Passed $appConfigTestFallbackOk `
+    -Message $(if ($appConfigTestFallbackOk) { '' } else { 'rdx_app_config.h must provide RDX_HOGP_KEY_ACTION_TEST_ENABLE fallback defaulting to 0' })
+
+$oldDebugMacroGone = ($HogpConfigText -notmatch 'RDX_BLE_DEBUG_MODE_SWITCH_KEY') -and
+                     ($AppCText -notmatch 'RDX_BLE_DEBUG_MODE_SWITCH_KEY')
+Add-CheckResult -Name 'C5_OLD_DEBUG_MACRO_REMOVED' -Passed $oldDebugMacroGone `
+    -Message $(if ($oldDebugMacroGone) { '' } else { 'RDX_BLE_DEBUG_MODE_SWITCH_KEY must be removed from rdx_hogp_config.h and rdx_app.c' })
+
+# C5.3 HOGP advertising local name still comes from Server local name
+$hogpNameSourceOk = $HogpConfigText -match '#define\s+RDX_HOGP_NAME_SOURCE\s+0'
+Add-CheckResult -Name 'C5_HOGP_NAME_SOURCE_SERVER' -Passed $hogpNameSourceOk `
+    -Message $(if ($hogpNameSourceOk) { '' } else { 'RDX_HOGP_NAME_SOURCE must remain 0 (server local name)' })
+
+$hogpFillUsesLocalName = $KeyboardCText -match 'rdx_ble_server_get_local_name\s*\('
+Add-CheckResult -Name 'C5_HOGP_ADV_USES_SERVER_LOCAL_NAME' -Passed $hogpFillUsesLocalName `
+    -Message $(if ($hogpFillUsesLocalName) { '' } else { 'rdx_hogp_fill_adv_data() must use rdx_ble_server_get_local_name()' })
+
+# C5.4 Default mode is configurable and effective default respects HOGP master switch
+$defaultModeConstantsOk = $ServerHeaderText -match '#define\s+RDX_BLE_DEFAULT_MODE_CONFIG\s+0' -and
+                         $ServerHeaderText -match '#define\s+RDX_BLE_DEFAULT_MODE_HOGP\s+1'
+Add-CheckResult -Name 'C5_DEFAULT_MODE_CONSTANTS' -Passed $defaultModeConstantsOk `
+    -Message $(if ($defaultModeConstantsOk) { '' } else { 'rdx_ble_server.h must define RDX_BLE_DEFAULT_MODE_CONFIG and RDX_BLE_DEFAULT_MODE_HOGP' })
+
+$effectiveDefaultFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+rdx_ble_mode_t\s+rdx_ble_mode_effective_default\s*\([^)]*\)\s*\{(.*?)^\}')
+$effectiveDefaultOk = $false
+$effectiveDefaultMessage = 'rdx_ble_mode_effective_default() not found'
+if ($effectiveDefaultFunctionMatch.Success) {
+    $effectiveBody = $effectiveDefaultFunctionMatch.Groups[1].Value
+    $hasHogpEnableBranch = $effectiveBody -match '#if\s+TCFG_RDX_HOGP_ENABLE'
+    $hasConfigReturn = $effectiveBody -match 'return\s+\(rdx_ble_mode_t\)RDX_BLE_DEFAULT_MODE;'
+    $hasElseBranch = $effectiveBody -match '#else'
+    $hasDisabledFallback = $effectiveBody -match 'return\s+RDX_BLE_MODE_CONFIG;'
+    $effectiveDefaultOk = $hasHogpEnableBranch -and $hasConfigReturn -and $hasElseBranch -and $hasDisabledFallback
+    $parts = @()
+    if (-not $hasHogpEnableBranch) { $parts += 'HOGP enable branch' }
+    if (-not $hasConfigReturn) { $parts += 'return RDX_BLE_DEFAULT_MODE' }
+    if (-not $hasElseBranch) { $parts += '#else branch' }
+    if (-not $hasDisabledFallback) { $parts += 'disabled fallback to CONFIG' }
+    if ($parts.Count -gt 0) {
+        $effectiveDefaultMessage = 'effective_default contract missing: ' + ($parts -join ', ')
+    } else {
+        $effectiveDefaultMessage = ''
+    }
+}
+Add-CheckResult -Name 'C5_EFFECTIVE_DEFAULT_RESPECTS_SWITCH' -Passed $effectiveDefaultOk -Message $effectiveDefaultMessage
+
+$controllerInitUsesEffective = $ServerText -match 'rdx_ble_mode_t\s+default_mode\s*=\s*rdx_ble_mode_effective_default\s*\(\)'
+Add-CheckResult -Name 'C5_CONTROLLER_INIT_USES_EFFECTIVE_DEFAULT' -Passed $controllerInitUsesEffective `
+    -Message $(if ($controllerInitUsesEffective) { '' } else { 'rdx_ble_mode_controller_init() must use rdx_ble_mode_effective_default()' })
+
+# C5.5 Server init routes default mode to the correct advertising helper
+$serverInitFunctionMatch = [regex]::Match($ServerText,
+    '(?sm)void\s+rdx_ble_server_init\s*\([^)]*\)\s*\{(.*?)^\}')
+$serverInitNoUnconditionalAdv = $false
+$serverInitNoUnconditionalAdvMessage = 'rdx_ble_server_init() not found'
+if ($serverInitFunctionMatch.Success) {
+    $initBody = $serverInitFunctionMatch.Groups[1].Value
+    $serverInitNoUnconditionalAdv = $initBody -notmatch 'rdx_ble_server_adv_enable\s*\(\s*1\s*\)\s*;'
+    if (-not $serverInitNoUnconditionalAdv) {
+        $serverInitNoUnconditionalAdvMessage = 'rdx_ble_server_init() must not unconditionally call rdx_ble_server_adv_enable(1)'
+    } else {
+        $serverInitNoUnconditionalAdvMessage = ''
+    }
+}
+Add-CheckResult -Name 'C5_SERVER_INIT_NO_UNCONDITIONAL_ADV' -Passed $serverInitNoUnconditionalAdv -Message $serverInitNoUnconditionalAdvMessage
+
+$serverInitRoutesDefault = $ServerText -match 'if\s*\(\s*s_ble_mode\.advertised_mode\s*==\s*RDX_BLE_MODE_HOGP\s*\)' -and
+                          $ServerText -match 'rdx_ble_mode_start_hogp_advertising\s*\(' -and
+                          $ServerText -match 'rdx_ble_mode_start_config_advertising\s*\('
+Add-CheckResult -Name 'C5_SERVER_INIT_ROUTES_DEFAULT_MODE' -Passed $serverInitRoutesDefault `
+    -Message $(if ($serverInitRoutesDefault) { '' } else { 'rdx_ble_server_init() must branch on advertised_mode to start HOGP or CONFIG advertising' })
+
+$serverInitChecksSuppression = $serverInitFunctionMatch.Success -and
+                               ($serverInitFunctionMatch.Groups[1].Value -match 'rdx_ble_mode_broadcast_suppressed\s*\(')
+Add-CheckResult -Name 'C5_SERVER_INIT_SUPPRESSES_BROADCAST' -Passed $serverInitChecksSuppression `
+    -Message $(if ($serverInitChecksSuppression) { '' } else { 'rdx_ble_server_init() must check rdx_ble_mode_broadcast_suppressed() before starting the default broadcast' })
+
+# C5.6 Narrow mode query/toggle API is present and does not bypass controller
+$hasIsRequested = $ServerHeaderText -match 'u8\s+rdx_ble_mode_is_hogp_requested\s*\(\s*void\s*\)'
+$hasToggle = $ServerHeaderText -match 'void\s+rdx_ble_mode_request_toggle\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C5_MODE_QUERY_TOGGLE_API' -Passed ($hasIsRequested -and $hasToggle) `
+    -Message $(if ($hasIsRequested -and $hasToggle) { '' } else { 'rdx_ble_server.h must declare rdx_ble_mode_is_hogp_requested() and rdx_ble_mode_request_toggle()' })
+
+$toggleUsesRequest = $ServerText -match 'void\s+rdx_ble_mode_request_toggle\s*\([^)]*\)\s*\{[^}]*rdx_ble_mode_request_hogp\s*\(\s*!\s*rdx_ble_mode_is_hogp_requested\s*\(\s*\)\s*\)'
+Add-CheckResult -Name 'C5_TOGGLE_USES_REQUEST_HOGP' -Passed $toggleUsesRequest `
+    -Message $(if ($toggleUsesRequest) { '' } else { 'rdx_ble_mode_toggle() must call rdx_ble_mode_request_hogp(!is_hogp_requested())' })
+
+# C5.7 KEY1 triple-click toggles mode through the narrow API, not private HOGP APIs
+$appTripleClickToggle = $AppCText -match 'KEY_ACTION_TRIPLE_CLICK' -and
+                        $AppCText -match 'rdx_ble_mode_request_toggle\s*\('
+$appNoPrivateHogpMode = $AppCText -notmatch '(?<!rdx_)\bhogp_mode_set\b' -and
+                        $AppCText -notmatch '(?<!rdx_)\bhogp_adv_start\b' -and
+                        $AppCText -notmatch '(?<!rdx_)\bhogp_adv_stop\b'
+Add-CheckResult -Name 'C5_KEY1_TRIPLE_CLICK_TOGGLE' -Passed ($appTripleClickToggle -and $appNoPrivateHogpMode) `
+    -Message 'KEY1 triple-click must call rdx_ble_mode_request_toggle() and rdx_app.c must not call private hogp_* mode/adv APIs'
+
+# C5.8 KEY1 triple-click is gated by the test gate and HOGP master switch;
+#      CLICK tries the executor under TCFG_RDX_HOGP_ENABLE only;
+#      LONG/HOLD/UP are not consumed by either path.
+$tripleClickBlockMatch = [regex]::Match($AppCText,
+    '(?sm)#if\s*\(\s*RDX_HOGP_KEY_ACTION_TEST_ENABLE\s*&&\s*TCFG_RDX_HOGP_ENABLE\s*\)\s*\r?\n(?:(?!#if|#endif).)*?KEY_ACTION_TRIPLE_CLICK(?:(?!#endif).)*?#\s*endif')
+$clickBlockMatch = [regex]::Match($AppCText,
+    '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n(?:(?!#if|#endif).)*?if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)(?:(?!#endif).)*?#\s*endif')
+
+$keyActionRoutingOk = $false
+$parts = @()
+
+$hasTripleClick = $false
+if ($tripleClickBlockMatch.Success) {
+    $tripleBlock = $tripleClickBlockMatch.Groups[0].Value
+    $hasTripleClick = $tripleBlock -match 'KEY_ACTION_TRIPLE_CLICK' -and
+                       $tripleBlock -match 'rdx_ble_mode_request_toggle\s*\('
+} else {
+    $parts += 'RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE block with KEY_ACTION_TRIPLE_CLICK not found'
+}
+
+$hasClickExecutor = $false
+if ($clickBlockMatch.Success) {
+    $clickBlock = $clickBlockMatch.Groups[0].Value
+    $hasClickExecutor = $clickBlock -match 'rdx_hogp_key_action_click\s*\('
+} else {
+    $parts += 'TCFG_RDX_HOGP_ENABLE block with KEY_ACTION_CLICK not found'
+}
+
+$combinedBlock = ($tripleClickBlockMatch.Groups[0].Value + "`n" + $clickBlockMatch.Groups[0].Value)
+$noLongHoldUp = $combinedBlock -notmatch 'KEY_ACTION_LONG' -and
+                $combinedBlock -notmatch 'KEY_ACTION_HOLD\b' -and
+                $combinedBlock -notmatch 'KEY_ACTION_HOLDUP'
+
+$keyActionRoutingOk = $hasTripleClick -and $hasClickExecutor -and $noLongHoldUp
+if (-not $hasTripleClick) { $parts += 'KEY1 TRIPLE_CLICK -> rdx_ble_mode_request_toggle()' }
+if (-not $hasClickExecutor) { $parts += 'CLICK -> rdx_hogp_key_action_click()' }
+if (-not $noLongHoldUp) { $parts += 'LONG/HOLD/UP must not appear in executor block' }
+$keyActionRoutingMessage = if ($parts.Count -gt 0) { 'C5 key action routing contract missing: ' + ($parts -join ', ') } else { '' }
+Add-CheckResult -Name 'C5_KEY_ACTION_ROUTING' -Passed $keyActionRoutingOk -Message $keyActionRoutingMessage
+
+# C5.9 HOGP executor is the sole owner of the built-in test keymap
+$defaultActionsInExecutor = $KeyActionText -match 's_rdx_hogp_test_keymap\s*\[\s*RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT\s*\]' -and
+                            $KeyActionText -match '0x19' -and $KeyActionText -match '0x04' -and
+                            $KeyActionText -match '0x28' -and $KeyActionText -match '0x06' -and
+                            $KeyActionText -match '0x2a'
+Add-CheckResult -Name 'C5_DEFAULT_ACTIONS_IN_HOGP_EXECUTOR' -Passed $defaultActionsInExecutor `
+    -Message $(if ($defaultActionsInExecutor) { '' } else { 'rdx_hogp_key_action.c must hold the five default HID actions (Ctrl+V, A, Enter, Ctrl+C, Backspace)' })
+
+$legacyKeyHasNoHogp = ($KeyText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp|s_rdx_key_hogp_default_actions') -and
+                      ($KeyHeaderText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp')
+Add-CheckResult -Name 'C5_LEGACY_KEY_MODULE_NO_HOGP' -Passed $legacyKeyHasNoHogp `
+    -Message $(if ($legacyKeyHasNoHogp) { '' } else { 'rdx_key.c/.h must not contain HOGP key-action types, test maps, macros, or getters' })
+
+$executorNoLegacyKeyDependency = $KeyActionText -notmatch '#include\s+"rdx_key\.h"|rdx_key_get_hogp'
+Add-CheckResult -Name 'C5_EXECUTOR_NO_LEGACY_KEY_DEPENDENCY' -Passed $executorNoLegacyKeyDependency `
+    -Message $(if ($executorNoLegacyKeyDependency) { '' } else { 'rdx_hogp_key_action.c must own its test map and not depend on rdx_key.c/.h' })
+
+# C5.10 Executor owns release timer lifecycle correctly
+$executorStartsTimerOnSuccess = $KeyActionText -match 'sys_timeout_add\s*\(\s*NULL\s*,\s*rdx_hogp_key_action_release_timer_cb' -and
+                               $KeyActionText -match 'rdx_hogp_key_action_cancel_release_timer\s*\(\)'
+$executorResetCancelsTimer = $KeyActionText -match 'void\s+rdx_hogp_key_action_reset\s*\([^)]*\)\s*\{[^}]*rdx_hogp_key_action_cancel_release_timer' -and
+                            $KeyActionText -match 'void\s+rdx_hogp_key_action_reset\s*\([^)]*\)\s*\{[^}]*rdx_hogp_keyboard_release_all'
+$executorDeinitCancelsTimer = $KeyActionText -match 'void\s+rdx_hogp_key_action_deinit\s*\([^)]*\)\s*\{[^}]*rdx_hogp_key_action_cancel_release_timer'
+Add-CheckResult -Name 'C5_EXECUTOR_TIMER_LIFECYCLE' -Passed ($executorStartsTimerOnSuccess -and $executorResetCancelsTimer -and $executorDeinitCancelsTimer) `
+    -Message 'rdx_hogp_key_action.c must start release timer only on successful send, and cancel it in reset()/deinit()'
+
+# C5.10a Executor click() enforces key_count and handles timer creation failure
+$clickFunctionMatch = [regex]::Match($KeyActionText,
+    '(?sm)int\s+rdx_hogp_key_action_click\s*\([^)]*\)\s*\{(.*?)^\}')
+$keyCountCheckOk = $false
+$timerFailureOk = $false
+if ($clickFunctionMatch.Success) {
+    $clickBody = $clickFunctionMatch.Groups[1].Value
+    $keyCountCheckOk = $clickBody -match 'key_id\s*>=\s*s_rdx_hogp_key_action_active_keymap\.key_count'
+    $timerFailureOk = $clickBody -match 'if\s*\(\s*s_rdx_hogp_key_action_release_timer\s*==\s*0\s*\)' -and
+                      $clickBody -match 'rdx_hogp_keyboard_release_all\s*\(' -and
+                      $clickBody -match 'return\s+1\s*;'
+}
+Add-CheckResult -Name 'C5_EXECUTOR_KEY_COUNT_CHECK' -Passed $keyCountCheckOk `
+    -Message $(if ($keyCountCheckOk) { '' } else { 'rdx_hogp_key_action_click() must reject key_id >= active_keymap.key_count' })
+Add-CheckResult -Name 'C5_EXECUTOR_TIMER_FAILURE_RELEASE' -Passed $timerFailureOk `
+    -Message $(if ($timerFailureOk) { '' } else { 'rdx_hogp_key_action_click() must send immediate release if release timer cannot be created' })
+
+$applyFunctionMatch = [regex]::Match($KeyActionText,
+    '(?sm)int\s+rdx_hogp_key_action_keymap_apply\s*\([^)]*\)\s*\{(.*?)^\}')
+$applyClearsTail = $false
+if ($applyFunctionMatch.Success) {
+    $applyBody = $applyFunctionMatch.Groups[1].Value
+    $applyClearsTail = $applyBody -match 'memset\s*\(\s*&s_rdx_hogp_key_action_active_keymap\s*,\s*0' -and
+                       $applyBody -match 'keymap->key_count\s*\*\s*sizeof\s*\(\s*keymap->keys\[0\]\s*\)'
+}
+Add-CheckResult -Name 'C5_KEYMAP_APPLY_CLEARS_TAIL' -Passed $applyClearsTail `
+    -Message $(if ($applyClearsTail) { '' } else { 'rdx_hogp_key_action_keymap_apply() must clear the active map and copy only key_count entries' })
+
+# C5.11 rdx_app.c no longer owns HOGP report construction or release timer
+$appNoReleaseTimer = $AppCText -notmatch 's_rdx_app_hogp_release_timer'
+$appNoFixedUsages = $AppCText -notmatch 's_rdx_app_hogp_debug_usages'
+$appNoReportConstruct = $AppCText -notmatch 'rdx_hogp_keyboard_report_t\s+report\s*=\s*\{0\}'
+Add-CheckResult -Name 'C5_APP_NO_HOGP_INTERNALS' -Passed ($appNoReleaseTimer -and $appNoFixedUsages -and $appNoReportConstruct) `
+    -Message 'rdx_app.c must not own release timer, fixed usage table, or report construction'
+
+# C5.12 Executor boundary: no broadcast/VM/HFP/private mode calls
+$actionBoundaryOk = ($KeyActionText -notmatch 'rdx_ble_server_adv_enable') -and
+                   ($KeyActionText -notmatch 'rdx_hogp_mode_set') -and
+                   ($KeyActionText -notmatch 'rdx_hogp_adv_start') -and
+                   ($KeyActionText -notmatch 'rdx_hogp_adv_stop') -and
+                   ($KeyActionText -notmatch 'rdx_ble_server_app_disconnect') -and
+                   ($KeyActionText -notmatch 'VM_RDX_') -and
+                   ($KeyActionText -notmatch 'rdx_vm_') -and
+                   ($KeyActionText -notmatch 'hfp_')
+Add-CheckResult -Name 'C5_EXECUTOR_BOUNDARY' -Passed $actionBoundaryOk `
+    -Message $(if ($actionBoundaryOk) { '' } else { 'rdx_hogp_key_action.c must not call advertising, disconnect, VM, HFP, or HOGP mode APIs' })
+
+# C5.13 Executor lifecycle is wired into BLE Server disconnect, mode switch, and exit
+$disconnectCleanupMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+void\s+rdx_ble_server_disconnected_cleanup_internal\s*\([^)]*\)\s*\{(.*?)^\}')
+$modeSyncMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+void\s+rdx_ble_mode_sync_hogp_runtime\s*\([^)]*\)\s*\{(.*?)^\}')
+$exitMatch = [regex]::Match($ServerText,
+    '(?sm)void\s+rdx_ble_server_exit\s*\([^)]*\)\s*\{(.*?)^\}')
+$resetOnDisconnect = $disconnectCleanupMatch.Success -and
+                     ($disconnectCleanupMatch.Groups[1].Value -match 'rdx_hogp_key_action_reset\s*\(')
+$resetOnModeSwitch = $modeSyncMatch.Success -and
+                     ($modeSyncMatch.Groups[1].Value -match 'rdx_hogp_key_action_reset\s*\(')
+$deinitOnExit = $exitMatch.Success -and
+                ($exitMatch.Groups[1].Value -match 'rdx_hogp_key_action_deinit\s*\(')
+$deinitBeforeHogp = $false
+if ($exitMatch.Success) {
+    $exitBody = $exitMatch.Groups[1].Value
+    $deinitPos = $exitBody.IndexOf('rdx_hogp_key_action_deinit')
+    $hogpDeinitPos = $exitBody.IndexOf('rdx_hogp_deinit')
+    $deinitBeforeHogp = ($deinitPos -ge 0) -and ($hogpDeinitPos -ge 0) -and ($deinitPos -lt $hogpDeinitPos)
+}
+Add-CheckResult -Name 'C5_EXECUTOR_LIFECYCLE_WIRED' -Passed ($resetOnDisconnect -and $resetOnModeSwitch -and $deinitOnExit) `
+    -Message 'rdx_hogp_key_action_reset() must be called on disconnect and HOGP->Config switch; deinit() on BLE Server exit'
+Add-CheckResult -Name 'C5_EXECUTOR_DEINIT_BEFORE_HOGP' -Passed $deinitBeforeHogp `
+    -Message 'rdx_ble_server_exit() must call rdx_hogp_key_action_deinit() before rdx_hogp_deinit()'
+
+# C5.14 Existing IO NUM legacy key tables are preserved verbatim
+$legacyTablesPreserved = $KeyText -match 'key_table_io_num0_normal\[KEY_ACTION_MAX\]' -and
+                         $KeyText -match 'key_table_io_num1_normal\[KEY_ACTION_MAX\]' -and
+                         $KeyText -match 'key_table_io_num2_normal\[KEY_ACTION_MAX\]' -and
+                         $KeyText -match 'key_table_io_num3_normal\[KEY_ACTION_MAX\]' -and
+                         $KeyText -match 'key_table_io_num4_normal\[KEY_ACTION_MAX\]'
+Add-CheckResult -Name 'C5_LEGACY_KEY_TABLES_PRESERVED' -Passed $legacyTablesPreserved `
+    -Message $(if ($legacyTablesPreserved) { '' } else { 'rdx_key.c must preserve the five legacy key_table_io_num*_normal[] arrays' })
 
 # -----------------------------------------------------------------------------
 # Summary
