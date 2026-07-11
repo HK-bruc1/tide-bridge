@@ -19,6 +19,20 @@ extern "C" {
 #endif
 
 /******************************************************************************
+* HID Service UUIDs and default values
+******************************************************************************/
+#define RDX_HOGP_UUID_HID_SERVICE                        0x1812
+#define RDX_HOGP_UUID_PROTOCOL_MODE                      0x2A4E
+#define RDX_HOGP_UUID_REPORT                             0x2A4D
+#define RDX_HOGP_UUID_REPORT_MAP                         0x2A4B
+#define RDX_HOGP_UUID_HID_INFORMATION                    0x2A4A
+#define RDX_HOGP_UUID_HID_CONTROL_POINT                  0x2A4C
+#define RDX_HOGP_UUID_REPORT_REFERENCE                   0x2908
+#define RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION 0x2902
+
+#define RDX_HOGP_PROTOCOL_MODE_DEFAULT                   0x01
+
+/******************************************************************************
 * HID Service handles (0x0016-0x0022)
 ******************************************************************************/
 #define HID_SERVICE_HANDLE                                              0x0016

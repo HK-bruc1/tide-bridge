@@ -251,7 +251,7 @@ SDK/apps/earphone/include/t2620_project_config.h
 1. **产品目标确认**：默认上电 HOGP 键盘是目标形态，C1-C4 不改 `app_main.c` 启动模型。
 2. **RDX App 按键设置扩展确认**：当前不复用独立 Config GATT Service，`RDX_BLE_OWNER_CONFIG` 仅作为授权边界；若后续必须新增 handle，需同步扩展 host 契约测试。
 3. **调试入口保留**：C1-C2 阶段保留一个编译期调试入口（如 `RDX_BLE_DEBUG_MODE_SWITCH_KEY` 宏控制的 NUM0 长按），用于本地验证模式切换；C5 产品化时移除。
-4. **ATT error code 确认**：C4 实施前需确认 JL BTstack 实际支持的 ATT error code（查 `btstack/le/att.h`），文档中的 `ATT_ERROR_INVALID_HANDLE_VALUE` 为占位，找到实际可用码后更新实现与文档。
+4. **ATT error code 确认**：已确认 `SDK/interface/btstack/le/att.h` 未导出 `ATT_ERROR_*` 宏；C4 使用本地 `RDX_HOGP_ATT_ERR_*` 常量（`0x07`/`0x0d`/`0x13`），不得直接引用未定义的 `ATT_ERROR_INVALID_HANDLE_VALUE`。
 5. **增强连接事件确认**：确认 `rdx_ble_server_cbk_packet_handler()` 当前是否已分发 `HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE`；如未分发，C1 只处理普通连接完成事件。
 6. **HFP 共存预研**：HFP 音频活动时 HOGP 按键丢失/超时涉及任务优先级与 audio 抢占，单独列项跟踪，不在 Phase 6 一次性解决。
 
@@ -311,7 +311,7 @@ SDK/apps/earphone/include/t2620_project_config.h
 
 1. 发送成功时同步当前 Input Report，release 后归零；ATT read 返回真实当前值。
 2. encryption change 对当前连接采用完整赋值，禁用或失败时清零 encrypted。
-3. 实现 Protocol Mode 的合法 0/1 写入；非法长度和值返回明确 ATT 错误，优先使用 `ATT_ERROR_INVALID_HANDLE_VALUE`，同时保持旧值不变。实施前需确认 JL BTstack 实际支持的 error code，必要时替换为可用值。
+3. 实现 Protocol Mode 的合法 0/1 写入；非法长度和值返回明确 ATT 错误，使用本地 `RDX_HOGP_ATT_ERR_*` 常量，同时保持旧值不变。
 4. 处理 HID Control Point suspend/exit suspend；合法 0/1 写入更新 suspend 状态，非法长度和值返回明确 ATT 错误，并在 suspend 时停止业务 Report。
 5. `rdx_hogp_fill_adv_data()` 对每个字段执行容量检查，禁止无符号下溢和越界。
 6. handle、value_handle、UUID 和 Report Reference 从同一 Profile 定义生成或展开；契约测试校验预处理后的最终 ATT 字节。

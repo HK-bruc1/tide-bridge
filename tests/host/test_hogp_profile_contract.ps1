@@ -890,6 +890,128 @@ if ($disabledBranchMatch.Success) {
 }
 
 # -----------------------------------------------------------------------------
+# C4 CHECKS: protocol state and Profile data convergence
+# -----------------------------------------------------------------------------
+
+# C4.1 Input Report current value is synchronized only on notify success
+$reportSendBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)int\s+rdx_hogp_keyboard_report_send\s*\([^)]*\)\s*\{(.*?)^\}')
+$currentReportSyncOk = $false
+if ($reportSendBodyMatch.Success) {
+    $sendBody = $reportSendBodyMatch.Groups[1].Value
+    $currentReportSyncOk = $sendBody -match 'if\s*\(\s*ret\s*==\s*APP_BLE_NO_ERROR\s*\)' -and
+                           $sendBody -match 'rdx_hogp_current_report_set\s*\(\s*payload\s*,\s*sizeof\s*\(\s*payload\s*\)\s*\)'
+}
+Add-CheckResult -Name 'C4_CURRENT_REPORT_SYNC' -Passed $currentReportSyncOk `
+    -Message $(if ($currentReportSyncOk) { '' } else { 'rdx_hogp_keyboard_report_send() does not update s_hid_input_report on success only' })
+
+# C4.2 release_all still builds a zero report and sends through the unified API
+$releaseAllBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)int\s+rdx_hogp_keyboard_release_all\s*\(\s*void\s*\)\s*\{(.*?)^\}')
+$releaseAllUnifiedOk = $false
+if ($releaseAllBodyMatch.Success) {
+    $releaseAllBody = $releaseAllBodyMatch.Groups[1].Value
+    $releaseAllUnifiedOk = $releaseAllBody -match 'rdx_hogp_keyboard_report_t\s+report\s*=\s*\{0\}' -and
+                           $releaseAllBody -match 'rdx_hogp_keyboard_report_send\s*\(\s*&report\s*\)'
+}
+Add-CheckResult -Name 'C4_RELEASE_ZERO_REPORT' -Passed $releaseAllUnifiedOk `
+    -Message $(if ($releaseAllUnifiedOk) { '' } else { 'release_all must zero-initialize a report and send via rdx_hogp_keyboard_report_send()' })
+
+# C4.3 is_ready() rejects suspended state
+$isReadyBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)u8\s+rdx_hogp_keyboard_is_ready\s*\(\s*void\s*\)\s*\{(.*?)^\}')
+$readyChecksSuspend = $false
+if ($isReadyBodyMatch.Success) {
+    $readyBody = $isReadyBodyMatch.Groups[1].Value
+    $readyChecksSuspend = $readyBody -match 'if\s*\(\s*s_hogp_suspended\s*\)'
+}
+Add-CheckResult -Name 'C4_READY_CHECKS_SUSPEND' -Passed $readyChecksSuspend `
+    -Message $(if ($readyChecksSuspend) { '' } else { 'rdx_hogp_keyboard_is_ready() does not check s_hogp_suspended' })
+
+# C4.4 Protocol Mode write is validated and restricted to 0/1
+$attWriteBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)int\s+rdx_hogp_att_write\s*\([^)]*\)\s*\{(.*?)^\}')
+$protocolModeWriteOk = $false
+if ($attWriteBodyMatch.Success) {
+    $attWriteBody = $attWriteBodyMatch.Groups[1].Value
+    $hasCase = $attWriteBody -match 'case\s+HID_PROTOCOL_MODE_VALUE_HANDLE\s*:'
+    $hasOffsetCheck = $attWriteBody -match 'offset\s*!=\s*0'
+    $hasLengthCheck = $attWriteBody -match 'buffer_size\s*!=\s*1'
+    $hasValueCheck = $attWriteBody -match 'RDX_HOGP_PROTOCOL_MODE_BOOT' -and
+                     $attWriteBody -match 'RDX_HOGP_PROTOCOL_MODE_REPORT'
+    $hasErrorReturn = $attWriteBody -match 'RDX_HOGP_ATT_ERR_INVALID_OFFSET' -and
+                      $attWriteBody -match 'RDX_HOGP_ATT_ERR_INVALID_ATTRIBUTE_VALUE_LEN' -and
+                      $attWriteBody -match 'RDX_HOGP_ATT_ERR_VALUE_NOT_ALLOWED'
+    $protocolModeWriteOk = $hasCase -and $hasOffsetCheck -and $hasLengthCheck -and $hasValueCheck -and $hasErrorReturn
+}
+Add-CheckResult -Name 'C4_PROTOCOL_MODE_WRITE' -Passed $protocolModeWriteOk `
+    -Message $(if ($protocolModeWriteOk) { '' } else { 'rdx_hogp_att_write() does not fully validate HID_PROTOCOL_MODE_VALUE_HANDLE writes' })
+
+# C4.5 HID Control Point updates suspend state for 0/1
+$controlPointSuspendOk = $false
+if ($attWriteBodyMatch.Success) {
+    $attWriteBody = $attWriteBodyMatch.Groups[1].Value
+    $hasCase = $attWriteBody -match 'case\s+HID_CONTROL_POINT_VALUE_HANDLE\s*:'
+    $hasSuspendSet = $attWriteBody -match 's_hogp_suspended\s*=\s*1'
+    $hasExitSuspendSet = $attWriteBody -match 's_hogp_suspended\s*=\s*0'
+    $hasSuspendConst = $attWriteBody -match 'RDX_HOGP_CONTROL_POINT_SUSPEND' -and
+                       $attWriteBody -match 'RDX_HOGP_CONTROL_POINT_EXIT_SUSPEND'
+    $controlPointSuspendOk = $hasCase -and $hasSuspendSet -and $hasExitSuspendSet -and $hasSuspendConst
+}
+Add-CheckResult -Name 'C4_CONTROL_POINT_SUSPEND' -Passed $controlPointSuspendOk `
+    -Message $(if ($controlPointSuspendOk) { '' } else { 'rdx_hogp_att_write() does not update s_hogp_suspended on HID_CONTROL_POINT_VALUE_HANDLE writes' })
+
+# C4.6 Encryption change assigns encrypted fully and clears on failure/disable
+$encChangeBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)void\s+rdx_hogp_on_encryption_change\s*\([^)]*\)\s*\{(.*?)^\}')
+$encryptionAssignmentOk = $false
+if ($encChangeBodyMatch.Success) {
+    $encChangeBody = $encChangeBodyMatch.Groups[1].Value
+    $hasStaleHandleGuard = $encChangeBody -match 'con_handle\s*!=\s*s_hid_con_handle'
+    $hasFullAssignment = $encChangeBody -match 's_hogp_encrypted\s*=\s*\(\s*enabled\s*&&\s*status\s*==\s*0\s*\)\s*\?\s*1\s*:\s*0'
+    $hasClearOnFail = $encChangeBody -match 'if\s*\(\s*!\s*s_hogp_encrypted\s*\)' -and
+                      $encChangeBody -match 'rdx_hogp_current_report_clear\s*\('
+    $encryptionAssignmentOk = $hasStaleHandleGuard -and $hasFullAssignment -and $hasClearOnFail
+}
+Add-CheckResult -Name 'C4_ENCRYPTION_ASSIGNMENT' -Passed $encryptionAssignmentOk `
+    -Message $(if ($encryptionAssignmentOk) { '' } else { 'rdx_hogp_on_encryption_change() does not fully assign encrypted or clear report on failure' })
+
+# C4.7 Advertising data uses capacity-checking append helpers
+$advFillBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)int\s+rdx_hogp_fill_adv_data\s*\([^)]*\)\s*\{(.*?)^\}')
+$advCapacityOk = $false
+if ($advFillBodyMatch.Success) {
+    $advFillBody = $advFillBodyMatch.Groups[1].Value
+    $hasAppendData = $advFillBody -match 'rdx_hogp_adv_append_data\s*\('
+    $hasAppendVal = $advFillBody -match 'rdx_hogp_adv_append_val\s*\('
+    $noUnderflow = $advFillBody -notmatch 'max_len\s*-\s*offset\s*-\s*2'
+    $advCapacityOk = $hasAppendData -and $hasAppendVal -and $noUnderflow
+}
+Add-CheckResult -Name 'C4_ADV_CAPACITY_CHECK' -Passed $advCapacityOk `
+    -Message $(if ($advCapacityOk) { '' } else { 'rdx_hogp_fill_adv_data() must use append helpers and avoid max_len - offset - 2' })
+
+# C4.8 Module uses local ATT error constants, not undefined SDK macros
+$noUndefinedAttError = ($KeyboardCText -notmatch 'ATT_ERROR_INVALID_HANDLE_VALUE') -and
+                       ($KeyboardCText -notmatch 'ATT_ERROR_INVALID_OFFSET') -and
+                       ($KeyboardCText -notmatch 'ATT_ERROR_INVALID_ATTRIBUTE_VALUE_LEN') -and
+                       ($KeyboardCText -notmatch 'ATT_ERROR_VALUE_NOT_ALLOWED')
+Add-CheckResult -Name 'C4_NO_UNDEFINED_ATT_ERROR' -Passed $noUndefinedAttError `
+    -Message $(if ($noUndefinedAttError) { '' } else { 'rdx_hogp_keyboard.c must not reference undefined ATT_ERROR_* macros' })
+
+# C4.9 Profile header exposes HID UUIDs and default Protocol Mode
+$headerHasUuids = $HeaderText -match '#define\s+RDX_HOGP_UUID_HID_SERVICE\s+0x1812' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_PROTOCOL_MODE\s+0x2A4E' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_REPORT\s+0x2A4D' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_REPORT_MAP\s+0x2A4B' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_HID_INFORMATION\s+0x2A4A' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_HID_CONTROL_POINT\s+0x2A4C' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_REPORT_REFERENCE\s+0x2908' -and
+                  $HeaderText -match '#define\s+RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION\s+0x2902'
+$headerHasDefaultProtocolMode = $HeaderText -match '#define\s+RDX_HOGP_PROTOCOL_MODE_DEFAULT\s+0x01'
+Add-CheckResult -Name 'C4_PROFILE_CONSTANTS' -Passed ($headerHasUuids -and $headerHasDefaultProtocolMode) `
+    -Message $(if ($headerHasUuids -and $headerHasDefaultProtocolMode) { '' } else { 'rdx_hogp_profile.h must define RDX_HOGP_UUID_* and RDX_HOGP_PROTOCOL_MODE_DEFAULT' })
+
+# -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------
 Write-Host '---------------------------'
