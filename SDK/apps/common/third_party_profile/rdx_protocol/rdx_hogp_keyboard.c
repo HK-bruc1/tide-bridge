@@ -347,6 +347,11 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
 /******************************************************************************
 * Keyboard Report API
 ******************************************************************************/
+u8 rdx_hogp_keyboard_is_connected(void)
+{
+    return (s_hogp_connected && rdx_ble_connection_owner_is_hogp()) ? 1 : 0;
+}
+
 u8 rdx_hogp_keyboard_is_ready(void)
 {
     if (!s_hogp_connected) {
@@ -653,6 +658,11 @@ int rdx_hogp_keyboard_report_send(
 int rdx_hogp_keyboard_release_all(void)
 {
     return -1;
+}
+
+u8 rdx_hogp_keyboard_is_connected(void)
+{
+    return 0;
 }
 
 u8 rdx_hogp_keyboard_is_ready(void)

@@ -86,6 +86,7 @@ typedef struct {
 int rdx_hogp_keyboard_report_send(
     const rdx_hogp_keyboard_report_t *report);
 int rdx_hogp_keyboard_release_all(void);
+u8  rdx_hogp_keyboard_is_connected(void);
 u8  rdx_hogp_keyboard_is_ready(void);
 
 #ifdef __cplusplus

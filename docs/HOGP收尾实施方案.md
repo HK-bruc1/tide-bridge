@@ -131,7 +131,7 @@ R4 关闭后的边界：
 | C3 disabled stubs | `TCFG_RDX_HOGP_ENABLE=0` 分支覆盖 HOGP 公共函数 |
 | C4 HOGP runtime | Protocol Mode、Control Point、加密、suspend、当前 report 同步已检查 |
 | C5 默认 HOGP | T2620 overlay 设置 `RDX_BLE_DEFAULT_MODE_HOGP` |
-| C5 Key Action 测试路径 | KEY1 三击切换 HOGP/Config；五键 CLICK 走 executor；LONG/HOLD/UP 回旧 key table；R5-A 转换函数和 keymap loader 已检查 |
+| C5 Key Action 与模式切换 | KEY1 三击是正式 HOGP/Config 切换入口，不受测试键表开关控制；五键 CLICK 按 HID 连接状态在 executor 与离线 key table 间互斥分发；LONG/HOLD/UP 回旧 key table |
 
 ## 5. 已关闭：R3 配置项收口
 
@@ -367,8 +367,8 @@ static void rdx_hogp_key_action_to_keyboard_report(
 
 ### 7.2 R5-A 验收结果
 
-- `click()` 行为不变，五键测试路径仍可用。
-- `KEY1 TRIPLE_CLICK` 仍只负责模式切换。
+- 测试键表与后续正式键表共用同一个 `click()` executor。
+- `KEY1 TRIPLE_CLICK` 是正式模式切换入口，不依赖测试键表开关。
 - `LONG/HOLD/UP` 不被测试 executor 消费。
 - `rdx_hogp_key_action.c` 不访问 advertising、disconnect、VM、HFP、mode private state。
 - 转换函数集中处理 `reserved = 0`。

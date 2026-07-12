@@ -34,7 +34,7 @@
 #endif
 
 /* Phase 6 C5: T2620 boots into HOGP by default and enables the built-in
- * five-key test keymap plus KEY1 triple-click mode toggle. */
+ * five-key test keymap. KEY1 triple-click mode toggle is a formal path. */
 #ifndef RDX_BLE_DEFAULT_MODE
 #define RDX_BLE_DEFAULT_MODE                      RDX_BLE_DEFAULT_MODE_HOGP
 #endif

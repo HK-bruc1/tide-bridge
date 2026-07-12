@@ -615,21 +615,22 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
         // Phase 6 C5: HOGP key action routing.
-        //   KEY1 (IO_NUM0) TRIPLE_CLICK -> toggle HOGP/Config mode (test gate only).
-        //   KEY1~KEY5 CLICK             -> try HOGP active keymap executor.
+        //   KEY1 (IO_NUM0) TRIPLE_CLICK -> toggle HOGP/Config mode.
+        //   KEY1~KEY5 CLICK             -> use HOGP when connected, otherwise fall back offline.
         //   Other actions (LONG/HOLD/UP/...) fall through to legacy RDX tables.
-#if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+#if TCFG_RDX_HOGP_ENABLE
         if (num_idx == 0 && index == KEY_ACTION_TRIPLE_CLICK) {
             rdx_ble_mode_request_toggle();
             *value = APP_MSG_NULL;
             return;
         }
-#endif
-
-#if TCFG_RDX_HOGP_ENABLE
         if (index == KEY_ACTION_CLICK) {
-            int action_ret = rdx_hogp_key_action_click((u8)num_idx);
-            if (action_ret >= 0) {
+            if (rdx_hogp_keyboard_is_connected()) {
+                int action_ret = rdx_hogp_key_action_click((u8)num_idx);
+                if (action_ret != 0) {
+                    y_printf("[HOGP_KEY_ACTION] connected key %d execute failed: %d\n",
+                             num_idx, action_ret);
+                }
                 *value = APP_MSG_NULL;
                 return;
             }
@@ -3595,4 +3596,3 @@ void rdx_app_auto_shutdown(void)
 
 
 #endif
-

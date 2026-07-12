@@ -876,6 +876,10 @@ $hasReleaseAll = $KeyboardHeaderText -match 'int\s+rdx_hogp_keyboard_release_all
 Add-CheckResult -Name 'C3_RELEASE_ALL_DECL' -Passed $hasReleaseAll `
     -Message 'rdx_hogp_keyboard_release_all() declaration missing or wrong signature'
 
+$hasIsConnected = $KeyboardHeaderText -match 'u8\s+rdx_hogp_keyboard_is_connected\s*\(\s*void\s*\)'
+Add-CheckResult -Name 'C3_IS_CONNECTED_DECL' -Passed $hasIsConnected `
+    -Message 'rdx_hogp_keyboard_is_connected() declaration missing or wrong signature'
+
 $hasIsReady = $KeyboardHeaderText -match 'u8\s+rdx_hogp_keyboard_is_ready\s*\(\s*void\s*\)'
 Add-CheckResult -Name 'C3_IS_READY_DECL' -Passed $hasIsReady `
     -Message 'rdx_hogp_keyboard_is_ready() declaration missing or wrong signature'
@@ -962,6 +966,7 @@ if ($disabledBranchMatch.Success) {
         'rdx_hogp_dump_state',
         'rdx_hogp_keyboard_report_send',
         'rdx_hogp_keyboard_release_all',
+        'rdx_hogp_keyboard_is_connected',
         'rdx_hogp_keyboard_is_ready'
     )
 
@@ -1003,7 +1008,18 @@ if ($releaseAllBodyMatch.Success) {
 Add-CheckResult -Name 'C4_RELEASE_ZERO_REPORT' -Passed $releaseAllUnifiedOk `
     -Message $(if ($releaseAllUnifiedOk) { '' } else { 'release_all must zero-initialize a report and send via rdx_hogp_keyboard_report_send()' })
 
-# C4.3 is_ready() rejects suspended state
+# C4.3 Connection query and is_ready() expose the correct protocol state
+$isConnectedBodyMatch = [regex]::Match($KeyboardCText,
+    '(?sm)u8\s+rdx_hogp_keyboard_is_connected\s*\(\s*void\s*\)\s*\{(.*?)^\}')
+$connectedChecksState = $false
+if ($isConnectedBodyMatch.Success) {
+    $connectedBody = $isConnectedBodyMatch.Groups[1].Value
+    $connectedChecksState = $connectedBody -match 's_hogp_connected' -and
+                            $connectedBody -match 'rdx_ble_connection_owner_is_hogp\s*\('
+}
+Add-CheckResult -Name 'C4_CONNECTED_CHECKS_STATE_AND_OWNER' -Passed $connectedChecksState `
+    -Message $(if ($connectedChecksState) { '' } else { 'rdx_hogp_keyboard_is_connected() must check HOGP connection state and owner' })
+
 $isReadyBodyMatch = [regex]::Match($KeyboardCText,
     '(?sm)u8\s+rdx_hogp_keyboard_is_ready\s*\(\s*void\s*\)\s*\{(.*?)^\}')
 $readyChecksSuspend = $false
@@ -1242,11 +1258,11 @@ $appNoPrivateHogpMode = $AppCText -notmatch '(?<!rdx_)\bhogp_mode_set\b' -and
 Add-CheckResult -Name 'C5_KEY1_TRIPLE_CLICK_TOGGLE' -Passed ($appTripleClickToggle -and $appNoPrivateHogpMode) `
     -Message 'KEY1 triple-click must call rdx_ble_mode_request_toggle() and rdx_app.c must not call private hogp_* mode/adv APIs'
 
-# C5.8 KEY1 triple-click is gated by the test gate and HOGP master switch;
-#      CLICK tries the executor under TCFG_RDX_HOGP_ENABLE only;
+# C5.8 KEY1 triple-click is a formal HOGP path independent of the test keymap;
+#      CLICK routes exclusively by HOGP connection state under the same master switch;
 #      LONG/HOLD/UP are not consumed by either path.
 $tripleClickBlockMatch = [regex]::Match($AppCText,
-    '(?sm)#if\s*\(\s*RDX_HOGP_KEY_ACTION_TEST_ENABLE\s*&&\s*TCFG_RDX_HOGP_ENABLE\s*\)\s*\r?\n(?:(?!#if|#endif).)*?KEY_ACTION_TRIPLE_CLICK(?:(?!#endif).)*?#\s*endif')
+    '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n(?:(?!#if|#endif).)*?KEY_ACTION_TRIPLE_CLICK(?:(?!#endif).)*?#\s*endif')
 $clickBlockMatch = [regex]::Match($AppCText,
     '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n(?:(?!#if|#endif).)*?if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)(?:(?!#endif).)*?#\s*endif')
 
@@ -1257,9 +1273,10 @@ $hasTripleClick = $false
 if ($tripleClickBlockMatch.Success) {
     $tripleBlock = $tripleClickBlockMatch.Groups[0].Value
     $hasTripleClick = $tripleBlock -match 'KEY_ACTION_TRIPLE_CLICK' -and
-                       $tripleBlock -match 'rdx_ble_mode_request_toggle\s*\('
+                       $tripleBlock -match 'rdx_ble_mode_request_toggle\s*\(' -and
+                       $tripleBlock -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE'
 } else {
-    $parts += 'RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE block with KEY_ACTION_TRIPLE_CLICK not found'
+    $parts += 'TCFG_RDX_HOGP_ENABLE formal block with KEY_ACTION_TRIPLE_CLICK not found'
 }
 
 $hasClickExecutor = $false
@@ -1281,6 +1298,11 @@ if (-not $hasClickExecutor) { $parts += 'CLICK -> rdx_hogp_key_action_click()' }
 if (-not $noLongHoldUp) { $parts += 'LONG/HOLD/UP must not appear in executor block' }
 $keyActionRoutingMessage = if ($parts.Count -gt 0) { 'C5 key action routing contract missing: ' + ($parts -join ', ') } else { '' }
 Add-CheckResult -Name 'C5_KEY_ACTION_ROUTING' -Passed $keyActionRoutingOk -Message $keyActionRoutingMessage
+
+$hidConnectionRoutingOk = $clickBlockMatch.Success -and
+    ($clickBlockMatch.Groups[0].Value -match '(?s)if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)\s*\{\s*if\s*\(\s*rdx_hogp_keyboard_is_connected\s*\(\s*\)\s*\)\s*\{.*?rdx_hogp_key_action_click\s*\(.*?\*value\s*=\s*APP_MSG_NULL\s*;\s*return\s*;')
+Add-CheckResult -Name 'C5_HID_CONNECTION_EXCLUSIVE_ROUTING' -Passed $hidConnectionRoutingOk `
+    -Message $(if ($hidConnectionRoutingOk) { '' } else { 'CLICK must execute and consume HOGP actions only inside rdx_hogp_keyboard_is_connected(), otherwise fall through to the offline IO table' })
 
 # C5.9 HOGP executor is the sole owner of the built-in test keymap
 $defaultActionsInExecutor = $KeyActionText -match 's_rdx_hogp_test_keymap\s*\[\s*RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT\s*\]' -and
@@ -1392,9 +1414,10 @@ $actionBoundaryOk = ($KeyActionText -notmatch 'rdx_ble_server_adv_enable') -and
                    ($KeyActionText -notmatch 'rdx_ble_server_app_disconnect') -and
                    ($KeyActionText -notmatch 'VM_RDX_') -and
                    ($KeyActionText -notmatch 'rdx_vm_') -and
-                   ($KeyActionText -notmatch 'hfp_')
+                   ($KeyActionText -notmatch 'hfp_') -and
+                   ($KeyActionText -notmatch 'rdx_hogp_keyboard_is_connected')
 Add-CheckResult -Name 'C5_EXECUTOR_BOUNDARY' -Passed $actionBoundaryOk `
-    -Message $(if ($actionBoundaryOk) { '' } else { 'rdx_hogp_key_action.c must not call advertising, disconnect, VM, HFP, or HOGP mode APIs' })
+    -Message $(if ($actionBoundaryOk) { '' } else { 'rdx_hogp_key_action.c must not call advertising, disconnect, VM, HFP, HOGP mode, or connection-routing APIs' })
 
 # C5.13 Executor lifecycle is wired into BLE Server disconnect, mode switch, and exit
 $disconnectCleanupMatch = [regex]::Match($ServerText,

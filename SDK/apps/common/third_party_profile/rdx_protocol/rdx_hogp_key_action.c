@@ -75,8 +75,8 @@ static void rdx_hogp_key_action_clear_active_keymap(void)
 static void rdx_hogp_key_action_load_default_keymap(void)
 {
     /* Default keymap is intentionally empty until the BLE App keymap protocol
-     * and VM persistence ABI are defined. CLICK will return unconsumed and
-     * fall back to the legacy RDX key table in this mode. */
+     * and VM persistence ABI are defined. The app-level HID connection router
+     * decides between this executor and the offline RDX key table. */
     rdx_hogp_key_action_clear_active_keymap();
 }
 #endif
