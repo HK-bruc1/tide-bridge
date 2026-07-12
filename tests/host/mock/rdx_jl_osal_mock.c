@@ -138,3 +138,22 @@ void rdx_os_timer_re_run(rdx_timer_t id)
 {
     (void)id;
 }
+
+rdx_timer_t rdx_os_timer_periodic_add(void (*cb)(void *), void *priv, u32 period_ms)
+{
+    (void)cb; (void)priv; (void)period_ms;
+    return 2;
+}
+
+void rdx_os_timer_periodic_del(rdx_timer_t id)
+{
+    (void)id;
+}
+
+rdx_timer_t rdx_os_timer_add_to_task(const char *task_name,
+                                     void (*cb)(void *),
+                                     void *priv, u32 timeout_ms)
+{
+    (void)task_name; (void)cb; (void)priv; (void)timeout_ms;
+    return 3;
+}

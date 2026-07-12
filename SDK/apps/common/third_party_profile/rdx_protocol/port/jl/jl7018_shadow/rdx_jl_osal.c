@@ -60,6 +60,23 @@ void rdx_os_timer_re_run(rdx_timer_t id)
     sys_timer_re_run(id);
 }
 
+rdx_timer_t rdx_os_timer_periodic_add(void (*cb)(void *), void *priv, u32 period_ms)
+{
+    return sys_timer_add(priv, cb, period_ms);
+}
+
+void rdx_os_timer_periodic_del(rdx_timer_t id)
+{
+    sys_timer_del(id);
+}
+
+rdx_timer_t rdx_os_timer_add_to_task(const char *task_name,
+                                     void (*cb)(void *),
+                                     void *priv, u32 timeout_ms)
+{
+    return sys_timeout_add_2_task(priv, cb, timeout_ms, task_name);
+}
+
 /*----------------------------------------------------------------------------*/
 /* task post                                                                   */
 /*----------------------------------------------------------------------------*/

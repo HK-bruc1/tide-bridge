@@ -243,7 +243,7 @@ void rdx_record_keep_alive_check_stop(void)
     /*----------------------------------------------------------------*/
     g_printf("%s \r", __FUNCTION__);
     if(record_alive_timer){
-        sys_timer_del(record_alive_timer);
+        rdx_os_timer_periodic_del(record_alive_timer);
         record_alive_timer = 0;
     }
     //clear heartbeat_timer_cnt.
@@ -293,7 +293,7 @@ void rdx_record_keep_alive_check_timer_cb(void* priv)
         record_keep = FALSE;
         heartbeat_timer_cnt = 0;
         if(record_alive_timer){
-            sys_timer_re_run(record_alive_timer);
+            rdx_os_timer_re_run(record_alive_timer);
         }
     }
 }
@@ -317,7 +317,7 @@ void rdx_record_keep_alive_check_start(void)
     record_keep = FALSE;
     heartbeat_timer_cnt = 0;
     if(record_alive_timer == 0){
-        record_alive_timer = sys_timer_add(0, rdx_record_keep_alive_check_timer_cb, 3000);  
+        record_alive_timer = rdx_os_timer_periodic_add(rdx_record_keep_alive_check_timer_cb, (void *)0, 3000);
     }
 }
 
@@ -339,7 +339,7 @@ void rdx_record_process_state_timer_stop(void)
     log_info("%s --> record_set_process_state_timer = %d \r", __FUNCTION__, record_set_process_state_timer);
     //stop record process state del timer.
     if(record_set_process_state_timer){
-        sys_timeout_del(record_set_process_state_timer);
+        rdx_os_timer_del(record_set_process_state_timer);
         record_set_process_state_timer = 0;
     }
     rdx_record_set_process_state_ready();
@@ -384,7 +384,7 @@ bool rdx_record_process_is_busy_check(void)
     if(record_status.process_state == REC_PROCESS_STATE_BUSY){
         //start timer to change process state.
         if(record_set_process_state_timer == 0){
-            record_set_process_state_timer = sys_timeout_add(0, rdx_record_process_state_set_timer_cb, RDX_RECORD_STATE_BUSY_TIMEOUT); 
+            record_set_process_state_timer = rdx_os_timer_add(rdx_record_process_state_set_timer_cb, (void *)0, RDX_RECORD_STATE_BUSY_TIMEOUT);
             log_info("%s --> record_set_process_state_timer = %d \r", __FUNCTION__, record_set_process_state_timer);
         }else{
             //if timer is running, do not set again.
@@ -666,13 +666,13 @@ static void motor_twice_callback(void* param)
         case 0:
             motor_off();
             motor_twice_step = 1;
-            sys_timeout_add(0, motor_twice_callback, RECORD_MOTOR_TWICE_OFF);
+            rdx_os_timer_add(motor_twice_callback, (void *)0, RECORD_MOTOR_TWICE_OFF);
             break;
             
         case 1:
             motor_on();
             motor_twice_step = 2;
-            sys_timeout_add(0, motor_twice_callback, RECORD_MOTOR_TWICE_ON);
+            rdx_os_timer_add(motor_twice_callback, (void *)0, RECORD_MOTOR_TWICE_ON);
             break;
             
         case 2:
@@ -704,7 +704,7 @@ void rdx_record_motor_twice(void)
     motor_on();
     
     // 启动第一步定时器（关闭电机）
-    sys_timeout_add(0, motor_twice_callback, RECORD_MOTOR_TWICE_ON);
+    rdx_os_timer_add(motor_twice_callback, (void *)0, RECORD_MOTOR_TWICE_ON);
 }
 
 #endif
@@ -720,7 +720,7 @@ static void rdx_record_cmd_delay_cb(void *priv)
         if(g_record_cmd_retry_cnt < RECORD_CMD_MAX_RETRY) {
             r_printf("[REC_DELAY] stream_tx_ready=0, retry %d/%d\r", 
                      g_record_cmd_retry_cnt, RECORD_CMD_MAX_RETRY);
-            g_record_cmd_delay_timer = sys_timeout_add(NULL, rdx_record_cmd_delay_cb, RECORD_CMD_DELAY_MS);
+            g_record_cmd_delay_timer = rdx_os_timer_add(rdx_record_cmd_delay_cb, NULL, RECORD_CMD_DELAY_MS);
             return;
         } else {
             r_printf("[REC_DELAY] Max retry reached, abort record cmd!\r");
@@ -762,7 +762,7 @@ void rdx_record_cmd_handle(Record_info *r_info)
             memcpy(&g_pending_record_info, r_info, sizeof(Record_info));
             g_record_cmd_retry_cnt = 0;
             r_printf("[REC_DELAY] stream_tx_ready=0, delay %dms\r", RECORD_CMD_DELAY_MS);
-            g_record_cmd_delay_timer = sys_timeout_add(NULL, rdx_record_cmd_delay_cb, RECORD_CMD_DELAY_MS);
+            g_record_cmd_delay_timer = rdx_os_timer_add(rdx_record_cmd_delay_cb, NULL, RECORD_CMD_DELAY_MS);
             return;
         }
     }
@@ -1677,7 +1677,7 @@ void rdx_record_max_time_deal(void *p)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rdx_record_max_timer){
-        sys_timeout_del(rdx_record_max_timer);
+        rdx_os_timer_del(rdx_record_max_timer);
         rdx_record_max_timer = 0;
     }
     rdx_record_stop();
@@ -1699,7 +1699,7 @@ void rdx_record_max_timer_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rdx_record_max_timer){
-        sys_timeout_del(rdx_record_max_timer);
+        rdx_os_timer_del(rdx_record_max_timer);
         rdx_record_max_timer = 0;
     }
 }
@@ -1720,7 +1720,7 @@ void rdx_record_max_timer_start(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rdx_record_max_timer == 0){
-        rdx_record_max_timer = sys_timeout_add(NULL, rdx_record_max_time_deal, RDX_RECORD_LIMIT_TIME);
+        rdx_record_max_timer = rdx_os_timer_add(rdx_record_max_time_deal, NULL, RDX_RECORD_LIMIT_TIME);
     }
 }
 
@@ -1748,7 +1748,7 @@ static void rdx_record_pause_timeout_cb(void *p)
 void rdx_record_pause_timeout_stop(void)
 {
     if(record_status.pause_timeout_timer){
-        sys_timeout_del(record_status.pause_timeout_timer);
+        rdx_os_timer_del(record_status.pause_timeout_timer);
         record_status.pause_timeout_timer = 0;
         y_printf("[PAUSE_TIMEOUT] stopped\r");
     }
@@ -1757,9 +1757,9 @@ void rdx_record_pause_timeout_stop(void)
 void rdx_record_pause_timeout_start(void)
 {
     rdx_record_pause_timeout_stop();
-    record_status.pause_timeout_timer = sys_timeout_add(NULL,
-                                                       rdx_record_pause_timeout_cb,
-                                                       RDX_RECORD_PAUSE_TIMEOUT_MS);
+    record_status.pause_timeout_timer = rdx_os_timer_add(rdx_record_pause_timeout_cb,
+                                                        NULL,
+                                                        RDX_RECORD_PAUSE_TIMEOUT_MS);
     y_printf("[PAUSE_TIMEOUT] started, %u ms countdown\r",
              (unsigned)RDX_RECORD_PAUSE_TIMEOUT_MS);
 }
@@ -1848,11 +1848,11 @@ void rdx_record_stream_resume_delayed(void)
     if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
         if (stream_resume_timer) {
             // If timer is already running, delete it first
-            sys_timeout_del(stream_resume_timer);
+            rdx_os_timer_del(stream_resume_timer);
             stream_resume_timer = 0;
         }
         
-        stream_resume_timer = sys_timeout_add(NULL, rdx_record_stream_resume, 3000);
+        stream_resume_timer = rdx_os_timer_add(rdx_record_stream_resume, NULL, 3000);
     }
 }
 
@@ -2263,7 +2263,7 @@ int rdx_record_run_exit(void)
         rp->rerun = false;
         // rp->run = RECORD_STATE_START;
         // rdx_record_process();
-        sys_timeout_add(NULL, rdx_record_start, 1000);
+        rdx_os_timer_add(rdx_record_start, NULL, 1000);
     }else{
         rdx_app_emmc_poweroff_check();
     }

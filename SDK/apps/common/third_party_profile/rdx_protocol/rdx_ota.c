@@ -60,6 +60,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
+#include "rdx_jl_osal.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -236,7 +237,7 @@ void rdx_ota_end_disconnect(void *priv)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     rdx_ble_server_app_disconnect();
-    sys_timeout_add(NULL, rdx_ota_reset, 500);
+    rdx_os_timer_add(rdx_ota_reset, NULL, 500);
 }
 
 /**************************************************************************
@@ -262,7 +263,7 @@ int rdx_ota_boot_info_cb(int err)
 
     if (err == 0) {
         rdx_ota_data_response_and_request();
-        sys_timeout_add(NULL, rdx_ota_reset, 1000);
+        rdx_os_timer_add(rdx_ota_reset, NULL, 1000);
     }
 #endif
     return 0;
@@ -393,7 +394,7 @@ int rdx_ota_file_end_response(void *priv)
         rdx_ble_server_app_disconnect();
 
         //do restart.
-        sys_timeout_add(NULL, rdx_ota_reset, 2000);
+        rdx_os_timer_add(rdx_ota_reset, NULL, 2000);
     }
 
 TUYA_VERIFY_END:
@@ -453,7 +454,7 @@ void rdx_ota_get_data_timer_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if (rdx_ota_get_data_timer) {
-        sys_timeout_del(rdx_ota_get_data_timer);
+        rdx_os_timer_del(rdx_ota_get_data_timer);
         rdx_ota_get_data_timer = 0;
     }
 }
@@ -500,7 +501,7 @@ void rdx_ota_get_data_timer_rerun(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rdx_ota_get_data_timer) {
-        sys_timer_re_run(rdx_ota_get_data_timer);
+        rdx_os_timer_re_run(rdx_ota_get_data_timer);
     }
 }
 
@@ -521,10 +522,9 @@ void rdx_ota_get_data_timer_start(void)
     /*----------------------------------------------------------------*/
     y_printf("rdx_ota_get_data_timer_start --> rdx_ota_get_data_timer: %d \r", rdx_ota_get_data_timer);
     if(rdx_ota_get_data_timer) {
-        sys_timer_re_run(rdx_ota_get_data_timer);
+        rdx_os_timer_re_run(rdx_ota_get_data_timer);
     } else {
-        // rdx_ota_get_data_timer = sys_timeout_add(NULL, rdx_ota_get_data_timeout_cb, 10 * 1000);
-        rdx_ota_get_data_timer = sys_timeout_add_2_task(NULL, rdx_ota_get_data_timeout_cb, 10 * 1000, "app_core");
+        rdx_ota_get_data_timer = rdx_os_timer_add_to_task("app_core", rdx_ota_get_data_timeout_cb, NULL, 10 * 1000);
     }
 }
 

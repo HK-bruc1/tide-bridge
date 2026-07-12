@@ -34,6 +34,11 @@ void      rdx_os_sem_destroy(rdx_sem_t s);
 rdx_timer_t rdx_os_timer_add(void (*cb)(void *), void *priv, u32 timeout_ms);
 void        rdx_os_timer_del(rdx_timer_t id);
 void        rdx_os_timer_re_run(rdx_timer_t id);
+rdx_timer_t rdx_os_timer_periodic_add(void (*cb)(void *), void *priv, u32 period_ms);
+void        rdx_os_timer_periodic_del(rdx_timer_t id);
+rdx_timer_t rdx_os_timer_add_to_task(const char *task_name,
+                                     void (*cb)(void *),
+                                     void *priv, u32 timeout_ms);
 
 /* task — 阶段 1 可选实现 */
 rdx_err_t rdx_os_task_create(const char *name, rdx_task_entry_t entry, void *arg,

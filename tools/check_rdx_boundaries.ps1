@@ -262,6 +262,25 @@ $p3aSysTimerHits = Find-Pattern -Files $p3aTargetFiles `
     -Pattern "\bsys_timer_re_run\b"
 Assert-NoHits "P3a files have no direct sys_timer_re_run calls" $p3aSysTimerHits
 
+# P5: rdx_record.c / rdx_ota.c must have no direct sys_timeout_* / sys_timer_* / sys_timeout_add_2_task
+$p5TargetNames = @("rdx_record.c", "rdx_ota.c")
+$p5TargetFiles = $allRdxFiles | Where-Object {
+    $_.Name -in $p5TargetNames -and
+    $_.FullName -match "[/\\]rdx_protocol[/\\]"
+}
+
+$p5SysTimeoutHits = Find-Pattern -Files $p5TargetFiles `
+    -Pattern "\bsys_timeout_(add|del)\b"
+Assert-NoHits "P5 files have no direct sys_timeout_add/del calls" $p5SysTimeoutHits
+
+$p5SysTimerHits = Find-Pattern -Files $p5TargetFiles `
+    -Pattern "\bsys_timer_(add|del|re_run)\b"
+Assert-NoHits "P5 files have no direct sys_timer_add/del/re_run calls" $p5SysTimerHits
+
+$p5Add2TaskHits = Find-Pattern -Files $p5TargetFiles `
+    -Pattern "\bsys_timeout_add_2_task\b"
+Assert-NoHits "P5 files have no direct sys_timeout_add_2_task calls" $p5Add2TaskHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"
