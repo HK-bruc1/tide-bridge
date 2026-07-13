@@ -118,6 +118,18 @@
 /******************************************************************************
 * Forward declarations
 ******************************************************************************/
+static void rdx_ble_mode_controller_dump(const char *prefix);
+static const char *rdx_ble_owner_name(rdx_ble_connection_owner_t owner);
+static const char *rdx_ble_mode_name(rdx_ble_mode_t mode);
+static void rdx_ble_mode_start_config_advertising(void);
+static void rdx_ble_mode_start_hogp_advertising(void);
+static u8   rdx_ble_mode_broadcast_suppressed(void);
+static void rdx_ble_mode_restart_hogp_advertising(void);
+static void rdx_ble_mode_sync_hogp_runtime(void);
+static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv);
+static void rdx_ble_mode_apply_requested(void);
+static void rdx_ble_mode_apply_requested_force(void);
+static int  rdx_ble_mode_request(rdx_ble_mode_t mode);
 static void rdx_ble_server_disconnected_cleanup_internal(void);
 static void rdx_ble_server_disconnected_adv_restart(void);
 
