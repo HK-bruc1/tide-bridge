@@ -33,6 +33,20 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+/* RDX recordings are headerless, fixed-size standard Opus packets. */
+#ifndef TCFG_DEC_OGG_OPUS_ENABLE
+#define TCFG_DEC_OGG_OPUS_ENABLE                  1
+#endif
+
+/* RDX local recordings use JL stereo Opus packets: 16 kHz, 2 ch, 20 ms, 80 B. */
+#ifndef TCFG_STENC_OPUS_ENABLE
+#define TCFG_STENC_OPUS_ENABLE                    1
+#endif
+
+#ifndef TCFG_DEC_STENC_OPUS_ENABLE
+#define TCFG_DEC_STENC_OPUS_ENABLE                1
+#endif
+
 /* Phase 6 C5: T2620 boots into HOGP by default and enables the built-in
  * five-key test keymap. KEY1 triple-click mode toggle is a formal path. */
 #ifndef RDX_BLE_DEFAULT_MODE

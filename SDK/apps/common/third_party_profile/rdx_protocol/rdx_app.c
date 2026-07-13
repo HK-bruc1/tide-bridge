@@ -84,6 +84,7 @@
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
+#include "rdx_playback.h"
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -2198,6 +2199,7 @@ int rdx_app_msg_handler(int *msg)
         case APP_MSG_REC_NEXT:
             log_info("=== %s ---> APP_MSG_REC_NEXT \r", __FUNCTION__);
             // TODO: 对接录音播放模块 — 切换到下一个录音文件播放
+            rdx_playback_next();
             ret = TRUE;
             break;
 
@@ -3363,6 +3365,7 @@ void rdx_app_all_init(void)
 
     //record task init.
 	rdx_record_task_create();
+    rdx_playback_init();
 
     //wifi init.
 #if RDX_WIFI_ENABLE

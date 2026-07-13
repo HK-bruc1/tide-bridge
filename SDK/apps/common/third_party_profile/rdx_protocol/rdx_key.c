@@ -447,7 +447,7 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 
 // NUM0 (KEY1 — PB2): 上一个录音文件, 长按快退
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
-    APP_MSG_NULL,              //短按 (CLICK: 多击场景用)
+    APP_MSG_REC_NEXT,              //短按 (CLICK: 多击场景用)
     APP_MSG_REC_FR,            //长按 (LONG: 快退)
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
