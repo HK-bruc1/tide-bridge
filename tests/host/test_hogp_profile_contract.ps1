@@ -1306,11 +1306,13 @@ Add-CheckResult -Name 'C5_HID_CONNECTION_EXCLUSIVE_ROUTING' -Passed $hidConnecti
 
 # C5.9 HOGP executor is the sole owner of the built-in test keymap
 $defaultActionsInExecutor = $KeyActionText -match 's_rdx_hogp_test_keymap\s*\[\s*RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT\s*\]' -and
-                            $KeyActionText -match '0x19' -and $KeyActionText -match '0x04' -and
-                            $KeyActionText -match '0x28' -and $KeyActionText -match '0x06' -and
-                            $KeyActionText -match '0x2a'
+                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x06,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY1:\s*Ctrl\+C\s*\*/' -and
+                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x19,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY2:\s*Ctrl\+V\s*\*/' -and
+                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x1b,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY3:\s*Ctrl\+X\s*\*/' -and
+                            $KeyActionText -match '\{\s*0x00,\s*\{\s*0x2a,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY4:\s*Backspace\s*\*/' -and
+                            $KeyActionText -match '\{\s*0x00,\s*\{\s*0x28,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY5:\s*Enter\s*\*/'
 Add-CheckResult -Name 'C5_DEFAULT_ACTIONS_IN_HOGP_EXECUTOR' -Passed $defaultActionsInExecutor `
-    -Message $(if ($defaultActionsInExecutor) { '' } else { 'rdx_hogp_key_action.c must hold the five default HID actions (Ctrl+V, A, Enter, Ctrl+C, Backspace)' })
+    -Message $(if ($defaultActionsInExecutor) { '' } else { 'rdx_hogp_key_action.c must hold the five default HID actions (Ctrl+C, Ctrl+V, Ctrl+X, Backspace, Enter)' })
 
 $legacyKeyHasNoHogp = ($KeyText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp|s_rdx_key_hogp_default_actions') -and
                       ($KeyHeaderText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp')

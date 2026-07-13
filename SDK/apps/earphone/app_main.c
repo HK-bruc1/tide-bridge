@@ -428,12 +428,12 @@ static struct app_mode *app_task_init()
 
 #if 0
     // DEBUG: print 5 physical key GPIO levels after key driver init
-    printf("[KEY-GPIO] PC2=%d, PG7=%d, PB2=%d, PB4=%d, PG8=%d\n",
-           gpio_read(IO_PORTC_02),
-           gpio_read(IO_PORTG_07),
+    printf("[KEY-GPIO] KEY1(PB2)=%d, KEY2(PG7)=%d, KEY3(PB4)=%d, KEY4(PG8)=%d, KEY5(PC2)=%d\n",
            gpio_read(IO_PORTB_02),
+           gpio_read(IO_PORTG_07),
            gpio_read(IO_PORTB_04),
-           gpio_read(IO_PORTG_08));
+           gpio_read(IO_PORTG_08),
+           gpio_read(IO_PORTC_02));
 #endif
 
     do_initcall();
@@ -685,12 +685,12 @@ static void key_gpio_poll_printf(void *_arg)
 {
     static u8 beat = 0;
 
-    printf("[KEY-GPIO-POLL] PC2=%d, PG7=%d, PB2=%d, PB4=%d, PG8=%d (beat=%d)\n",
-           gpio_read(IO_PORTC_02),
-           gpio_read(IO_PORTG_07),
+    printf("[KEY-GPIO-POLL] KEY1(PB2)=%d, KEY2(PG7)=%d, KEY3(PB4)=%d, KEY4(PG8)=%d, KEY5(PC2)=%d (beat=%d)\n",
            gpio_read(IO_PORTB_02),
+           gpio_read(IO_PORTG_07),
            gpio_read(IO_PORTB_04),
            gpio_read(IO_PORTG_08),
+           gpio_read(IO_PORTC_02),
            beat);
 
     // KEY5 4-beat: press→release→rest→rest→loop (1s/beat, 录音灯效可见)
@@ -699,12 +699,12 @@ static void key_gpio_poll_printf(void *_arg)
     // beat4: LONG→停止, beat5: UP, beat6,7: 空闲
     // switch (beat) {
     // case 0: case 4:
-    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTG_08), PORT_OUTPUT_LOW);
-    //     printf("[KEY-SIM] PG8 LOW  -- press\r\n");
+    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_OUTPUT_LOW);
+    //     printf("[KEY-SIM] PC2 LOW  -- press\r\n");
     //     break;
     // case 1: case 5:
-    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTG_08), PORT_INPUT_PULLUP_10K);
-    //     printf("[KEY-SIM] PG8 HIGH -- release\r\n");
+    //     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_INPUT_PULLUP_10K);
+    //     printf("[KEY-SIM] PC2 HIGH -- release\r\n");
     //     break;
     // default:
     //     break;

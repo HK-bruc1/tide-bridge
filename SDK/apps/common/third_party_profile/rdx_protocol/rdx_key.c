@@ -445,7 +445,7 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 // 因此主要动作放在 LONG[1], CLICK[0] 留给多击场景
 // ============================================================
 
-// NUM0 (KEY1 — PC2): 上一个录音文件, 长按快退
+// NUM0 (KEY1 — PB2): 上一个录音文件, 长按快退
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,              //短按 (CLICK: 多击场景用)
     APP_MSG_REC_FR,            //长按 (LONG: 快退)
@@ -493,7 +493,7 @@ u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM2 (KEY3 — PB2): 音量加
+// NUM2 (KEY3 — PB4): 音量加
 u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_VOL_UP,            //短按
     APP_MSG_VOL_UP,            //长按
@@ -517,7 +517,7 @@ u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM3 (KEY4 — PB4): 音量减
+// NUM3 (KEY4 — PG8): 音量减
 u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,          //短按
     APP_MSG_RECORD_SWITCH,          //长按
@@ -541,7 +541,7 @@ u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM4 (KEY5 — PG8): 录音开关
+// NUM4 (KEY5 — PC2): 录音开关
 // 触发链: LONG → APP_MSG_RECORD_SWITCH → flag=1, UP → APP_MSG_LONG_PRESS_HOLDUP → 启动录音
 u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,              //短按
@@ -554,7 +554,7 @@ u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,              //五击
     APP_MSG_NULL,              //六击
     APP_MSG_NULL,
-    APP_MSG_NULL,
+    APP_MSG_DUT,
     APP_MSG_NULL,              //index = 11
     APP_MSG_NULL,              //长按3s
     APP_MSG_NULL,              //长按5s

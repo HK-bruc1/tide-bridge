@@ -619,7 +619,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         //   KEY1~KEY5 CLICK             -> use HOGP when connected, otherwise fall back offline.
         //   Other actions (LONG/HOLD/UP/...) fall through to legacy RDX tables.
 #if TCFG_RDX_HOGP_ENABLE
-        if (num_idx == 0 && index == KEY_ACTION_TRIPLE_CLICK) {
+        if (num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK) {
             rdx_ble_mode_request_toggle();
             *value = APP_MSG_NULL;
             return;
