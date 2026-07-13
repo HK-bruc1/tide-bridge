@@ -84,7 +84,10 @@
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
+#include "rdx_playback_config.h"
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #include "rdx_playback.h"
+#endif
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -2192,26 +2195,29 @@ int rdx_app_msg_handler(int *msg)
 
         case APP_MSG_REC_PREV:
             log_info("=== %s ---> APP_MSG_REC_PREV \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 切换到上一个录音文件播放
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_prev();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_NEXT:
             log_info("=== %s ---> APP_MSG_REC_NEXT \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 切换到下一个录音文件播放
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
             rdx_playback_next();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_FR:
             log_info("=== %s ---> APP_MSG_REC_FR \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 快退
+            // Reserved until seek support is implemented.
             ret = TRUE;
             break;
 
         case APP_MSG_REC_FF:
             log_info("=== %s ---> APP_MSG_REC_FF \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 快进
+            // Reserved until seek support is implemented.
             ret = TRUE;
             break;
 
@@ -3365,7 +3371,9 @@ void rdx_app_all_init(void)
 
     //record task init.
 	rdx_record_task_create();
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     rdx_playback_init();
+#endif
 
     //wifi init.
 #if RDX_WIFI_ENABLE

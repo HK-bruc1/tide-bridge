@@ -9,6 +9,7 @@
 #include "jlstream.h"
 #include "media/audio_base.h"
 #include "app_config.h"
+#include "source_dev0.h"
 
 /*
    若源节点为中断节点，则需打开SOURCE_DEV0_IRQ_ENABLE
@@ -34,12 +35,21 @@ static cbuffer_t output_cbuf_h;
 static u8 *output_buff = NULL;
 #define OUTPUT_BUFF_SIZE    (2048)
 #define OPUS_MONO_FRAME_BYTES       (40u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define OPUS_STEREO_FRAME_BYTES     (80u)
+#define OPUS_MAX_FRAME_BYTES        OPUS_STEREO_FRAME_BYTES
+#else
+#define OPUS_MAX_FRAME_BYTES        OPUS_MONO_FRAME_BYTES
+#endif
 #define OPUS_SAMPLE_RATE            (16000u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define OPUS_STEREO_DEC_SAMPLE_RATE (48000u)
+#endif
 #define OPUS_FRAME_DMS              (200u)
 #define OPUS_MONO_BIT_RATE          (16000u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define OPUS_STEREO_BIT_RATE        (32000u)
+#endif
 
 static void output_buff_init(void)
 {
@@ -114,7 +124,7 @@ static unsigned char source_test_data[60] = {
 };
 #endif
 
-static u8 output[OPUS_STEREO_FRAME_BYTES];
+static u8 output[OPUS_MAX_FRAME_BYTES];
 
 static u8 data_ok = 0;
 /*
@@ -127,7 +137,12 @@ static u8 *source_dev0_get_packet(struct source_dev0_file_hdl *hdl, u32 *len)
 {
     u8 *packet = NULL;
     u32 packet_len = 0;
-    u16 frame_len = hdl->ch_num == 2 ? OPUS_STEREO_FRAME_BYTES : OPUS_MONO_FRAME_BYTES;
+    u16 frame_len = OPUS_MONO_FRAME_BYTES;
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (hdl->ch_num == 2) {
+        frame_len = OPUS_STEREO_FRAME_BYTES;
+    }
+#endif
 
     if(data_ok == 0 && cbuf_get_data_len(&output_cbuf_h) < (OUTPUT_BUFF_SIZE / 4)){
         return NULL;
@@ -206,16 +221,20 @@ static void source_dev0_get_fmt(struct source_dev0_file_hdl *hdl, struct stream_
     fmt->channel_mode = AUDIO_CH_LR;		//通道模式
 #endif
     fmt->frame_dms = OPUS_FRAME_DMS;
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (hdl->ch_num == 2) {
         /* JL's stereo Opus decoder always emits 48 kHz PCM. */
         fmt->sample_rate = OPUS_STEREO_DEC_SAMPLE_RATE;
         fmt->coding_type = AUDIO_CODING_STENC_OPUS;
         fmt->channel_mode = AUDIO_CH_LR;
         fmt->bit_rate = OPUS_STEREO_BIT_RATE;
-    } else {
+        return;
+    }
+#endif
+    {
         fmt->sample_rate = OPUS_SAMPLE_RATE;
         fmt->coding_type = AUDIO_CODING_OPUS;
-        fmt->channel_mode = AUDIO_CH_MIX;
+        fmt->channel_mode = hdl->ch_num == 2 ? AUDIO_CH_LR : AUDIO_CH_MIX;
         fmt->bit_rate = OPUS_MONO_BIT_RATE;
     }
 }
@@ -357,8 +376,6 @@ REGISTER_SOURCE_NODE_PLUG(source_dev0_file_plug) = {
 };
 
 #endif
-
-
 
 
 

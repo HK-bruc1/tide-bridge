@@ -12,6 +12,7 @@
 #include "rcsp_cmd_user.h"
 
 #include "rdx_app_config.h"
+#include "source_dev0.h"
 
 // #define BIT_RATE_TEST
 
@@ -27,8 +28,6 @@ struct sink_dev1_hdl {
 extern int rdx_record_run_exit(void);
 extern int rdx_record_run_init(void);
 extern int rdx_record_run_data_handle(u8 *data, u16 len);
-
-u32 source_dev0_input_write(u8 *data, u16 len);
 
 #ifdef BIT_RATE_TEST
 static int tx_speed_cal_timer = 0;
@@ -304,4 +303,3 @@ REGISTER_STREAM_NODE_ADAPTER(sink_dev1_adapter) = {
 };
 
 #endif
-

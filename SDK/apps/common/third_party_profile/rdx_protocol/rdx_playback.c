@@ -1,5 +1,8 @@
-#include "system/includes.h"
 #include "rdx_playback.h"
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+
+#include "system/includes.h"
 #include "rdx_app.h"
 #include "rdx_record.h"
 #include "rdx_uxfile.h"
@@ -8,6 +11,7 @@
 #include "os/os_api.h"
 #include "app_msg.h"
 #include "node_uuid.h"
+#include "source_dev0.h"
 
 #define LOG_TAG                                             "[PB]"
 #define LOG_ERROR_ENABLE
@@ -28,9 +32,6 @@
 // 来自 uxfile 模块的外部函数，掉电保护用
 extern u8 rdx_is_file_transfer_active(void);
 extern u8 rdx_is_file_sync_busy(void);
-extern u32 source_dev0_input_write(u8 *data, u16 len);
-extern u32 source_dev0_get_free_space(void);
-extern bool source_dev0_is_empty(void);
 
 static rdx_playback_t pb = { 0 };
 static u32 pb_max_sn = 0;
@@ -487,3 +488,5 @@ void rdx_playback_fr(void)
 {
     PB_LOG("fr: not implemented");
 }
+
+#endif

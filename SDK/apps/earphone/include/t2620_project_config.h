@@ -33,6 +33,10 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+#ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1
+#endif
+
 /* RDX recordings are headerless, fixed-size standard Opus packets. */
 #ifndef TCFG_DEC_OGG_OPUS_ENABLE
 #define TCFG_DEC_OGG_OPUS_ENABLE                  1
@@ -44,7 +48,7 @@
 #endif
 
 #ifndef TCFG_DEC_STENC_OPUS_ENABLE
-#define TCFG_DEC_STENC_OPUS_ENABLE                1
+#define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #endif
 
 /* Phase 6 C5: T2620 boots into HOGP by default and enables the built-in

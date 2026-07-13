@@ -1,6 +1,11 @@
 #ifndef __RDX_PLAYBACK_H__
 #define __RDX_PLAYBACK_H__
 
+#include "rdx_playback_config.h"
+#include "typedef.h"
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+
 #include <stdbool.h>
 
 #define PB_STATUS_STOP                              0
@@ -27,5 +32,7 @@ void rdx_playback_next(void);
 void rdx_playback_ff(void);
 void rdx_playback_fr(void);
 void rdx_playback_stop(void);
+
+#endif
 
 #endif // __RDX_PLAYBACK_H__
