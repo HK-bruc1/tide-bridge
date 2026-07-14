@@ -22,6 +22,7 @@ $PlaybackHeaderPath = Join-Path $ProtocolDir 'rdx_playback.h'
 $PlaybackPath = Join-Path $ProtocolDir 'rdx_playback.c'
 $AppPath = Join-Path $ProtocolDir 'rdx_app.c'
 $KeyPath = Join-Path $ProtocolDir 'rdx_key.c'
+$AppMsgPath = Join-Path $RepoRoot 'SDK/apps/earphone/include/app_msg.h'
 $SourceHeaderPath = Join-Path $RepoRoot 'SDK/audio/interface/include/source_dev0.h'
 $SourcePath = Join-Path $RepoRoot 'SDK/audio/framework/plugs/source/source_dev0_file.c'
 $SinkPath = Join-Path $RepoRoot 'SDK/audio/framework/nodes/sink_dev1_node.c'
@@ -133,6 +134,7 @@ $PlaybackHeaderText = Get-Content -Raw -Path $PlaybackHeaderPath
 $PlaybackText = Get-Content -Raw -Path $PlaybackPath
 $AppText = Get-Content -Raw -Path $AppPath
 $KeyText = Get-Content -Raw -Path $KeyPath
+$AppMsgText = Get-Content -Raw -Path $AppMsgPath
 $SourceHeaderText = Get-Content -Raw -Path $SourceHeaderPath
 $SourceText = Get-Content -Raw -Path $SourcePath
 $SinkText = Get-Content -Raw -Path $SinkPath
@@ -192,6 +194,25 @@ Test-Pattern -Name 'APP_FR_CALL_GUARDED' -Text $AppText `
 Test-Pattern -Name 'APP_FF_CALL_GUARDED' -Text $AppText `
     -Pattern '(?s)case[ \t]+APP_MSG_REC_FF:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_ff\(\);[ \t\r\n]+#endif'
 
+Test-Pattern -Name 'PLAY_PAUSE_MESSAGES_DECLARED' -Text $AppMsgText `
+    -Pattern '(?s)APP_MSG_REC_PREV,.*?APP_MSG_REC_NEXT,.*?APP_MSG_REC_FR,.*?APP_MSG_REC_FF,.*?APP_MSG_REC_PLAY,.*?APP_MSG_REC_PAUSE,'
+
+Test-Pattern -Name 'APP_PLAY_CALL_GUARDED' -Text $AppText `
+    -Pattern '(?s)case[ \t]+APP_MSG_REC_PLAY:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_play\(\);[ \t\r\n]+#endif'
+
+Test-Pattern -Name 'APP_PAUSE_CALL_GUARDED' -Text $AppText `
+    -Pattern '(?s)case[ \t]+APP_MSG_REC_PAUSE:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_pause\(\);[ \t\r\n]+#endif'
+
+Add-CheckResult -Name 'RECORD_START_PREEMPTS_PLAYBACK_ON_APP_CORE' -Passed (
+    $AppText -match '(?s)static\s+void\s+rdx_app_record_cmd_on_app_core\s*\([^)]*\).*?RECORD_STATE_START.*?RECORD_STATE_RESUME.*?rdx_playback_stop\(\);.*?rdx_record_cmd_handle\(&info\);' -and
+    $AppText -match '(?s)case\s+PROTOCOL_EVENT_CMD_RECORD:.*?os_taskq_post_type\("app_core",\s*Q_CALLBACK,\s*3,\s*msg\).*?break;' -and
+    $AppText -notmatch '(?s)case\s+PROTOCOL_EVENT_CMD_RECORD:.*?rdx_record_cmd_handle\(\(Record_info\s*\*\)data\)'
+) -Message 'protocol record start/resume must stop playback and execute record control serially on app_core'
+
+Add-CheckResult -Name 'OFFLINE_RECORD_START_PREEMPTS_PLAYBACK' -Passed (
+    $AppText -match '(?s)void\s+rdx_app_device_record_handle\s*\([^)]*\).*?else\s*\{\s*if\s*\(rp->run\s*==\s*RECORD_STATE_STOP\).*?rdx_playback_stop\(\);.*?rp->run\s*=\s*RECORD_STATE_START;'
+) -Message 'offline record start must clear an existing local playback pause session first'
+
 Test-Pattern -Name 'APP_INIT_CALL_GUARDED' -Text $AppText `
     -Pattern '(?s)#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_init\(\);[ \t\r\n]+#endif'
 
@@ -203,17 +224,19 @@ Add-CheckResult -Name 'KEY_TABLE_DIRECT_MESSAGES' -Passed (
 $Num0KeyItems = Get-CArrayItems -Text $KeyText -ArrayName 'key_table_io_num0_normal'
 $Num1KeyItems = Get-CArrayItems -Text $KeyText -ArrayName 'key_table_io_num1_normal'
 
-$Num0MappingValid = $Num0KeyItems.Count -ge 2 -and
+$Num0MappingValid = $Num0KeyItems.Count -ge 5 -and
     $Num0KeyItems[0] -eq 'APP_MSG_REC_NEXT' -and
-    $Num0KeyItems[1] -eq 'APP_MSG_REC_FF'
+    $Num0KeyItems[1] -eq 'APP_MSG_REC_FF' -and
+    $Num0KeyItems[4] -eq 'APP_MSG_REC_PLAY'
 Add-CheckResult -Name 'KEY0_ACTION_INDEX_MAPPING' -Passed $Num0MappingValid `
-    -Message 'expected CLICK=NEXT and LONG=FF app messages'
+    -Message 'expected KEY1 CLICK=NEXT, LONG=FF, and DOUBLE_CLICK=PLAY app messages'
 
-$Num1MappingValid = $Num1KeyItems.Count -ge 2 -and
+$Num1MappingValid = $Num1KeyItems.Count -ge 5 -and
     $Num1KeyItems[0] -eq 'APP_MSG_REC_PREV' -and
-    $Num1KeyItems[1] -eq 'APP_MSG_REC_FR'
+    $Num1KeyItems[1] -eq 'APP_MSG_REC_FR' -and
+    $Num1KeyItems[4] -eq 'APP_MSG_REC_PAUSE'
 Add-CheckResult -Name 'KEY1_ACTION_INDEX_MAPPING' -Passed $Num1MappingValid `
-    -Message 'expected CLICK=PREV and LONG=FR app messages'
+    -Message 'expected KEY2 CLICK=PREV, LONG=FR, and DOUBLE_CLICK=PAUSE app messages'
 
 Test-Pattern -Name 'SOURCE_PUBLIC_API_DECLARED' -Text $SourceHeaderText `
     -Pattern '(?s)source_dev0_input_write\s*\(.*source_dev0_get_free_space\s*\(.*source_dev0_is_empty\s*\(.*source_dev0_get_consumed_bytes\s*\(.*source_dev0_reset_consumed_bytes\s*\('

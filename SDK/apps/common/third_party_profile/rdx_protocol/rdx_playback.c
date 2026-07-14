@@ -28,6 +28,8 @@
 #define PB_OPUS_FRAME_MS        (20u)
 #define PB_SEEK_STEP_MS         (5000u)
 #define PB_SEEK_STEP_FRAMES     (PB_SEEK_STEP_MS / PB_OPUS_FRAME_MS)
+#define PB_RESUME_REWIND_MS      (100u)
+#define PB_RESUME_REWIND_FRAMES  (PB_RESUME_REWIND_MS / PB_OPUS_FRAME_MS)
 #define PB_PUMP_INTERVAL_MS     (10u)
 #define PB_DRAIN_TIMEOUT_MS     (3000u)                     // 3 s 排空看门狗
 #define PB_CHUNK_BYTES          (560u)                      // fread block, 7 stereo frames ~= 140 ms
@@ -84,6 +86,13 @@ static bool pb_state_allows_pump(pb_state_t state)
            state == PB_STATE_PLAYING;
 }
 
+static void pb_clear_resume_cursor(void)
+{
+    pb.resume_sn = 0;
+    pb.resume_frame = 0;
+    pb.resume_duration_frames = 0;
+}
+
 // ---- 文件路径 --------------------------------------------------------
 
 static bool pb_open_file(const char *fname, FILE **out_f)
@@ -114,7 +123,7 @@ static bool pb_cache_ready(void)
 {
     if (rdx_uxfile_is_sync_in_progress()) {
         PB_LOG("blocked: sync in progress");
-        if (!pb_has_active_track()) {
+        if (!pb_has_active_track() && pb.state != PB_STATE_PAUSED) {
             pb.state = PB_STATE_UNREADY;
         }
         return false;
@@ -130,6 +139,7 @@ static bool pb_cache_ready(void)
         pb.playlist_dirty = 0;
         if (!pb_has_active_track()) {
             pb.selected_sn = 0;
+            pb_clear_resume_cursor();
             pb.state = PB_STATE_UNREADY;
         }
         return false;
@@ -202,6 +212,7 @@ static void pb_finish_stop(bool clear_selection)
     pb.intent = PB_INTENT_STOP;
     pb_close_track();
     pb.pending_sn = 0;
+    pb_clear_resume_cursor();
     if (clear_selection) {
         pb.selected_sn = 0;
     }
@@ -424,6 +435,12 @@ static void pb_restore_stable_state(pb_state_t previous_state)
     pb.pending_sn = 0;
     pb.intent = PB_INTENT_NONE;
 
+    if (previous_state == PB_STATE_PAUSED &&
+        pb.resume_sn != 0 && pb.resume_sn == pb.selected_sn) {
+        pb.state = PB_STATE_PAUSED;
+        return;
+    }
+
     if (pb_has_active_track()) {
         pb.state = (previous_state == PB_STATE_DRAINING) ?
                    PB_STATE_DRAINING : PB_STATE_PLAYING;
@@ -469,8 +486,10 @@ static int pb_open_stream_at_frame(u32 base_frame, pb_state_t transition_state)
     return PB_RESULT_OK;
 }
 
-static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
-                                                 pb_state_t transition_state)
+static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
+                                                          u32 base_frame,
+                                                          pb_state_t transition_state,
+                                                          pb_intent_t intent)
 {
     if (!fi) {
         return PB_CANDIDATE_SKIP;
@@ -491,14 +510,17 @@ static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
     u32 candidate_sn = fi->sn;
     pb.pending_sn = candidate_sn;
     pb.state = transition_state;
-    pb.intent = PB_INTENT_SWITCH;
+    pb.intent = intent;
 
     // 候选文件已经成功打开后，才释放旧播放资源。
     pb_close_track();
     pb_file = candidate_file;
     pb.duration_frames = (u32)flen(pb_file) / PB_OPUS_FRAME_BYTES;
+    if (base_frame >= pb.duration_frames) {
+        base_frame = pb.duration_frames - 1;
+    }
 
-    int ret = pb_open_stream_at_frame(0, transition_state);
+    int ret = pb_open_stream_at_frame(base_frame, transition_state);
     if (ret != PB_RESULT_OK) {
         pb_close_track();
         pb.pending_sn = 0;
@@ -511,12 +533,20 @@ static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
     // 文件、播放流和数据泵都成功后，才提交稳定选择。
     pb.selected_sn = candidate_sn;
     pb.current_sn = candidate_sn;
+    pb_clear_resume_cursor();
     pb.pending_sn = 0;
     pb.intent = PB_INTENT_NONE;
     pb.last_error = PB_RESULT_OK;
 
     PB_LOG("play: SN=%u, flen=%d", candidate_sn, flen(pb_file));
     return PB_CANDIDATE_STARTED;
+}
+
+static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
+                                                 pb_state_t transition_state)
+{
+    return pb_start_candidate_at_frame(fi, 0, transition_state,
+                                       PB_INTENT_SWITCH);
 }
 
 // ---- 环形导航 --------------------------------------------------------
@@ -561,6 +591,7 @@ static int pb_navigate_from(u32 anchor_sn, pb_direction_t direction,
             return PB_RESULT_OK;
         }
         if (result == PB_CANDIDATE_FATAL) {
+            pb_restore_stable_state(previous_state);
             return pb.last_error;
         }
     }
@@ -617,6 +648,119 @@ int rdx_playback_next(void)
     return pb_switch_track(PB_DIRECTION_OLDER);
 }
 
+int rdx_playback_play(void)
+{
+    if (pb.state == PB_STATE_PLAYING || pb.state == PB_STATE_DRAINING) {
+        pb.last_error = PB_RESULT_OK;
+        return PB_RESULT_OK;
+    }
+    if (pb_state_is_transition(pb.state)) {
+        pb.last_error = PB_RESULT_BUSY;
+        return PB_RESULT_BUSY;
+    }
+
+    pb_state_t previous_state = pb.state;
+    int ret = pb_prepare_command();
+    if (ret != PB_RESULT_OK) {
+        pb.last_error = ret;
+        return ret;
+    }
+
+    if (previous_state == PB_STATE_PAUSED) {
+        if (pb.resume_sn == 0 || pb.resume_sn != pb.selected_sn ||
+            pb.resume_duration_frames == 0) {
+            pb_finish_stop(false);
+            pb.last_error = PB_RESULT_INVALID_STATE;
+            return PB_RESULT_INVALID_STATE;
+        }
+
+        u32 resume_frame = pb.resume_frame;
+        if (resume_frame > pb.resume_duration_frames) {
+            resume_frame = pb.resume_duration_frames;
+        }
+        u32 start_frame = (resume_frame > PB_RESUME_REWIND_FRAMES) ?
+                          (resume_frame - PB_RESUME_REWIND_FRAMES) : 0;
+        uxfile_data_t *fi = rdx_uxfile_get_file_data_by_sn(pb.resume_sn, 0, 0);
+        if (!fi || fi->filename[0] == '\0') {
+            pb.selected_sn = 0;
+            pb_clear_resume_cursor();
+            pb.state = pb.total_count ? PB_STATE_STOPPED : PB_STATE_UNREADY;
+            pb.playlist_dirty = 1;
+            pb.last_error = PB_RESULT_NO_FILE;
+            return PB_RESULT_NO_FILE;
+        }
+
+        pb_candidate_result_t result = pb_start_candidate_at_frame(
+            fi, start_frame, PB_STATE_STARTING, PB_INTENT_PLAY);
+        if (result == PB_CANDIDATE_STARTED) {
+            return PB_RESULT_OK;
+        }
+
+        pb_restore_stable_state(previous_state);
+        pb.last_error = (result == PB_CANDIDATE_FATAL) ?
+                        pb.last_error : PB_RESULT_IO_ERROR;
+        return pb.last_error;
+    }
+
+    if (pb.selected_sn == 0) {
+        return pb_navigate_from(1, PB_DIRECTION_OLDER, 0, PB_STATE_STARTING);
+    }
+
+    uxfile_data_t *fi = rdx_uxfile_get_file_data_by_sn(pb.selected_sn, 0, 0);
+    if (!fi || fi->filename[0] == '\0') {
+        pb.selected_sn = 0;
+        pb.playlist_dirty = 1;
+        pb.last_error = PB_RESULT_NO_FILE;
+        return PB_RESULT_NO_FILE;
+    }
+
+    pb_candidate_result_t result = pb_start_candidate_at_frame(
+        fi, 0, PB_STATE_STARTING, PB_INTENT_PLAY);
+    if (result == PB_CANDIDATE_STARTED) {
+        return PB_RESULT_OK;
+    }
+
+    pb_restore_stable_state(previous_state);
+    pb.last_error = (result == PB_CANDIDATE_FATAL) ?
+                    pb.last_error : PB_RESULT_IO_ERROR;
+    return pb.last_error;
+}
+
+int rdx_playback_pause(void)
+{
+    if (pb.state == PB_STATE_PAUSED) {
+        pb.last_error = PB_RESULT_OK;
+        return PB_RESULT_OK;
+    }
+    if ((pb.state != PB_STATE_PLAYING && pb.state != PB_STATE_DRAINING) ||
+        !pb_has_active_track()) {
+        pb.last_error = PB_RESULT_INVALID_STATE;
+        return PB_RESULT_INVALID_STATE;
+    }
+    if (pb.duration_frames == 0) {
+        pb_finish_stop(false);
+        pb.last_error = PB_RESULT_IO_ERROR;
+        return PB_RESULT_IO_ERROR;
+    }
+
+    u32 resume_frame = pb_current_frame();
+    if (resume_frame > pb.duration_frames) {
+        resume_frame = pb.duration_frames;
+    }
+
+    pb.intent = PB_INTENT_PAUSE;
+    pb.resume_sn = pb.selected_sn;
+    pb.resume_frame = resume_frame;
+    pb.resume_duration_frames = pb.duration_frames;
+    pb_close_track();
+    pb.pending_sn = 0;
+    pb.state = PB_STATE_PAUSED;
+    pb.intent = PB_INTENT_NONE;
+    pb.last_error = PB_RESULT_OK;
+    PB_LOG("pause: sn=%u, frame=%u", pb.resume_sn, pb.resume_frame);
+    return PB_RESULT_OK;
+}
+
 void rdx_playback_invalidate_playlist(pb_playlist_invalidate_reason_t reason)
 {
     pb.playlist_dirty = 1;
@@ -638,6 +782,7 @@ void rdx_playback_on_file_deleted(u32 sn)
     }
     if (pb.selected_sn == sn) {
         pb.selected_sn = 0;
+        pb_clear_resume_cursor();
     }
     rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED);
 }
@@ -654,8 +799,13 @@ void rdx_playback_get_info(pb_public_info_t *info)
     info->total_count = pb.total_count;
     info->state = pb.state;
     info->last_error = pb.last_error;
-    info->position_ms = pb_current_frame() * PB_OPUS_FRAME_MS;
-    info->duration_ms = pb.duration_frames * PB_OPUS_FRAME_MS;
+    if (pb.state == PB_STATE_PAUSED) {
+        info->position_ms = pb.resume_frame * PB_OPUS_FRAME_MS;
+        info->duration_ms = pb.resume_duration_frames * PB_OPUS_FRAME_MS;
+    } else {
+        info->position_ms = pb_current_frame() * PB_OPUS_FRAME_MS;
+        info->duration_ms = pb.duration_frames * PB_OPUS_FRAME_MS;
+    }
 }
 
 // ---- 快进快退 --------------------------------------------------------

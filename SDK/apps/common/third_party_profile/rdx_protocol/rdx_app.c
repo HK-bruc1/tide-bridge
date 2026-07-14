@@ -1454,6 +1454,10 @@ void rdx_app_device_record_handle(u8 scene)
         }
     }else{
         if(rp->run == RECORD_STATE_STOP){
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            /* 离线录音会立即启动，先在 app_core 结束本地回听会话。 */
+            rdx_playback_stop();
+#endif
             rp->run = RECORD_STATE_START;
             rp->formate = formate;
             rp->scene = scene;
@@ -2225,6 +2229,22 @@ int rdx_app_msg_handler(int *msg)
             ret = TRUE;
             break;
 
+        case APP_MSG_REC_PLAY:
+            log_info("=== %s ---> APP_MSG_REC_PLAY \r", __FUNCTION__);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_play();
+#endif
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_PAUSE:
+            log_info("=== %s ---> APP_MSG_REC_PAUSE \r", __FUNCTION__);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_pause();
+#endif
+            ret = TRUE;
+            break;
+
         // OLED 相关事件已删除
 
         case APP_MSG_TWS_START_PAIR:
@@ -2959,6 +2979,23 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
 #endif
 
 
+static void rdx_app_record_cmd_on_app_core(u32 packed_info)
+{
+    Record_info info = {
+        .cmd = (u8)(packed_info & 0xff),
+        .formate = (u8)((packed_info >> 8) & 0xff),
+        .type = (u8)((packed_info >> 16) & 0xff),
+    };
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (info.cmd == (RECORD_STATE_START + 0x30) ||
+        info.cmd == (RECORD_STATE_RESUME + 0x30)) {
+        rdx_playback_stop();
+    }
+#endif
+    rdx_record_cmd_handle(&info);
+}
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3252,7 +3289,17 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 
         case PROTOCOL_EVENT_CMD_RECORD: {
             if(!data || len < sizeof(Record_info)) break;
-            rdx_record_cmd_handle((Record_info*)data);
+            Record_info *info = (Record_info *)data;
+            u32 packed_info = (u32)info->cmd |
+                              ((u32)info->formate << 8) |
+                              ((u32)info->type << 16);
+            int msg[3];
+            msg[0] = (int)rdx_app_record_cmd_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)packed_info;
+            if(os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)){
+                r_printf("record cmd app_core post err\r");
+            }
             break;
         }
 

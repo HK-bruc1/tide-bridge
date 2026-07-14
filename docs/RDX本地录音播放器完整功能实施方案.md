@@ -945,3 +945,188 @@ app_core 串行执行所有控制事务
 ```
 
 这一结构既保留了“环形楼梯”的直观产品模型，又避免重复文件数据库、链表碎片、失效指针和 Seek 缓冲污染。实施顺序应先完成上下曲切换，再做快进快退，然后复用系统音量路径完成音量加减，最后做最佳实践和过度设计复核。
+
+## 20. 收尾增补：独立播放与暂停（Phase 5）
+
+> 实施状态（2026-07-14）：文档、代码和 host 静态契约已完成；固件构建与设备回归由生产环境后续评估。
+
+现有上一曲、下一曲同时承担了“从空头首次启动播放”的能力，但启动后用户只能继续听到 EOF，或通过切曲离开当前录音。为了让用户能够暂时中断并继续回听，新增两个独立命令：
+
+```c
+int rdx_playback_play(void);
+int rdx_playback_pause(void);
+```
+
+不再增加第三个 `resume()` 公共接口。`play()` 根据状态表达“开始或继续播放”，`pause()` 只表达“暂停当前播放”，避免三个公共命令表达重叠语义。
+
+### 20.1 产品语义
+
+1. 上电后仍然是空头，不自动打开文件、不自动出声。
+2. 空头时首次 `next` 仍从最新录音进入，首次 `prev` 仍从最旧录音进入；新功能不改变已验证的上下曲入口。
+3. 空头时首次 `play` 以“最新录音”为默认入口，从 0 位置开始播放。
+4. `PLAYING` 中执行 `pause` 后，保留当前 SN 和暂停帧位置，进入 `PAUSED`。
+5. `PAUSED` 中执行 `play` 时，只恢复同一 SN，不改变环形游标，不隐式切曲。
+6. `PAUSED` 中执行 `prev/next` 时，仍按原逻辑切换录音；新曲始终从 0 位置开始并立即进入 `PLAYING`，不继承旧曲的暂停位置。
+7. 即使列表只有一个文件，暂停后执行 `prev/next` 也视为一次成功切曲：同一 SN 从 0 位置重新播放，不从暂停点恢复。
+8. 自然 EOF 仍进入 `STOPPED`、保留 `selected_sn` 且位置归 0；此后执行 `play` 从已选录音的开头重播。
+
+最重要的隔离规则是：
+
+> 暂停位置属于某一个 SN 的一次暂停会话，不属于播放列表游标。只有 `play` 可以消费它；任何成功的 `prev/next` 都必须清除它并将新曲播放位置重置为 0。
+
+### 20.2 状态与暂停游标
+
+在 `pb_state_t` 中增加稳定状态：
+
+```c
+PB_STATE_PAUSED,
+```
+
+在播放器状态中增加：
+
+```c
+u32 resume_sn;
+u32 resume_frame;
+u32 resume_duration_frames;
+```
+
+约束如下：
+
+- 仅当 `state == PB_STATE_PAUSED` 且 `resume_sn == selected_sn` 时，`resume_frame` 有效；
+- `selected_sn` 仍是环形导航的稳定锚点，`resume_frame` 不参与相邻 SN 计算；
+- 暂停后没有活动播放流，因此 `current_sn = 0`；对外查询的曲目使用 `selected_sn`，位置使用 `resume_frame * 20 ms`；
+- 暂停时应释放 pump、JLStream 和文件句柄，只保留 SN、帧位置和必要的时长快照；这样不会长时间占用文件，也不会阻塞删除、格式化或存储恢复；
+- 用于暂停的资源释放必须与 `stop` 分开：`pause` 保留 `resume_sn/resume_frame`，`stop` 清除它们并将位置归 0。
+
+建议增加单一内部清理函数，禁止在多个分支分别手写清零：
+
+```c
+static void pb_clear_resume_cursor(void);
+```
+
+它必须在以下时机执行：
+
+- 新曲已成功打开、播放流已创建且新 `selected_sn/current_sn` 准备提交时；
+- `stop`、自然 EOF、删除当前文件、格式化或存储失效时；
+- 初始化和播放列表被完全清空时。
+
+### 20.3 `pause` 事务
+
+`pause` 必须在 `app_core` 串行执行，推荐顺序：
+
+```text
+1. 仅接受 PLAYING/DRAINING；PAUSED 中再次 pause 为幂等成功
+2. 在关闭播放流之前读取 pb_current_frame()
+3. clamp 到 [0, duration_frames]，保存 resume_sn、resume_frame 和时长快照
+4. 停止 pump，关闭 JLStream，清空 Source_Dev0 旧数据
+5. 关闭当前文件，将 current_sn 清 0，保留 selected_sn
+6. 最后提交 PB_STATE_PAUSED
+```
+
+不能只删除 pump timer。Source_Dev0 和下游 PCM 仍有缓冲数据，只停 pump 会造成用户按下暂停后仍继续出声。暂停必须复用 Seek 已验证的“关流并清旧缓冲”路径。
+
+`source_dev0_get_consumed_bytes()` 统计的是已交给解码器的压缩数据，可能比 DAC 实际出声略微超前。录音回听应优先避免遗漏语音，因此建议恢复时使用小幅安全回退：
+
+```c
+#define PB_RESUME_REWIND_MS      (100u)
+#define PB_RESUME_REWIND_FRAMES  (PB_RESUME_REWIND_MS / PB_OPUS_FRAME_MS)
+
+actual_resume_frame = max(0, resume_frame - PB_RESUME_REWIND_FRAMES);
+```
+
+`PB_RESUME_REWIND_MS` 表示执行 `play()` 恢复播放时，在录音时间轴上向前回退的音频补偿量。它与按键按下、抬起、双击间隔和扫描消抖时间无关；这些物理按键时序由 key scan 层处理。回退时长必须通过当前 Opus 帧时长换算，不直接硬编码“5 帧”。设备回归后可在 60–200 ms 内调整；宁可重复很短的尾音，不应跳过未听到的词。对外显示的暂停位置仍是 `resume_frame`，安全回退只用于重建播放流。`DRAINING` 时先将 `resume_frame` 限制到 `[0, duration_frames]`，再执行安全回退；`duration_frames == 0` 时不进入 `PAUSED`，直接按当前错误/EOF 路径停止，避免无符号下溢。
+
+### 20.4 `play` 事务
+
+`play` 按当前状态执行：
+
+| 当前状态 | 行为 |
+|---|---|
+| `UNREADY` | 尝试刷新列表；仍无可播放文件则返回 `NO_FILE/NOT_READY` |
+| `STOPPED` + 空头 | 以最新有效 SN 为候选，从 0 开始播放 |
+| `STOPPED` + 已选 SN | 重新校验该 SN，从 0 开始播放 |
+| `PAUSED` | 重新打开 `resume_sn`，Seek 到恢复帧并播放 |
+| `PLAYING/DRAINING` | 幂等成功，不重建播放流 |
+| `STARTING/SWITCHING` | 返回 `BUSY`，由消息串行顺序决定后续行为 |
+
+暂停恢复顺序为：
+
+```text
+1. 验证 state == PAUSED、resume_sn == selected_sn 和业务互斥
+2. 通过 UXFILE/DAT 重新取得该 SN，不保存旧 uxfile_data_t 指针
+3. 打开同一文件并校验时长
+4. Seek 到 actual_resume_frame * 80 bytes
+5. 创建播放流、预填数据并启动 pump
+6. 全部成功后才提交 current_sn/state 并清除暂停游标
+```
+
+恢复失败时不得自动跳到上一曲或下一曲。临时的 I/O 或播放流创建失败可保留 `PAUSED + resume_frame`，允许用户重试；若确认文件已删除或存储失效，则按既有失效策略清除暂停游标并进入 `STOPPED/UNREADY`。
+
+### 20.5 上下曲隔离与原子刷新
+
+`prev/next` 不应调用 `play()` 来“顺便启动”，`play()` 也不应调用 `prev/next` 完成恢复。两类命令可以复用底层的候选打开和播放流创建函数，但必须保持不同的公共语义：
+
+```text
+play          = 使用当前选择，从 0 开始或消费同 SN 暂停点
+prev/next     = 更改选择，成功后新选择始终从 0 开始
+```
+
+暂停游标的刷新必须与新曲提交处于同一事务：
+
+```text
+找到候选 SN
+    -> 打开候选文件
+    -> 从帧 0 创建新播放流
+    -> 启动成功
+    -> 提交 selected_sn/current_sn
+    -> 清除 resume_sn/resume_frame
+```
+
+不能在寻找候选之前就清除暂停游标。如果新曲损坏、文件打开失败或播放流创建失败，本次切换没有提交，播放器应保留原 `selected_sn` 和原暂停点。只有成功切到新曲后，原暂停点才失效。
+
+`ff/fr` 在 Phase 5 第一版中仍只接受 `PLAYING`，`PAUSED` 时返回 `INVALID_STATE`。这样不需要再定义“暂停中 Seek 后是否自动播放”，也不改变现有快进快退语义。
+
+### 20.6 消息、按键与抢占边界
+
+- 新增 `APP_MSG_REC_PLAY` 和 `APP_MSG_REC_PAUSE`，由 `rdx_app.c` 在 `app_core` 中分别调用两个公共接口；
+- `KEY1` 对应 `KEY_IO_NUM0/PB2`，其双击 `KEY_ACTION_DOUBLE_CLICK` 发送 `APP_MSG_REC_PLAY`；
+- `KEY2` 对应 `KEY_IO_NUM1/PG7`，其双击 `KEY_ACTION_DOUBLE_CLICK` 发送 `APP_MSG_REC_PAUSE`；
+- `rdx_key.c` 只做两个独立物理动作到消息的映射，不读取状态后自行决定调用 `play` 还是 `pause`；
+- 不复用 `APP_MSG_REC_PREV/NEXT`，也不修改 `NUM0/NUM1 CLICK` 的现有上下曲语义：`KEY1 CLICK/LONG/DOUBLE_CLICK` 分别为下一曲/快进/播放，`KEY2 CLICK/LONG/DOUBLE_CLICK` 分别为上一曲/快退/暂停；
+- 离线录音启动前直接在 `app_core` 调用 `rdx_playback_stop()`；来自协议任务的录音开始/恢复命令先复制三个字节参数并投递 `Q_CALLBACK` 到 `app_core`，由 `rdx_app_record_cmd_on_app_core()` 先 `stop` 再进入录音控制；
+- 格式化和存储失效继续通过 `PB_PLAYLIST_FORMATTING/STORAGE_UNAVAILABLE` 清除选中项和暂停游标；
+- 文件同步/传输的启动逻辑在预编译 `librdxApp.a` 中，当前只暴露 busy 查询而没有应用层启动回调。Phase 5 不为此增加 PAUSED 轮询 timer 或跨任务直改状态；业务 busy 时 `play/prev/next/ff/fr` 仍被拒绝，是否需要库侧新增“业务开始”回调留给设备回归后决定；
+- 上述业务都不在结束后自动恢复播放；
+- 删除暂停中的 `selected_sn`、格式化或列表清空时，必须同时清除 `resume_sn/resume_frame`。
+
+`tests/host/test_rdx_playback_navigation.ps1` 中禁止 `play/pause` 和 `PB_STATE_PAUSED` 的过渡性 `PHASE1_API_SURFACE_MINIMAL` 契约已替换为 Phase 5 契约，现在冻结新接口、暂停游标、恢复回退与切曲后游标清理顺序。
+
+### 20.7 必测场景与验收标准
+
+| 初始场景 | 命令 | 预期 |
+|---|---|---|
+| 空列表 | `play` | 不出声，返回 `NO_FILE/NOT_READY` |
+| `[123,456,789]` 空头 | `play` | `789` 从 0 开始播放 |
+| `[123,456,789]` 空头 | `prev` | 仍为 `123` 从 0 开始播放 |
+| SN `456` 播放到 30 s | `pause -> play` | 恢复同一 SN，无旧 Source 缓冲残留，允许约 100 ms 安全回退 |
+| SN `456` 在 30 s 暂停 | `next` | 切到更旧有效 SN，新曲从 0 开始，旧暂停点清除 |
+| SN `456` 在 30 s 暂停 | `prev` | 切到更新有效 SN，新曲从 0 开始，旧暂停点清除 |
+| 单文件 SN `456` 在 30 s 暂停 | `next/prev` | 仍播放 `456`，但从 0 重新开始 |
+| 暂停后所有切曲候选均失败 | `next/prev` | 保留原 SN 和原暂停点，不提交错误游标 |
+| 暂停后成功切曲，再切回原 SN | `next/prev` | 原 SN 从 0 开始，不恢复历史暂停点 |
+| 自然 EOF | `play` | 当前 `selected_sn` 从 0 重播，不自动切曲 |
+| `PAUSED` | `stop` | 保留 `selected_sn`，清除暂停点，位置归 0 |
+| `PAUSED` | 删除当前文件/格式化 | 清除选中项和暂停点，不能再恢复已删除文件 |
+| `PAUSED` | 开始/恢复录音 | 先进入 `STOPPED`并清除暂停点，再启动录音；录音结束后不自动恢复 |
+| `PAUSED` | 文件同步/传输 busy | 拒绝新的播放命令，不自动恢复；库侧启动回调为设备回归待确认边界 |
+| `KEY1` 双击 | `APP_MSG_REC_PLAY` | 仅进入 `play()` 语义，不触发下一曲 |
+| `KEY2` 双击 | `APP_MSG_REC_PAUSE` | 仅进入 `pause()` 语义，不触发上一曲 |
+
+Phase 5 完成的验收底线：
+
+- 暂停后不再继续明显出声，恢复时不播放暂停前的旧缓冲片段；
+- `play/pause` 不改变上下曲方向、首尾回绕和空头入口；
+- 任何成功切曲都从新曲 0 位置开始，且永不继承旧 SN 的暂停游标；
+- 切曲失败不丢失原曲暂停点，成功后不能再恢复该历史暂停点；
+- 连续 100 次 `pause/play`、`pause/next`、`pause/prev` 无文件句柄、timer、JLStream 实例或 Source 缓冲泄漏；
+- host 静态契约已通过；固件构建和板载 SD NAND 设备回归留给生产环境最终评估。

@@ -13,6 +13,7 @@ typedef enum {
     PB_STATE_STOPPED,
     PB_STATE_STARTING,
     PB_STATE_PLAYING,
+    PB_STATE_PAUSED,
     PB_STATE_SWITCHING,
     PB_STATE_DRAINING,
 } pb_state_t;
@@ -36,6 +37,8 @@ typedef enum {
 typedef enum {
     PB_INTENT_NONE = 0,
     PB_INTENT_STOP,
+    PB_INTENT_PAUSE,
+    PB_INTENT_PLAY,
     PB_INTENT_SWITCH,
 } pb_intent_t;
 
@@ -50,6 +53,9 @@ typedef struct {
     int last_error;
     u32 seek_base_frame;
     u32 duration_frames;
+    u32 resume_sn;
+    u32 resume_frame;
+    u32 resume_duration_frames;
 } rdx_playback_t;
 
 typedef struct {
@@ -65,6 +71,8 @@ typedef struct {
 
 void rdx_playback_init(void);
 bool rdx_playback_can_start(void);
+int rdx_playback_play(void);
+int rdx_playback_pause(void);
 int rdx_playback_prev(void);
 int rdx_playback_next(void);
 void rdx_playback_ff(void);

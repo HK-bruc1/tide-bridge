@@ -99,11 +99,43 @@ Add-Check -Name 'STATE_FIELDS_EXPLICIT' -Passed (
     $PlaybackHeaderText -match '\bu32\s+pending_sn\s*;'
 ) -Message 'selected/current/pending SN fields are required'
 
-Add-Check -Name 'PHASE1_API_SURFACE_MINIMAL' -Passed (
-    $PlaybackHeaderText -notmatch '\brdx_playback_(?:play|pause|resume)\s*\(' -and
-    $PlaybackText -notmatch '\brdx_playback_(?:play|pause|resume)\s*\(' -and
-    $PlaybackHeaderText -notmatch '\bPB_STATE_(?:PAUSED|SEEKING|ERROR)\b'
-) -Message 'Phase 1 should expose only prev/next/ff/fr/stop and active navigation states'
+Add-Check -Name 'PLAY_PAUSE_API_SURFACE' -Passed (
+    $PlaybackHeaderText -match '\bPB_STATE_PAUSED\b' -and
+    $PlaybackHeaderText -match '\bu32\s+resume_sn\s*;' -and
+    $PlaybackHeaderText -match '\bu32\s+resume_frame\s*;' -and
+    $PlaybackHeaderText -match '\bint\s+rdx_playback_play\s*\(' -and
+    $PlaybackHeaderText -match '\bint\s+rdx_playback_pause\s*\(' -and
+    $PlaybackHeaderText -notmatch '\brdx_playback_resume\s*\('
+) -Message 'Phase 5 requires PAUSED state, an SN-bound resume cursor, and separate play/pause commands'
+
+Add-Check -Name 'PAUSE_RELEASES_ACTIVE_TRACK' -Passed (
+    $PlaybackText -match '(?s)int\s+rdx_playback_pause\s*\([^)]*\).*?pb\.resume_sn\s*=\s*pb\.selected_sn;.*?pb\.resume_frame\s*=\s*resume_frame;.*?pb_close_track\(\);.*?pb\.state\s*=\s*PB_STATE_PAUSED;' -and
+    $PlaybackText -match '(?s)void\s+rdx_playback_get_info\s*\([^)]*\).*?PB_STATE_PAUSED.*?pb\.resume_frame'
+) -Message 'pause must retain its SN/frame while releasing active resources and exposing the paused position'
+
+Add-Check -Name 'PAUSE_REWIND_USES_FRAME_DURATION' -Passed (
+    $PlaybackText -match '#define\s+PB_RESUME_REWIND_MS\s+\(100u\)' -and
+    $PlaybackText -match '#define\s+PB_RESUME_REWIND_FRAMES\s+\(PB_RESUME_REWIND_MS\s*/\s*PB_OPUS_FRAME_MS\)' -and
+    $PlaybackText -notmatch '\bPB_PAUSE_REWIND_(?:MS|FRAMES)\b'
+) -Message 'pause resume rewind must derive frames from the Opus frame duration'
+
+Add-Check -Name 'SWITCH_CLEARS_RESUME_AFTER_COMMIT' -Passed (
+    $PlaybackText -match '(?s)pb\.selected_sn\s*=\s*candidate_sn;.*?pb\.current_sn\s*=\s*candidate_sn;.*?pb_clear_resume_cursor\(\);'
+) -Message 'successful navigation must clear the old pause cursor only after committing the new track'
+
+Add-Check -Name 'FAILED_SWITCH_RESTORES_PAUSE' -Passed (
+    $PlaybackText -match '(?s)static\s+void\s+pb_restore_stable_state\s*\([^)]*\).*?previous_state\s*==\s*PB_STATE_PAUSED.*?pb\.resume_sn\s*==\s*pb\.selected_sn.*?pb\.state\s*=\s*PB_STATE_PAUSED;' -and
+    $PlaybackText -match '(?s)if\s*\(result\s*==\s*PB_CANDIDATE_FATAL\).*?pb_restore_stable_state\(previous_state\);'
+) -Message 'failed navigation from PAUSED must preserve and restore the original pause session'
+
+Add-Check -Name 'SYNC_DOES_NOT_DESTROY_PAUSE' -Passed (
+    $PlaybackText -match '!pb_has_active_track\(\)\s*&&\s*pb\.state\s*!=\s*PB_STATE_PAUSED'
+) -Message 'temporary DAT sync must reject playback commands without destroying a paused cursor'
+
+Add-Check -Name 'PLAY_INTENT_IS_NOT_SWITCH' -Passed (
+    $PlaybackHeaderText -match '\bPB_INTENT_PLAY\b' -and
+    $PlaybackText -match '(?s)rdx_playback_play\s*\([^)]*\).*?pb_start_candidate_at_frame\s*\(.*?PB_INTENT_PLAY\s*\);'
+) -Message 'play and pause-resume must not be classified as navigation switch transactions'
 
 Add-Check -Name 'ONE_RING_PROBE_BOUND' -Passed (
     $PlaybackText -match 'while\s*\(probed_slots\s*<\s*pb_max_sn\s*&&\s*candidate_count\s*<\s*pb\.total_count\)'
@@ -114,11 +146,11 @@ Add-Check -Name 'UNIFIED_DIRECTION_SWITCH' -Passed (
     $PlaybackText -match 'rdx_playback_next\s*\([^)]*\)\s*\{\s*return\s+pb_switch_track\(PB_DIRECTION_OLDER\);'
 ) -Message 'prev and next must share the same switch transaction'
 
-$CandidateStart = $PlaybackText.IndexOf('static pb_candidate_result_t pb_start_candidate')
+$CandidateStart = $PlaybackText.IndexOf('static pb_candidate_result_t pb_start_candidate_at_frame')
 $StreamHelperStart = $PlaybackText.IndexOf('static int pb_open_stream_at_frame')
 $OpenStream = if ($StreamHelperStart -ge 0) { $PlaybackText.IndexOf('dev_flow_player_open(', $StreamHelperStart) } else { -1 }
 $SchedulePump = if ($OpenStream -ge 0) { $PlaybackText.IndexOf('pb_schedule_pump(PB_PUMP_INTERVAL_MS)', $OpenStream) } else { -1 }
-$StartCandidateStream = if ($CandidateStart -ge 0) { $PlaybackText.IndexOf('pb_open_stream_at_frame(0, transition_state)', $CandidateStart) } else { -1 }
+$StartCandidateStream = if ($CandidateStart -ge 0) { $PlaybackText.IndexOf('pb_open_stream_at_frame(base_frame, transition_state)', $CandidateStart) } else { -1 }
 $CommitSelected = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.selected_sn = candidate_sn', $StartCandidateStream) } else { -1 }
 $CommitCurrent = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.current_sn = candidate_sn', $StartCandidateStream) } else { -1 }
 Add-Check -Name 'COMMIT_AFTER_STARTUP' -Passed (

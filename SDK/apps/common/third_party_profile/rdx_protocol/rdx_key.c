@@ -441,13 +441,13 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 // 因此主要动作放在 LONG[1], CLICK[0] 留给多击场景
 // ============================================================
 
-// NUM0 (KEY1 — PB2): 下一条录音文件, 长按快进
+// NUM0 (KEY1 — PB2): 下一条录音文件, 长按快进, 双击播放
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_NEXT,          //短按 (CLICK: 多击场景用)
     APP_MSG_REC_FF,            //长按 (LONG: 快进)
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
+    APP_MSG_REC_PLAY,          //双击 (播放/恢复)
     APP_MSG_NULL,              //三击
     APP_MSG_NULL,
     APP_MSG_NULL,              //五击
@@ -465,13 +465,13 @@ u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM1 (KEY2 — PG7): 上一条录音文件, 长按快退
+// NUM1 (KEY2 — PG7): 上一条录音文件, 长按快退, 双击暂停
 u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_PREV,          //短按
     APP_MSG_REC_FR,            //长按 (LONG: 快退)
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
+    APP_MSG_REC_PAUSE,         //双击 (暂停)
     APP_MSG_NULL,              //三击
     APP_MSG_NULL,
     APP_MSG_NULL,              //五击
