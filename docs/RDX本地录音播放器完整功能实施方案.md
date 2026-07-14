@@ -817,6 +817,16 @@ typedef struct {
 - 核查 Phase 2/3 新增代码是否引入重复状态、跨任务裸操作或过度抽象；
 - 完成 host 测试、固件构建和设备回归后再进入提交评审。
 
+Phase 4 评估结论：Phase 1~3 的主体实现符合方案，不存在明显过度设计；但评估中发现两个集成边界漏接点，已作为 Phase 4 整改补齐：
+
+1. **格式化未抢占本地播放。**
+   `PROTOCOL_EVENT_CMD_SD_FORMAT` 和 `rdx_app_format_handle()` 原先会直接进入 `rdx_uxfile_sd_format()`，没有先通知本地播放器释放正在播放的文件句柄。整改后，格式化开始前统一调用 `rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING)`，立即停止播放、清空选中项并进入 `UNREADY`，再执行格式化。
+
+2. **录音完成后播放列表未显式失效。**
+   新录音停止并写入 DAT 后，播放器原先只能依靠 `count/max_sn` 懒检测文件集合变化，无法严谨覆盖同数量替换或不重启立即导航新文件的边界。整改后，`rdx_record_run_exit()` 在 `rdx_uxfile_dat_1_save_gen()` 之后、确认 `RECORD_STATE_STOP` 时通知列表内容变化。录音模块不直接操作播放器，而是通过 `os_taskq_post_type("app_core", Q_CALLBACK, ...)` 投递到 `app_core`，由 `rdx_app_playback_content_changed()` 调用 `rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED)`。
+
+这两个整改保持了既定边界：格式化和录音模块只发出业务事件，播放器状态仍只在 `app_core` 串行修改；没有引入动态播放列表、文件数据库副本或独立音量状态。设备回归已验证：播放中格式化会停止播放并完成格式化；录音完成后不重启即可通过上一曲/下一曲感知新文件。
+
 ## 17. 测试方案
 
 ### 17.1 Host 侧契约测试

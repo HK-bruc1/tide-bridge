@@ -2374,6 +2374,13 @@ APP_MSG_PROB_HANDLER(rdx_app_key_msg_entry) = {
  * param (*)
  * return (*)
  **************************************************************************/
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+void rdx_app_playback_content_changed(void)
+{
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED);
+}
+#endif
+
 void rdx_app_format_cb(u8 result)
 {
     /*----------------------------------------------------------------*/
@@ -2406,6 +2413,9 @@ void rdx_app_format_handle(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     //format sd card.
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+#endif
     rdx_uxfile_sd_format(NULL);
 }
 
@@ -3045,6 +3055,9 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 break;
             }
             ops->sd_format_ack_indicate(0);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+#endif
             rdx_uxfile_sd_format(NULL);
             break;
         }
