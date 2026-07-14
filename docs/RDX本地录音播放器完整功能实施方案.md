@@ -525,6 +525,71 @@ position_ms    = position_frame * 20
 - BT/TWS 场景中 `bt_app_msg_handler()` 调用 `bt_volume_up/down(1)` 后执行 `bt_tws_sync_volume()`；
 - RDX key 层只需要把物理动作映射到 `APP_MSG_VOL_UP/DOWN`，不要直接操作 DAC、volume node 或 RDX 播放器状态。
 
+本地录音播放不是 A2DP 播放器，但仍可复用系统音量。关键不是把 RDX 播放器改成 A2DP，而是让 `Source_Dev0 -> translation_ear -> DAC` 这条本地播放流接入系统数字音量节点。
+
+最终采用的 Phase 3 方案：
+
+1. 在 `翻译耳机_立体声.x6flow` 的 PCM 路径中新增 `NODE_UUID_VOLUME_CTRLER` 音量控制器。
+2. 音量节点放在解码/同步后的 PCM 数据之后、DAC 之前；不能放在 `Source_Dev0` 和 Decoder 之间，因为那时仍是压缩 Opus 数据。
+3. 节点配置名保留可视化工具生成的唯一名 `74E325`，不能改成 `Vol_BtmMusic`。`Vol_BtmMusic` 已被 A2DP 蓝牙音乐流程使用，重名会导致可视化工具报错。
+4. 在 `dev_flow_player.h` 中定义 `DEV_FLOW_PLAYER_VOLUME_NODE_NAME`，当前值为 `"74E325"`。
+5. 在系统音量节点查找处增加最小桥接：当 `dev_flow_player_runing()` 为真且正在更新 `MUSIC_DVOL` 时，返回 `DEV_FLOW_PLAYER_VOLUME_NODE_NAME`；其他场景仍走原有 `Vol_BtmMusic`、`Vol_BtcCall`、`Vol_FileMusic` 等规则。
+6. RDX 播放器核心仍不维护音量变量，不直接调用 `audio_dac_set_volume()`，不直接操作 volume node。
+
+这个桥接是为了兼容 JL 可视化工具的“节点名唯一”约束，同时保留系统音量和 TWS 同步路径。它不是第二套音量系统。
+
+### 10.1 为什么音量不归 `rdx_playback` 管理
+
+`rdx_playback.c` 的职责边界是“本地录音文件播放器”：
+
+- 根据 UXFILE/DAT 选择 SN；
+- 打开/关闭录音文件；
+- 管理 `Source_Dev0` 数据泵；
+- 创建/关闭 `dev_flow_player` 播放流；
+- 处理上一曲、下一曲、快进、快退、EOF 停止。
+
+音量不放入 `rdx_playback.c`，原因如下：
+
+1. **音量是系统输出状态，不是单个录音文件状态。**
+   上下曲、Seek、EOF 属于当前 track；音量属于 `APP_AUDIO_STATE_MUSIC` / DAC / volume node 链路。把音量放进 `rdx_playback` 会让播放器越界管理音频系统状态。
+
+2. **JL 已经有单一音量真相源。**
+   `APP_MSG_VOL_UP/DOWN`、`app_audio_volume_up/down()`、`bt_volume_up/down()`、`APP_MSG_VOL_CHANGED` 和 TWS 音量同步已经形成完整路径。`rdx_playback` 再维护一份 `volume` 会产生第二份状态，容易出现 UI/TWS/DAC 听感不一致。
+
+3. **TWS 同步不能绕过系统路径。**
+   BT 模式下系统会在处理 `APP_MSG_VOL_UP/DOWN` 后执行 `bt_tws_sync_volume()`。如果 `rdx_playback` 直接改 DAC 或 volume node，左右耳同步、音量保存、最大/最小音量提示都会被绕开。
+
+4. **音量节点属于 JLStream/audio mixer，不属于播放器状态机。**
+   本地播放只负责打开 `translation_ear` 流程；流程里的 `NODE_UUID_VOLUME_CTRLER` 由 JLStream 启停，由 `audio_volume_mixer.c` 按当前音频状态更新。`rdx_playback` 直接持有或操作 volume node 会形成跨层耦合。
+
+5. **当前桥接点更小、更稳定。**
+   因为可视化工具要求节点名唯一，本地播放音量节点不能叫 `Vol_BtmMusic`，所以只在 `audio_volume_mixer.c` 的节点名查找处增加：
+
+   ```text
+   dev_flow_player_runing() && MUSIC_DVOL
+       -> DEV_FLOW_PLAYER_VOLUME_NODE_NAME ("74E325")
+   ```
+
+   这只是把系统音乐音量更新路由到当前正在播放的本地流程音量节点，不改变音量所有权。
+
+因此，Phase 3 的最佳实践边界是：
+
+```text
+rdx_key.c
+    只映射物理键 -> APP_MSG_VOL_UP/DOWN
+
+rdx_app.c / 系统消息分发
+    沿用既有 APP_MSG_VOL_UP/DOWN 处理
+
+audio_volume_mixer.c
+    在 dev_flow_player 运行时，把 MUSIC_DVOL 更新路由到本地播放音量节点
+
+rdx_playback.c
+    不保存 volume，不调 DAC，不调 volume node
+```
+
+这能保证本地录音回听有效调音量，同时不破坏 A2DP、通话、提示音、TWS 同步和系统音量保存。
+
 ## 11. 业务互斥与抢占
 
 播放器必须同时处理“能否启动”和“播放中是否被抢占”。推荐优先级：
@@ -562,12 +627,12 @@ position_ms    = position_frame * 20
 | 下一曲键短按 | 下一条有效录音 |
 | 上一曲键长按 | 快退 5 秒 |
 | 下一曲键长按 | 快进 5 秒 |
-| 音量加键短按/长按 | 系统音量加 |
-| 音量减键短按/长按 | 系统音量减 |
+| 音量加键短按 | 系统音量加 |
+| 音量减键短按 | 系统音量减 |
 | 长按保持 | 连续累计 Seek，增强阶段启用 |
 | 长按抬起 | 提交最后一次累计 Seek |
 
-当前硬件键位中 `NUM0 CLICK` 已映射为下一曲、`NUM0 LONG` 为快进、`NUM1 CLICK` 为上一曲、`NUM1 LONG` 为快退、`NUM2 CLICK/LONG` 为音量加。`NUM3` 当前仍用于录音切换，Phase 3 若要补齐音量减，应优先评估是否将 `NUM3 CLICK/LONG` 调整为 `APP_MSG_VOL_DOWN`，或另行确定物理动作。播放器核心不依赖具体键值。
+当前硬件键位中 `NUM0 CLICK` 已映射为下一曲、`NUM0 LONG` 为快进、`NUM1 CLICK` 为上一曲、`NUM1 LONG` 为快退、`NUM2 CLICK` 为音量加、`NUM3 CLICK` 为音量减、`NUM4 LONG/UP` 保留录音开关语义。Phase 3 第一版不启用音量长按重复，避免和系统按键重复速率、快进快退长按语义混在一起；如后续确需长按连续调音量，应继续复用 `APP_MSG_VOL_UP/DOWN` 重复事件，不在 RDX 播放器内累计音量。
 
 本产品以录音回听为主，建议 `prev` 每次都切换到上一 SN，不采用音乐播放器常见的“播放超过 3 秒则先回到本曲开头”规则。无屏设备上，固定切换语义更容易形成肌肉记忆；回到本曲开头可通过持续快退完成。
 
@@ -737,7 +802,9 @@ typedef struct {
 - 参考 `app_common_key_msg_handler()`：非 BT 特殊场景最终调用 `app_audio_volume_up/down(1)`，并发送 `APP_MSG_VOL_CHANGED`；
 - 参考 BT/TWS 路径：BT 模式中 `APP_MSG_VOL_UP/DOWN` 会调用 `bt_volume_up/down(1)` 并执行 `bt_tws_sync_volume()`；
 - 不在 `rdx_playback.c` 内维护音量变量，不直接操作 DAC 节点；
-- 当前 `NUM2 CLICK/LONG` 已是 `APP_MSG_VOL_UP`，Phase 3 需明确音量减物理动作，候选为 `NUM3 CLICK/LONG -> APP_MSG_VOL_DOWN`。
+- 在 `translation_ear` 立体声流程的 PCM 段新增音量控制器节点，节点名保留工具唯一名 `74E325`；
+- `audio_volume_mixer.c` 在 `dev_flow_player_runing()` 时将 `MUSIC_DVOL` 更新路由到 `DEV_FLOW_PLAYER_VOLUME_NODE_NAME`；
+- `NUM2 CLICK -> APP_MSG_VOL_UP`，`NUM3 CLICK -> APP_MSG_VOL_DOWN`；NUM2/NUM3 长按第一版保持空动作。
 
 ### Phase 4：全面评估与最佳实践核查
 
@@ -841,6 +908,8 @@ EOF 尾部不截断
 
 - 音量加减复用系统/TWS 既有路径；
 - 音量变化能触发既有 `APP_MSG_VOL_CHANGED` 或等价状态同步；
+- 本地录音播放中的音量变化实际作用到 `translation_ear` 音量节点；
+- A2DP 的 `Vol_BtmMusic` 和本地播放的 `74E325` 不重名，JL 可视化工具可正常打开；
 - 不在 RDX 播放器内引入独立音量状态。
 
 ### P3

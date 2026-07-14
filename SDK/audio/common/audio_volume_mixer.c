@@ -35,6 +35,7 @@
 #include "volume_node.h"
 #include "tone_player.h"
 #include "ring_player.h"
+#include "dev_flow_player.h"
 #if AUDIO_EQ_LINK_VOLUME
 #include "effects/eq_config.h"
 #endif
@@ -705,6 +706,12 @@ int audio_digital_vol_node_name_get(u8 dvol_idx, char *node_name)
     }
 #endif
 
+
+    if ((dvol_idx == MUSIC_DVOL) && dev_flow_player_runing()) {
+        sprintf(node_name, "%s", DEV_FLOW_PLAYER_VOLUME_NODE_NAME);
+        log_debug("vol_name:%d,%s\n", __LINE__, node_name);
+        return 0;
+    }
 
     for (i = 0; i < DVOL_TYPE_NUM; i++) {
         if (dvol_idx & BIT(i)) {
@@ -1624,4 +1631,3 @@ s16 app_audio_volume_max_query(audio_vol_index_t index)
         return volume_ioc_get_max_level(audio_vol_str[Vol_NULL]);
     }
 }
-

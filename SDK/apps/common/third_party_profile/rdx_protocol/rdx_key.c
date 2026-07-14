@@ -492,7 +492,7 @@ u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
 // NUM2 (KEY3 — PB4): 音量加
 u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_VOL_UP,            //短按
-    APP_MSG_VOL_UP,            //长按
+    APP_MSG_NULL,              //长按
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
     APP_MSG_NULL,              //双击
@@ -515,10 +515,10 @@ u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
 
 // NUM3 (KEY4 — PG8): 音量减
 u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
-    APP_MSG_NULL,          //短按
-    APP_MSG_RECORD_SWITCH,          //长按
+    APP_MSG_VOL_DOWN,          //短按
+    APP_MSG_NULL,              //长按
     APP_MSG_NULL,              //hold
-    APP_MSG_LONG_PRESS_HOLDUP,              //长按抬起
+    APP_MSG_NULL,              //长按抬起
     APP_MSG_NULL,              //双击
     APP_MSG_NULL,              //三击
     APP_MSG_NULL,
