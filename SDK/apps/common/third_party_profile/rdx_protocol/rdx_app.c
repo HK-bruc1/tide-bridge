@@ -2211,13 +2211,17 @@ int rdx_app_msg_handler(int *msg)
 
         case APP_MSG_REC_FR:
             log_info("=== %s ---> APP_MSG_REC_FR \r", __FUNCTION__);
-            // Reserved until seek support is implemented.
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_fr();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_FF:
             log_info("=== %s ---> APP_MSG_REC_FF \r", __FUNCTION__);
-            // Reserved until seek support is implemented.
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_ff();
+#endif
             ret = TRUE;
             break;
 
@@ -3127,7 +3131,19 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             if(!data || len < sizeof(ProtocolFileDeleteParams)) break;
             ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
             g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            pb_public_info_t playback_info;
+            rdx_playback_get_info(&playback_info);
+            if(playback_info.current_sn == (u32)p->file_sn){
+                rdx_playback_stop();
+            }
+#endif
             int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            if(ret >= 0){
+                rdx_playback_on_file_deleted((u32)p->file_sn);
+            }
+#endif
             ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
             break;
         }

@@ -172,7 +172,7 @@ Test-Pattern -Name 'PLAYBACK_HEADER_OWNS_TYPES' -Text $PlaybackHeaderText `
     -Pattern '#include[ \t]+"typedef\.h"'
 
 Test-Pattern -Name 'PLAYBACK_IMPLEMENTATION_GUARDED' -Text $PlaybackText `
-    -Pattern '(?s)#include[ \t]+"rdx_playback\.h"[ \t\r\n]+#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE.*void[ \t]+rdx_playback_next[ \t]*\('
+    -Pattern '(?s)#include[ \t]+"rdx_playback\.h"[ \t\r\n]+#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE.*int[ \t]+rdx_playback_next[ \t]*\('
 
 Test-Pattern -Name 'APP_LOADS_FALLBACK_CONFIG' -Text $AppText `
     -Pattern '#include[ \t]+"rdx_playback_config\.h"'
@@ -186,26 +186,34 @@ Test-Pattern -Name 'APP_PREV_CALL_GUARDED' -Text $AppText `
 Test-Pattern -Name 'APP_NEXT_CALL_GUARDED' -Text $AppText `
     -Pattern '(?s)case[ \t]+APP_MSG_REC_NEXT:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_next\(\);[ \t\r\n]+#endif'
 
+Test-Pattern -Name 'APP_FR_CALL_GUARDED' -Text $AppText `
+    -Pattern '(?s)case[ \t]+APP_MSG_REC_FR:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_fr\(\);[ \t\r\n]+#endif'
+
+Test-Pattern -Name 'APP_FF_CALL_GUARDED' -Text $AppText `
+    -Pattern '(?s)case[ \t]+APP_MSG_REC_FF:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_ff\(\);[ \t\r\n]+#endif'
+
 Test-Pattern -Name 'APP_INIT_CALL_GUARDED' -Text $AppText `
     -Pattern '(?s)#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_init\(\);[ \t\r\n]+#endif'
 
-Test-Pattern -Name 'KEY_DISABLED_FALLBACK' -Text $KeyText `
-    -Pattern '(?s)#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE.*?#define[ \t]+RDX_LOCAL_PLAYBACK_NEXT_KEY_MSG[ \t]+APP_MSG_REC_NEXT.*?#define[ \t]+RDX_LOCAL_PLAYBACK_FR_KEY_MSG[ \t]+APP_MSG_REC_FR.*?#define[ \t]+RDX_LOCAL_PLAYBACK_FF_KEY_MSG[ \t]+APP_MSG_REC_FF.*?#else.*?#define[ \t]+RDX_LOCAL_PLAYBACK_NEXT_KEY_MSG[ \t]+APP_MSG_NULL.*?#define[ \t]+RDX_LOCAL_PLAYBACK_FR_KEY_MSG[ \t]+APP_MSG_NULL.*?#define[ \t]+RDX_LOCAL_PLAYBACK_FF_KEY_MSG[ \t]+APP_MSG_NULL.*?#endif'
+Add-CheckResult -Name 'KEY_TABLE_DIRECT_MESSAGES' -Passed (
+    $KeyText -notmatch 'RDX_LOCAL_PLAYBACK_' -and
+    $KeyText -notmatch '#include[ \t]+"rdx_playback_config\.h"'
+) -Message 'key table should send APP_MSG_REC_* directly; app handler owns playback feature gating'
 
 $Num0KeyItems = Get-CArrayItems -Text $KeyText -ArrayName 'key_table_io_num0_normal'
 $Num1KeyItems = Get-CArrayItems -Text $KeyText -ArrayName 'key_table_io_num1_normal'
 
 $Num0MappingValid = $Num0KeyItems.Count -ge 2 -and
-    $Num0KeyItems[0] -eq 'RDX_LOCAL_PLAYBACK_NEXT_KEY_MSG' -and
-    $Num0KeyItems[1] -eq 'RDX_LOCAL_PLAYBACK_FR_KEY_MSG'
+    $Num0KeyItems[0] -eq 'APP_MSG_REC_NEXT' -and
+    $Num0KeyItems[1] -eq 'APP_MSG_REC_FF'
 Add-CheckResult -Name 'KEY0_ACTION_INDEX_MAPPING' -Passed $Num0MappingValid `
-    -Message 'expected CLICK=NEXT feature macro and LONG=FR feature macro'
+    -Message 'expected CLICK=NEXT and LONG=FF app messages'
 
 $Num1MappingValid = $Num1KeyItems.Count -ge 2 -and
-    $Num1KeyItems[0] -eq 'APP_MSG_NULL' -and
-    $Num1KeyItems[1] -eq 'RDX_LOCAL_PLAYBACK_FF_KEY_MSG'
+    $Num1KeyItems[0] -eq 'APP_MSG_REC_PREV' -and
+    $Num1KeyItems[1] -eq 'APP_MSG_REC_FR'
 Add-CheckResult -Name 'KEY1_ACTION_INDEX_MAPPING' -Passed $Num1MappingValid `
-    -Message 'expected CLICK=APP_MSG_NULL and LONG=FF feature macro'
+    -Message 'expected CLICK=PREV and LONG=FR app messages'
 
 Test-Pattern -Name 'SOURCE_PUBLIC_API_DECLARED' -Text $SourceHeaderText `
     -Pattern '(?s)source_dev0_input_write\s*\(.*source_dev0_get_free_space\s*\(.*source_dev0_is_empty\s*\('

@@ -35,6 +35,10 @@ $Tests = @(
         Name = 'RDX local playback configuration'
         Path = Join-Path $PSScriptRoot 'test_rdx_local_playback_config.ps1'
     }
+    [PSCustomObject]@{
+        Name = 'RDX playback navigation'
+        Path = Join-Path $PSScriptRoot 'test_rdx_playback_navigation.ps1'
+    }
 )
 
 $failed = 0
