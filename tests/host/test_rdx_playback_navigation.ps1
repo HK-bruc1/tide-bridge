@@ -115,14 +115,18 @@ Add-Check -Name 'UNIFIED_DIRECTION_SWITCH' -Passed (
 ) -Message 'prev and next must share the same switch transaction'
 
 $CandidateStart = $PlaybackText.IndexOf('static pb_candidate_result_t pb_start_candidate')
-$OpenStream = $PlaybackText.IndexOf('dev_flow_player_open(', $CandidateStart)
-$SchedulePump = $PlaybackText.IndexOf('pb_schedule_pump(PB_PUMP_INTERVAL_MS)', $OpenStream)
-$CommitSelected = $PlaybackText.IndexOf('pb.selected_sn = candidate_sn', $SchedulePump)
-$CommitCurrent = $PlaybackText.IndexOf('pb.current_sn = candidate_sn', $SchedulePump)
+$StreamHelperStart = $PlaybackText.IndexOf('static int pb_open_stream_at_frame')
+$OpenStream = if ($StreamHelperStart -ge 0) { $PlaybackText.IndexOf('dev_flow_player_open(', $StreamHelperStart) } else { -1 }
+$SchedulePump = if ($OpenStream -ge 0) { $PlaybackText.IndexOf('pb_schedule_pump(PB_PUMP_INTERVAL_MS)', $OpenStream) } else { -1 }
+$StartCandidateStream = if ($CandidateStart -ge 0) { $PlaybackText.IndexOf('pb_open_stream_at_frame(0, transition_state)', $CandidateStart) } else { -1 }
+$CommitSelected = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.selected_sn = candidate_sn', $StartCandidateStream) } else { -1 }
+$CommitCurrent = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.current_sn = candidate_sn', $StartCandidateStream) } else { -1 }
 Add-Check -Name 'COMMIT_AFTER_STARTUP' -Passed (
-    $CandidateStart -ge 0 -and $OpenStream -gt $CandidateStart -and
-    $SchedulePump -gt $OpenStream -and $CommitSelected -gt $SchedulePump -and
-    $CommitCurrent -gt $SchedulePump
+    $CandidateStart -ge 0 -and $StreamHelperStart -ge 0 -and
+    $OpenStream -gt $StreamHelperStart -and $SchedulePump -gt $OpenStream -and
+    $StartCandidateStream -gt $CandidateStart -and
+    $CommitSelected -gt $StartCandidateStream -and
+    $CommitCurrent -gt $StartCandidateStream
 ) -Message 'stable SNs must be committed after stream and pump startup'
 
 $NextCase = [regex]::Match($AppText, '(?s)case\s+APP_MSG_REC_NEXT:.*?break;')
@@ -153,6 +157,35 @@ Add-Check -Name 'DELETE_INVALIDATES_SELECTION' -Passed (
 Add-Check -Name 'NO_DYNAMIC_PLAYLIST_ALLOCATION' -Passed (
     $PlaybackText -notmatch '\b(?:malloc|zalloc|calloc)\s*\('
 ) -Message 'Phase 1 navigation should not allocate a duplicate playlist'
+
+$SeekStart = $PlaybackText.IndexOf('static int pb_seek_relative')
+$FfStart = $PlaybackText.IndexOf('void rdx_playback_ff', $SeekStart)
+$SeekBody = if ($SeekStart -ge 0 -and $FfStart -gt $SeekStart) {
+    $PlaybackText.Substring($SeekStart, $FfStart - $SeekStart)
+} else {
+    ''
+}
+
+Add-Check -Name 'SEEK_SOURCE_CONSUMED_POSITION' -Passed (
+    $PlaybackText -match 'source_dev0_get_consumed_bytes\(\)\s*/\s*PB_OPUS_FRAME_BYTES' -and
+    $PlaybackHeaderText -match '\bu32\s+seek_base_frame\s*;' -and
+    $PlaybackHeaderText -match '\bu32\s+duration_frames\s*;'
+) -Message 'seek position must use Source_Dev0 consumed bytes plus seek_base_frame'
+
+Add-Check -Name 'SEEK_SINGLE_FILE_ONLY' -Passed (
+    $SeekBody -match 'fseek\s*\(\s*pb_file\s*,\s*target_offset\s*,\s*SEEK_SET\s*\)' -and
+    $SeekBody -notmatch 'rdx_playback_(?:next|prev)\s*\(' -and
+    $SeekBody -notmatch 'pb_switch_track\s*\(' -and
+    $SeekBody -match 'pb_finish_stop\(false\);'
+) -Message 'ff/fr must seek within the current file and stop at end without navigating to another file'
+
+Add-Check -Name 'FF_FR_SEEK_STEP_IMPLEMENTED' -Passed (
+    $PlaybackText -match '#define\s+PB_SEEK_STEP_MS\s+\(5000u\)' -and
+    $PlaybackText -match 'void\s+rdx_playback_ff\s*\([^)]*\)\s*\{\s*int\s+ret\s*=\s*pb_seek_relative\(\(s32\)PB_SEEK_STEP_FRAMES\);' -and
+    $PlaybackText -match 'void\s+rdx_playback_fr\s*\([^)]*\)\s*\{\s*int\s+ret\s*=\s*pb_seek_relative\(-\(\(s32\)PB_SEEK_STEP_FRAMES\)\);' -and
+    $PlaybackText -notmatch 'ff:\s+not implemented' -and
+    $PlaybackText -notmatch 'fr:\s+not implemented'
+) -Message 'ff/fr should implement +/-5s relative seek instead of logging a stub'
 
 Write-Host ''
 Write-Host '-------------------'

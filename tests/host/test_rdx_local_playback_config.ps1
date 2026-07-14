@@ -216,7 +216,7 @@ Add-CheckResult -Name 'KEY1_ACTION_INDEX_MAPPING' -Passed $Num1MappingValid `
     -Message 'expected CLICK=PREV and LONG=FR app messages'
 
 Test-Pattern -Name 'SOURCE_PUBLIC_API_DECLARED' -Text $SourceHeaderText `
-    -Pattern '(?s)source_dev0_input_write\s*\(.*source_dev0_get_free_space\s*\(.*source_dev0_is_empty\s*\('
+    -Pattern '(?s)source_dev0_input_write\s*\(.*source_dev0_get_free_space\s*\(.*source_dev0_is_empty\s*\(.*source_dev0_get_consumed_bytes\s*\(.*source_dev0_reset_consumed_bytes\s*\('
 
 $PrivateSourceExterns = [regex]::Matches(
     $PlaybackText,

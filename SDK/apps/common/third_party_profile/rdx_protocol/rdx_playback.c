@@ -25,6 +25,9 @@
 #define PB_STORAGE_ROOT         "storage/sd0/C/"
 #define PB_OPUS_CHANNELS        (2u)
 #define PB_OPUS_FRAME_BYTES     (80u)
+#define PB_OPUS_FRAME_MS        (20u)
+#define PB_SEEK_STEP_MS         (5000u)
+#define PB_SEEK_STEP_FRAMES     (PB_SEEK_STEP_MS / PB_OPUS_FRAME_MS)
 #define PB_PUMP_INTERVAL_MS     (10u)
 #define PB_DRAIN_TIMEOUT_MS     (3000u)                     // 3 s 排空看门狗
 #define PB_CHUNK_BYTES          (560u)                      // fread block, 7 stereo frames ~= 140 ms
@@ -171,25 +174,33 @@ static bool pb_schedule_pump(u32 delay_ms);
 
 // ---- 播放器生命周期 --------------------------------------------------
 
-static void pb_close_active_resources(void)
+static void pb_close_stream(void)
 {
     pb_cancel_pump_timer();
     if (dev_flow_player_runing()) {
         dev_flow_player_close();
     }
+    source_dev0_reset_consumed_bytes();
+    pb_reset_stream_state();
+}
+
+static void pb_close_track(void)
+{
+    pb_close_stream();
     if (pb_file) {
         fclose(pb_file);
         pb_file = NULL;
     }
 
     pb.current_sn = 0;
-    pb_reset_stream_state();
+    pb.seek_base_frame = 0;
+    pb.duration_frames = 0;
 }
 
 static void pb_finish_stop(bool clear_selection)
 {
     pb.intent = PB_INTENT_STOP;
-    pb_close_active_resources();
+    pb_close_track();
     pb.pending_sn = 0;
     if (clear_selection) {
         pb.selected_sn = 0;
@@ -422,6 +433,42 @@ static void pb_restore_stable_state(pb_state_t previous_state)
     pb.state = pb.total_count ? PB_STATE_STOPPED : PB_STATE_UNREADY;
 }
 
+static u32 pb_current_frame(void)
+{
+    u32 consumed_frames = source_dev0_get_consumed_bytes() / PB_OPUS_FRAME_BYTES;
+    u32 frame = pb.seek_base_frame + consumed_frames;
+
+    if (pb.duration_frames && frame > pb.duration_frames) {
+        frame = pb.duration_frames;
+    }
+
+    return frame;
+}
+
+static int pb_open_stream_at_frame(u32 base_frame, pb_state_t transition_state)
+{
+    pb.state = transition_state;
+    pb.seek_base_frame = base_frame;
+    source_dev0_reset_consumed_bytes();
+
+    int err = dev_flow_player_open(PB_OPUS_CHANNELS, NODE_UUID_SOURCE_DEV0);
+    if (err) {
+        PB_LOG("error: dev_flow_player_open failed, err=%d, SN=%u",
+               err, pb.current_sn ? pb.current_sn : pb.pending_sn);
+        pb_close_stream();
+        return PB_RESULT_PLAYER_ERROR;
+    }
+
+    pb_pump_fill();
+    if (!pb_schedule_pump(PB_PUMP_INTERVAL_MS)) {
+        pb_close_stream();
+        return PB_RESULT_PLAYER_ERROR;
+    }
+
+    pb.state = PB_STATE_PLAYING;
+    return PB_RESULT_OK;
+}
+
 static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
                                                  pb_state_t transition_state)
 {
@@ -447,28 +494,17 @@ static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
     pb.intent = PB_INTENT_SWITCH;
 
     // 候选文件已经成功打开后，才释放旧播放资源。
-    pb_close_active_resources();
+    pb_close_track();
     pb_file = candidate_file;
+    pb.duration_frames = (u32)flen(pb_file) / PB_OPUS_FRAME_BYTES;
 
-    int err = dev_flow_player_open(PB_OPUS_CHANNELS, NODE_UUID_SOURCE_DEV0);
-    if (err) {
-        PB_LOG("error: dev_flow_player_open failed, err=%d, SN=%u",
-               err, candidate_sn);
-        pb_close_active_resources();
+    int ret = pb_open_stream_at_frame(0, transition_state);
+    if (ret != PB_RESULT_OK) {
+        pb_close_track();
         pb.pending_sn = 0;
         pb.intent = PB_INTENT_NONE;
         pb.state = pb.total_count ? PB_STATE_STOPPED : PB_STATE_UNREADY;
-        pb.last_error = PB_RESULT_PLAYER_ERROR;
-        return PB_CANDIDATE_FATAL;
-    }
-
-    pb_pump_fill();
-    if (!pb_schedule_pump(PB_PUMP_INTERVAL_MS)) {
-        pb_close_active_resources();
-        pb.pending_sn = 0;
-        pb.intent = PB_INTENT_NONE;
-        pb.state = pb.total_count ? PB_STATE_STOPPED : PB_STATE_UNREADY;
-        pb.last_error = PB_RESULT_PLAYER_ERROR;
+        pb.last_error = ret;
         return PB_CANDIDATE_FATAL;
     }
 
@@ -476,7 +512,6 @@ static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
     pb.selected_sn = candidate_sn;
     pb.current_sn = candidate_sn;
     pb.pending_sn = 0;
-    pb.state = PB_STATE_PLAYING;
     pb.intent = PB_INTENT_NONE;
     pb.last_error = PB_RESULT_OK;
 
@@ -619,18 +654,88 @@ void rdx_playback_get_info(pb_public_info_t *info)
     info->total_count = pb.total_count;
     info->state = pb.state;
     info->last_error = pb.last_error;
+    info->position_ms = pb_current_frame() * PB_OPUS_FRAME_MS;
+    info->duration_ms = pb.duration_frames * PB_OPUS_FRAME_MS;
 }
 
 // ---- 快进快退 --------------------------------------------------------
 
+static int pb_seek_relative(s32 delta_frames)
+{
+    if (pb.state != PB_STATE_PLAYING || !pb_has_active_track()) {
+        pb.last_error = PB_RESULT_INVALID_STATE;
+        return PB_RESULT_INVALID_STATE;
+    }
+
+    if (pb.duration_frames == 0) {
+        pb.last_error = PB_RESULT_IO_ERROR;
+        return PB_RESULT_IO_ERROR;
+    }
+
+    if (!rdx_playback_can_start()) {
+        pb.last_error = PB_RESULT_BUSY;
+        return PB_RESULT_BUSY;
+    }
+
+    u32 current_frame = pb_current_frame();
+    u32 target_frame;
+
+    if (delta_frames < 0) {
+        u32 rewind_frames = (u32)(-delta_frames);
+        target_frame = (current_frame > rewind_frames) ?
+                       (current_frame - rewind_frames) : 0;
+    } else {
+        u32 forward_frames = (u32)delta_frames;
+        if (current_frame + forward_frames >= pb.duration_frames) {
+            PB_LOG("seek end: sn=%u, cur=%u, duration=%u",
+                   pb.current_sn, current_frame, pb.duration_frames);
+            pb_finish_stop(false);
+            pb.last_error = PB_RESULT_OK;
+            return PB_RESULT_OK;
+        }
+        target_frame = current_frame + forward_frames;
+    }
+
+    u32 target_offset = target_frame * PB_OPUS_FRAME_BYTES;
+
+    PB_LOG("seek: sn=%u, cur=%u, target=%u, offset=%u",
+           pb.current_sn, current_frame, target_frame, target_offset);
+
+    pb_close_stream();
+
+    if (fseek(pb_file, target_offset, SEEK_SET) != 0) {
+        PB_LOG("seek error: fseek failed, sn=%u, offset=%u",
+               pb.current_sn, target_offset);
+        pb_finish_stop(false);
+        pb.last_error = PB_RESULT_IO_ERROR;
+        return PB_RESULT_IO_ERROR;
+    }
+
+    int ret = pb_open_stream_at_frame(target_frame, PB_STATE_STARTING);
+    if (ret != PB_RESULT_OK) {
+        pb_finish_stop(false);
+        pb.last_error = ret;
+        return ret;
+    }
+
+    pb.last_error = PB_RESULT_OK;
+    return PB_RESULT_OK;
+}
+
 void rdx_playback_ff(void)
 {
-    PB_LOG("ff: not implemented");
+    int ret = pb_seek_relative((s32)PB_SEEK_STEP_FRAMES);
+    if (ret != PB_RESULT_OK) {
+        PB_LOG("ff failed: ret=%d", ret);
+    }
 }
 
 void rdx_playback_fr(void)
 {
-    PB_LOG("fr: not implemented");
+    int ret = pb_seek_relative(-((s32)PB_SEEK_STEP_FRAMES));
+    if (ret != PB_RESULT_OK) {
+        PB_LOG("fr failed: ret=%d", ret);
+    }
 }
 
 #endif

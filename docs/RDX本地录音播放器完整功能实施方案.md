@@ -91,7 +91,7 @@ byte_offset = position_ms / 20 * 80
 ### 2.3 当前主要缺口
 
 1. Phase 1 已完成上下曲、空头入口、EOF 停止和 key/app 门控收敛。
-2. `ff/fr` 仍是占位实现，真实 Seek 留到 Phase 2。
+2. Phase 2 已接入单文件内 `ff/fr` 相对 Seek，设备回归后再标记完成。
 3. `ftell()` 表示文件读取头，不表示用户正在听到的位置，因为 Source_Dev0 中存在预读数据。
 4. Phase 3 的音量调节应复用系统 `APP_MSG_VOL_UP/DOWN` 和 TWS 既有音量同步路径，不在 RDX 播放器内自建音量状态。
 5. 文件列表刷新只观察 `count/max_sn`，无法完整表达同数量替换、删除当前文件等变化。
@@ -343,7 +343,7 @@ void rdx_playback_fr(void);
 void rdx_playback_ff(void);
 void rdx_playback_stop(void);
 void rdx_playback_invalidate_playlist(u32 reason);
-int  rdx_playback_get_info(pb_public_info_t *info);
+void rdx_playback_get_info(pb_public_info_t *info);
 ```
 
 返回值应区分：
@@ -459,9 +459,10 @@ ftell = 已读取到的位置
 
 ```c
 u32 source_dev0_get_consumed_bytes(void);
+void source_dev0_reset_consumed_bytes(void);
 ```
 
-计数在 `source_input_read()` 成功取出完整压缩帧时增加，在 Source 打开时清零。播放器位置为：
+计数在 Source 成功把完整压缩帧交给 JLStream frame 后增加，在 Source 打开、关闭和 Seek reset 时清零。播放器位置为：
 
 ```text
 position_frame = seek_base_frame + consumed_bytes / 80
@@ -472,7 +473,7 @@ position_ms    = position_frame * 20
 
 ### 9.2 Seek 事务
 
-统一使用绝对目标执行 Seek：
+`ff/fr` 只允许在当前正在播放的文件内 Seek，不进入环形导航，不跨文件。统一使用绝对目标执行 Seek：
 
 ```text
 1. 根据当前位置计算 target_ms
@@ -488,10 +489,18 @@ position_ms    = position_frame * 20
 
 不能在旧播放流仍活动时直接 `fseek()`，否则旧缓冲音频会与新位置音频拼接。
 
+`stop`、`switch`、`seek` 的资源动作必须区分：
+
+- `stop`：关闭 timer、播放流和文件句柄，但保留 `selected_sn`；
+- `switch`：候选文件打开成功后关闭旧播放流和旧文件，再切到新文件；
+- `seek`：关闭 timer 和播放流，保留当前文件句柄，对同一文件 `fseek()` 后重建播放流。
+
 ### 9.3 边界行为
 
 - 快退小于 0：停在 0 ms；
 - 快进达到文件末尾：停在末尾并结束当前播放，等待用户下一次操作；
+- 快进到末尾与自然 EOF 约束一致：不自动 next，不改变环形游标方向；
+- 快进快退不允许跨文件，跨文件只能由 `prev/next` 表达；
 - 停止状态 Seek：默认拒绝，或先选择曲目后保持 STOPPED；
 - 文件长度不是 80 的整数倍：忽略不足一帧的尾部；
 - 小于一帧的文件视为不可播放文件。
@@ -502,10 +511,10 @@ position_ms    = position_frame * 20
 
 - LONG 首次立即跳 5 秒；
 - HOLD 只累计目标位置；
-- 根据单次 JLStream 重建实测耗时，对 200/300/500/800 ms 和“仅抬起时提交”进行 A/B，不能预先固定节流值；
+- 默认以 200 ms 作为连续 Seek 节流起点，设备实测后再调成 200/300/500 ms 或“仅抬起时提交”；
 - UP 时立即应用最后目标；
 - 新 Seek 到来时取消尚未执行的旧 Seek；
-- Seek 命令必须合并，不能形成消息队列积压。
+- Seek 命令必须在 `rdx_playback.c` 内合并目标位置，不能在 `rdx_app.c` 中维护播放位置，也不能形成消息队列积压。
 
 ## 10. 音量调节参考
 
@@ -711,11 +720,14 @@ typedef struct {
 
 目标：实现准确到 Opus 帧的 `+/-5 秒` Seek。
 
-- Source_Dev0 增加 consumed bytes；
-- 生命周期拆为 pump/stream/track；
-- 实现绝对 Seek 和相对 Seek；
-- 完成 `APP_MSG_REC_FR/FF` 的真实 Seek 行为；
-- 完成起点、终点和短文件边界处理。
+> 实施状态（2026-07-14）：代码已接入，待固件构建和设备回归。
+
+- [x] Source_Dev0 增加 consumed bytes 查询和 reset；
+- [x] 将播放流关闭和文件关闭拆开；
+- [x] 实现当前文件内 `+/-5 秒` 相对 Seek；
+- [x] 完成 `APP_MSG_REC_FR/FF` 的真实 Seek 行为；
+- [x] 完成起点、终点和短文件边界处理：快退到 0，快进到尾停止且不跨文件；
+- [ ] 完成固件构建和设备回归，测量单次 Seek 重建耗时。
 
 ### Phase 3：音量加、音量减
 

@@ -48,6 +48,8 @@ typedef struct {
     pb_intent_t intent;
     u8 playlist_dirty;
     int last_error;
+    u32 seek_base_frame;
+    u32 duration_frames;
 } rdx_playback_t;
 
 typedef struct {
@@ -57,6 +59,8 @@ typedef struct {
     u16 total_count;
     pb_state_t state;
     int last_error;
+    u32 position_ms;
+    u32 duration_ms;
 } pb_public_info_t;
 
 void rdx_playback_init(void);

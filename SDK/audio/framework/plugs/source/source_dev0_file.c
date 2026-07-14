@@ -33,6 +33,7 @@ struct source_dev0_file_hdl {
 
 static cbuffer_t output_cbuf_h;
 static u8 *output_buff = NULL;
+static u32 source_dev0_consumed_bytes = 0;
 #define OUTPUT_BUFF_SIZE    (2048)
 #define OPUS_MONO_FRAME_BYTES       (40u)
 #if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
@@ -93,6 +94,13 @@ static u32 source_input_read(u8 *data, u16 frame_len)
     return cbuf_read(&output_cbuf_h, data, frame_len);
 }
 
+static void source_dev0_add_consumed_bytes(u32 len)
+{
+    OS_ENTER_CRITICAL();
+    source_dev0_consumed_bytes += len;
+    OS_EXIT_CRITICAL();
+}
+
 //输入到解码
 u32 source_dev0_input_write(u8 *data, u16 len)
 {
@@ -113,6 +121,24 @@ bool source_dev0_is_empty(void)
         return true;
     }
     return cbuf_get_data_len(&output_cbuf_h) == 0;
+}
+
+u32 source_dev0_get_consumed_bytes(void)
+{
+    u32 ret;
+
+    OS_ENTER_CRITICAL();
+    ret = source_dev0_consumed_bytes;
+    OS_EXIT_CRITICAL();
+
+    return ret;
+}
+
+void source_dev0_reset_consumed_bytes(void)
+{
+    OS_ENTER_CRITICAL();
+    source_dev0_consumed_bytes = 0;
+    OS_EXIT_CRITICAL();
 }
 
 #if SOURCE_DEV0_MSBC_TEST_ENABLE
@@ -198,6 +224,7 @@ static void source_dev0_open(struct source_dev0_file_hdl *hdl)
     	3、自定义源节点启动流程
     */
     data_ok = 0;
+    source_dev0_reset_consumed_bytes();
     output_buff_init();
 }
 
@@ -206,6 +233,7 @@ static void source_dev0_close(struct source_dev0_file_hdl *hdl)
 {
     //do something
     data_ok = 0;
+    source_dev0_reset_consumed_bytes();
     output_buff_free();
 }
 
@@ -273,6 +301,7 @@ static enum stream_node_state source_dev0_get_frame(void *_hdl, struct stream_fr
 
     //3、将当前节点数据拷贝到frame
     memcpy(frame->data, packet, len);
+    source_dev0_add_consumed_bytes(len);
 
     //4、释放当前节点数据
     source_dev0_free_packet(hdl, packet);
@@ -376,7 +405,6 @@ REGISTER_SOURCE_NODE_PLUG(source_dev0_file_plug) = {
 };
 
 #endif
-
 
 
 
