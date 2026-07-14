@@ -281,6 +281,17 @@ $p5Add2TaskHits = Find-Pattern -Files $p5TargetFiles `
     -Pattern "\bsys_timeout_add_2_task\b"
 Assert-NoHits "P5 files have no direct sys_timeout_add_2_task calls" $p5Add2TaskHits
 
+# P6: remaining business periodic timers must go through rdx_os_timer_periodic_*
+$p6TargetNames = @("rdx_charge.c", "rdx_dut.c", "rdx_led_ctrl.c", "rdx_rtc.c")
+$p6TargetFiles = $allRdxFiles | Where-Object {
+    $_.Name -in $p6TargetNames -and
+    $_.FullName -match "[/\\]rdx_protocol[/\\]"
+}
+
+$p6SysTimerHits = Find-Pattern -Files $p6TargetFiles `
+    -Pattern "\bsys_timer_(add|del|modify)\b"
+Assert-NoHits "P6 files have no direct sys_timer_add/del/modify calls" $p6SysTimerHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"

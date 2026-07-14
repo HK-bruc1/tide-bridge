@@ -70,6 +70,11 @@ void rdx_os_timer_periodic_del(rdx_timer_t id)
     sys_timer_del(id);
 }
 
+void rdx_os_timer_periodic_modify(rdx_timer_t id, u32 period_ms)
+{
+    sys_timer_modify(id, period_ms);
+}
+
 rdx_timer_t rdx_os_timer_add_to_task(const char *task_name,
                                      void (*cb)(void *),
                                      void *priv, u32 timeout_ms)

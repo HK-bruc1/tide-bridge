@@ -36,6 +36,7 @@ void        rdx_os_timer_del(rdx_timer_t id);
 void        rdx_os_timer_re_run(rdx_timer_t id);
 rdx_timer_t rdx_os_timer_periodic_add(void (*cb)(void *), void *priv, u32 period_ms);
 void        rdx_os_timer_periodic_del(rdx_timer_t id);
+void        rdx_os_timer_periodic_modify(rdx_timer_t id, u32 period_ms);
 rdx_timer_t rdx_os_timer_add_to_task(const char *task_name,
                                      void (*cb)(void *),
                                      void *priv, u32 timeout_ms);

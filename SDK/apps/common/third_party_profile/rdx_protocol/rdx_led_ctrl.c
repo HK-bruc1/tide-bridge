@@ -38,6 +38,7 @@
 #include "rdx_app.h"
 #include "rdx_charge.h"
 #include "rdx_uxfile.h"
+#include "rdx_jl_osal.h"
 
 extern bool rdx_app_get_dut_status(void);
 extern u8 get_ota_status(void);
@@ -411,7 +412,7 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
     led_pt0807_run_enable(config, 1);
     rdx_led_ctrl_off();
     if (g_led_update_timer == 0) {
-        g_led_update_timer = sys_timer_add(NULL, rdx_led_ctrl_update_timer_cb, RDX_LED_UPDATE_INTERVAL_MS);
+        g_led_update_timer = rdx_os_timer_periodic_add(rdx_led_ctrl_update_timer_cb, NULL, RDX_LED_UPDATE_INTERVAL_MS);
         if (g_led_update_timer == 0) {
             return -2;
         }
@@ -424,7 +425,7 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
 void rdx_led_ctrl_deinit(void)
 {
     if (g_led_update_timer) {
-        sys_timer_del(g_led_update_timer);
+        rdx_os_timer_periodic_del(g_led_update_timer);
         g_led_update_timer = 0;
     }
     if (g_led_config && g_led_config->initialized) {

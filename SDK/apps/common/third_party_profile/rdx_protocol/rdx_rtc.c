@@ -30,6 +30,7 @@
 #include "rtc/rtc_dev.h"
 #include "system/generic/jiffies.h"
 #include "system/init.h"
+#include "rdx_jl_osal.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -641,6 +642,12 @@ void rdx_rtc_store_timestamp(void)
     rdx_rtc_set_timestamp(timestamp);
 }
 
+static void rdx_rtc_store_timestamp_timer_cb(void *priv)
+{
+    (void)priv;
+    rdx_rtc_store_timestamp();
+}
+
 /**************************************************************************
  * function: rdx_rtc_restore_timer_stop
  * description: 
@@ -657,7 +664,7 @@ void rdx_rtc_restore_timer_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rtc_restore_timer != 0){
-        sys_timer_del(rtc_restore_timer);
+        rdx_os_timer_periodic_del(rtc_restore_timer);
         rtc_restore_timer = 0;
     }
 }
@@ -678,7 +685,7 @@ void rdx_rtc_restore_timer_start(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rtc_restore_timer == 0){
-        rtc_restore_timer = sys_timer_add(NULL, rdx_rtc_store_timestamp, RTC_RESTORE_INTERVAL);
+        rtc_restore_timer = rdx_os_timer_periodic_add(rdx_rtc_store_timestamp_timer_cb, NULL, RTC_RESTORE_INTERVAL);
     }
 }
 

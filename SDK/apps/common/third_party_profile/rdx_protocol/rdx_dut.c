@@ -88,6 +88,7 @@ extern void rdx_app_normal_poweroff(void);
 static void rdx_dut_motor_timer_cb(void *priv);
 static void rdx_dut_show(void);
 static void rdx_dut_format_stop(void);
+static void rdx_dut_normal_poweroff_timer_cb(void *priv);
 
 /******************************************************************************
 * Local Variables Section
@@ -339,11 +340,11 @@ static void rdx_dut_motor_timer_cb(void *priv)
     if(rdx_dut_info.motor_run == TRUE){
         motor_off();
         rdx_dut_info.motor_run = FALSE;
-        sys_timer_modify(rdx_dut_info.motor_timer, 1000);
+        rdx_os_timer_periodic_modify(rdx_dut_info.motor_timer, 1000);
     }else{
         motor_on();
         rdx_dut_info.motor_run = TRUE;
-        sys_timer_modify(rdx_dut_info.motor_timer, 2000);
+        rdx_os_timer_periodic_modify(rdx_dut_info.motor_timer, 2000);
     }
 }
 
@@ -362,7 +363,7 @@ void rdx_dut_motor_start(void)
     rdx_dut_info.current_func = DUT_FUNC_MOTOR;
     
     if(rdx_dut_info.motor_timer == 0){
-        rdx_dut_info.motor_timer = sys_timer_add(NULL, rdx_dut_motor_timer_cb, 2000);
+        rdx_dut_info.motor_timer = rdx_os_timer_periodic_add(rdx_dut_motor_timer_cb, NULL, 2000);
         motor_on();
         rdx_dut_info.motor_run = TRUE;
     }
@@ -376,7 +377,7 @@ void rdx_dut_motor_stop(void)
     DUT_LOG("Motor test STOP\r");
     
     if(rdx_dut_info.motor_timer){
-        sys_timer_del(rdx_dut_info.motor_timer);
+        rdx_os_timer_periodic_del(rdx_dut_info.motor_timer);
         rdx_dut_info.motor_timer = 0;
     }
     
@@ -563,7 +564,13 @@ void rdx_dut_poweroff(void)
     
     rdx_hook_led_set_scene(RDX_LED_SCENE_DUT_EXIT);
 
-    rdx_os_timer_add((void (*)(void *))rdx_app_normal_poweroff, NULL, 200);
+    rdx_os_timer_add(rdx_dut_normal_poweroff_timer_cb, NULL, 200);
+}
+
+static void rdx_dut_normal_poweroff_timer_cb(void *priv)
+{
+    (void)priv;
+    rdx_app_normal_poweroff();
 }
 
 /******************************************************************************

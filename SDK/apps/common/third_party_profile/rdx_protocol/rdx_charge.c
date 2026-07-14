@@ -391,7 +391,7 @@ void rdx_app_charge_full(void)
     charge_onoff(FALSE);
 #endif
     if(incharge_full_check_timer){
-        sys_timer_del(incharge_full_check_timer);
+        rdx_os_timer_periodic_del(incharge_full_check_timer);
         incharge_full_check_timer = 0;
     }
     rdx_app_set_charge_state(RDX_CHARGE_FULL); 
@@ -467,7 +467,7 @@ void rdx_app_charge_start_handle(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(incharge_full_check_timer == 0){
-        incharge_full_check_timer = sys_timer_add(NULL, rdx_app_incharge_full_check_timer_cb, RDX_APP_INCHARGE_FULL_CHECK_TIMEOUT);
+        incharge_full_check_timer = rdx_os_timer_periodic_add(rdx_app_incharge_full_check_timer_cb, NULL, RDX_APP_INCHARGE_FULL_CHECK_TIMEOUT);
     }
 }
 
