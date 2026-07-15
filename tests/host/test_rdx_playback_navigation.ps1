@@ -119,6 +119,24 @@ Add-Check -Name 'PAUSE_REWIND_USES_FRAME_DURATION' -Passed (
     $PlaybackText -notmatch '\bPB_PAUSE_REWIND_(?:MS|FRAMES)\b'
 ) -Message 'pause resume rewind must derive frames from the Opus frame duration'
 
+$CandidateStart = $PlaybackText.IndexOf('static pb_candidate_result_t pb_start_candidate_at_frame')
+$StreamHelperStart = $PlaybackText.IndexOf('static int pb_open_stream_at_frame')
+$CandidateSeek = if ($CandidateStart -ge 0) {
+    $PlaybackText.IndexOf('fseek(candidate_file, start_offset, SEEK_SET)', $CandidateStart)
+} else {
+    -1
+}
+$StartCandidateStream = if ($CandidateStart -ge 0) {
+    $PlaybackText.IndexOf('pb_open_stream_at_frame(base_frame, transition_state)', $CandidateStart)
+} else {
+    -1
+}
+Add-Check -Name 'RESUME_SEEKS_BEFORE_STREAM_START' -Passed (
+    $CandidateSeek -gt $CandidateStart -and
+    $StartCandidateStream -gt $CandidateSeek -and
+    $PlaybackText -match 'start_offset\s*=\s*base_frame\s*\*\s*PB_OPUS_FRAME_BYTES'
+) -Message 'a non-zero pause cursor must move the reopened file before the Source_Dev0 stream starts'
+
 Add-Check -Name 'SWITCH_CLEARS_RESUME_AFTER_COMMIT' -Passed (
     $PlaybackText -match '(?s)pb\.selected_sn\s*=\s*candidate_sn;.*?pb\.current_sn\s*=\s*candidate_sn;.*?pb_clear_resume_cursor\(\);'
 ) -Message 'successful navigation must clear the old pause cursor only after committing the new track'
@@ -146,11 +164,8 @@ Add-Check -Name 'UNIFIED_DIRECTION_SWITCH' -Passed (
     $PlaybackText -match 'rdx_playback_next\s*\([^)]*\)\s*\{\s*return\s+pb_switch_track\(PB_DIRECTION_OLDER\);'
 ) -Message 'prev and next must share the same switch transaction'
 
-$CandidateStart = $PlaybackText.IndexOf('static pb_candidate_result_t pb_start_candidate_at_frame')
-$StreamHelperStart = $PlaybackText.IndexOf('static int pb_open_stream_at_frame')
 $OpenStream = if ($StreamHelperStart -ge 0) { $PlaybackText.IndexOf('dev_flow_player_open(', $StreamHelperStart) } else { -1 }
 $SchedulePump = if ($OpenStream -ge 0) { $PlaybackText.IndexOf('pb_schedule_pump(PB_PUMP_INTERVAL_MS)', $OpenStream) } else { -1 }
-$StartCandidateStream = if ($CandidateStart -ge 0) { $PlaybackText.IndexOf('pb_open_stream_at_frame(base_frame, transition_state)', $CandidateStart) } else { -1 }
 $CommitSelected = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.selected_sn = candidate_sn', $StartCandidateStream) } else { -1 }
 $CommitCurrent = if ($StartCandidateStream -ge 0) { $PlaybackText.IndexOf('pb.current_sn = candidate_sn', $StartCandidateStream) } else { -1 }
 Add-Check -Name 'COMMIT_AFTER_STARTUP' -Passed (
@@ -183,8 +198,12 @@ Add-Check -Name 'EOF_STOPS_WITHOUT_AUTO_NEXT' -Passed (
 
 Add-Check -Name 'DELETE_INVALIDATES_SELECTION' -Passed (
     $PlaybackText -match 'void\s+rdx_playback_on_file_deleted\s*\(' -and
-    $AppText -match 'rdx_playback_on_file_deleted\(\(u32\)p->file_sn\);'
-) -Message 'successful deletion must invalidate playback navigation state'
+    $AppText -match '(?s)if\s*\(ret\s*>=\s*0\)\s*\{\s*rdx_uxfile_invalidate_dat_cache\(\);\s*rdx_playback_on_file_deleted\(\(u32\)p->file_sn\);'
+) -Message 'successful deletion must invalidate UXFILE metadata before playback navigation state'
+
+Add-Check -Name 'RECORD_REPLACEMENT_INVALIDATES_UXFILE_CACHE' -Passed (
+    $AppText -match '(?s)void\s+rdx_app_playback_content_changed\s*\([^)]*\)\s*\{\s*/\*.*?\*/\s*rdx_uxfile_invalidate_dat_cache\(\);\s*rdx_playback_invalidate_playlist\(PB_PLAYLIST_CONTENT_CHANGED\);'
+) -Message 'record completion must discard cached filename metadata when an SN is reused'
 
 Add-Check -Name 'NO_DYNAMIC_PLAYLIST_ALLOCATION' -Passed (
     $PlaybackText -notmatch '\b(?:malloc|zalloc|calloc)\s*\('

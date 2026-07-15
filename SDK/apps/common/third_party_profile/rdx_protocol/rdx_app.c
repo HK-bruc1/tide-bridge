@@ -2397,6 +2397,8 @@ APP_MSG_PROB_HANDLER(rdx_app_key_msg_entry) = {
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 void rdx_app_playback_content_changed(void)
 {
+    /* A reused SN must not resolve through UXFILE's last-query metadata cache. */
+    rdx_uxfile_invalidate_dat_cache();
     rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED);
 }
 #endif
@@ -3191,6 +3193,7 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
             if(ret >= 0){
+                rdx_uxfile_invalidate_dat_cache();
                 rdx_playback_on_file_deleted((u32)p->file_sn);
             }
 #endif

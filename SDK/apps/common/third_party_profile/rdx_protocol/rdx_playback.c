@@ -508,6 +508,24 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
     }
 
     u32 candidate_sn = fi->sn;
+    u32 candidate_frames = (u32)flen(candidate_file) / PB_OPUS_FRAME_BYTES;
+    if (candidate_frames == 0) {
+        PB_LOG("skip: file shorter than one frame for SN=%u", candidate_sn);
+        fclose(candidate_file);
+        return PB_CANDIDATE_SKIP;
+    }
+    if (base_frame >= candidate_frames) {
+        base_frame = candidate_frames - 1;
+    }
+
+    u32 start_offset = base_frame * PB_OPUS_FRAME_BYTES;
+    if (start_offset != 0 && fseek(candidate_file, start_offset, SEEK_SET) != 0) {
+        PB_LOG("skip: fseek failed for SN=%u, frame=%u, offset=%u",
+               candidate_sn, base_frame, start_offset);
+        fclose(candidate_file);
+        return PB_CANDIDATE_SKIP;
+    }
+
     pb.pending_sn = candidate_sn;
     pb.state = transition_state;
     pb.intent = intent;
@@ -515,10 +533,7 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
     // 候选文件已经成功打开后，才释放旧播放资源。
     pb_close_track();
     pb_file = candidate_file;
-    pb.duration_frames = (u32)flen(pb_file) / PB_OPUS_FRAME_BYTES;
-    if (base_frame >= pb.duration_frames) {
-        base_frame = pb.duration_frames - 1;
-    }
+    pb.duration_frames = candidate_frames;
 
     int ret = pb_open_stream_at_frame(base_frame, transition_state);
     if (ret != PB_RESULT_OK) {
@@ -538,7 +553,8 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
     pb.intent = PB_INTENT_NONE;
     pb.last_error = PB_RESULT_OK;
 
-    PB_LOG("play: SN=%u, flen=%d", candidate_sn, flen(pb_file));
+    PB_LOG("play: SN=%u, frame=%u, offset=%u, flen=%d",
+           candidate_sn, base_frame, start_offset, flen(pb_file));
     return PB_CANDIDATE_STARTED;
 }
 
