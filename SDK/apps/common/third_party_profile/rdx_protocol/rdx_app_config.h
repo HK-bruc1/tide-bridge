@@ -118,6 +118,11 @@
 
 #define RDX_WIFI_ENABLE									(0) // 当前硬件无 WiFi 模块
 
+/* Classic BT Page/Inquiry Scan: Windows 需要搜到设备才能配对 Classic HID */
+#ifndef  RDX_CLASSIC_BT_PAGE_SCAN_ENABLE
+#define RDX_CLASSIC_BT_PAGE_SCAN_ENABLE                 (0)
+#endif
+
 #define RDX_SUPPORT_OLED								(0x01)
 #define RDX_SUPPORT_EMMC								(0x10)
 #define RDX_SUPPORT_BOTH_OLED_EMMC						(0x11)
@@ -662,7 +667,7 @@
 //AI translate.
 #define RDX_AI_TRANSLATE_SUPPORT               (0)
 //BLE advertise messages.
-#define BT_NAME                                "Beanstalk RKB"
+#define BT_NAME                                "Beanstalk RKB MIC"
 #define BLE_LOCAL_NAME                         "Beanstalk RKB"
 //firmware & hardware version.
 #define FACTORY_CODE                           "BEANTK"
@@ -677,6 +682,10 @@
 #define FIRMWARE_VERSION_HEX                   0x00010000
 #define HARDWARE_VERSION                       "0.0.1"
 #define HARDWARE_VERSION_HEX                   0x00000001
+
+/* Classic BT Page/Inquiry Scan: Windows 需要搜到设备才能配对 Classic HID */
+#undef  RDX_CLASSIC_BT_PAGE_SCAN_ENABLE
+#define RDX_CLASSIC_BT_PAGE_SCAN_ENABLE             (0)
 
 #endif
 
