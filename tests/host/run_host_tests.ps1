@@ -16,7 +16,10 @@ $ErrorActionPreference = 'Stop'
 
 $PowerShellExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
 if (-not $PowerShellExe) {
-    throw 'powershell.exe not found in PATH'
+    $PowerShellExe = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+}
+if (-not $PowerShellExe) {
+    throw 'Neither powershell.exe nor pwsh was found in PATH'
 }
 
 $Tests = @(
@@ -27,6 +30,14 @@ $Tests = @(
     [PSCustomObject]@{
         Name = 'HOGP profile contract'
         Path = Join-Path $PSScriptRoot 'test_hogp_profile_contract.ps1'
+    },
+    [PSCustomObject]@{
+        Name = 'RDX local playback configuration'
+        Path = Join-Path $PSScriptRoot 'test_rdx_local_playback_config.ps1'
+    }
+    [PSCustomObject]@{
+        Name = 'RDX playback navigation'
+        Path = Join-Path $PSScriptRoot 'test_rdx_playback_navigation.ps1'
     }
 )
 

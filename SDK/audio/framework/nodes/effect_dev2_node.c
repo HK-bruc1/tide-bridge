@@ -46,7 +46,7 @@ struct effect_dev2_node_hdl {
 };
 
 int *run_buf = NULL;//[24 * 1024 / 4];
-u8 *tst_buf_LR = NULL;//[FRAME_SIZE * 2];
+s16 *tst_buf_LR = NULL;//[FRAME_SIZE * 2];
 /* 自定义算法，初始化
  * hdl->dev.sample_rate:采样率
  * hdl->dev.in_ch_num:通道数，单声道 1，立体声 2, 四声道 4
@@ -101,16 +101,37 @@ static u32 audio_effect_dev2_run(struct effect_dev2_node_hdl *hdl, s16 *indata, 
 #endif
     //do something
     u32 data_len = indata_len;
-    u8 *data = (u8 *)indata;
     int encLen = 0;
     if(tst_buf_LR == NULL || run_buf == NULL){
-        return data_len;
+        return 0;
     }
-    if(data_len < FRAME_SIZE){
+
+    s16 *pcm_l = tst_buf_LR;
+    s16 *pcm_r = tst_buf_LR + FRAME_POINT;
+    u32 expected_len = (hdl->dev.in_ch_num >= 2) ? (FRAME_SIZE * 2) : FRAME_SIZE;
+    if(data_len < expected_len){
         printf("len err %d\n", data_len);
+        return 0;
     }
-    memcpy(tst_buf_LR, data, data_len);
-    int ret = hdl->opus_stenc->run_wb((void*)run_buf, tst_buf_LR, tst_buf_LR + FRAME_SIZE, outdata, &encLen);
+
+    if (hdl->dev.out_ch_num == 2) {
+        if (hdl->dev.in_ch_num >= 2) {
+            /* Source_Dev1 provides planar PCM: L[320] followed by R[320]. */
+            memcpy(pcm_l, indata, FRAME_SIZE);
+            memcpy(pcm_r, indata + FRAME_POINT, FRAME_SIZE);
+        } else {
+            memcpy(pcm_l, indata, FRAME_SIZE);
+            memcpy(pcm_r, indata, FRAME_SIZE);
+        }
+    } else {
+        if (hdl->dev.in_ch_num >= 2) {
+            memcpy(pcm_l, indata, FRAME_SIZE);
+        } else {
+            memcpy(pcm_l, indata, FRAME_SIZE);
+        }
+    }
+
+    int ret = hdl->opus_stenc->run_wb((void*)run_buf, pcm_l, pcm_r, (u8 *)outdata, &encLen);
     /* printf("effect dev2 do something here\n"); */
     if(ret != 0){
         printf("enc err\n");
@@ -354,4 +375,3 @@ REGISTER_ONLINE_ADJUST_TARGET(effect_dev2) = {
 };
 
 #endif
-

@@ -186,6 +186,9 @@ extern void rdx_uxfile_operate_file_init(void);
 extern uxfile_data_t* rdx_uxfile_get_operateFile_info(void);
 extern void rdx_protocol_record_mark_indicate(u8 result, u32 sn, const char* filename,
                                               u8 index, u32 offset_ms, u8 source);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+extern void rdx_app_playback_content_changed(void);
+#endif
 #if (RDX_SUPPORT_MOTOR == 1)
 void rdx_record_motor_run(void);
 #endif
@@ -210,6 +213,18 @@ void rdx_record_set_filter_cnt(u8 cnt)
     stream_filter_cnt = cnt;
 }
 
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+static void rdx_record_notify_playback_content_changed(void)
+{
+    int msg[2];
+    msg[0] = (int)rdx_app_playback_content_changed;
+    msg[1] = 0;
+
+    if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+        log_info("playback content changed taskq post err\r");
+    }
+}
+#endif
 
 /**************************************************************************
  * functions: rdx_record_set_alive
@@ -2055,6 +2070,11 @@ int rdx_record_run_exit(void)
     // if(rp->orig_mode == RECORD_MODE_OFFLINE){
         // rdx_uxfile_mssg_1_save();
         rdx_uxfile_dat_1_save_gen();
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+        if(rp->run == RECORD_STATE_STOP){
+            rdx_record_notify_playback_content_changed();
+        }
+#endif
         /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻,
          * 否则 RESUME 后 run_init 会重新写一个 jiffies, 录音标记 offset_ms 失真 */
         if(rp->run == RECORD_STATE_STOP){
@@ -2259,6 +2279,9 @@ int rdx_record_run_exit(void)
         rdx_uxfile_dat_1_save_gen();
         /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻 */
         if(rp->run == RECORD_STATE_STOP){
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_record_notify_playback_content_changed();
+#endif
             rp->begin_time = 0;
         }
     }

@@ -9,6 +9,7 @@
 #include "jlstream.h"
 #include "media/audio_base.h"
 #include "app_config.h"
+#include "source_dev0.h"
 
 /*
    若源节点为中断节点，则需打开SOURCE_DEV0_IRQ_ENABLE
@@ -32,7 +33,24 @@ struct source_dev0_file_hdl {
 
 static cbuffer_t output_cbuf_h;
 static u8 *output_buff = NULL;
+static u32 source_dev0_consumed_bytes = 0;
 #define OUTPUT_BUFF_SIZE    (2048)
+#define OPUS_MONO_FRAME_BYTES       (40u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#define OPUS_STEREO_FRAME_BYTES     (80u)
+#define OPUS_MAX_FRAME_BYTES        OPUS_STEREO_FRAME_BYTES
+#else
+#define OPUS_MAX_FRAME_BYTES        OPUS_MONO_FRAME_BYTES
+#endif
+#define OPUS_SAMPLE_RATE            (16000u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#define OPUS_STEREO_DEC_SAMPLE_RATE (48000u)
+#endif
+#define OPUS_FRAME_DMS              (200u)
+#define OPUS_MONO_BIT_RATE          (16000u)
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#define OPUS_STEREO_BIT_RATE        (32000u)
+#endif
 
 static void output_buff_init(void)
 {
@@ -65,21 +83,62 @@ static u32 source_input_write(u8 *data, u16 len)
     return ret;
 }
 
-static u32 source_input_read(u8 *data, u16 len)
+static u32 source_input_read(u8 *data, u16 frame_len)
 {
     if(output_buff == NULL){
         return 0;
     }
-    if(len > cbuf_get_data_len(&output_cbuf_h)){
-        len = (cbuf_get_data_len(&output_cbuf_h) / 40) * 40;//对齐到40字节，因为默认opus是40字节一帧
+    if(cbuf_get_data_len(&output_cbuf_h) < frame_len){
+        return 0;
     }
-    return cbuf_read(&output_cbuf_h, data, len);
+    return cbuf_read(&output_cbuf_h, data, frame_len);
+}
+
+static void source_dev0_add_consumed_bytes(u32 len)
+{
+    OS_ENTER_CRITICAL();
+    source_dev0_consumed_bytes += len;
+    OS_EXIT_CRITICAL();
 }
 
 //输入到解码
 u32 source_dev0_input_write(u8 *data, u16 len)
 {
     return source_input_write(data, len);
+}
+
+u32 source_dev0_get_free_space(void)
+{
+    if (output_buff == NULL) {
+        return 0;
+    }
+    return OUTPUT_BUFF_SIZE - cbuf_get_data_len(&output_cbuf_h);
+}
+
+bool source_dev0_is_empty(void)
+{
+    if (output_buff == NULL) {
+        return true;
+    }
+    return cbuf_get_data_len(&output_cbuf_h) == 0;
+}
+
+u32 source_dev0_get_consumed_bytes(void)
+{
+    u32 ret;
+
+    OS_ENTER_CRITICAL();
+    ret = source_dev0_consumed_bytes;
+    OS_EXIT_CRITICAL();
+
+    return ret;
+}
+
+void source_dev0_reset_consumed_bytes(void)
+{
+    OS_ENTER_CRITICAL();
+    source_dev0_consumed_bytes = 0;
+    OS_EXIT_CRITICAL();
 }
 
 #if SOURCE_DEV0_MSBC_TEST_ENABLE
@@ -91,14 +150,7 @@ static unsigned char source_test_data[60] = {
 };
 #endif
 
-static u8 output[40];
-static const u8 silence[] = {
-    0x4B, 0x41, 0x1E, 0x07, 0xC9, 0x72, 0x27, 0xDC, 
-    0x06, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};
+static u8 output[OPUS_MAX_FRAME_BYTES];
 
 static u8 data_ok = 0;
 /*
@@ -111,6 +163,12 @@ static u8 *source_dev0_get_packet(struct source_dev0_file_hdl *hdl, u32 *len)
 {
     u8 *packet = NULL;
     u32 packet_len = 0;
+    u16 frame_len = OPUS_MONO_FRAME_BYTES;
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (hdl->ch_num == 2) {
+        frame_len = OPUS_STEREO_FRAME_BYTES;
+    }
+#endif
 
     if(data_ok == 0 && cbuf_get_data_len(&output_cbuf_h) < (OUTPUT_BUFF_SIZE / 4)){
         return NULL;
@@ -119,8 +177,7 @@ static u8 *source_dev0_get_packet(struct source_dev0_file_hdl *hdl, u32 *len)
     //do something
     packet = (u8 *)output;
     // putchar('b');
-    memcpy(output, silence, sizeof(silence));
-    packet_len = source_input_read(output, sizeof(silence));
+    packet_len = source_input_read(output, frame_len);
 #if SOURCE_DEV0_MSBC_TEST_ENABLE
     u8 test_buf[4] = {0x08, 0x38, 0xc8, 0xf8};
     packet_len = sizeof(source_test_data);
@@ -166,6 +223,8 @@ static void source_dev0_open(struct source_dev0_file_hdl *hdl)
     	2、(中断节点需要)注册自定义源节点收包回调 source_dev0_packet_rx_notify
     	3、自定义源节点启动流程
     */
+    data_ok = 0;
+    source_dev0_reset_consumed_bytes();
     output_buff_init();
 }
 
@@ -173,6 +232,8 @@ static void source_dev0_open(struct source_dev0_file_hdl *hdl)
 static void source_dev0_close(struct source_dev0_file_hdl *hdl)
 {
     //do something
+    data_ok = 0;
+    source_dev0_reset_consumed_bytes();
     output_buff_free();
 }
 
@@ -187,9 +248,23 @@ static void source_dev0_get_fmt(struct source_dev0_file_hdl *hdl, struct stream_
     fmt->coding_type = AUDIO_CODING_MSBC;	//数据类型
     fmt->channel_mode = AUDIO_CH_LR;		//通道模式
 #endif
-    fmt->sample_rate = 16000;				//采样率
-    fmt->coding_type = AUDIO_CODING_OPUS;	//数据类型
-    fmt->channel_mode = hdl->ch_num == 2 ? AUDIO_CH_LR : AUDIO_CH_MIX;		//通道模式
+    fmt->frame_dms = OPUS_FRAME_DMS;
+#if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (hdl->ch_num == 2) {
+        /* JL's stereo Opus decoder always emits 48 kHz PCM. */
+        fmt->sample_rate = OPUS_STEREO_DEC_SAMPLE_RATE;
+        fmt->coding_type = AUDIO_CODING_STENC_OPUS;
+        fmt->channel_mode = AUDIO_CH_LR;
+        fmt->bit_rate = OPUS_STEREO_BIT_RATE;
+        return;
+    }
+#endif
+    {
+        fmt->sample_rate = OPUS_SAMPLE_RATE;
+        fmt->coding_type = AUDIO_CODING_OPUS;
+        fmt->channel_mode = hdl->ch_num == 2 ? AUDIO_CH_LR : AUDIO_CH_MIX;
+        fmt->bit_rate = OPUS_MONO_BIT_RATE;
+    }
 }
 
 /*
@@ -226,6 +301,7 @@ static enum stream_node_state source_dev0_get_frame(void *_hdl, struct stream_fr
 
     //3、将当前节点数据拷贝到frame
     memcpy(frame->data, packet, len);
+    source_dev0_add_consumed_bytes(len);
 
     //4、释放当前节点数据
     source_dev0_free_packet(hdl, packet);
@@ -329,10 +405,6 @@ REGISTER_SOURCE_NODE_PLUG(source_dev0_file_plug) = {
 };
 
 #endif
-
-
-
-
 
 
 

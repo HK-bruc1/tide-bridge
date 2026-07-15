@@ -383,7 +383,7 @@ const int CONFIG_OGG_OPUS_DEC_SUPPORT = TCFG_DEC_OGG_OPUS_ENABLE; //这里使能
 const int CONFIG_OGG_OPUS_DEC_SET_RAW_MODE = 0;
 //设置OPUS 为raw 数据 + CBR_OPUS 包长,配配置每次解码读入的包长置每次解码读入的包长可能有多帧共用TOC. 返回0设置成功;
 //使用CBR_OPUS设置包长，需要将上面的 CONFIG_OGG_OPUS_DEC_SET_RAW_MODE 置零
-const int CONFIG_OGG_OPUS_DEC_SET_CBR_PACKET_LEN = 0;
+const int CONFIG_OGG_OPUS_DEC_SET_CBR_PACKET_LEN = 80;
 
 //***********************
 //*		SPEEX Codec      *

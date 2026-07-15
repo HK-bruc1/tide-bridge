@@ -120,6 +120,7 @@ int rdx_uxfile_raw_write(u8* data_ptr,u32 data_len, u8 scene);
 void rdx_uxfile_mssg_mic_rec_ctrl(int state);
 u32 rdx_uxfile_get_all_size(void);
 u16 rdx_uxfile_get_dat_cout(void);
+u32 rdx_uxfile_get_the_largest_fileSn(void);
 uxfile_datfile_info_t* rdx_uxfile_get_datFileInfo(void);
 void rdx_uxfile_datFileInfo_sendBuf_free(void);
 uxfile_data_t* rdx_uxfile_get_file_data_by_sn(u32 fnum, u8 type, int f_offset);
@@ -161,4 +162,3 @@ u8 rdx_uxfile_is_datFileInfo_loading(void); // listreq 分包传输中
 u8 rdx_uxfile_is_formatting(void);          // SD 卡正在格式化
 
 #endif/*__RDX_UXFILE_H__*/
-

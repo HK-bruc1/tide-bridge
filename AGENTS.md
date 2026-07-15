@@ -79,6 +79,7 @@ The host test runner currently covers:
 
 - `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
 - `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
+- `test_rdx_local_playback_config.ps1` - verifies the RDX local playback compile-time boundary: master switch propagation, decoder/encoder separation, guarded application and key wiring, public Source_Dev0 APIs, and recording-side fix independence.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
@@ -165,6 +166,7 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 
 - `tests/host/run_host_tests.ps1` - unified host-side software test entry point
 - `tests/host/test_hogp_profile_contract.ps1` - host-side HOGP profile contract validation
+- `tests/host/test_rdx_local_playback_config.ps1` - host-side RDX local playback modularity validation
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
 - `SDK/apps/earphone/app_main.c` — tasks, main init

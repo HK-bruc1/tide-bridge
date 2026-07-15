@@ -335,7 +335,7 @@
       "distance": 40
      }
     },
-    "id": "8e2937ee-aba4-4adb-898d-912b80f1287f",
+    "id": "3c957d8b-655f-4faf-8129-bb92bf972fe8",
     "data": {
      "itemId": 1735033376598
     },
@@ -344,13 +344,164 @@
      "port": "b71c2066-9e03-4698-9ed3-2e714f17e78a"
     },
     "target": {
+     "cell": "718955ce-5030-4885-91ef-1b7c2678bbcc",
+     "port": "fb076936-fb8e-408a-9e5a-1462ed222bb6"
+    }
+   },
+   {
+    "position": {
+     "x": 0,
+     "y": -160
+    },
+    "size": {
+     "width": 120,
+     "height": 80
+    },
+    "view": "vue-shape-view",
+    "shape": "vue-shape",
+    "id": "718955ce-5030-4885-91ef-1b7c2678bbcc",
+    "component": "node-cust",
+    "group": "hardware",
+    "data": {
+     "name": "音量控制器",
+     "group": "控制",
+     "uuid": "0X74E3",
+     "type": 1,
+     "fun": 1,
+     "formFile": "../../.音量配置.json",
+     "itemId": 1735033376598,
+     "subId": 25,
+     "configs": {
+      "name": "74E325",
+      "list": [
+       {
+        "modeId": "id_1735033812621_0",
+        "name": "74E325",
+        "current": "arg0",
+        "bypass": false,
+        "list": [
+         {
+          "name": "arg0",
+          "data": [
+           {
+            "id": "id_1676447331464_3",
+            "list": [
+             {
+              "id": "id_1681280938229_0",
+              "value": 0
+             },
+             {
+              "id": "id_1676447481291_4",
+              "value": 16
+             },
+             {
+              "id": "id_1676447941026_6",
+              "value": -45
+             },
+             {
+              "id": "id_1678088452701_0",
+              "value": 1
+             },
+             {
+              "id": "id_1677290960342_0",
+              "value": 0
+             },
+             {
+              "id": "id_1690535811640_0",
+              "value": 16
+             },
+             {
+              "id": "id_1676801188975_0",
+              "value": 16
+             }
+            ]
+           },
+           {
+            "id": "id_1677751149521_1",
+            "list": []
+           }
+          ],
+          "enable": true
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "ports": {
+     "groups": {
+      "in": {
+       "position": "left"
+      },
+      "out": {
+       "position": "right",
+       "attrs": {
+        "text": {
+         "fill": "#2b3f57",
+         "font-size": "12",
+         "visibility": "visible",
+         "text": ""
+        },
+        "circle": {
+         "r": 6,
+         "magnet": true,
+         "stroke": "#7DC06E",
+         "strokeWidth": 2,
+         "fill": "#f2f2f2",
+         "event": "port:click",
+         "style": {
+          "visibility": "visible"
+         }
+        }
+       }
+      }
+     },
+     "items": [
+      {
+       "group": "in",
+       "index": 0,
+       "id": "fb076936-fb8e-408a-9e5a-1462ed222bb6"
+      },
+      {
+       "group": "out",
+       "index": 0,
+       "id": "4decb197-2782-4173-a600-958942b8109d"
+      }
+     ]
+    }
+   },
+   {
+    "shape": "edge",
+    "attrs": {
+     "line": {
+      "stroke": "#A4A5A9",
+      "strokeWidth": "2px",
+      "targetMarker": {
+       "tagName": "path",
+       "d": "M 12 -5 0 0 12 5 Z",
+       "strokeWidth": 2,
+       "fill": "#A4A5A9",
+       "stroke": "#A4A5A9"
+      },
+      "distance": 40
+     }
+    },
+    "id": "4809e2c2-f616-4a00-a198-9a71d4002826",
+    "data": {
+     "itemId": 1735033376598
+    },
+    "source": {
+     "cell": "718955ce-5030-4885-91ef-1b7c2678bbcc",
+     "port": "4decb197-2782-4173-a600-958942b8109d"
+    },
+    "target": {
      "cell": "e5379862-cb22-42b1-9b89-a6ff615788a6",
      "port": "cd9a2388-655e-4ea7-b6cd-d13159326b91"
     }
    },
    {
     "position": {
-     "x": 0,
+     "x": 160,
      "y": -160
     },
     "size": {
@@ -452,7 +603,7 @@
    },
    {
     "position": {
-     "x": 240,
+     "x": 400,
      "y": -160
     },
     "size": {
@@ -2867,7 +3018,7 @@
   ]
  },
  "bitWidth": 16,
- "showConfigName": false,
+ "showConfigName": true,
  "abFlow": false,
  "version": {
   "code": 1,

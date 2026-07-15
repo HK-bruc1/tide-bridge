@@ -37,7 +37,10 @@ static u8 *output = NULL;//[FRAME_POINT * 2 * 2];
 //一共需要两个缓存，[0]用于缓存mic采样数据，[1]用于缓存dac数据
 static cbuffer_t output_cbuf_h[2];
 static u8 *output_buff[2] = {NULL, NULL};
-#define OUTPUT_BUFF_SIZE    (FRAME_POINT * 4 * 2)
+#define OUTPUT_BUFF_SIZE    (FRAME_SIZE * 8)
+static u32 source_frame_count;
+static u32 source_wait_count;
+static u32 source_drop_count[2];
 
 static void output_buff_init(void)
 {
@@ -71,9 +74,13 @@ static u32 source_input_write(u8 idx, u8 *data, u16 len)
     if(output_buff[idx] == NULL){
         return 0;
     }
+    if (cbuf_is_write_able(&output_cbuf_h[idx], len) < len) {
+        source_drop_count[idx]++;
+        return 0;
+    }
     u32 ret = cbuf_write(&output_cbuf_h[idx], data, len);
     if(ret != len){
-        putchar('M');
+        source_drop_count[idx]++;
     }
 
     return ret;
@@ -128,36 +135,13 @@ u32 source_dev1_input_write(u8 idx, u8 *data, u16 len)
         return len;
     }
     int ret = source_input_write(idx, data, len);
-    // if(cbuf_get_data_len(&output_cbuf_h[0]) >= FRAME_SIZE && cbuf_get_data_len(&output_cbuf_h[1]) >= FRAME_SIZE){
-    //     source_dev1_packet_rx_notify(hdl);//缓存够一帧数据再通知编码
-    // }
-    // if(cbuf_get_data_len(&output_cbuf_h[0]) + cbuf_get_data_len(&output_cbuf_h[1]) >= FRAME_SIZE){
-    //     source_dev1_packet_rx_notify(hdl);//缓存够一帧数据再通知编码
-    // }
-    // u8 ch_num = AUDIO_CH_NUM(hdl->ch_mode);
-    // u16 read_len = 0;
-    // if(ch_num == 2){
-    //     read_len = cbuf_get_data_len(&output_cbuf_h[0]);
-    //     // read_len = read_len > FRAME_SIZE ? FRAME_SIZE : read_len;
-    //     if(idx == 0 && ((read_len >= FRAME_SIZE && (hdl->node->state & NODE_STA_SOURCE_NO_DATA)) || read_len > (OUTPUT_BUFF_SIZE * 3 / 4))){
-    //         putchar('A');
-    //         source_dev1_packet_rx_notify(hdl);//缓存够一帧数据再通知编码
-    //     }
-    // }
-    // else{
-    //     if(hdl->ch_mode == AUDIO_CH_L){
-    //         read_len = cbuf_get_data_len(&output_cbuf_h[0]);
-    //     }
-    //     else{
-    //         read_len = cbuf_get_data_len(&output_cbuf_h[1]);
-    //     }
-    //     if((read_len >= FRAME_SIZE && (hdl->node->state & NODE_STA_SOURCE_NO_DATA)) || read_len > (OUTPUT_BUFF_SIZE * 3 / 4)){
-    //         putchar('A');
-    //         // printf("%s\n",os_current_task());
-    //         source_dev1_packet_rx_notify(hdl);//缓存够一帧数据再通知编码
-    //     }
-    // }
-
+    u8 ch_num = AUDIO_CH_NUM(hdl->ch_mode);
+    if ((ch_num == 2 &&
+         cbuf_get_data_len(&output_cbuf_h[0]) >= FRAME_SIZE &&
+         cbuf_get_data_len(&output_cbuf_h[1]) >= FRAME_SIZE) ||
+        (ch_num == 1 && cbuf_get_data_len(&output_cbuf_h[idx]) >= FRAME_SIZE)) {
+        source_dev1_packet_rx_notify(hdl);
+    }
     return ret;
 }
 
@@ -188,12 +172,12 @@ static u8 *source_dev1_get_packet(struct source_dev1_file_hdl *hdl, u32 *len)
     // putchar('B');
     memset(output, 0, FRAME_POINT * 2 * 2);
     if(ch_num == 2){
-        read_len = cbuf_get_data_len(&output_cbuf_h[0]);
-        read_len = read_len > FRAME_SIZE ? FRAME_SIZE : read_len;
-        if(read_len < FRAME_SIZE){
-            putchar('W');
+        if (cbuf_get_data_len(&output_cbuf_h[0]) < FRAME_SIZE ||
+            cbuf_get_data_len(&output_cbuf_h[1]) < FRAME_SIZE) {
+            source_wait_count++;
             return NULL;
         }
+        read_len = FRAME_SIZE;
         //立体声编码器，需要的数据是LLLLLLLRRRRRRR格式的
         source_input_read(0, packet, read_len);
         source_input_read(1, packet + read_len, read_len);
@@ -204,14 +188,14 @@ static u8 *source_dev1_get_packet(struct source_dev1_file_hdl *hdl, u32 *len)
         read_len = cbuf_get_data_len(&output_cbuf_h[ch]);
         read_len = read_len > FRAME_SIZE ? FRAME_SIZE : read_len;
         if(read_len < FRAME_SIZE){
-            putchar('W');
+            source_wait_count++;
             return NULL;
         }
         source_input_read(ch, packet, read_len);
         packet_len = read_len;
     }
     // printf("%d\n", packet_len);
-    putchar('B');
+    source_frame_count++;
 #if SOURCE_DEV1_MSBC_TEST_ENABLE
     u8 test_buf[4] = {0x08, 0x38, 0xc8, 0xf8};
     packet_len = sizeof(source_test_data);
@@ -255,14 +239,24 @@ static void source_dev1_open(struct source_dev1_file_hdl *hdl)
     */
     output = malloc(FRAME_POINT * 2 * 2);
     output_buff_init();
+    source_frame_count = 0;
+    source_wait_count = 0;
+    source_drop_count[0] = 0;
+    source_drop_count[1] = 0;
 }
 
 //自定义源节点 停止
 static void source_dev1_close(struct source_dev1_file_hdl *hdl)
 {
     //do something
+    printf("source_dev1 stats: frames=%u wait=%u drop=%u/%u remain=%u/%u\n",
+           source_frame_count, source_wait_count,
+           source_drop_count[0], source_drop_count[1],
+           cbuf_get_data_len(&output_cbuf_h[0]),
+           cbuf_get_data_len(&output_cbuf_h[1]));
     output_buff_free();
     free(output);
+    output = NULL;
 }
 
 /*
@@ -417,8 +411,6 @@ REGISTER_SOURCE_NODE_PLUG(source_dev1_file_plug) = {
 };
 
 #endif
-
-
 
 
 

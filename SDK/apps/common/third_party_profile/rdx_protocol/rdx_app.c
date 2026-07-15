@@ -84,6 +84,10 @@
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
+#include "rdx_playback_config.h"
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#include "rdx_playback.h"
+#endif
 
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -1450,6 +1454,10 @@ void rdx_app_device_record_handle(u8 scene)
         }
     }else{
         if(rp->run == RECORD_STATE_STOP){
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            /* 离线录音会立即启动，先在 app_core 结束本地回听会话。 */
+            rdx_playback_stop();
+#endif
             rp->run = RECORD_STATE_START;
             rp->formate = formate;
             rp->scene = scene;
@@ -2191,25 +2199,49 @@ int rdx_app_msg_handler(int *msg)
 
         case APP_MSG_REC_PREV:
             log_info("=== %s ---> APP_MSG_REC_PREV \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 切换到上一个录音文件播放
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_prev();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_NEXT:
             log_info("=== %s ---> APP_MSG_REC_NEXT \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 切换到下一个录音文件播放
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_next();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_FR:
             log_info("=== %s ---> APP_MSG_REC_FR \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 快退
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_fr();
+#endif
             ret = TRUE;
             break;
 
         case APP_MSG_REC_FF:
             log_info("=== %s ---> APP_MSG_REC_FF \r", __FUNCTION__);
-            // TODO: 对接录音播放模块 — 快进
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_ff();
+#endif
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_PLAY:
+            log_info("=== %s ---> APP_MSG_REC_PLAY \r", __FUNCTION__);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_play();
+#endif
+            ret = TRUE;
+            break;
+
+        case APP_MSG_REC_PAUSE:
+            log_info("=== %s ---> APP_MSG_REC_PAUSE \r", __FUNCTION__);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_pause();
+#endif
             ret = TRUE;
             break;
 
@@ -2362,6 +2394,13 @@ APP_MSG_PROB_HANDLER(rdx_app_key_msg_entry) = {
  * param (*)
  * return (*)
  **************************************************************************/
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+void rdx_app_playback_content_changed(void)
+{
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED);
+}
+#endif
+
 void rdx_app_format_cb(u8 result)
 {
     /*----------------------------------------------------------------*/
@@ -2394,6 +2433,9 @@ void rdx_app_format_handle(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     //format sd card.
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+#endif
     rdx_uxfile_sd_format(NULL);
 }
 
@@ -2937,6 +2979,23 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
 #endif
 
 
+static void rdx_app_record_cmd_on_app_core(u32 packed_info)
+{
+    Record_info info = {
+        .cmd = (u8)(packed_info & 0xff),
+        .formate = (u8)((packed_info >> 8) & 0xff),
+        .type = (u8)((packed_info >> 16) & 0xff),
+    };
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (info.cmd == (RECORD_STATE_START + 0x30) ||
+        info.cmd == (RECORD_STATE_RESUME + 0x30)) {
+        rdx_playback_stop();
+    }
+#endif
+    rdx_record_cmd_handle(&info);
+}
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3033,6 +3092,9 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 break;
             }
             ops->sd_format_ack_indicate(0);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+#endif
             rdx_uxfile_sd_format(NULL);
             break;
         }
@@ -3119,7 +3181,19 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             if(!data || len < sizeof(ProtocolFileDeleteParams)) break;
             ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
             g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            pb_public_info_t playback_info;
+            rdx_playback_get_info(&playback_info);
+            if(playback_info.current_sn == (u32)p->file_sn){
+                rdx_playback_stop();
+            }
+#endif
             int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            if(ret >= 0){
+                rdx_playback_on_file_deleted((u32)p->file_sn);
+            }
+#endif
             ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
             break;
         }
@@ -3215,7 +3289,17 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 
         case PROTOCOL_EVENT_CMD_RECORD: {
             if(!data || len < sizeof(Record_info)) break;
-            rdx_record_cmd_handle((Record_info*)data);
+            Record_info *info = (Record_info *)data;
+            u32 packed_info = (u32)info->cmd |
+                              ((u32)info->formate << 8) |
+                              ((u32)info->type << 16);
+            int msg[3];
+            msg[0] = (int)rdx_app_record_cmd_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)packed_info;
+            if(os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)){
+                r_printf("record cmd app_core post err\r");
+            }
             break;
         }
 
@@ -3363,6 +3447,9 @@ void rdx_app_all_init(void)
 
     //record task init.
 	rdx_record_task_create();
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_init();
+#endif
 
     //wifi init.
 #if RDX_WIFI_ENABLE
