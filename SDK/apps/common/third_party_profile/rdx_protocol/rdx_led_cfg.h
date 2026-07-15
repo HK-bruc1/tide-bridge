@@ -186,18 +186,21 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
     },
     [RDX_LED_EFFECT_BLE_ADV_BLINK] = {
         .mode        = RDX_LED_MODE_BLINK,
-        .r = 128, .g = 0, .b = 128,            /* 紫色 */
+        .r = 0, .g = 0, .b = 255,                /* 蓝色 */
         .brightness  = 200,
         .on_ms       = 200,
         .interval_ms = 1000,
-        .timeout_ms  = 120000,                   /* 2分钟后自动灭灯 */
+        .timeout_ms  = RDX_LED_BLE_ADV_TIMEOUT_MS,
     },
     [RDX_LED_EFFECT_BLE_CONNECTED] = {
-        .mode        = RDX_LED_MODE_OFF,        /* BLE连接成功：无灯效 */
+        .mode        = RDX_LED_MODE_SOLID_TIMEOUT,
+        .r = 0, .g = 0, .b = 255,                /* 蓝色 */
+        .brightness  = 200,
+        .on_ms       = 5000,                     /* 长亮5秒后熄灭 */
     },
     [RDX_LED_EFFECT_RECORD_BREATH] = {
         .mode        = RDX_LED_MODE_BREATH,
-        .r = 255, .g = 165, .b = 0,             /* 橙色 */
+        .r = 255, .g = 255, .b = 255,            /* 白色 */
         .brightness  = 255,
         .cycle_ms    = 4000,
     },

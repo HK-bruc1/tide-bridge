@@ -110,7 +110,7 @@
 #define ADV_MODE_BIT_MASK_BOUND                         (6)
 
 #define RDX_BLE_ADV_INTERVAL_LOW                        (800)//(2400u)
-#define RDX_BLE_ADV_INTERVAL_CHANGE_TIMEOUT             (120 * 1000)
+#define RDX_BLE_ADV_INTERVAL_CHANGE_TIMEOUT             RDX_LED_BLE_ADV_TIMEOUT_MS
 
 #define RDX_SELF_MARK                                   "NV"
 #define RDX_BLE_ADV_DEV_COLOR_POSITION                  (18)

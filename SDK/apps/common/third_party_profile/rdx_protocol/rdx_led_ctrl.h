@@ -43,10 +43,10 @@ extern "C" {
 /* LED状态定义 */
 typedef enum {
     LED_STATE_OFF = 0,              /* 熄灭 */
-    LED_STATE_BLE_ADV_BLINK,        /* BLE未连：紫灯闪烁2分钟后熄灭 */
-    LED_STATE_BLE_CONNECTED,        /* BLE已连：无灯效 */
-    LED_STATE_BLE_DISCONNECTED,     /* BLE断开：紫灯闪烁2分钟后熄灭 */
-    LED_STATE_RECORD_BREATH,        /* 录音中：橙灯呼吸 */
+    LED_STATE_BLE_ADV_BLINK,        /* BLE未连：蓝灯闪烁，超时后熄灭 */
+    LED_STATE_BLE_CONNECTED,        /* BLE已连：蓝灯长亮5秒后熄灭 */
+    LED_STATE_BLE_DISCONNECTED,     /* BLE断开：蓝灯闪烁，超时后熄灭 */
+    LED_STATE_RECORD_BREATH,        /* 录音中：白灯呼吸 */
     LED_STATE_OTA_BLINK,            /* OTA升级中：3s闪两次（100ms间隔） */
     LED_STATE_DUT_BLINK,            /* DUT模式：黄灯1s一次闪烁 */
     LED_STATE_WIFI_BLINK,           /* BLE/WiFi传输：黄灯慢闪 */
@@ -55,6 +55,9 @@ typedef enum {
     LED_STATE_CHARGE_HIGH_BREATH,   /* 充电中电量80-100%：绿色呼吸灯 */
     LED_STATE_CHARGE_FULL,          /* 充满电：绿色常亮 */
 } rdx_led_state_e;
+
+/* BLE 未连接/断开后，蓝灯闪烁并维持快速广播的统一超时时间（ms） 之后同步进入慢广播与超时灯效 */
+#define RDX_LED_BLE_ADV_TIMEOUT_MS      (300 * 1000)
 
 /* LEGACY: 内部使用，业务代码请使用 rdx_led_scene_e + rdx_led_ctrl_set_scene() */
 
