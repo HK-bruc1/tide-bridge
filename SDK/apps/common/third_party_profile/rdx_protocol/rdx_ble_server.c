@@ -125,6 +125,9 @@ static void rdx_ble_mode_start_config_advertising(void);
 static void rdx_ble_mode_start_hogp_advertising(void);
 static u8   rdx_ble_mode_broadcast_suppressed(void);
 static void rdx_ble_mode_restart_hogp_advertising(void);
+#if TCFG_RDX_HOGP_ENABLE
+static void rdx_ble_mode_set_hogp_led_scene(rdx_led_scene_e scene);
+#endif
 static void rdx_ble_mode_sync_hogp_runtime(void);
 static void rdx_ble_mode_apply_requested_internal(u8 force, u8 start_adv);
 static void rdx_ble_mode_apply_requested(void);
@@ -1253,6 +1256,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 #if TCFG_RDX_HOGP_ENABLE
                             if (rdx_ble_connection_owner_is_hogp()) {
                                 rdx_hogp_on_connected(con_handle);
+                                rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                             }
 #endif
                             /* RDX App Config full init is only done for normal connection complete */
@@ -1276,6 +1280,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 #if TCFG_RDX_HOGP_ENABLE
                         if (rdx_ble_connection_owner_is_hogp()) {
                             rdx_hogp_on_connected(con_handle);
+                            rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                         }
 #endif
 
@@ -1339,6 +1344,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 #if TCFG_RDX_HOGP_ENABLE
                     if (prev_owner == RDX_BLE_OWNER_HOGP) {
                         rdx_hogp_on_disconnected(con_handle);
+                        rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
                     }
 #endif
 
@@ -2412,11 +2418,27 @@ static void rdx_ble_mode_start_hogp_advertising(void)
     rdx_hogp_mode_set(1);
     rdx_hogp_adv_start(g_rdx_ble_server_info.adv_interval_min,
                        rdx_ble_server_get_local_name());
+    rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_ADV_START);
 #else
     /* HOGP compiled off: fall back to RDX advertising */
     rdx_ble_server_adv_enable(1);
 #endif
 }
+
+#if TCFG_RDX_HOGP_ENABLE
+static void rdx_ble_mode_set_hogp_led_scene(rdx_led_scene_e scene)
+{
+    /* HOGP LED hooks must never affect the Config BLE identity.  Advertising
+     * has no owner yet, while connection/disconnection events do, so either
+     * state may establish the HOGP runtime boundary. */
+    if (rdx_ble_mode_get_advertised() != RDX_BLE_MODE_HOGP &&
+        rdx_ble_connection_owner_get() != RDX_BLE_OWNER_HOGP) {
+        return;
+    }
+
+    rdx_led_ctrl_set_scene(scene);
+}
+#endif
 
 /**************************************************************************
  * FUNCTION
@@ -2458,14 +2480,7 @@ static void rdx_ble_mode_restart_hogp_advertising(void)
         return;
     }
 
-    rdx_ble_server_adv_interval_change_timer_stop();
-#if TCFG_RDX_HOGP_ENABLE
-    rdx_hogp_mode_set(1);
-    rdx_hogp_adv_start(g_rdx_ble_server_info.adv_interval_min,
-                       rdx_ble_server_get_local_name());
-#else
-    rdx_ble_server_adv_enable(1);
-#endif
+    rdx_ble_mode_start_hogp_advertising();
 }
 
 static void rdx_ble_mode_sync_hogp_runtime(void)

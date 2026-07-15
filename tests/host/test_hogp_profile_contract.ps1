@@ -1459,6 +1459,34 @@ $legacyTablesPreserved = $KeyText -match 'key_table_io_num0_normal\[KEY_ACTION_M
 Add-CheckResult -Name 'C5_LEGACY_KEY_TABLES_PRESERVED' -Passed $legacyTablesPreserved `
     -Message $(if ($legacyTablesPreserved) { '' } else { 'rdx_key.c must preserve the five legacy key_table_io_num*_normal[] arrays' })
 
+# C6 HOGP reuses the BLE LED scenes behind compile-time and runtime gates
+$hogpLedHelperPattern = '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s+static\s+void\s+rdx_ble_mode_set_hogp_led_scene\s*\(\s*rdx_led_scene_e\s+scene\s*\)\s*\{(.*?)^\}\s*#endif'
+$hogpLedHelperMatch = [regex]::Match($ServerText, $hogpLedHelperPattern)
+$hogpLedGateOk = $false
+if ($hogpLedHelperMatch.Success) {
+    $hogpLedHelperBody = $hogpLedHelperMatch.Groups[1].Value
+    $hogpLedGateOk = ($hogpLedHelperBody -match 'rdx_ble_mode_get_advertised\s*\(\s*\)\s*!=\s*RDX_BLE_MODE_HOGP') -and
+                     ($hogpLedHelperBody -match 'rdx_ble_connection_owner_get\s*\(\s*\)\s*!=\s*RDX_BLE_OWNER_HOGP') -and
+                     ($hogpLedHelperBody -match 'rdx_led_ctrl_set_scene\s*\(\s*scene\s*\)')
+}
+Add-CheckResult -Name 'C6_HOGP_LED_GATE' -Passed $hogpLedGateOk `
+    -Message $(if ($hogpLedGateOk) { '' } else { 'HOGP LED helper must be compiled only with TCFG_RDX_HOGP_ENABLE and reject non-HOGP advertised/owner state' })
+
+$hogpLedAdvCount = [regex]::Matches($ServerText,
+    'rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_ADV_START\s*\)').Count
+$hogpLedConnectedCount = [regex]::Matches($ServerText,
+    'rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_CONNECTED\s*\)').Count
+$hogpLedDisconnectedCount = [regex]::Matches($ServerText,
+    'rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_DISCONNECTED\s*\)').Count
+$hogpLedRestartReusesStart = $restartFunctionMatch.Success -and
+                             ($restartFunctionMatch.Groups[1].Value -match 'rdx_ble_mode_start_hogp_advertising\s*\(\s*\)')
+$hogpLedLifecycleOk = ($hogpLedAdvCount -eq 1) -and
+                      ($hogpLedConnectedCount -eq 2) -and
+                      ($hogpLedDisconnectedCount -eq 1) -and
+                      $hogpLedRestartReusesStart
+Add-CheckResult -Name 'C6_HOGP_LED_LIFECYCLE' -Passed $hogpLedLifecycleOk `
+    -Message $(if ($hogpLedLifecycleOk) { '' } else { 'HOGP LED hooks must cover advertising, normal/enhanced connection, and disconnection; restart must reuse the advertising entry point' })
+
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------

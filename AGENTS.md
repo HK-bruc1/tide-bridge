@@ -15,11 +15,31 @@ The current branch adds an **RDX third-party BLE protocol stack** with a recent 
 
 ## Build commands
 
-All firmware builds run from `SDK/`.
+All firmware builds run from `SDK/`. The checked-in VS Code tasks in
+`SDK/.vscode/tasks.json` are the source of truth for build and test commands.
+
+### Windows
+
+Use the same wrapper as the VS Code `all` and `clean` tasks:
+
+```powershell
+cd SDK
+.\.vscode\winmk.bat all
+.\.vscode\winmk.bat clean
+```
+
+`winmk.bat` prepends `SDK/tools/utils` to `PATH` and invokes parallel `make`
+with `%NUMBER_OF_PROCESSORS%`. Prefer this wrapper over a bare `make` command
+on Windows so command-line builds match VS Code.
+
+### Linux
+
+The corresponding commands from `SDK/.vscode/tasks.json` are:
 
 ```bash
 cd SDK
-make
+make all -j`nproc`
+make clean -j`nproc`
 ```
 
 Outputs are produced under `SDK/cpu/br28/tools/` and then copied by the post-build script:
@@ -32,13 +52,7 @@ Outputs are produced under `SDK/cpu/br28/tools/` and then copied by the post-bui
 
 These are the files that ultimately land in `output/`.
 
-Other useful targets:
-
-```bash
-cd SDK
-make clean                 # remove objs/ and sdk.elf
-make VERBOSE=1             # verbose compile log
-```
+The VS Code default build task is `all`; the other firmware task is `clean`.
 
 The Makefile pre-build step generates several derived files from C source using the preprocessor (`-D__LD__ -E -P`):
 
@@ -70,16 +84,19 @@ The post-build script `SDK/cpu/br28/tools/download.bat` converts `sdk.elf` into 
 Run all host-side software validation tests through the unified entry point:
 
 ```powershell
-.\tests\host\run_host_tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script.
+Run that command from the repository root. The VS Code test task
+`test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
+the default test task.
 
 The host test runner currently covers:
 
 - `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
 - `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
 - `test_rdx_local_playback_config.ps1` - verifies the RDX local playback compile-time boundary: master switch propagation, decoder/encoder separation, guarded application and key wiring, public Source_Dev0 APIs, and recording-side fix independence.
+- `test_rdx_playback_navigation.ps1` - verifies local playback navigation, wrap/skip behavior, pause/resume state, seeking, and invalid-selection recovery.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
@@ -158,8 +175,8 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 
 1. Edit product configs in JL Studio; it regenerates `src/*.json` and `SDK/apps/earphone/board/br28/sdk_config.h/c`
 2. Add project-specific overrides only in `SDK/apps/earphone/include/t2620_project_config.h`
-3. Build: `cd SDK && make`
-4. Run host software checks: `.\tests\host\run_host_tests.ps1`
+3. Build on Windows: `cd SDK` then `.\.vscode\winmk.bat all`
+4. Run host software checks from the repository root: `powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1`
 5. Flash via JL Studio / `ISD_download.exe` using files in `SDK/cpu/br28/tools/download/earphone/` or copied `output/`
 
 ## Important files to know
@@ -167,8 +184,11 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `tests/host/run_host_tests.ps1` - unified host-side software test entry point
 - `tests/host/test_hogp_profile_contract.ps1` - host-side HOGP profile contract validation
 - `tests/host/test_rdx_local_playback_config.ps1` - host-side RDX local playback modularity validation
+- `tests/host/test_rdx_playback_navigation.ps1` - host-side playback navigation validation
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
+- `SDK/.vscode/tasks.json` — source of truth for VS Code build/test commands
+- `SDK/.vscode/winmk.bat` — Windows build wrapper used by the VS Code tasks
 - `SDK/apps/earphone/app_main.c` — tasks, main init
 - `SDK/apps/earphone/include/app_config.h` — includes sdk_config + t2620_project_config
 - `SDK/apps/earphone/include/t2620_project_config.h` — project overrides (DIP switch, ADKEY/LP-touch disable)
