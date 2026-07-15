@@ -567,7 +567,7 @@ void rdx_app_volume_indicate(s8 volume)
 
 /* Phase 6 C5: temporary HOGP debug adapter removed.
  * Key action execution moved to rdx_hogp_key_action.c; mode toggle uses
- * rdx_ble_mode_request_toggle() via KEY1 triple-click. */
+ * rdx_ble_mode_request_toggle() via KEY5 triple-click. */
 
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
@@ -618,26 +618,31 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        // Phase 6 C5: HOGP key action routing.
-        //   KEY1 (IO_NUM0) TRIPLE_CLICK -> toggle HOGP/Config mode.
-        //   KEY1~KEY5 CLICK             -> use HOGP when connected, otherwise fall back offline.
-        //   Other actions (LONG/HOLD/UP/...) fall through to legacy RDX tables.
+        // HOGP key action routing boundary:
+        //   KEY5 (IO_NUM4) TRIPLE_CLICK -> toggle HOGP/Config mode.
+        //   HOGP connected              -> consume every action; CLICK executes the HID keymap.
+        //   HOGP disconnected           -> dispatch through the legacy offline key table.
+        // Connected-but-unsupported actions must never leak into offline product behavior.
 #if TCFG_RDX_HOGP_ENABLE
         if (num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK) {
             rdx_ble_mode_request_toggle();
             *value = APP_MSG_NULL;
             return;
         }
-        if (index == KEY_ACTION_CLICK) {
-            if (rdx_hogp_keyboard_is_connected()) {
+
+        if (rdx_hogp_keyboard_is_connected()) {
+            if (index == KEY_ACTION_CLICK) {
                 int action_ret = rdx_hogp_key_action_click((u8)num_idx);
                 if (action_ret != 0) {
                     y_printf("[HOGP_KEY_ACTION] connected key %d execute failed: %d\n",
                              num_idx, action_ret);
                 }
-                *value = APP_MSG_NULL;
-                return;
             }
+
+            /* LONG/HOLD/UP and unimplemented multi-click actions are intentionally
+             * consumed while HID owns the keys. HOLD repeats, so do not log here. */
+            *value = APP_MSG_NULL;
+            return;
         }
 #endif
 

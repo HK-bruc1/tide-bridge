@@ -1249,22 +1249,24 @@ $toggleUsesRequest = $serverCodeOnly -match '(?s)void\s+rdx_ble_mode_request_tog
 Add-CheckResult -Name 'C5_TOGGLE_USES_REQUEST_HOGP' -Passed $toggleUsesRequest `
     -Message $(if ($toggleUsesRequest) { '' } else { 'rdx_ble_mode_request_toggle() in rdx_ble_server.c must call the server-side rdx_ble_mode_request() helper' })
 
-# C5.7 KEY1 triple-click toggles mode through the narrow API, not private HOGP APIs
-$appTripleClickToggle = $AppCText -match 'KEY_ACTION_TRIPLE_CLICK' -and
-                        $AppCText -match 'rdx_ble_mode_request_toggle\s*\('
+# C5.7 KEY5 (IO_NUM4) triple-click toggles mode through the narrow API, not
+#      private HOGP APIs. Freeze the physical-key index as a product contract.
+$appTripleClickToggle = $AppCText -match 'if\s*\(\s*num_idx\s*==\s*4\s*&&\s*index\s*==\s*KEY_ACTION_TRIPLE_CLICK\s*\)\s*\{[^}]*rdx_ble_mode_request_toggle\s*\(' -and
+                        $AppCText -notmatch 'if\s*\(\s*num_idx\s*==\s*0\s*&&\s*index\s*==\s*KEY_ACTION_TRIPLE_CLICK'
 $appNoPrivateHogpMode = $AppCText -notmatch '(?<!rdx_)\bhogp_mode_set\b' -and
                         $AppCText -notmatch '(?<!rdx_)\bhogp_adv_start\b' -and
                         $AppCText -notmatch '(?<!rdx_)\bhogp_adv_stop\b'
-Add-CheckResult -Name 'C5_KEY1_TRIPLE_CLICK_TOGGLE' -Passed ($appTripleClickToggle -and $appNoPrivateHogpMode) `
-    -Message 'KEY1 triple-click must call rdx_ble_mode_request_toggle() and rdx_app.c must not call private hogp_* mode/adv APIs'
+Add-CheckResult -Name 'C5_KEY5_TRIPLE_CLICK_TOGGLE' -Passed ($appTripleClickToggle -and $appNoPrivateHogpMode) `
+    -Message 'KEY5 triple-click must call rdx_ble_mode_request_toggle() and rdx_app.c must not call private hogp_* mode/adv APIs'
 
-# C5.8 KEY1 triple-click is a formal HOGP path independent of the test keymap;
-#      CLICK routes exclusively by HOGP connection state under the same master switch;
-#      LONG/HOLD/UP are not consumed by either path.
+# C5.8 KEY5 triple-click is a formal HOGP path independent of the test keymap.
+#      While HOGP owns a connection, CLICK executes the HID keymap and every
+#      physical-key action is consumed. Only a disconnected HOGP path may fall
+#      through to the legacy offline IO table.
 $tripleClickBlockMatch = [regex]::Match($AppCText,
     '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n(?:(?!#if|#endif).)*?KEY_ACTION_TRIPLE_CLICK(?:(?!#endif).)*?#\s*endif')
-$clickBlockMatch = [regex]::Match($AppCText,
-    '(?sm)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n(?:(?!#if|#endif).)*?if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)(?:(?!#endif).)*?#\s*endif')
+$connectedRoutingMatch = [regex]::Match($AppCText,
+    '(?sm)if\s*\(\s*rdx_hogp_keyboard_is_connected\s*\(\s*\)\s*\)\s*\{\s*if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)\s*\{.*?rdx_hogp_key_action_click\s*\(\s*\(u8\)num_idx\s*\).*?\}\s*(?:/\*.*?\*/\s*)?\*value\s*=\s*APP_MSG_NULL\s*;\s*return\s*;\s*\}')
 
 $keyActionRoutingOk = $false
 $parts = @()
@@ -1280,29 +1282,31 @@ if ($tripleClickBlockMatch.Success) {
 }
 
 $hasClickExecutor = $false
-if ($clickBlockMatch.Success) {
-    $clickBlock = $clickBlockMatch.Groups[0].Value
-    $hasClickExecutor = $clickBlock -match 'rdx_hogp_key_action_click\s*\('
+if ($connectedRoutingMatch.Success) {
+    $connectedBlock = $connectedRoutingMatch.Groups[0].Value
+    $hasClickExecutor = $connectedBlock -match 'rdx_hogp_key_action_click\s*\('
 } else {
-    $parts += 'TCFG_RDX_HOGP_ENABLE block with KEY_ACTION_CLICK not found'
+    $parts += 'HOGP-connected routing block with CLICK executor and unconditional consume not found'
 }
 
-$combinedBlock = ($tripleClickBlockMatch.Groups[0].Value + "`n" + $clickBlockMatch.Groups[0].Value)
-$noLongHoldUp = $combinedBlock -notmatch 'KEY_ACTION_LONG' -and
-                $combinedBlock -notmatch 'KEY_ACTION_HOLD\b' -and
-                $combinedBlock -notmatch 'KEY_ACTION_HOLDUP'
-
-$keyActionRoutingOk = $hasTripleClick -and $hasClickExecutor -and $noLongHoldUp
-if (-not $hasTripleClick) { $parts += 'KEY1 TRIPLE_CLICK -> rdx_ble_mode_request_toggle()' }
+$keyActionRoutingOk = $hasTripleClick -and $hasClickExecutor
+if (-not $hasTripleClick) { $parts += 'KEY5 TRIPLE_CLICK -> rdx_ble_mode_request_toggle()' }
 if (-not $hasClickExecutor) { $parts += 'CLICK -> rdx_hogp_key_action_click()' }
-if (-not $noLongHoldUp) { $parts += 'LONG/HOLD/UP must not appear in executor block' }
 $keyActionRoutingMessage = if ($parts.Count -gt 0) { 'C5 key action routing contract missing: ' + ($parts -join ', ') } else { '' }
 Add-CheckResult -Name 'C5_KEY_ACTION_ROUTING' -Passed $keyActionRoutingOk -Message $keyActionRoutingMessage
 
-$hidConnectionRoutingOk = $clickBlockMatch.Success -and
-    ($clickBlockMatch.Groups[0].Value -match '(?s)if\s*\(\s*index\s*==\s*KEY_ACTION_CLICK\s*\)\s*\{\s*if\s*\(\s*rdx_hogp_keyboard_is_connected\s*\(\s*\)\s*\)\s*\{.*?rdx_hogp_key_action_click\s*\(.*?\*value\s*=\s*APP_MSG_NULL\s*;\s*return\s*;')
-Add-CheckResult -Name 'C5_HID_CONNECTION_EXCLUSIVE_ROUTING' -Passed $hidConnectionRoutingOk `
-    -Message $(if ($hidConnectionRoutingOk) { '' } else { 'CLICK must execute and consume HOGP actions only inside rdx_hogp_keyboard_is_connected(), otherwise fall through to the offline IO table' })
+$hidConnectionRoutingOk = $connectedRoutingMatch.Success
+Add-CheckResult -Name 'C5_HID_CONNECTED_ALL_ACTIONS_CONSUMED' -Passed $hidConnectionRoutingOk `
+    -Message $(if ($hidConnectionRoutingOk) { '' } else { 'When HOGP is connected, CLICK must execute the HID action and all key actions must be consumed unconditionally' })
+
+$connectedRoutePos = $AppCText.IndexOf('if (rdx_hogp_keyboard_is_connected())')
+$offlineLookupPos = $AppCText.IndexOf('pk_r = rdx_key_get_io_num_table(num_idx, scene);')
+$offlineOnlyWhenDisconnected = $connectedRoutePos -ge 0 -and
+                               $offlineLookupPos -gt $connectedRoutePos -and
+                               $connectedRoutingMatch.Success -and
+                               ($connectedRoutingMatch.Groups[0].Value -notmatch 'rdx_key_get_io_num_table')
+Add-CheckResult -Name 'C5_OFFLINE_FALLBACK_ONLY_WHEN_HID_DISCONNECTED' -Passed $offlineOnlyWhenDisconnected `
+    -Message $(if ($offlineOnlyWhenDisconnected) { '' } else { 'The legacy IO table must be reached only after the HOGP-connected branch has consumed and returned for every action' })
 
 # C5.9 HOGP executor is the sole owner of the built-in test keymap
 $defaultActionsInExecutor = $KeyActionText -match 's_rdx_hogp_test_keymap\s*\[\s*RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT\s*\]' -and
