@@ -8,6 +8,15 @@
  * by the JL visual configuration tool.
  */
 
+/* T2620 currently uses the T2616 feature set with a customer-neutral RDX app. */
+#ifndef RDX_AI_SEL_APP
+#define RDX_AI_SEL_APP                           APP_CUSTOM_TEST_EN
+#endif
+
+#ifndef RDX_SEL_DEVICE
+#define RDX_SEL_DEVICE                           DEVICE_BEANSTALK_RKB_T2620
+#endif
+
 #ifndef TCFG_DIP_SWITCH_POWER_ENABLE
 #define TCFG_DIP_SWITCH_POWER_ENABLE              1
 #endif

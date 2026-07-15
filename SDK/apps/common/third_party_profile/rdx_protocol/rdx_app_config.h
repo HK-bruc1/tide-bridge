@@ -60,7 +60,8 @@
 #define APP_SHUGUO_EN									(1 << 23) // 数果
 #define APP_VASCO_EN									(1 << 24) // vasco
 #define APP_ABC_EN										(1 << 25) // ABC
-#define APP_MLAMPWXB_EN									(1 << 26) // 明略科技2 mlampwxb 
+#define APP_MLAMPWXB_EN									(1 << 26) // 明略科技2 mlampwxb
+#define APP_CUSTOM_TEST_EN								(1 << 27) // Customer-neutral project test app
 
 
 //device list
@@ -77,12 +78,18 @@
 #define DEVICE_ZENCORD_EP_T2616							(0x3000) //Zenchord Earphone.
 #define DEVICE_ZENCORD_CC_T2616							(0x3010) //Zenchord Case.
 
+#define DEVICE_BEANSTALK_RKB_T2620						(0x3020) //Beanstalk recorder keyboard.
+
 
 /*注意App和硬件的适配*/
 //choose Application.
-#define RDX_AI_SEL_APP									APP_ZENCHORD_EN//APP_BRANDWORKS_EN//APP_NEVIEW_EN //APP_TURING_EN //APP_NOTTA_EN
+#ifndef RDX_AI_SEL_APP
+#define RDX_AI_SEL_APP									APP_CUSTOM_TEST_EN
+#endif
 //choose hardware.
-#define RDX_SEL_DEVICE									DEVICE_ZENCORD_CC_T2616 //DEVICE_ZENCORD_CC_T2616
+#ifndef RDX_SEL_DEVICE
+#define RDX_SEL_DEVICE									DEVICE_BEANSTALK_RKB_T2620
+#endif
 
 //----------------------------------------------------------------------------
 // 产品形态分类宏 (由 RDX_SEL_DEVICE 派生, 与 PRODUCT_CODE 对应)
@@ -90,12 +97,14 @@
 //   - "602" : 录音卡片 (Record Card)     — DEVICE_RDX_BJ_T2403 等
 //   - "603" : 耳机仓 (Charge Case, CC)   — DEVICE_*_CC_*
 //   - "604" : 录音 PIN
+//   - "607" : 录音键盘 (Recorder Keyboard)
 //
 // RDX_PRODUCT_IS_CHARGE_CASE = 1 时启用仓配对 (*APP#devpair / devunpair),
 // EarphoneInfo 持久化, BLE readchar 含 ep_mac/case_mac/wifi_mac 全量信息;
 // 其它产品 (录音卡片/PIN) 维持原有"仅写 AuthKey"的认证码上报行为.
 //----------------------------------------------------------------------------
 #if (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616) || \
+    (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620) || \
     (RDX_SEL_DEVICE == DEVICE_DACOM_CC_T2401) || \
     (RDX_SEL_DEVICE == DEVICE_1MORE_CC_T2402)
 #define RDX_PRODUCT_IS_CHARGE_CASE						(1)
@@ -139,7 +148,9 @@
 #define BJ_BOARD_VERSION_02								(2) //WIFI + EMMC + OLED
 #define BJ_BOARD_VERSION_03								(3)
 
-#if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403) || (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616)
+#if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403) || \
+    (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616) || \
+    (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
 #define RDX_BJ_VERSION									BJ_BOARD_VERSION_03
 #endif
 
@@ -637,6 +648,35 @@
 
 #undef  WIFI_AP_SSID_SUFFIX_MODE
 #define WIFI_AP_SSID_SUFFIX_MODE                WIFI_AP_SSID_SUFFIX_MAC_TAIL3
+
+#endif
+
+//=========================================================================================
+#elif (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN)
+
+//-------------------- device model --------------------
+#if (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
+
+#define PRODUCT_TYPE                           "K1"
+
+//AI translate.
+#define RDX_AI_TRANSLATE_SUPPORT               (0)
+//BLE advertise messages.
+#define BT_NAME                                "Beanstalk RKB"
+#define BLE_LOCAL_NAME                         "Beanstalk RKB"
+//firmware & hardware version.
+#define FACTORY_CODE                           "BEANTK"
+#define FACTORY_CODE_SIZE                      strlen(FACTORY_CODE)
+#define PRODUCT_CODE                           "607"
+#define PRODUCT_CODE_SIZE                      strlen(PRODUCT_CODE)
+//wifi information.
+#define WIFI_AP_SSID                           "Beanstalk RKB"
+#define WIFI_AP_PASSWORD                       "88888888"
+
+#define FIRMWARE_VERSION                       "1.0.0"
+#define FIRMWARE_VERSION_HEX                   0x00010000
+#define HARDWARE_VERSION                       "0.0.1"
+#define HARDWARE_VERSION_HEX                   0x00000001
 
 #endif
 

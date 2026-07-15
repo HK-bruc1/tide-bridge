@@ -91,7 +91,7 @@ void sys_auto_shut_down_enable(void)
     log_info("sys_auto_shut_down_enable\n");
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-#if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403) || (RDX_SEL_DEVICE == DEVICE_DACOM_CC_T2401) || (RDX_SEL_DEVICE == DEVICE_1MORE_CC_T2402) || (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616)
+#if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403) || (RDX_SEL_DEVICE == DEVICE_DACOM_CC_T2401) || (RDX_SEL_DEVICE == DEVICE_1MORE_CC_T2402) || (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616) || (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
     // extern RdxWifiInfo* rdx_app_get_wifi_info(void);
     extern bool rdx_app_get_dut_status(void);
     // extern RecordStatus* rdx_record_get_status(void);
@@ -272,4 +272,3 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
 }
 
 #endif // (TCFG_USER_TWS_ENABLE == 0)
-

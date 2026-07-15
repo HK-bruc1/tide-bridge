@@ -62,10 +62,8 @@
 #define ABILITY_RESERVED_BYTE4          (0x00)
 
 #define RDX_DEVICE_ABILITY  (ABILITY_LOCAL_STORAGE       | \
-                             ABILITY_WIFI_AP             | \
                              ABILITY_CONFERENCE_RECORDING | \
                              ABILITY_RTC                 | \
-                             ABILITY_WIFI_AP_V2          | \
                              ABILITY_RECORD_MARK         | \
                              ABILITY_RECORD_PAUSE_RESUME)
 
