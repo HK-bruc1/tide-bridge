@@ -45,24 +45,24 @@ extern "C" {
 #define RDX_HOGP_ATT_FLAG_DYNAMIC                        0x0100
 
 #define RDX_HOGP_CHAR_PROP_PROTOCOL_MODE                 (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE)
-#define RDX_HOGP_CHAR_PROP_INPUT_REPORT                  (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE | RDX_HOGP_ATT_PROP_NOTIFY)
+#define RDX_HOGP_CHAR_PROP_INPUT_REPORT                  (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_NOTIFY)
 #define RDX_HOGP_CHAR_PROP_REPORT_MAP                    RDX_HOGP_ATT_PROP_READ
 #define RDX_HOGP_CHAR_PROP_HID_INFORMATION               RDX_HOGP_ATT_PROP_READ
 #define RDX_HOGP_CHAR_PROP_CONTROL_POINT                 RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE
 #define RDX_HOGP_CHAR_PROP_OUTPUT_REPORT                 (RDX_HOGP_ATT_PROP_READ | RDX_HOGP_ATT_PROP_WRITE_WITHOUT_RESPONSE | RDX_HOGP_ATT_PROP_WRITE)
 
-#define RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE           RDX_HOGP_CHAR_PROP_PROTOCOL_MODE
+#define RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE           (RDX_HOGP_CHAR_PROP_PROTOCOL_MODE | RDX_HOGP_ATT_FLAG_DYNAMIC)
 #define RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE            (RDX_HOGP_CHAR_PROP_INPUT_REPORT | RDX_HOGP_ATT_FLAG_DYNAMIC)
 #define RDX_HOGP_ATT_FLAGS_REPORT_MAP_VALUE              (RDX_HOGP_CHAR_PROP_REPORT_MAP | RDX_HOGP_ATT_FLAG_DYNAMIC)
 #define RDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE         (RDX_HOGP_CHAR_PROP_HID_INFORMATION | RDX_HOGP_ATT_FLAG_DYNAMIC)
 #define RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE           (RDX_HOGP_CHAR_PROP_CONTROL_POINT | RDX_HOGP_ATT_FLAG_DYNAMIC)
-#define RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE           RDX_HOGP_CHAR_PROP_OUTPUT_REPORT
+#define RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE           (RDX_HOGP_CHAR_PROP_OUTPUT_REPORT | RDX_HOGP_ATT_FLAG_DYNAMIC)
 
 #define RDX_HOGP_CCC_DEFAULT_VALUE                       0x0000
 #define RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE             0x00
 
 /******************************************************************************
-* HID Service handles (0x0016-0x0022)
+* HID Service handles (0x0016-0x0025)
 ******************************************************************************/
 #define HID_SERVICE_HANDLE                                              0x0016
 #define HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE                         0x0017
@@ -78,20 +78,13 @@ extern "C" {
 #define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE                         0x0021
 #define HID_CONTROL_POINT_VALUE_HANDLE                                  0x0022
 
+#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                         0x0023
+#define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0024
+#define HID_OUTPUT_REPORT_REFERENCE_HANDLE                              0x0025
+
 /* Handle-range helpers */
 #define HID_SERVICE_START_HANDLE                                        HID_SERVICE_HANDLE
-#define HID_SERVICE_END_HANDLE                                          HID_CONTROL_POINT_VALUE_HANDLE
-
-/******************************************************************************
-* Output Report (Profile v1 compatibility debt)
-*
-* Handle 0x0029 lives outside the HID Service range (0x0016-0x0022). It is
-* intentionally NOT included in HID_SERVICE_END_HANDLE; write routing must
-* handle it separately.
-******************************************************************************/
-#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                         0x0028
-#define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0029
-#define HID_OUTPUT_REPORT_REFERENCE_HANDLE                              0x002a
+#define HID_SERVICE_END_HANDLE                                          HID_OUTPUT_REPORT_REFERENCE_HANDLE
 
 /******************************************************************************
 * Report Map (Standard 70-byte boot keyboard report descriptor)

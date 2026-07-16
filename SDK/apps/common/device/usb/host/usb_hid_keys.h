@@ -12,6 +12,8 @@
 #ifndef USB_HID_KEYS
 #define USB_HID_KEYS
 
+#include "../../hid/hid_keyboard_usage.h"
+
 struct keyboard_data_t {
     u8 fun_key;
     u8 res;
@@ -48,14 +50,14 @@ struct mouse_point_t {
  * Modifier masks - used for the first byte in the HID report.
  * NOTE: The second byte in the report is reserved, 0x00
  */
-#define _KEY_MOD_LCTRL  0x01
-#define _KEY_MOD_LSHIFT 0x02
-#define _KEY_MOD_LALT   0x04
-#define _KEY_MOD_LMETA  0x08
-#define _KEY_MOD_RCTRL  0x10
-#define _KEY_MOD_RSHIFT 0x20
-#define _KEY_MOD_RALT   0x40
-#define _KEY_MOD_RMETA  0x80
+#define _KEY_MOD_LCTRL  HID_KEYBOARD_MOD_LCTRL
+#define _KEY_MOD_LSHIFT HID_KEYBOARD_MOD_LSHIFT
+#define _KEY_MOD_LALT   HID_KEYBOARD_MOD_LALT
+#define _KEY_MOD_LMETA  HID_KEYBOARD_MOD_LGUI
+#define _KEY_MOD_RCTRL  HID_KEYBOARD_MOD_RCTRL
+#define _KEY_MOD_RSHIFT HID_KEYBOARD_MOD_RSHIFT
+#define _KEY_MOD_RALT   HID_KEYBOARD_MOD_RALT
+#define _KEY_MOD_RMETA  HID_KEYBOARD_MOD_RGUI
 
 /**
  * Scan codes - last N slots in the HID report (usually 6).
@@ -65,13 +67,13 @@ struct mouse_point_t {
  * KEY_ERR_OVF in all slots to indicate this condition.
  */
 
-#define _KEY_NONE 0x00 // No key pressed
-#define _KEY_ERR_OVF 0x01 //  Keyboard Error Roll Over - used for all slots if too many keys are pressed ("Phantom key")
+#define _KEY_NONE HID_KEYBOARD_USAGE_NONE // No key pressed
+#define _KEY_ERR_OVF HID_KEYBOARD_USAGE_ERROR_ROLLOVER // Keyboard Error Roll Over
 // 0x02 //  Keyboard POST Fail
 // 0x03 //  Keyboard Error Undefined
-#define _KEY_A 0x04 // Keyboard a and A
+#define _KEY_A HID_KEYBOARD_USAGE_A // Keyboard a and A
 #define _KEY_B 0x05 // Keyboard b and B
-#define _KEY_C 0x06 // Keyboard c and C
+#define _KEY_C HID_KEYBOARD_USAGE_C // Keyboard c and C
 #define _KEY_D 0x07 // Keyboard d and D
 #define _KEY_E 0x08 // Keyboard e and E
 #define _KEY_F 0x09 // Keyboard f and F
@@ -90,9 +92,9 @@ struct mouse_point_t {
 #define _KEY_S 0x16 // Keyboard s and S
 #define _KEY_T 0x17 // Keyboard t and T
 #define _KEY_U 0x18 // Keyboard u and U
-#define _KEY_V 0x19 // Keyboard v and V
+#define _KEY_V HID_KEYBOARD_USAGE_V // Keyboard v and V
 #define _KEY_W 0x1a // Keyboard w and W
-#define _KEY_X 0x1b // Keyboard x and X
+#define _KEY_X HID_KEYBOARD_USAGE_X // Keyboard x and X
 #define _KEY_Y 0x1c // Keyboard y and Y
 #define _KEY_Z 0x1d // Keyboard z and Z
 
@@ -107,9 +109,9 @@ struct mouse_point_t {
 #define _KEY_9 0x26 // Keyboard 9 and (
 #define _KEY_0 0x27 // Keyboard 0 and )
 
-#define _KEY_ENTER 0x28 // Keyboard Return (ENTER)
+#define _KEY_ENTER HID_KEYBOARD_USAGE_ENTER // Keyboard Return (ENTER)
 #define _KEY_ESC 0x29 // Keyboard ESCAPE
-#define _KEY_BACKSPACE 0x2a // Keyboard DELETE (Backspace)
+#define _KEY_BACKSPACE HID_KEYBOARD_USAGE_BACKSPACE // Keyboard DELETE (Backspace)
 #define _KEY_TAB 0x2b // Keyboard Tab
 #define _KEY_SPACE 0x2c // Keyboard Spacebar
 #define _KEY_MINUS 0x2d // Keyboard - and _
@@ -286,14 +288,14 @@ struct mouse_point_t {
 // 0xdc  Keypad Decimal
 // 0xdd  Keypad Hexadecimal
 
-#define _KEY_LEFTCTRL 0xe0 // Keyboard Left Control
-#define _KEY_LEFTSHIFT 0xe1 // Keyboard Left Shift
-#define _KEY_LEFTALT 0xe2 // Keyboard Left Alt
-#define _KEY_LEFTMETA 0xe3 // Keyboard Left GUI
-#define _KEY_RIGHTCTRL 0xe4 // Keyboard Right Control
-#define _KEY_RIGHTSHIFT 0xe5 // Keyboard Right Shift
-#define _KEY_RIGHTALT 0xe6 // Keyboard Right Alt
-#define _KEY_RIGHTMETA 0xe7 // Keyboard Right GUI
+#define _KEY_LEFTCTRL HID_KEYBOARD_USAGE_LEFT_CTRL // Keyboard Left Control
+#define _KEY_LEFTSHIFT HID_KEYBOARD_USAGE_LEFT_SHIFT // Keyboard Left Shift
+#define _KEY_LEFTALT HID_KEYBOARD_USAGE_LEFT_ALT // Keyboard Left Alt
+#define _KEY_LEFTMETA HID_KEYBOARD_USAGE_LEFT_GUI // Keyboard Left GUI
+#define _KEY_RIGHTCTRL HID_KEYBOARD_USAGE_RIGHT_CTRL // Keyboard Right Control
+#define _KEY_RIGHTSHIFT HID_KEYBOARD_USAGE_RIGHT_SHIFT // Keyboard Right Shift
+#define _KEY_RIGHTALT HID_KEYBOARD_USAGE_RIGHT_ALT // Keyboard Right Alt
+#define _KEY_RIGHTMETA HID_KEYBOARD_USAGE_RIGHT_GUI // Keyboard Right GUI
 
 #define _KEY_MEDIA_PLAYPAUSE 0xe8
 #define _KEY_MEDIA_STOPCD 0xe9
@@ -350,4 +352,3 @@ struct mouse_point_t {
 #define LED_CAPS_LOCK    0x02
 #define LED_SCROLL_CLOCK 0x04
 #endif
-

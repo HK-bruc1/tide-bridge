@@ -69,6 +69,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
+#include "rdx_hogp_keymap_config.h"
 #include "rdx_protocol.h"
 #include "xxpUart.h"
 #include "rdx_key.h"
@@ -1707,6 +1708,7 @@ void rdx_app_dut_function_close_all(void)
 /**************************************************************************
  * function: rdx_app_custom_command_parse
  * description: custom通道指令解析（由rdx_protocol_handle_custom_cmd调用）
+ *              hogpkm 交给正式 HOGP keymap 配置模块
  *              ft_ 前缀的产线测试指令交给 rdx_dut 模块处理
  * param (char*) cmd   - 指令名 (e.g. "ft_dut", "ft_oled")
  * param (char*) value - 指令值 (e.g. "1", "0")
@@ -1718,6 +1720,11 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
         return;
     }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);
+
+    if(strcmp(cmd, RDX_HOGP_KEYMAP_CUSTOM_CMD) == 0){
+        rdx_hogp_keymap_config_handle_custom(value);
+        return;
+    }
 
     if(strstr((char*)cmd, "ft_") != NULL){
         rdx_dut_ble_cmd_handle(cmd, value);
@@ -3368,6 +3375,9 @@ void rdx_app_tasks_init(void)
 
     //key action executor initial (after BLE server / HOGP submodule).
     rdx_hogp_key_action_init();
+
+    //formal APP keymap protocol and persisted active keymap.
+    rdx_hogp_keymap_config_init();
 
     //ble send task init.
     protocol_cbs.rdx_protocol_cb = rdx_app_protocol_handle;

@@ -267,6 +267,10 @@ int syscfg_tools_init(void);
 #define 	VM_RDX_CHARGE_TIME_INFO     157
 #define     VM_RDX_DAT_VERSION          159  // DAT全量扫描标志（0xAA=已完成, 其他=需扫描）
 #define     VM_RDX_KEY_DUT_DISABLED     160  // 按键进DUT禁用标志（0xAA=已禁用）
+#define     VM_RDX_HOGP_KEYMAP_SLOT_A   161
+#define     VM_RDX_HOGP_KEYMAP_SLOT_B   162
+#define     VM_RDX_HOGP_KEYMAP_COMMIT_A 163
+#define     VM_RDX_HOGP_KEYMAP_COMMIT_B 164
 //---------------------------------------------------------------------------------//
 
 #define     CFG_ONLINE_EQ_DRC_DATA_ID   254//在线调试保存参数的id
@@ -365,4 +369,3 @@ int syscfg_tools_init(void);
 
 
 #endif
-

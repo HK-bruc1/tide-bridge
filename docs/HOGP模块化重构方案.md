@@ -2,34 +2,42 @@
 
 > 适用项目：VibeCoding Keyboard / T2620 / JL AC701N（BR28）
 > 文档定位：本文件合并了原重构方案与收尾实施方案，是 HOGP Profile v1 的唯一重构与收尾依据。
-> 当前结论：模块化重构及 host 侧软件契约已经落地；模式切换键索引存在一处已确认的不一致，固件双配置构建和硬件回归仍需完成。
+> 当前结论：HOGP HID 模块、正式 APP keymap 下发路径、VM 持久化和 host 侧软件契约已经落地；模式切换键索引存在一处已确认的不一致，固件双配置构建和完整硬件回归仍需完成。
 
 ## 1. 关键产品状态
 
-### 1.1 当前按键输入是测试路径
+### 1.1 正式 APP 配键路径已接入
 
-**BLE APP 的键值下发形式尚未确定，因此正式按键配置路径没有接入。当前固件使用内置五键测试 keymap 验证 HOGP 输入链路，不能视为已经支持 BLE APP 配键。**
+**BLE APP 通过 RDX `custom/hogpkm` 命令下发五键 keymap 的正式路径已经接入。当前固件可以接收 APP 下发的 keymap、校验并应用到 HOGP Key Action executor，并通过 VM 持久化保存。硬件测试已确认 SET 后可生效，READ 可读回，并且重启/重新初始化后配置可恢复。**
 
 代码事实如下：
 
-- T2620 在 `t2620_project_config.h` 中设置 `RDX_HOGP_KEY_ACTION_TEST_ENABLE=1`。
-- `rdx_hogp_key_action_init()` 因此调用 `rdx_hogp_key_action_load_test_keymap()`，把固件内置测试表载入 RAM active keymap。
-- 当前测试 keymap 按 `num_idx=0..4` 顺序加载，映射关系如下。
-- 关闭测试开关后，`rdx_hogp_key_action_load_default_keymap()` 只会清空 active keymap，不会从 BLE APP 或 VM 恢复正式配置。
-- `rdx_hogp_key_action_keymap_apply()` 目前只是 RAM 内部接口；仓库中没有 BLE APP 命令解析或其他生产调用方。
-- 当前未定义 APP 下发帧格式、版本/长度/校验、大小端与对齐、整表或增量更新、VM 持久化 ABI、事务和失败回滚。
+- `rdx_app_custom_command_parse()` 将 `hogpkm` custom 命令交给 `rdx_hogp_keymap_config_handle_custom()`。
+- `rdx_hogp_keymap_protocol.c` 负责 v1 wire frame 的 HEX 解码、版本/长度/CRC 校验、opcode 解析、HID usage 白名单校验和响应编码。
+- `rdx_hogp_keymap_config.c` 负责 Config owner 鉴权、pending 串行化、revision/idempotency、SET/GET/CAPS/RESET 分发、executor apply、VM commit 和失败回包。
+- `rdx_hogp_keymap_store.c` 负责 A/B VM 持久化记录和提交记录，降低掉电中断造成配置损坏的风险。
+- `rdx_hogp_key_action.c` 仍然只负责 RAM active keymap、Keyboard Report 转换、click 发送和 release timer，不直接解析 BLE APP 帧或访问 VM。
+- `RDX_HOGPKM_TRACE_ENABLE` 默认关闭；排查 APP 下发问题时可临时打开，输出解析、校验、apply、VM commit、回包和队列状态。
 
-| 产品键 | key value | `num_idx` | GPIO | 测试动作 |
+当前 v1 keymap 是完整五键表，每个物理键固定 7 字节：
+
+```text
+[modifier, usage1, usage2, usage3, usage4, usage5, usage6]
+```
+
+KEY1-KEY5 顺序仍按产品物理映射固定：
+
+| 产品键 | key value | `num_idx` | GPIO | 当前正式 keymap entry |
 |---|---|---:|---|---|
-| KEY1 | `KEY_IO_NUM0` | 0 | PB2 | `Ctrl+C` |
-| KEY2 | `KEY_IO_NUM1` | 1 | PG7 | `Ctrl+V` |
-| KEY3 | `KEY_IO_NUM2` | 2 | PB4 | `Ctrl+X` |
-| KEY4 | `KEY_IO_NUM3` | 3 | PG8 | `Backspace` |
-| KEY5 | `KEY_IO_NUM4` | 4 | PC2 | `Enter` |
+| KEY1 | `KEY_IO_NUM0` | 0 | PB2 | payload bytes 0-6 |
+| KEY2 | `KEY_IO_NUM1` | 1 | PG7 | payload bytes 7-13 |
+| KEY3 | `KEY_IO_NUM2` | 2 | PB4 | payload bytes 14-20 |
+| KEY4 | `KEY_IO_NUM3` | 3 | PG8 | payload bytes 21-27 |
+| KEY5 | `KEY_IO_NUM4` | 4 | PC2 | payload bytes 28-34 |
 
-该映射同时由 `sdk_config.c` 的 GPIO 配置、`app_main.c` 的 KEY-GPIO 日志、`rdx_key.c` 的旧按键表注释和 HOGP 测试 keymap 交叉确认。
+该映射同时由 `sdk_config.c` 的 GPIO 配置、`app_main.c` 的 KEY-GPIO 日志、`rdx_key.c` 的旧按键表注释、HOGP executor 的 key index 和正式 keymap payload 顺序交叉确认。
 
-因此，正式路径必须等 BLE APP 键值协议确定后再接入：
+正式路径如下：
 
 ```text
 RDX BLE APP 业务命令
@@ -40,7 +48,7 @@ RDX BLE APP 业务命令
     -> HOGP notify
 ```
 
-HOGP 传输层不解析 APP 配置帧，不保存 Flash，也不解释 Keymap、Macro 或 Layer。
+HOGP HID 传输层仍不解析 APP 配置帧、不保存 Flash，也不解释 Macro 或 Layer；正式配置能力被限定在 `rdx_hogp_keymap_*` 模块和 Key Action executor 边界内。
 
 ### 1.2 当前物理按键路由
 
@@ -48,8 +56,8 @@ HOGP 传输层不解析 APP 配置帧，不保存 Flash，也不解释 Keymap、
 
 - HOGP 已连接时，五个 IO NUM 键的 `KEY_ACTION_CLICK` 进入 `rdx_hogp_key_action_click()`，并由 executor 发送按下 Report、延时后发送全零释放 Report。
 - HOGP 未连接时，CLICK 回退到原 RDX key table。
-- `LONG`、`HOLD`、`HOLDUP` 等其他事件继续走原 RDX key table，不由当前 HOGP 测试 executor 消费。
-- 模式切换入口不受测试 keymap 开关控制，它属于正式模式控制路径；只有五键 HID 动作映射仍是测试路径。
+- `LONG`、`HOLD`、`HOLDUP` 等其他事件继续走原 RDX key table，不由 HOGP Key Action executor 消费。
+- 模式切换入口不受 keymap 配置控制，它属于正式模式控制路径；五键 HID 动作映射由正式 APP keymap/VM 配置驱动，未配置时按默认 keymap 行为处理。
 
 ### 1.3 已确认的不一致：模式切换键索引
 
@@ -64,7 +72,7 @@ HOGP 传输层不解析 APP 配置帧，不保存 Flash，也不解释 Keymap、
 建议按当前一致的产品映射处理：
 
 1. 将 `rdx_app.c` 的模式切换条件改为 `num_idx == 0`。
-2. 保持测试 keymap 的 KEY1-KEY5 顺序不变。
+2. 保持 KEY1-KEY5 的 keymap payload/executor 顺序不变。
 3. 扩展 host 契约，明确断言三击条件绑定 `num_idx == 0`，避免只检查存在 `KEY_ACTION_TRIPLE_CLICK` 和 `rdx_ble_mode_request_toggle()`。
 4. 修正后重跑统一 host tests，并在硬件上验证 KEY1 可切换、KEY5 不再切换。
 
@@ -77,7 +85,7 @@ HOGP 传输层不解析 APP 配置帧，不保存 Flash，也不解释 Keymap、
 1. 保持已经验证的 BLE HID 键盘行为和 Profile v1 外部契约不变。
 2. HOGP 继续复用 RDX 的单个 `app_ble` handle 和同一份静态 ATT 数据库。
 3. 明确 Server、Mode Controller、HOGP runtime、Profile 常量和 Key Action 的职责边界。
-4. 为后续 BLE APP 配键留出接口，但不在协议未定时虚构正式 ABI。
+4. 正式 APP keymap 配置复用 RDX BLE APP 业务通道，保持 HOGP HID 传输层与配置协议解耦。
 5. 通过 host 契约、固件构建和硬件回归完成收尾。
 
 当前不做：
@@ -88,8 +96,8 @@ HOGP 传输层不解析 APP 配置帧，不保存 Flash，也不解释 Keymap、
 - 不把 Output Report 移回 HID Service；现有兼容布局留待 Profile v2 评估。
 - 不新增 Consumer Control、Macro、Layer、hold-tap 或多键并发状态机。
 - 不新建独立的 BLE APP 配置 GATT Service；配置能力应复用 RDX BLE APP 业务通道。
-- 不在 HOGP 模块中实现 APP 协议、VM、OTA、鉴权或 HFP/Voice 策略。
-- 不在 BLE APP 键值下发协议未定前定义生产 keymap/VM 格式。
+- 不在 HOGP HID transport/runtime 模块中实现 APP 配置协议、VM、OTA、鉴权或 HFP/Voice 策略；APP keymap 配置限定在 `rdx_hogp_keymap_*` 模块内。
+- 不把 APP keymap wire DTO 直接固化为 executor C struct 或 Flash 裸结构；VM 格式必须继续带版本、长度和 CRC。
 
 ## 3. 当前架构
 
@@ -113,7 +121,16 @@ rdx_hogp_keyboard.c/.h
 └─ 管理 Protocol Mode、Control Point、CCC、加密、suspend、当前 Report、广播 payload 和 notify
 
 rdx_hogp_key_action.c/.h
-└─ 管理 RAM active keymap、当前内置测试 keymap、Report 转换和 click release timer
+└─ 管理 RAM active keymap、默认 keymap、Report 转换和 click release timer
+
+rdx_hogp_keymap_protocol.c/.h
+└─ 编解码 APP `hogpkm` v1 wire frame，校验版本、长度、CRC 和 HID usage
+
+rdx_hogp_keymap_config.c/.h
+└─ 管理 APP keymap 配置事务、revision/idempotency、executor apply、VM commit 和响应回包
+
+rdx_hogp_keymap_store.c
+└─ 管理 keymap A/B VM 持久化记录、提交记录和重启恢复
 
 rdx_app.c
 └─ 分发物理按键、触发正式模式切换，并在 HOGP 连接与离线 RDX key table 之间路由
@@ -128,7 +145,10 @@ rdx_app.c
 | `rdx_hogp_profile.c/.h` | Profile v1 常量和字节级契约 | runtime 与产品按键 |
 | `rdx_hogp_keyboard.c/.h` | HID ATT、连接安全状态、广播数据、标准 Keyboard Report 发送 | 物理键号和 APP 配置协议 |
 | `rdx_hogp_config.h` | HOGP 编译开关、默认模式、release delay、安全、名称与日志默认值 | 产品 keymap |
-| `rdx_hogp_key_action.c/.h` | RAM keymap、测试映射、Report 转换和释放 timer | BLE 生命周期、VM、APP 帧解析 |
+| `rdx_hogp_key_action.c/.h` | RAM active keymap、Report 转换和释放 timer | BLE 生命周期、VM、APP 帧解析 |
+| `rdx_hogp_keymap_protocol.c/.h` | `hogpkm` v1 wire frame 编解码、CRC 和 usage 校验 | BLE 发送队列、VM、executor |
+| `rdx_hogp_keymap_config.c/.h` | APP 配键事务、revision/idempotency、executor apply、响应回包 | HID ATT runtime、物理按键扫描 |
+| `rdx_hogp_keymap_store.c` | A/B VM 持久化、commit record、重启恢复 | BLE/RDX transport、executor apply |
 | `rdx_app.c` | 物理事件和产品模式路由 | HID handle、Report 字节和 release timer |
 
 ### 3.2 生命周期与授权
@@ -157,7 +177,7 @@ rdx_app.c
 | `0x001f` / `0x0020` | HID Information declaration/value |
 | `0x0021` / `0x0022` | HID Control Point declaration/value |
 | `0x0023-0x0027` | Device Information Service |
-| `0x0028-0x002a` | 兼容 Output Report block，受 `TCFG_RDX_HOGP_ENABLE` 门控 |
+| `0x0023-0x0025` | HID Service 内的 Output Report block，受 `TCFG_RDX_HOGP_ENABLE` 门控 |
 
 ### 4.2 Report 契约
 
@@ -185,7 +205,7 @@ rdx_app.c
 | Phase 1：HOGP 纯搬迁 | 已完成 | runtime、ATT、SM/HCI 和 Report 发送已移入 `rdx_hogp_keyboard.c` |
 | Phase 2：Profile 常量集中 | 已完成 | handle、UUID、Report Map、Information、Reference 和 ATT 宏位于 `rdx_hogp_profile.*` |
 | Phase 3：传输配置化 | 已完成 | 编译开关、默认 mode、key-up delay、安全、名称和日志集中到 `rdx_hogp_config.h` |
-| Phase 3：正式 Keymap 接入 | 未开始 | BLE APP 键值格式、VM ABI 和配置事务均未确定；当前仅测试 keymap |
+| Phase 3：正式 Keymap 接入 | 已完成 | APP `hogpkm` v1 wire frame、完整五键 keymap、revision/idempotency、executor apply、A/B VM 持久化和 SET/GET/CAPS/RESET 回包已落地，并经硬件测试确认可下发、应用和持久化 |
 | Phase 4：日志诊断 | 已完成 | 状态变化、错误、Report 发送及 `rdx_hogp_dump_state()` 已落地 |
 | Phase 5：host 契约 | 已完成 | HOGP profile contract 已纳入统一 host runner |
 | Mode Controller 独立化 | 已完成 | 状态位于 `rdx_ble_mode_controller.*`，BLE 副作用仍由 Server 执行 |
@@ -193,29 +213,70 @@ rdx_app.c
 | 模式切换物理键绑定 | 待修正 | 设计与产品映射为 KEY1/IO_NUM0，实际条件为 `num_idx == 4`，当前触发键是 KEY5/IO_NUM4 |
 | Profile v2 | 不进入本轮 | Output Report 规范化、Consumer Control、Report ID/GATT cache 另行设计 |
 
-## 6. 正式 Key Action 接入条件
+## 6. 正式 Key Action 接入实现
 
-BLE APP 协议确定前，`rdx_hogp_key_action_keymap_t` 只能视为 executor 内部 RAM 结构，不能直接固化为无线协议或 Flash ABI。
+正式 APP 配键路径已按独立 DTO 和配置事务实现，没有把 executor RAM struct 直接暴露为无线协议或 Flash ABI。
 
-正式接入前至少需要明确：
+v1 wire frame 的稳定事实：
 
-1. APP 命令 ID、帧版本、长度、校验和错误码。
-2. 物理键编号与产品 KEY1-KEY5 的稳定映射。
-3. HID modifier/usages 的编码形式，以及非法 usage 的校验规则。
-4. 整表替换或增量更新语义。
-5. RAM candidate、apply、confirm、rollback 的事务边界。
-6. VM 数据版本、大小端、对齐、CRC、升级兼容和恢复默认策略。
-7. 配置成功后的 APP 回包和读取回显。
-8. Macro、Layer、Consumer Control 是否进入首版；未确认前不得塞入 v1 keymap。
+1. APP 通过 RDX `custom` 命令 `hogpkm` 下发十六进制 frame。
+2. Frame header 包含 `version`、`opcode`、`request_id`、`base_revision` 和 `payload_len`。
+3. Frame 尾部携带 CRC32，覆盖 header 和 payload。
+4. `SET_KEYMAP` payload 固定为 35 字节，即 5 个 `[modifier + usages[6]]` entry。
+5. `GET_KEYMAP` 响应 payload 为 `status + 35-byte keymap`，因此 HEX value 长度为 100。
+6. `GET_CAPS` 响应当前能力：5 个物理键、每键最多 6 个 usage。
+7. `SET_KEYMAP` 和 `RESET_KEYMAP` 成功响应携带 `status + keymap_crc32`。
 
-推荐接入顺序：
+配置事务边界：
 
-1. 在 RDX APP 业务命令层解析并校验配置，不修改 HOGP transport。
-2. 定义独立的 wire DTO，显式转换为 executor RAM keymap，不直接透传 C struct。
-3. 先对 candidate 做完整校验，再一次性调用 `rdx_hogp_key_action_keymap_apply()`。
-4. RAM 路径稳定后再定义带版本和 CRC 的 VM 格式。
-5. 增加 host 测试，覆盖错误长度、错误版本、越界 usage、原子替换和重启恢复。
-6. 关闭 `RDX_HOGP_KEY_ACTION_TEST_ENABLE`，确认正式配置为空、有效和损坏三种状态的行为。
+1. `rdx_hogp_keymap_protocol.c` 只负责编解码、长度/版本/CRC 校验和 HID usage 合法性校验。
+2. `rdx_hogp_keymap_config.c` 只允许 Config owner 执行配置命令，并通过 pending 请求串行化处理。
+3. SET 先校验 candidate，再计算 canonical keymap CRC，再检查 revision/idempotency。
+4. commit 时先 apply 到 `rdx_hogp_key_action_keymap_apply()`，再写入 A/B VM；VM 失败会回滚到旧 payload。
+5. commit 成功后更新 RAM current keymap、revision、keymap CRC 和 active VM slot。
+6. GET 读取当前 RAM keymap；init 时从 VM 恢复，VM 无有效记录时使用产品默认 keymap。
+
+边界仍需保持：
+
+- `rdx_hogp_key_action_keymap_t` 仍是 executor 内部 RAM 结构，不作为无线 ABI 或 Flash ABI。
+- HOGP HID transport 只负责 HID ATT、Keyboard Report 和 notify，不解析 APP 配置帧。
+- v1 不包含 Macro、Layer、Consumer Control 或 hold-tap；后续若需要必须新增协议版本或扩展字段。
+
+### 6.1 RDX 静态库 custom 回包栈溢出记录
+
+正式 `GET_KEYMAP` 响应暴露了一个 RDX 预编译静态库中的历史问题：`librdxApp.a` 内的 `rdx_protocol_custom_msg_indicate()` 会在栈上拼接完整 custom 上行包，但其内部局部缓冲区不足以容纳 HOGPKM 的 100 字符 HEX value。
+
+HOGPKM `GET_KEYMAP` 上行包长度为：
+
+```text
+*DEV#custom#     12 bytes
+hogpkm            6 bytes
+两个 #            2 bytes
+value           100 bytes
+实际发送长度     120 bytes
+NUL 结尾         +1 byte
+总存储需求       121 bytes
+```
+
+旧 wrapper 的栈缓冲区不足，100 字符 value 加 NUL 会覆盖返回地址附近内容，串口日志表现为 GET_KEYMAP 回包后 `Chip Exception`、`instruction fetch hmem exception`，寄存器/栈中出现大量 ASCII `'0'`。
+
+当前修复策略：
+
+1. 保持 `CUSTOM_VALUE_MAX_LENGTH` 为 100，不修改预编译库 ABI。
+2. HOGPKM 长回包不再调用 `rdx_protocol_custom_msg_indicate()`。
+3. 在 `rdx_hogp_keymap_config.c` 中自行构造完整 `*DEV#custom#hogpkm#<value>#` 上行包。
+4. 直接调用 `rdx_protocol_packet_send_priority(packet, offset)` 入队发送。
+5. 已确认 RDX 队列入队时会 `malloc + memcpy`，因此静态拼包缓冲区不会产生异步悬空问题。
+6. 已修正返回值语义：`rdx_protocol_packet_send_priority()` 成功返回正数长度，HOGPKM 封装层将其转换为 `0` 成功、负数失败。
+
+该方案是有意限定影响面的绕行方案，只绕过 HOGPKM 这条已知 100 字符长回包路径，不改变其他 RDX custom 短消息路径。它解决了当前硬件卡死问题，但没有修复静态库内部 wrapper 的通用缺陷。
+
+长期最佳实践：
+
+- 获取 RDX 库源码后，修复 `rdx_protocol_custom_msg_indicate()` 本身。
+- wrapper 内部应按实际 `cmd/value` 长度计算所需空间，使用足够大的缓冲区或动态分配。
+- 拼包必须使用有界格式化/有界 memcpy，并明确返回值语义。
+- 修复后重新生成 `librdxApp.a`，再评估是否移除 HOGPKM 的临时绕行路径。
 
 ## 7. 验证状态
 
@@ -227,12 +288,14 @@ Windows 统一入口：
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-本次文档合并时的结果：
+当前 host 验证结果：
 
 - T2620 config overlay：通过。
-- HOGP profile contract：137 项检查全部通过。
-- RDX local playback configuration：24 项检查全部通过。
-- 统一 runner：3 个测试全部通过。
+- HOGP profile contract：通过。
+- HOGP keymap architecture：通过，覆盖长回包绕过旧 wrapper、返回值语义和 HOGPKM trace 默认关闭。
+- RDX local playback configuration：通过。
+- RDX playback navigation：通过。
+- 统一 runner：5 个测试全部通过。
 
 Host 契约主要覆盖：
 
@@ -240,25 +303,26 @@ Host 契约主要覆盖：
 - disabled stubs、模块 include 边界和职责隔离。
 - mode controller、connection owner、模式切换和广播恢复规则。
 - HOGP runtime 的 CCC、加密、suspend、当前 Report 和 release 行为。
-- T2620 默认 HOGP、内置测试 keymap、CLICK 路由结构和 executor 生命周期。
+- T2620 默认 HOGP、正式 keymap 配置模块边界、CLICK 路由结构和 executor 生命周期。
+- HOGPKM 长回包不走旧 `rdx_protocol_custom_msg_indicate()`，避免预编译库栈缓冲区溢出。
 
 已知测试缺口：当前 `C5_KEY1_TRIPLE_CLICK_TOGGLE` 只检查 `rdx_app.c` 中存在 `KEY_ACTION_TRIPLE_CLICK` 和 `rdx_ble_mode_request_toggle()`，没有检查三击分支绑定的是 `num_idx == 0`。因此 137 项全部通过不能证明 KEY1/KEY5 的物理索引正确。
 
-### 7.2 尚未完成的固件构建
+### 7.2 固件构建状态
 
 ```text
-[ ] TCFG_RDX_HOGP_ENABLE=1 全量编译
+[x] TCFG_RDX_HOGP_ENABLE=1 全量编译
 [ ] TCFG_RDX_HOGP_ENABLE=0 全量编译
-[ ] 确认新增模块均进入最终链接
+[x] 确认新增模块均进入最终链接
 [ ] 确认 tools/output 生成二进制不作为源码提交
 ```
 
-### 7.3 尚未完成的硬件回归
+### 7.3 硬件回归状态
 
 ```text
 [ ] 上电默认出现 HOGP 广播，名称与当前 Server local name 一致
 [ ] Windows 首次配对、Just Works、加密和 CCC 订阅正常
-[ ] 五键测试映射 Ctrl+C/Ctrl+V/Ctrl+X/Backspace/Enter 正常
+[ ] 五键默认/APP 配置映射在 HID 输入中正常生效
 [ ] 每次 click 都有正确 release，无卡键
 [ ] 修正模式切换条件为 `num_idx == 0`
 [ ] 产品 KEY1（IO_NUM0/PB2）三击进入 Config，先断开 HOGP 再切广播
@@ -270,9 +334,13 @@ Host 契约主要覆盖：
 [ ] 切换中关机或复位后无旧 timer、旧 handle 回调
 [ ] suspend 或加密失败时不发送业务 Report
 [ ] Config 模式下原 RDX BLE APP、OTA 和断连恢复无回归
+[x] APP SET_KEYMAP 可下发五键 keymap 并应用到 HID 输入
+[x] APP GET_KEYMAP 可读回完整 35-byte keymap
+[x] keymap 可写入 VM 并在重新初始化后恢复
+[x] 100 字符 GET_KEYMAP 回包不再触发 `Chip Exception`
 ```
 
-硬件测试当前验证的是内置测试 keymap 链路，不代表 BLE APP 正式配键验收。
+硬件测试已确认 APP 正式配键主路径可用；完整产品回归仍需覆盖上表中未完成的模式切换、owner 隔离、压力和异常场景。
 
 ## 8. 完成定义
 
@@ -284,7 +352,8 @@ Host 契约主要覆盖：
 - 单 GATT Server、单 `app_ble` handle 架构保持不变。
 - Profile v1 外部契约已冻结并由 host 测试保护。
 - RDX Config 与 HOGP connection owner 授权已经落地。
-- T2620 默认 HOGP 和内置五键 CLICK 测试路径已经接线。
+- T2620 默认 HOGP、五键 CLICK 路由和正式 APP keymap 配置路径已经接线。
+- APP 下发 keymap 可以应用到 executor，并可通过 VM 持久化恢复。
 - 统一 host tests 全部通过。
 
 Profile v1 最终关闭还需要：
@@ -295,8 +364,8 @@ Profile v1 最终关闭还需要：
 
 ### 8.2 BLE APP 正式配键
 
-BLE APP 正式配键不作为当前 Profile v1 传输收尾的阻塞项，但它是产品按键配置功能完成的必要条件。
+BLE APP 正式配键已经接入当前 Profile v1 实现，属于 HOGP HID 模块完整实现的一部分。
 
 该功能当前状态必须统一表述为：
 
-> BLE APP 键值下发形式尚未确定，正式配置路径尚未接入；当前通过固件内置五键测试 keymap 验证 HOGP Profile v1 输入链路。`rdx_hogp_key_action_keymap_apply()` 仅是内部 RAM 接口，不代表 APP 下发、VM 持久化或产品配置已经完成。
+> BLE APP 通过 RDX `custom/hogpkm` v1 协议下发完整五键 keymap；固件完成帧解析、CRC/usage 校验、revision/idempotency、executor apply、A/B VM 持久化、SET/GET/CAPS/RESET 回包。硬件测试已确认可以接收并应用下发键值，且可持久化恢复。当前仍需完成模式切换键索引修正、HOGP disabled 构建和完整硬件回归。

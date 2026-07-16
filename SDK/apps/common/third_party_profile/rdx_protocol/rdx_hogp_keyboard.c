@@ -78,8 +78,8 @@ static volatile u8 s_hid_notify_enabled = 0;
 static volatile u8 s_hogp_encrypted = 0;
 static u16 s_hid_con_handle = 0;
 static rdx_hogp_keyboard_report_t s_hid_input_report = {0};
+static u8 s_hid_output_report = RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE;
 
-#define RDX_HOGP_PROTOCOL_MODE_BOOT      0
 #define RDX_HOGP_PROTOCOL_MODE_REPORT    1
 
 #define RDX_HOGP_CONTROL_POINT_SUSPEND       0
@@ -116,6 +116,7 @@ static void hogp_runtime_state_reset(u8 mode_after_reset)
     s_hogp_encrypted = 0;
     s_hogp_suspended = 0;
     s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
+    s_hid_output_report = RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE;
 }
 
 /******************************************************************************
@@ -261,6 +262,8 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
         return hid_read_helper((const u8 *)&s_hid_input_report,
                                RDX_HOGP_KEYBOARD_REPORT_LEN,
                                offset, buffer, buffer_size);
+    case HID_OUTPUT_REPORT_VALUE_HANDLE:
+        return hid_read_helper(&s_hid_output_report, 1, offset, buffer, buffer_size);
     case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
         if (buffer && buffer_size >= 2) {
             buffer[0] = multi_att_get_ccc_config(connection_handle, att_handle) & 0xFF;
@@ -295,7 +298,9 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
         if (buffer_size != 1) {
             return RDX_HOGP_ATT_ERR_INVALID_ATTRIBUTE_VALUE_LEN;
         }
-        if (buffer[0] != RDX_HOGP_PROTOCOL_MODE_BOOT && buffer[0] != RDX_HOGP_PROTOCOL_MODE_REPORT) {
+        /* This service exposes Report characteristics only; Boot Report
+         * characteristics are intentionally absent. */
+        if (buffer[0] != RDX_HOGP_PROTOCOL_MODE_REPORT) {
             RDX_HOGP_ERROR("protocol mode rejected val=0x%02x", buffer[0]);
             return RDX_HOGP_ATT_ERR_VALUE_NOT_ALLOWED;
         }
@@ -333,9 +338,15 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
             rdx_hogp_dump_state();
         }
         return 0;
-    case HID_INPUT_REPORT_VALUE_HANDLE:
-        RDX_HOGP_VERBOSE("input report write hdl=0x%04x len=%d data[0]=0x%02x",
-                 att_handle, buffer_size, buffer_size ? buffer[0] : 0);
+    case HID_OUTPUT_REPORT_VALUE_HANDLE:
+        if (offset != 0) {
+            return RDX_HOGP_ATT_ERR_INVALID_OFFSET;
+        }
+        if (buffer_size != 1) {
+            return RDX_HOGP_ATT_ERR_INVALID_ATTRIBUTE_VALUE_LEN;
+        }
+        s_hid_output_report = buffer[0];
+        RDX_HOGP_LOG("output report LED=0x%02x", s_hid_output_report);
         return 0;
     default:
         RDX_HOGP_VERBOSE("write default hdl=0x%04x len=%d data[0]=0x%02x",

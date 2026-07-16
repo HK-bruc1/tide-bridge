@@ -135,7 +135,7 @@ The RDX stack lives in `SDK/apps/common/third_party_profile/rdx_protocol/` and i
 
 The HOGP feature is implemented by extending the same RDX GATT server instead of creating a separate one:
 
-- HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0022`
+- HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0025`
 - `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report)
 - `rdx_ble_server_att_write_callback()` handles HID Control Point and CCC writes
 - HID reports are sent via `app_ble_att_send_data()` on the RDX wrapper handle

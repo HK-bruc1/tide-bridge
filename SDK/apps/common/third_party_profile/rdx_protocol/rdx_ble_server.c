@@ -48,6 +48,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_ble_mode_controller.h"
 #include "rdx_hogp_keyboard.h"
+#include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_protocol.h"
@@ -98,11 +99,11 @@
 #define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE 0x0015
 
 // Device Information Service handles (appended after HID Service)
-#define DIS_SERVICE_HANDLE                                              0x0023
-#define DIS_PNP_ID_CHARACTERISTIC_HANDLE                                0x0024
-#define DIS_PNP_ID_VALUE_HANDLE                                         0x0025
-#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE                     0x0026
-#define DIS_MANUFACTURER_NAME_VALUE_HANDLE                              0x0027
+#define DIS_SERVICE_HANDLE                                              0x0026
+#define DIS_PNP_ID_CHARACTERISTIC_HANDLE                                0x0027
+#define DIS_PNP_ID_VALUE_HANDLE                                         0x0028
+#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE                     0x0029
+#define DIS_MANUFACTURER_NAME_VALUE_HANDLE                              0x002a
 
 
 //0 ~ 5 reserved.
@@ -258,22 +259,22 @@ const uint8_t rdx_profile_data[] = {
 #if TCFG_RDX_HOGP_ENABLE
     RDX_HOGP_ATT_PRIMARY_SERVICE_16(HID_SERVICE_HANDLE, RDX_HOGP_UUID_HID_SERVICE),
 
-     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE, value=0x01 */
-    // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE
+     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE | DYNAMIC */
+    // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_PROTOCOL_MODE,
                                    HID_PROTOCOL_MODE_VALUE_HANDLE, RDX_HOGP_UUID_PROTOCOL_MODE),
-    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE
-    RDX_HOGP_ATT_VALUE_16_U8(HID_PROTOCOL_MODE_VALUE_HANDLE,
-                             RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE,
-                             RDX_HOGP_UUID_PROTOCOL_MODE, RDX_HOGP_PROTOCOL_MODE_DEFAULT),
+    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC
+    RDX_HOGP_ATT_VALUE_16(HID_PROTOCOL_MODE_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE,
+                          RDX_HOGP_UUID_PROTOCOL_MODE),
 
-     /* CHARACTERISTIC,  2A4D, READ | WRITE | NOTIFY | DYNAMIC */
-    // 0x0019 CHARACTERISTIC 2A4D READ | WRITE | NOTIFY | DYNAMIC
+     /* CHARACTERISTIC,  2A4D, READ | NOTIFY | DYNAMIC */
+    // 0x0019 CHARACTERISTIC 2A4D READ | NOTIFY | DYNAMIC
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INPUT_REPORT_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_INPUT_REPORT,
                                    HID_INPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x001a VALUE 2A4D READ | WRITE | NOTIFY | DYNAMIC
+    // 0x001a VALUE 2A4D READ | NOTIFY | DYNAMIC
     RDX_HOGP_ATT_VALUE_16(HID_INPUT_REPORT_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,
                           RDX_HOGP_UUID_REPORT),
@@ -313,42 +314,39 @@ const uint8_t rdx_profile_data[] = {
     RDX_HOGP_ATT_VALUE_16(HID_CONTROL_POINT_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE,
                           RDX_HOGP_UUID_HID_CONTROL_POINT),
-#endif /* TCFG_RDX_HOGP_ENABLE */
 
-    //////////////////////////////////////////////////////
-    //
-    // 0x0023 PRIMARY_SERVICE  0x180a (Device Information)
-    //
-    //////////////////////////////////////////////////////
-    0x0a, 0x00, 0x02, 0x00, 0x23, 0x00, 0x00, 0x28, 0x0a, 0x18,
-
-     /* CHARACTERISTIC,  2A50, READ, */
-    // 0x0024 CHARACTERISTIC 2A50 READ
-    0x0d, 0x00, 0x02, 0x00, 0x24, 0x00, 0x03, 0x28, 0x02, 0x25, 0x00, 0x50, 0x2a,
-    // 0x0025 VALUE 2A50 READ (static PnP ID: USB-IF, VID=0x1234, PID=0x0001, Ver=0x0001)
-    0x0f, 0x00, 0x02, 0x00, 0x25, 0x00, 0x50, 0x2a, 0x02, 0x34, 0x12, 0x01, 0x00, 0x01, 0x00,
-
-     /* CHARACTERISTIC,  2A29, READ, */
-    // 0x0026 CHARACTERISTIC 2A29 READ
-    0x0d, 0x00, 0x02, 0x00, 0x26, 0x00, 0x03, 0x28, 0x02, 0x27, 0x00, 0x29, 0x2a,
-    // 0x0027 VALUE 2A29 READ (static "JieLi")
-    0x0d, 0x00, 0x02, 0x00, 0x27, 0x00, 0x29, 0x2a, 0x4a, 0x69, 0x65, 0x4c, 0x69,
-
-#if TCFG_RDX_HOGP_ENABLE
-    // 0x0028 CHARACTERISTIC 0x2A4D (Output Report): Read | Write | Write Without Response
+    // 0x0023 CHARACTERISTIC 0x2A4D (Output Report)
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,
                                    HID_OUTPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x0029 VALUE 0x2A4D (Output Report): Read | Write | Write Without Response, 1 byte LED state
-    RDX_HOGP_ATT_VALUE_16_U8(HID_OUTPUT_REPORT_VALUE_HANDLE,
-                             RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
-                             RDX_HOGP_UUID_REPORT,
-                             RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE),
-    // 0x002a REPORT_REFERENCE (ID=1, Type=2=Output)
+    // 0x0024 VALUE 0x2A4D, 1-byte keyboard LED bitmap, DYNAMIC
+    RDX_HOGP_ATT_VALUE_16(HID_OUTPUT_REPORT_VALUE_HANDLE,
+                          RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
+                          RDX_HOGP_UUID_REPORT),
+    // 0x0025 REPORT_REFERENCE (ID=1, Type=2=Output)
     RDX_HOGP_ATT_REPORT_REFERENCE(HID_OUTPUT_REPORT_REFERENCE_HANDLE,
                                   RDX_HOGP_OUTPUT_REPORT_ID,
                                   RDX_HOGP_OUTPUT_REPORT_TYPE),
 #endif /* TCFG_RDX_HOGP_ENABLE */
+
+    //////////////////////////////////////////////////////
+    //
+    // 0x0026 PRIMARY_SERVICE  0x180a (Device Information)
+    //
+    //////////////////////////////////////////////////////
+    0x0a, 0x00, 0x02, 0x00, 0x26, 0x00, 0x00, 0x28, 0x0a, 0x18,
+
+     /* CHARACTERISTIC,  2A50, READ, */
+    // 0x0027 CHARACTERISTIC 2A50 READ
+    0x0d, 0x00, 0x02, 0x00, 0x27, 0x00, 0x03, 0x28, 0x02, 0x28, 0x00, 0x50, 0x2a,
+    // 0x0028 VALUE 2A50 READ (static PnP ID: USB-IF, VID=0x1234, PID=0x0001, Ver=0x0001)
+    0x0f, 0x00, 0x02, 0x00, 0x28, 0x00, 0x50, 0x2a, 0x02, 0x34, 0x12, 0x01, 0x00, 0x01, 0x00,
+
+     /* CHARACTERISTIC,  2A29, READ, */
+    // 0x0029 CHARACTERISTIC 2A29 READ
+    0x0d, 0x00, 0x02, 0x00, 0x29, 0x00, 0x03, 0x28, 0x02, 0x2a, 0x00, 0x29, 0x2a,
+    // 0x002a VALUE 2A29 READ (static "JieLi")
+    0x0d, 0x00, 0x02, 0x00, 0x2a, 0x00, 0x29, 0x2a, 0x4a, 0x69, 0x65, 0x4c, 0x69,
 
     // END
     0x00, 0x00,
@@ -1023,6 +1021,7 @@ static void rdx_ble_server_disconnected_cleanup_internal(void)
 
     // Phase 6 C5: cancel any pending key-up release timer on disconnect.
     rdx_hogp_key_action_reset();
+    rdx_hogp_keymap_config_on_disconnect();
 }
 
 /**************************************************************************
@@ -1677,18 +1676,6 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
         return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
     }
 
-    /* Output Report handle: only HOGP owner */
-    if (handle == HID_OUTPUT_REPORT_VALUE_HANDLE) {
-        if (!rdx_ble_connection_owner_is_hogp()) {
-            y_printf("[HOGP] output report write rejected: owner=%s\n",
-                     rdx_ble_owner_name(rdx_ble_connection_owner_get()));
-            return 0;
-        }
-        if (buffer_size >= 1) {
-            y_printf("[HOGP] output report write, LED=0x%02x\r", buffer[0]);
-        }
-        return 0;
-    }
 #endif
 
     /* RDX App Config handles: only CONFIG owner */

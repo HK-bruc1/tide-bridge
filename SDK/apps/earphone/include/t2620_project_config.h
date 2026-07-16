@@ -60,14 +60,14 @@
 #define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #endif
 
-/* Phase 6 C5: T2620 boots into HOGP by default and enables the built-in
- * five-key test keymap. KEY1 triple-click mode toggle is a formal path. */
+/* T2620 boots into HOGP by default. The active keymap comes from the formal
+ * APP keymap protocol/VM path; the built-in protocol test table stays off. */
 #ifndef RDX_BLE_DEFAULT_MODE
 #define RDX_BLE_DEFAULT_MODE                      RDX_BLE_DEFAULT_MODE_HOGP
 #endif
 
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
-#define RDX_HOGP_KEY_ACTION_TEST_ENABLE                1
+#define RDX_HOGP_KEY_ACTION_TEST_ENABLE                0
 #endif
 
 #endif /* T2620_PROJECT_CONFIG_H */

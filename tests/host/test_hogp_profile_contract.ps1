@@ -78,7 +78,7 @@ function Normalize-Uuid {
 }
 
 # -----------------------------------------------------------------------------
-# CHECK: all 13 HID handle macros
+# CHECK: all HID Service handle macros
 # -----------------------------------------------------------------------------
 $HandleSnapshot = [ordered]@{
     HID_SERVICE_HANDLE                           = 0x0016
@@ -94,6 +94,9 @@ $HandleSnapshot = [ordered]@{
     HID_INFORMATION_VALUE_HANDLE                 = 0x0020
     HID_CONTROL_POINT_CHARACTERISTIC_HANDLE      = 0x0021
     HID_CONTROL_POINT_VALUE_HANDLE               = 0x0022
+    HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE      = 0x0023
+    HID_OUTPUT_REPORT_VALUE_HANDLE               = 0x0024
+    HID_OUTPUT_REPORT_REFERENCE_HANDLE           = 0x0025
 }
 
 $HeaderText = Get-Content -Raw -Path $HeaderPath
@@ -256,12 +259,12 @@ if ($sendFunctionMatch.Success) {
 # -----------------------------------------------------------------------------
 $ServerText = Get-Content -Raw -Path $ServerPath
 
-# Expected contract records for the HID Service block (0x0016-0x0022)
+# Expected contract records for the HID Service block (0x0016-0x0025)
 $ExpectedAttributes = @(
     @{ Handle = 0x0016; Type = 'PRIMARY_SERVICE'; AttUuid = 0x2800; ServiceUuid = 0x1812 }
     @{ Handle = 0x0017; Type = 'CHARACTERISTIC'; AttUuid = 0x2803; Properties = 0x06; ValueHandle = 0x0018; CharUuid = 0x2A4E }
-    @{ Handle = 0x0018; Type = 'VALUE'; AttUuid = 0x2A4E; Value = 0x01 }
-    @{ Handle = 0x0019; Type = 'CHARACTERISTIC'; AttUuid = 0x2803; Properties = 0x1A; ValueHandle = 0x001A; CharUuid = 0x2A4D }
+    @{ Handle = 0x0018; Type = 'VALUE'; AttUuid = 0x2A4E }
+    @{ Handle = 0x0019; Type = 'CHARACTERISTIC'; AttUuid = 0x2803; Properties = 0x12; ValueHandle = 0x001A; CharUuid = 0x2A4D }
     @{ Handle = 0x001A; Type = 'VALUE'; AttUuid = 0x2A4D }
     @{ Handle = 0x001B; Type = 'CLIENT_CHARACTERISTIC_CONFIGURATION'; AttUuid = 0x2902; Value = 0x0000 }
     @{ Handle = 0x001C; Type = 'REPORT_REFERENCE'; AttUuid = 0x2908; ReportId = 0x01; ReportType = 0x01 }
@@ -271,6 +274,9 @@ $ExpectedAttributes = @(
     @{ Handle = 0x0020; Type = 'VALUE'; AttUuid = 0x2A4A }
     @{ Handle = 0x0021; Type = 'CHARACTERISTIC'; AttUuid = 0x2803; Properties = 0x04; ValueHandle = 0x0022; CharUuid = 0x2A4C }
     @{ Handle = 0x0022; Type = 'VALUE'; AttUuid = 0x2A4C }
+    @{ Handle = 0x0023; Type = 'CHARACTERISTIC'; AttUuid = 0x2803; Properties = 0x0E; ValueHandle = 0x0024; CharUuid = 0x2A4D }
+    @{ Handle = 0x0024; Type = 'VALUE'; AttUuid = 0x2A4D }
+    @{ Handle = 0x0025; Type = 'REPORT_REFERENCE'; AttUuid = 0x2908; ReportId = 0x01; ReportType = 0x02 }
 )
 
 function ConvertFrom-HogpAttributeMacro {
@@ -457,18 +463,19 @@ function Test-ProfileAttributeOrder {
 Test-ProfileAttributeOrder
 
 # -----------------------------------------------------------------------------
-# CHECK: Output Report block (0x0028-0x002a) is gated by TCFG_RDX_HOGP_ENABLE
+# CHECK: Output Report belongs to the gated HID Service block
 # -----------------------------------------------------------------------------
-$outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE\s*\r?\n\s*//\s*0x0028\s+CHARACTERISTIC\s+0x2A4D.*?RDX_HOGP_ATT_CHARACTERISTIC_16\s*\(\s*HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE.*?RDX_HOGP_ATT_VALUE_16_U8\s*\(\s*HID_OUTPUT_REPORT_VALUE_HANDLE.*?RDX_HOGP_ATT_REPORT_REFERENCE\s*\(\s*HID_OUTPUT_REPORT_REFERENCE_HANDLE\s*,\s*RDX_HOGP_OUTPUT_REPORT_ID\s*,\s*RDX_HOGP_OUTPUT_REPORT_TYPE\s*\).*?#endif\s*/\*\s*TCFG_RDX_HOGP_ENABLE\s*\*/'
+$outputReportGatedPattern = '(?s)#if\s+TCFG_RDX_HOGP_ENABLE.*?0x0016\s+PRIMARY_SERVICE.*?0x0023\s+CHARACTERISTIC\s+0x2A4D.*?RDX_HOGP_ATT_CHARACTERISTIC_16\s*\(\s*HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE.*?RDX_HOGP_ATT_VALUE_16\s*\(\s*HID_OUTPUT_REPORT_VALUE_HANDLE.*?RDX_HOGP_ATT_REPORT_REFERENCE\s*\(\s*HID_OUTPUT_REPORT_REFERENCE_HANDLE\s*,\s*RDX_HOGP_OUTPUT_REPORT_ID\s*,\s*RDX_HOGP_OUTPUT_REPORT_TYPE\s*\).*?#endif\s*/\*\s*TCFG_RDX_HOGP_ENABLE\s*\*/'
 $isOutputReportGated = $ServerText -match $outputReportGatedPattern
 Add-CheckResult -Name 'OUTPUT_REPORT_GATED' -Passed $isOutputReportGated `
-    -Message $(if ($isOutputReportGated) { '' } else { 'Output Report block (0x0028-0x002a) is not wrapped in #if TCFG_RDX_HOGP_ENABLE / #endif' })
+    -Message $(if ($isOutputReportGated) { '' } else { 'Output Report is not inside the gated HID Service block' })
 
-$outputHandleMacrosOk = $HeaderText -match '#define\s+HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE\s+0x0028' -and
-                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_VALUE_HANDLE\s+0x0029' -and
-                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_REFERENCE_HANDLE\s+0x002a'
+$outputHandleMacrosOk = $HeaderText -match '#define\s+HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE\s+0x0023' -and
+                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_VALUE_HANDLE\s+0x0024' -and
+                        $HeaderText -match '#define\s+HID_OUTPUT_REPORT_REFERENCE_HANDLE\s+0x0025' -and
+                        $HeaderText -match '#define\s+HID_SERVICE_END_HANDLE\s+HID_OUTPUT_REPORT_REFERENCE_HANDLE'
 Add-CheckResult -Name 'OUTPUT_REPORT_HANDLE_MACROS' -Passed $outputHandleMacrosOk `
-    -Message $(if ($outputHandleMacrosOk) { '' } else { 'Output Report handles 0x0028-0x002a must be defined in rdx_hogp_profile.h' })
+    -Message $(if ($outputHandleMacrosOk) { '' } else { 'Output Report handles 0x0023-0x0025 must terminate the HID Service range' })
 
 # -----------------------------------------------------------------------------
 # Phase 6 C1 checks: mode controller and owner authorization
@@ -799,14 +806,16 @@ if ($exitFunctionMatch.Success) {
 Add-CheckResult -Name 'C1_EXIT_RESETS_MODE_CONTROLLER' -Passed $exitResetsMode `
     -Message $(if ($exitResetsMode) { '' } else { 'rdx_ble_mode_controller_reset() not called in rdx_ble_server_exit()' })
 
-# 6) Output Report write has owner authorization
+# 6) The complete HID Service range, including Output Report, has owner authorization
 $writeFunctionMatch = [regex]::Match($ServerText,
     '(?sm)static\s+int\s+rdx_ble_server_att_write_callback\s*\([^)]*\)\s*\{(.*?)^\}')
 $outputReportOwnerCheck = $false
 if ($writeFunctionMatch.Success) {
     $writeBody = $writeFunctionMatch.Groups[1].Value
-    $outputReportOwnerCheck = ($writeBody -match 'HID_OUTPUT_REPORT_VALUE_HANDLE') -and
-                              ($writeBody -match 'rdx_ble_connection_owner_is_hogp\s*\(')
+    $outputReportOwnerCheck = ($writeBody -match 'HID_SERVICE_START_HANDLE') -and
+                              ($writeBody -match 'HID_SERVICE_END_HANDLE') -and
+                              ($writeBody -match 'rdx_ble_connection_owner_is_hogp\s*\(') -and
+                              ($HeaderText -match '#define\s+HID_SERVICE_END_HANDLE\s+HID_OUTPUT_REPORT_REFERENCE_HANDLE')
 }
 Add-CheckResult -Name 'C1_OUTPUT_REPORT_OWNER_CHECK' -Passed $outputReportOwnerCheck `
     -Message $(if ($outputReportOwnerCheck) { '' } else { 'Output Report write does not check HOGP owner' })
@@ -1030,7 +1039,7 @@ if ($isReadyBodyMatch.Success) {
 Add-CheckResult -Name 'C4_READY_CHECKS_SUSPEND' -Passed $readyChecksSuspend `
     -Message $(if ($readyChecksSuspend) { '' } else { 'rdx_hogp_keyboard_is_ready() does not check s_hogp_suspended' })
 
-# C4.4 Protocol Mode write is validated and restricted to 0/1
+# C4.4 Protocol Mode is validated and restricted to Report Protocol
 $attWriteBodyMatch = [regex]::Match($KeyboardCText,
     '(?sm)int\s+rdx_hogp_att_write\s*\([^)]*\)\s*\{(.*?)^\}')
 $protocolModeWriteOk = $false
@@ -1039,8 +1048,8 @@ if ($attWriteBodyMatch.Success) {
     $hasCase = $attWriteBody -match 'case\s+HID_PROTOCOL_MODE_VALUE_HANDLE\s*:'
     $hasOffsetCheck = $attWriteBody -match 'offset\s*!=\s*0'
     $hasLengthCheck = $attWriteBody -match 'buffer_size\s*!=\s*1'
-    $hasValueCheck = $attWriteBody -match 'RDX_HOGP_PROTOCOL_MODE_BOOT' -and
-                     $attWriteBody -match 'RDX_HOGP_PROTOCOL_MODE_REPORT'
+    $hasValueCheck = $attWriteBody -match 'buffer\[0\]\s*!=\s*RDX_HOGP_PROTOCOL_MODE_REPORT' -and
+                     $KeyboardCText -notmatch '#define\s+RDX_HOGP_PROTOCOL_MODE_BOOT'
     $hasErrorReturn = $attWriteBody -match 'RDX_HOGP_ATT_ERR_INVALID_OFFSET' -and
                       $attWriteBody -match 'RDX_HOGP_ATT_ERR_INVALID_ATTRIBUTE_VALUE_LEN' -and
                       $attWriteBody -match 'RDX_HOGP_ATT_ERR_VALUE_NOT_ALLOWED'
@@ -1124,14 +1133,14 @@ $AppConfigText = Get-Content -Raw -Path $AppConfigPath
 $HogpConfigText = Get-Content -Raw -Path $HogpConfigPath
 $ProjectConfigText = Get-Content -Raw -Path $ProjectConfigPath
 
-# C5.1 Project config enables default HOGP and test keymap
+# C5.1 Project config enables default HOGP and disables the test keymap
 $projectDefaultModeOk = $ProjectConfigText -match '#define\s+RDX_BLE_DEFAULT_MODE\s+RDX_BLE_DEFAULT_MODE_HOGP'
 Add-CheckResult -Name 'C5_PROJECT_DEFAULT_MODE_HOGP' -Passed $projectDefaultModeOk `
     -Message $(if ($projectDefaultModeOk) { '' } else { 't2620_project_config.h must define RDX_BLE_DEFAULT_MODE as RDX_BLE_DEFAULT_MODE_HOGP' })
 
-$projectTestEnableOk = $ProjectConfigText -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+1'
+$projectTestEnableOk = $ProjectConfigText -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+0'
 Add-CheckResult -Name 'C5_PROJECT_TEST_ENABLE' -Passed $projectTestEnableOk `
-    -Message $(if ($projectTestEnableOk) { '' } else { 't2620_project_config.h must define RDX_HOGP_KEY_ACTION_TEST_ENABLE as 1' })
+    -Message $(if ($projectTestEnableOk) { '' } else { 'production config must define RDX_HOGP_KEY_ACTION_TEST_ENABLE as 0' })
 
 # C5.2 Public fallback defaults are conservative and old debug macro is gone
 $appConfigTestFallbackOk = $AppConfigText -match '#ifndef\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s*\r?\n\s*#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+0'
@@ -1308,15 +1317,16 @@ $offlineOnlyWhenDisconnected = $connectedRoutePos -ge 0 -and
 Add-CheckResult -Name 'C5_OFFLINE_FALLBACK_ONLY_WHEN_HID_DISCONNECTED' -Passed $offlineOnlyWhenDisconnected `
     -Message $(if ($offlineOnlyWhenDisconnected) { '' } else { 'The legacy IO table must be reached only after the HOGP-connected branch has consumed and returned for every action' })
 
-# C5.9 HOGP executor is the sole owner of the built-in test keymap
+# C5.9 HOGP executor test vectors use the shared HID Usage definitions
 $defaultActionsInExecutor = $KeyActionText -match 's_rdx_hogp_test_keymap\s*\[\s*RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT\s*\]' -and
-                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x06,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY1:\s*Ctrl\+C\s*\*/' -and
-                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x19,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY2:\s*Ctrl\+V\s*\*/' -and
-                            $KeyActionText -match '\{\s*0x01,\s*\{\s*0x1b,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY3:\s*Ctrl\+X\s*\*/' -and
-                            $KeyActionText -match '\{\s*0x00,\s*\{\s*0x2a,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY4:\s*Backspace\s*\*/' -and
-                            $KeyActionText -match '\{\s*0x00,\s*\{\s*0x28,\s*0x00,\s*0x00,\s*0x00,\s*0x00,\s*0x00\s*\}\s*\},\s*/\*\s*KEY5:\s*Enter\s*\*/'
+                            $KeyActionText -match '#include\s+"device/hid/hid_keyboard_usage\.h"' -and
+                            $KeyActionText -match 'HID_KEYBOARD_MOD_LCTRL.*HID_KEYBOARD_USAGE_C' -and
+                            $KeyActionText -match 'HID_KEYBOARD_MOD_LCTRL.*HID_KEYBOARD_USAGE_V' -and
+                            $KeyActionText -match 'HID_KEYBOARD_MOD_LCTRL.*HID_KEYBOARD_USAGE_X' -and
+                            $KeyActionText -match 'HID_KEYBOARD_USAGE_BACKSPACE' -and
+                            $KeyActionText -match 'HID_KEYBOARD_USAGE_ENTER'
 Add-CheckResult -Name 'C5_DEFAULT_ACTIONS_IN_HOGP_EXECUTOR' -Passed $defaultActionsInExecutor `
-    -Message $(if ($defaultActionsInExecutor) { '' } else { 'rdx_hogp_key_action.c must hold the five default HID actions (Ctrl+C, Ctrl+V, Ctrl+X, Backspace, Enter)' })
+    -Message $(if ($defaultActionsInExecutor) { '' } else { 'HOGP test vectors must use shared HID keyboard constants' })
 
 $legacyKeyHasNoHogp = ($KeyText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp|s_rdx_key_hogp_default_actions') -and
                       ($KeyHeaderText -notmatch 'RDX_HOGP_KEY_ACTION_TEST_ENABLE|rdx_hogp_key_action|rdx_key_get_hogp')

@@ -620,5 +620,3 @@ u32 rdx_protocol_calc_opus_format(u8 record_formate);
 
 #endif
 
-
-

@@ -96,6 +96,10 @@ extern "C" {
 #define RDX_HOGP_VERBOSE_LOG                  0   /* 0 = only state changes and errors; 1 = per-packet read/write */
 #endif
 
+#ifndef RDX_HOGPKM_TRACE_ENABLE
+#define RDX_HOGPKM_TRACE_ENABLE               0   /* 1 = verbose APP keymap transaction trace */
+#endif
+
 #ifdef __cplusplus
 }
 #endif

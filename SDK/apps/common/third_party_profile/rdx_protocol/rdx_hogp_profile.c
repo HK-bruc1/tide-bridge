@@ -26,7 +26,7 @@ extern "C" {
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) && TCFG_RDX_HOGP_ENABLE
 
 /******************************************************************************
-* Report Map (Standard 70-byte boot keyboard report descriptor)
+* Report Map (70-byte keyboard report descriptor)
 ******************************************************************************/
 const u8 rdx_hogp_report_map[] = {
     0x05, 0x01,        // Usage Page (Generic Desktop)

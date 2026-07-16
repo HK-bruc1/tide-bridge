@@ -160,9 +160,8 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 0x0004–0x000b: 自定义 128-bit UUID Service (RDX 协议通道)
 0x000c–0x000f: Battery Service (0x180F)
 0x0010–0x0015: 另一个自定义 128-bit UUID Service (Notify 通道)
-0x0016–0x0022: HID Service (0x1812)
-0x0023–0x0027: Device Information Service (0x180A)
-0x0028–0x002a: Output Report (0x2A4D) + Report Reference
+0x0016–0x0025: HID Service (0x1812，含 Input/Output Report)
+0x0026–0x002a: Device Information Service (0x180A)
 ```
 
 ### HID Service 详细 attribute 表
@@ -173,7 +172,7 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 | 0x0017 | Characteristic | 0x2A4E | — | Protocol Mode 声明 |
 | 0x0018 | Value | 0x2A4E | Read, Write w/o Resp | Protocol Mode 值 (默认 0x01 = Report Protocol) |
 | 0x0019 | Characteristic | 0x2A4D | — | Input Report 声明 |
-| 0x001a | Value | 0x2A4D | Read, Write, Notify, Dynamic | Input Report 值 (8 字节键盘 Report) |
+| 0x001a | Value | 0x2A4D | Read, Notify, Dynamic | Input Report 值 (8 字节键盘 Report) |
 | 0x001b | Descriptor | 0x2902 | Read, Write | CCC（Client Characteristic Configuration） |
 | 0x001c | Descriptor | 0x2908 | Read | Report Reference (ID=1, Type=Input) |
 | 0x001d | Characteristic | 0x2A4B | — | Report Map 声明 |
@@ -182,14 +181,14 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 | 0x0020 | Value | 0x2A4A | Read, Dynamic | HID Information (bcd=1.11, country=0, flags=3) |
 | 0x0021 | Characteristic | 0x2A4C | — | HID Control Point 声明 |
 | 0x0022 | Value | 0x2A4C | Write w/o Resp, Dynamic | HID Control Point |
-| 0x0023 | Service Declaration | 0x180A | — | Device Information Service |
-| 0x0024 | Characteristic | 0x2A50 | — | PnP ID 声明 |
-| 0x0025 | Value | 0x2A50 | Read | PnP ID (USB-IF, VID=0x1234, PID=0x0001, Ver=0x0001) |
-| 0x0026 | Characteristic | 0x2A29 | — | Manufacturer Name 声明 |
-| 0x0027 | Value | 0x2A29 | Read | Manufacturer Name ("JieLi") |
-| 0x0028 | Characteristic | 0x2A4D | — | Output Report 声明 |
-| 0x0029 | Value | 0x2A4D | Read, Write, Write w/o Resp | Output Report 值 (1 字节 LED 状态) |
-| 0x002a | Descriptor | 0x2908 | Read | Report Reference (ID=1, Type=Output) |
+| 0x0023 | Characteristic | 0x2A4D | — | Output Report 声明 |
+| 0x0024 | Value | 0x2A4D | Read, Write, Write w/o Resp | Output Report 值 (1 字节 LED 状态) |
+| 0x0025 | Descriptor | 0x2908 | Read | Report Reference (ID=1, Type=Output) |
+| 0x0026 | Service Declaration | 0x180A | — | Device Information Service |
+| 0x0027 | Characteristic | 0x2A50 | — | PnP ID 声明 |
+| 0x0028 | Value | 0x2A50 | Read | PnP ID (USB-IF, VID=0x1234, PID=0x0001, Ver=0x0001) |
+| 0x0029 | Characteristic | 0x2A29 | — | Manufacturer Name 声明 |
+| 0x002a | Value | 0x2A29 | Read | Manufacturer Name ("JieLi") |
 
 ### Handle 宏定义（实际代码）
 
@@ -208,20 +207,20 @@ AC701N 的 BLE 业务通过 `app_ble_*` 包装层管理 GATT Server。关键约�
 #define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE     0x0021
 #define HID_CONTROL_POINT_VALUE_HANDLE              0x0022
 
-// Device Information Service (0x180A)
-#define DIS_SERVICE_HANDLE                          0x0023
-#define DIS_PNP_ID_CHARACTERISTIC_HANDLE            0x0024
-#define DIS_PNP_ID_VALUE_HANDLE                     0x0025
-#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE 0x0026
-#define DIS_MANUFACTURER_NAME_VALUE_HANDLE          0x0027
+// Output Report (inside HID Service)
+#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE     0x0023
+#define HID_OUTPUT_REPORT_VALUE_HANDLE              0x0024
+#define HID_OUTPUT_REPORT_REFERENCE_HANDLE          0x0025
 
-// Output Report
-#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE     0x0028
-#define HID_OUTPUT_REPORT_VALUE_HANDLE              0x0029
-#define HID_OUTPUT_REPORT_REFERENCE_HANDLE          0x002a
+// Device Information Service (0x180A)
+#define DIS_SERVICE_HANDLE                          0x0026
+#define DIS_PNP_ID_CHARACTERISTIC_HANDLE            0x0027
+#define DIS_PNP_ID_VALUE_HANDLE                     0x0028
+#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE 0x0029
+#define DIS_MANUFACTURER_NAME_VALUE_HANDLE          0x002a
 ```
 
-### Report Map（标准 8 字节 Boot Keyboard）
+### Report Map（标准 8 字节 Keyboard Report）
 
 使用 AC63 `ble_hogp_profile.h` 的键盘部分，声明了 8 个 modifier bits + 6 个 key slots 的标准键盘 Report。
 
@@ -612,7 +611,7 @@ void hogp_mode_set(u8 enable)
 
 ### 已知风险
 
-**Output Report 已实现：** 当前已在 handle `0x0028–0x002a` 增加独立的 Output Report characteristic（Report ID=1, Type=Output），Windows 写 LED 状态时会触发 `HID_OUTPUT_REPORT_VALUE_HANDLE` 的 write 回调。T2620 没有物理 LED 指示灯，MVP 阶段仅打印日志；后续如需驱动 LED，可在 `hid_att_write()` 的 Output Report case 中增加回调。
+**Output Report 已实现：** 当前在 HID Service 内的 handle `0x0023–0x0025` 提供 Output Report characteristic（Report ID=1, Type=Output），Windows 写 LED 状态时由 `rdx_hogp_att_write()` 更新一字节 LED 状态。T2620 没有物理 LED 指示灯，后续如需驱动 LED，可在该 Output Report case 中增加产品回调。
 
 ---
 
@@ -620,7 +619,7 @@ void hogp_mode_set(u8 enable)
 
 | 文件 | 改动内容 |
 |------|----------|
-| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 主要改动文件：扩展 rdx_profile_data[]（追加 HID Service 0x0016–0x0022、Device Information Service 0x0023–0x0027、Output Report 0x0028–0x002a）、扩展 read/write callback、增加 HOGP 状态变量、HID read/write/CCC/Output Report 辅助函数、hogp_mode_set/key_send/key_click_send API、hogp_fill_adv_data/hogp_adv_start/hogp_adv_stop 广播切换、HCI 事件中连接/断开/加密跟踪、SM 事件回调注册与 Just Works 配对确认 |
+| `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` | 扩展 rdx_profile_data[]（HID Service 0x0016–0x0025，Device Information Service 0x0026–0x002a），并把 HID handle 统一路由到 HOGP 子模块 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.h` | 新增 HOGP API 声明 |
 | `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` | 在 `rdx_app_earphone_key_remap()` 的 IO NUM 键值分发处增加 HOGP 模式拦截 |
 | `SDK/apps/earphone/log_config/lib_btstack_config.c` | `config_le_sm_support_enable` 改为 1，使 SM 配对模块编译进固件 |

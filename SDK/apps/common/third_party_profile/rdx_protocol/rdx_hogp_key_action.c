@@ -24,6 +24,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_key_action.h"
+#include "device/hid/hid_keyboard_usage.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -35,11 +36,11 @@
 ******************************************************************************/
 #if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
 static const rdx_hogp_key_action_keyboard_t s_rdx_hogp_test_keymap[RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT] = {
-    { 0x01, { 0x06, 0x00, 0x00, 0x00, 0x00, 0x00 } }, /* KEY1: Ctrl+C */
-    { 0x01, { 0x19, 0x00, 0x00, 0x00, 0x00, 0x00 } }, /* KEY2: Ctrl+V */
-    { 0x01, { 0x1b, 0x00, 0x00, 0x00, 0x00, 0x00 } }, /* KEY3: Ctrl+X */
-    { 0x00, { 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00 } }, /* KEY4: Backspace */
-    { 0x00, { 0x28, 0x00, 0x00, 0x00, 0x00, 0x00 } }, /* KEY5: Enter */
+    { HID_KEYBOARD_MOD_LCTRL, { HID_KEYBOARD_USAGE_C, 0, 0, 0, 0, 0 } },
+    { HID_KEYBOARD_MOD_LCTRL, { HID_KEYBOARD_USAGE_V, 0, 0, 0, 0, 0 } },
+    { HID_KEYBOARD_MOD_LCTRL, { HID_KEYBOARD_USAGE_X, 0, 0, 0, 0, 0 } },
+    { 0, { HID_KEYBOARD_USAGE_BACKSPACE, 0, 0, 0, 0, 0 } },
+    { 0, { HID_KEYBOARD_USAGE_ENTER, 0, 0, 0, 0, 0 } },
 };
 #endif
 
@@ -102,6 +103,22 @@ static void rdx_hogp_key_action_to_keyboard_report(
     report->modifiers = action->modifiers;
     report->reserved = 0;
     memcpy(report->usages, action->usages, sizeof(report->usages));
+}
+
+static u8 rdx_hogp_key_action_is_disabled(
+    const rdx_hogp_key_action_keyboard_t *action)
+{
+    u8 i;
+
+    if (action->modifiers != 0) {
+        return 0;
+    }
+    for (i = 0; i < sizeof(action->usages); i++) {
+        if (action->usages[i] != 0) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /******************************************************************************
@@ -178,6 +195,12 @@ int rdx_hogp_key_action_click(u8 key_id)
     }
 
     action = &s_rdx_hogp_key_action_active_keymap.keys[key_id];
+
+    /* A disabled physical key is consumed by the HOGP owner but must not emit
+     * either a key-down or a redundant all-zero release report. */
+    if (rdx_hogp_key_action_is_disabled(action)) {
+        return 0;
+    }
 
     rdx_hogp_key_action_to_keyboard_report(action, &report);
 
