@@ -26,6 +26,9 @@ typedef enum {
     RDX_VM_ID_CUSTOM_AUTH       = VM_RDX_CUSTOM_AUTH,
 } rdx_vm_id_t;
 
+/* Fixed-size VM transfer contract: RDX_OK is returned only when the JL
+ * syscfg API transfers exactly len bytes.  Zero-length reads map to NOENT;
+ * partial reads/writes and negative returns map to RDX_ERR_IO. */
 rdx_err_t rdx_storage_read(rdx_vm_id_t id, u8 *buf, u16 len);
 rdx_err_t rdx_storage_write(rdx_vm_id_t id, const u8 *buf, u16 len);
 

@@ -86,6 +86,8 @@ struct adc_file_hdl *hdl_p;
 
 void rdx_audio_adc_file_set_gain(u8 mic_index, u8 mic_gain);
 u8 rdx_audio_adc_file_get_gain(u8 mic_index);
+int rdx_audio_adc_file_set_gain_checked(u8 mic_index, u8 mic_gain);
+int rdx_audio_adc_file_get_gain_checked(u8 mic_index, u8 *mic_gain);
 //------------------------------------------------------------------------
 
 
@@ -351,27 +353,49 @@ void audio_adc_file_set_gain(u8 mic_index, u8 mic_gain)
 
 //---------------------------------------------------------------------------------
 
+int rdx_audio_adc_file_set_gain_checked(u8 mic_index, u8 mic_gain)
+{
+    if (mic_index >= AUDIO_ADC_MAX_NUM) {
+        y_printf("=== mic_index[%d] err !!! \r", mic_index);
+        return -1;
+    }
+    if (!hdl_p || !hdl_p->adc_f ||
+        !(hdl_p->adc_f->cfg.mic_en_map & BIT(mic_index))) {
+        y_printf("=== mic[%d] adc not ready/enabled \r", mic_index);
+        return -1;
+    }
+    hdl_p->adc_f->cfg.param[mic_index].mic_gain = mic_gain;
+    audio_adc_mic_set_gain(&hdl_p->mic_ch, BIT(mic_index), mic_gain);
+    return 0;
+}
+
+int rdx_audio_adc_file_get_gain_checked(u8 mic_index, u8 *mic_gain)
+{
+    if(!mic_gain){
+        return -1;
+    }
+    if (mic_index >= AUDIO_ADC_MAX_NUM) {
+        y_printf("=== mic_index[%d] err !!! \r", mic_index);
+        return -1;
+    }
+    if(!hdl_p || !hdl_p->adc_f ||
+       !(hdl_p->adc_f->cfg.mic_en_map & BIT(mic_index))){
+        return -1;
+    }
+    *mic_gain = hdl_p->adc_f->cfg.param[mic_index].mic_gain;
+    return 0;
+}
+
 void rdx_audio_adc_file_set_gain(u8 mic_index, u8 mic_gain)
 {
-    if (mic_index > AUDIO_ADC_MAX_NUM) {
-        y_printf("=== mic_index[%d] err !!! \r", mic_index);
-    }
-    if (hdl_p) {
-        hdl_p->adc_f->cfg.param[mic_index].mic_gain = mic_gain;
-        audio_adc_mic_set_gain(&hdl_p->mic_ch, BIT(mic_index), mic_gain);
-    }
+    (void)rdx_audio_adc_file_set_gain_checked(mic_index, mic_gain);
 }
 
 u8 rdx_audio_adc_file_get_gain(u8 mic_index)
 {
-    if(!hdl_p){
-        return 0;
-    }
-
-    if (mic_index > AUDIO_ADC_MAX_NUM) {
-        y_printf("=== mic_index[%d] err !!! \r", mic_index);
-    }
-    return hdl_p->adc_f->cfg.param[mic_index].mic_gain;
+    u8 mic_gain = 0;
+    (void)rdx_audio_adc_file_get_gain_checked(mic_index, &mic_gain);
+    return mic_gain;
 }
 
 //---------------------------------------------------------------------------------

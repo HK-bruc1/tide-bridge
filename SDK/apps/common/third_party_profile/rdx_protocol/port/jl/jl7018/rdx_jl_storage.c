@@ -6,19 +6,16 @@
 rdx_err_t rdx_storage_read(rdx_vm_id_t id, u8 *buf, u16 len)
 {
     int ret = syscfg_read((int)id, buf, len);
-    if (ret < 0) {
-        return RDX_ERR_IO;
-    }
     if (ret == 0) {
         return RDX_ERR_NOENT;
     }
-    return RDX_OK;
+    return (ret == len) ? RDX_OK : RDX_ERR_IO;
 }
 
 rdx_err_t rdx_storage_write(rdx_vm_id_t id, const u8 *buf, u16 len)
 {
     int ret = syscfg_write((int)id, buf, len);
-    return (ret >= 0) ? RDX_OK : RDX_ERR_IO;
+    return (ret == len) ? RDX_OK : RDX_ERR_IO;
 }
 
 rdx_err_t rdx_storage_cfg_read_string(u16 id, void *buf, u16 len, u8 ver)

@@ -27,6 +27,7 @@ struct sink_dev1_hdl {
 extern int rdx_record_run_exit(void);
 extern int rdx_record_run_init(void);
 extern int rdx_record_run_data_handle(u8 *data, u16 len);
+extern void rdx_record_mic_gain_check(void);
 
 u32 source_dev0_input_write(u8 *data, u16 len);
 
@@ -107,7 +108,7 @@ static int sink_dev1_init(struct sink_dev1_hdl *hdl)
     rdx_record_run_init();
 #endif
 
-    //set gain.
+    // ADC 节点已随录音流完成初始化；增益失败记录诊断，但不阻断录音。
     rdx_record_mic_gain_check();
 #endif
 
@@ -304,4 +305,3 @@ REGISTER_STREAM_NODE_ADAPTER(sink_dev1_adapter) = {
 };
 
 #endif
-

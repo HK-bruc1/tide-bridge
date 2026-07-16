@@ -52,6 +52,7 @@
 #include "rdx_ble_server.h"
 #include "jiffies.h"
 #include "rdx_jl_osal.h"
+#include "rdx_jl_storage.h"
 
 #if defined(__UUX_FILE__)
 #include "rdx_uxfile.h"
@@ -127,6 +128,10 @@ static u8 heartbeat_timer_cnt = 0;
 static u8 stream_filter_cnt = 0;
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
+static Record_info g_pending_busy_record_info;
+static bool g_pending_busy_record_valid = false;
+static bool g_pending_busy_replay_posted = false;
+static u16 g_pending_busy_replay_timer = 0;
 
 static u8 au_buf[AUDIO_SEND_BUF_SIZE];
 static u32 au_len = 0;
@@ -178,8 +183,8 @@ extern void rdx_app_emmc_poweroff_check(void);
 extern void rdx_app_emmc_poweroff_check_timer_stop(void);
 extern void rdx_app_emmc_poweron(u8 check_en);
 
-extern u8 rdx_audio_adc_file_get_gain(u8 mic_index);
-extern void rdx_audio_adc_file_set_gain(u8 mic_index, u8 gain);
+extern int rdx_audio_adc_file_get_gain_checked(u8 mic_index, u8 *gain);
+extern int rdx_audio_adc_file_set_gain_checked(u8 mic_index, u8 gain);
 extern void force_set_sd_online(char *sdx);
 extern int dev_manager_mount(char *logo);
 extern void rdx_app_set_record_mode(u8 d);
@@ -198,6 +203,9 @@ void rdx_record_set_process_state_ready(void);
 void rdx_record_stop(void);
 u8 rdx_record_get_filter_cnt(void);
 void rdx_record_set_filter_cnt(u8 cnt);
+static void rdx_record_process_state_set_timer_cb(void* priv);
+static void rdx_record_pending_busy_replay_schedule(void);
+static void rdx_record_pending_busy_replay_retry_cb(void* priv);
 
 /******************************************************************************
 * Function Section
@@ -342,7 +350,69 @@ void rdx_record_process_state_timer_stop(void)
         rdx_os_timer_del(record_set_process_state_timer);
         record_set_process_state_timer = 0;
     }
-    rdx_record_set_process_state_ready();
+}
+
+static void rdx_record_pending_busy_replay_cb(void)
+{
+    Record_info pending;
+    bool valid;
+
+    CPU_CRITICAL_ENTER();
+    valid = g_pending_busy_record_valid;
+    if(valid){
+        memcpy(&pending, &g_pending_busy_record_info, sizeof(pending));
+        g_pending_busy_record_valid = false;
+    }
+    g_pending_busy_replay_posted = false;
+    CPU_CRITICAL_EXIT();
+
+    if(valid){
+        y_printf("[REC_BUSY] replay pending cmd=%c format=%c type=%c\r",
+                 pending.cmd, pending.formate, pending.type);
+        rdx_record_cmd_handle(&pending);
+    }
+}
+
+static void rdx_record_pending_busy_replay_retry_cb(void* priv)
+{
+    (void)priv;
+    g_pending_busy_replay_timer = 0;
+
+    CPU_CRITICAL_ENTER();
+    g_pending_busy_replay_posted = false;
+    CPU_CRITICAL_EXIT();
+
+    rdx_record_pending_busy_replay_schedule();
+}
+
+static void rdx_record_pending_busy_replay_schedule(void)
+{
+    bool should_post = false;
+
+    CPU_CRITICAL_ENTER();
+    if(g_pending_busy_record_valid && !g_pending_busy_replay_posted){
+        g_pending_busy_replay_posted = true;
+        should_post = true;
+    }
+    CPU_CRITICAL_EXIT();
+
+    if(!should_post){
+        return;
+    }
+
+    if(rdx_os_task_post_callback0("app_core", rdx_record_pending_busy_replay_cb) != RDX_OK){
+        log_info("[REC_BUSY] replay post failed, retry by timeout\r");
+        if(g_pending_busy_replay_timer == 0){
+            g_pending_busy_replay_timer = rdx_os_timer_add(
+                rdx_record_pending_busy_replay_retry_cb, NULL, 20);
+        }
+        if(g_pending_busy_replay_timer == 0){
+            CPU_CRITICAL_ENTER();
+            g_pending_busy_replay_posted = false;
+            CPU_CRITICAL_EXIT();
+            log_info("[REC_BUSY] replay deferred; pending cmd retained\r");
+        }
+    }
 }
 
 /**************************************************************************
@@ -437,8 +507,11 @@ void rdx_record_set_process_state_ready(void)
     if(record_status.process_state != REC_PROCESS_STATE_READY){
         record_status.process_state = REC_PROCESS_STATE_READY;
         log_info("%s --> record_status.process_state = %d \r", __FUNCTION__, record_status.process_state);
+    }
+    if(record_set_process_state_timer){
         rdx_record_process_state_timer_stop();
     }
+    rdx_record_pending_busy_replay_schedule();
 }
 
 /**************************************************************************
@@ -456,6 +529,19 @@ void rdx_record_set_default(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if(record_set_process_state_timer){
+        rdx_os_timer_del(record_set_process_state_timer);
+        record_set_process_state_timer = 0;
+    }
+    if(g_pending_busy_replay_timer){
+        rdx_os_timer_del(g_pending_busy_replay_timer);
+        g_pending_busy_replay_timer = 0;
+    }
+    if(g_record_cmd_delay_timer){
+        rdx_os_timer_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+    }
+
     memset(&record_status, 0, sizeof(RecordStatus));
     record_status.run = RECORD_STATE_STOP;
     record_status.formate = RECORD_FORMATE_OPUS_16K_STERO;
@@ -470,6 +556,11 @@ void rdx_record_set_default(void)
     record_status.paused_accumulated_ms = 0;
     s_cur_mark_count = 0;
     memset(s_cur_marks, 0, sizeof(s_cur_marks));
+    memset(&g_pending_busy_record_info, 0, sizeof(g_pending_busy_record_info));
+    memset(&g_pending_record_info, 0, sizeof(g_pending_record_info));
+    g_pending_busy_record_valid = false;
+    g_pending_busy_replay_posted = false;
+    g_record_cmd_retry_cnt = 0;
 }
 
 /**************************************************************************
@@ -745,13 +836,52 @@ void rdx_record_cmd_handle(Record_info *r_info)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    uint8_t info_type = r_info->type - 0x30;
+    uint8_t info_type;
+    bool was_busy = false;
+    bool pending_needs_schedule = false;
+    bool pending_replay_active = false;
 
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     extern u8 rdx_ble_server_is_stream_tx_ready(void);
+    if(!r_info){
+        return;
+    }
+    info_type = r_info->type - 0x30;
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
+
+    /* Pending replacement and BUSY admission are one atomic decision:
+     * whichever command arrives last owns the single pending slot. */
+    CPU_CRITICAL_ENTER();
+    if(g_pending_busy_replay_posted ||
+       (g_pending_busy_record_valid &&
+        record_status.process_state == REC_PROCESS_STATE_READY)){
+        memcpy(&g_pending_busy_record_info, r_info, sizeof(Record_info));
+        g_pending_busy_record_valid = true;
+        pending_replay_active = true;
+        pending_needs_schedule = !g_pending_busy_replay_posted;
+    }else if(record_status.process_state == REC_PROCESS_STATE_BUSY){
+        memcpy(&g_pending_busy_record_info, r_info, sizeof(Record_info));
+        g_pending_busy_record_valid = true;
+        was_busy = true;
+    }
+    CPU_CRITICAL_EXIT();
+
+    if(pending_replay_active){
+        if(pending_needs_schedule){
+            rdx_record_pending_busy_replay_schedule();
+        }
+        y_printf("[REC_BUSY] replay queued; replace with latest cmd=%c\r", r_info->cmd);
+        return;
+    }
+
+    if(was_busy){
+        rdx_record_process_is_busy_check();
+        r_printf("====== %s --> record process busy, queue latest cmd=%c \r",
+                 __FUNCTION__, r_info->cmd);
+        return;
+    }
 
     if(r_info->cmd == (RECORD_STATE_START + 0x30)) {
         if(!rdx_ble_server_is_stream_tx_ready()) {
@@ -770,11 +900,6 @@ void rdx_record_cmd_handle(Record_info *r_info)
     if(r_info->cmd - 0x30 == record_status.run){
         //if the cmd is same as last time, do not handle it again.
         y_printf("====== %s --> record cmd job is same as current, cmd = %c \r", __FUNCTION__, r_info->cmd);
-        return;
-    }
-    //check record process state.
-    if(rdx_record_process_is_busy_check()){
-        r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
         return;
     }
     //set new record format and scene.d
@@ -1335,7 +1460,11 @@ static void rdx_record_task(void *arg)
 				case Q_MSG:
 					{
                         if(msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME){
-                            translation_ear_recoder_open_all(msg[2]);
+                            int open_ret = translation_ear_recoder_open_all(msg[2]);
+                            if(open_ret != 0){
+                                log_info("rdx_record_task: recorder open failed, ret=%d\r", open_ret);
+                                rdx_record_set_process_state_ready();
+                            }
                         }else if(msg[1] == RECORD_STATE_STOP || msg[1] == RECORD_STATE_PAUSE){
                             translation_ear_recoder_close_all();
                         }
@@ -1407,6 +1536,109 @@ int rdx_record_task_free(void)
 
 //--------------------------------------------------------------------------------
 
+static void rdx_record_mic_gain_fill_defaults(MicGainPara *gain)
+{
+    memset(gain, 0, sizeof(*gain));
+    gain->chat_mic0_gain = RECORD_CHAT_GAIN_DEFAULT_MIC0;
+    gain->chat_mic1_gain = RECORD_CHAT_GAIN_DEFAULT_MIC3;
+    gain->call_mic0_gain = RECORD_CALL_GAIN_DEFAULT_MIC2;
+    gain->call_mic1_gain = RECORD_CALL_GAIN_DEFAULT_MIC3;
+}
+
+static bool rdx_record_mic_gain_value_readable(bool configured, u8 value)
+{
+    return value <= RECORD_MIC_DB_VALUE_MAX ||
+           (!configured && value == 0xff);
+}
+
+static bool rdx_record_mic_gain_values_readable(const MicGainPara *gain)
+{
+    return gain &&
+           rdx_record_mic_gain_value_readable(gain->chat_mic_flag, gain->chat_mic0_gain) &&
+           rdx_record_mic_gain_value_readable(gain->chat_mic_flag, gain->chat_mic1_gain) &&
+           rdx_record_mic_gain_value_readable(gain->call_mic_flag, gain->call_mic0_gain) &&
+           rdx_record_mic_gain_value_readable(gain->call_mic_flag, gain->call_mic1_gain);
+}
+
+static bool rdx_record_mic_gain_values_valid_for_write(const MicGainPara *gain)
+{
+    return gain &&
+           gain->chat_mic0_gain <= RECORD_MIC_DB_VALUE_MAX &&
+           gain->chat_mic1_gain <= RECORD_MIC_DB_VALUE_MAX &&
+           gain->call_mic0_gain <= RECORD_MIC_DB_VALUE_MAX &&
+           gain->call_mic1_gain <= RECORD_MIC_DB_VALUE_MAX;
+}
+
+static u8 rdx_record_mic_gain_legacy_value(u8 mic_index, u8 fallback,
+                                           bool use_adc_value)
+{
+    u8 value;
+
+    if(use_adc_value &&
+       rdx_audio_adc_file_get_gain_checked(mic_index, &value) == 0){
+        return value;
+    }
+    return fallback;
+}
+
+static bool rdx_record_mic_gain_normalize_legacy(MicGainPara *gain,
+                                                  int active_mode)
+{
+    bool changed = false;
+    bool chat_changed = false;
+    bool call_changed = false;
+
+    if(!gain){
+        return false;
+    }
+
+    /* 0 is a legal configured gain.  It is a legacy sentinel only while
+     * the corresponding mode has never been configured (flag == false). */
+    if(!gain->chat_mic_flag){
+        if(gain->chat_mic0_gain == 0 || gain->chat_mic0_gain == 0xff){
+            gain->chat_mic0_gain = rdx_record_mic_gain_legacy_value(
+                RECORD_MIC_0, RECORD_CHAT_GAIN_DEFAULT_MIC0,
+                active_mode == RDX_RECORD_MIC_MODE_CHAT);
+            changed = true;
+            chat_changed = true;
+        }
+        if(gain->chat_mic1_gain == 0 || gain->chat_mic1_gain == 0xff){
+            gain->chat_mic1_gain = rdx_record_mic_gain_legacy_value(
+                RECORD_MIC_3, RECORD_CHAT_GAIN_DEFAULT_MIC3,
+                active_mode == RDX_RECORD_MIC_MODE_CHAT);
+            changed = true;
+            chat_changed = true;
+        }
+    }
+    if(!gain->call_mic_flag){
+        if(gain->call_mic0_gain == 0 || gain->call_mic0_gain == 0xff){
+            gain->call_mic0_gain = rdx_record_mic_gain_legacy_value(
+                RECORD_MIC_2, RECORD_CALL_GAIN_DEFAULT_MIC2,
+                active_mode == RDX_RECORD_MIC_MODE_CALL);
+            changed = true;
+            call_changed = true;
+        }
+        if(gain->call_mic1_gain == 0 || gain->call_mic1_gain == 0xff){
+            gain->call_mic1_gain = rdx_record_mic_gain_legacy_value(
+                RECORD_MIC_3, RECORD_CALL_GAIN_DEFAULT_MIC3,
+                active_mode == RDX_RECORD_MIC_MODE_CALL);
+            changed = true;
+            call_changed = true;
+        }
+    }
+
+    /* A migrated mode is now initialized.  Persist its flag together with
+     * the normalized values in the caller's single verified VM write. */
+    if(chat_changed){
+        gain->chat_mic_flag = true;
+    }
+    if(call_changed){
+        gain->call_mic_flag = true;
+    }
+
+    return changed;
+}
+
 
 /**************************************************************************
  * function: rdx_record_mic_gain_read_from_vm
@@ -1419,15 +1651,17 @@ MicGainPara* rdx_record_mic_gain_read_from_vm(void)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    int ret = 0;
+    rdx_err_t ret;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    ret = syscfg_read(VM_RDX_MIC_GAIN, &mic_gain, sizeof(MicGainPara));
-    if (ret > 0) {
+    ret = rdx_storage_read(RDX_VM_ID_MIC_GAIN, (u8 *)&mic_gain, sizeof(MicGainPara));
+    if (ret == RDX_OK && rdx_record_mic_gain_values_readable(&mic_gain)) {
         y_printf("===> read mic gain ok, chat_mic0_gain: %d, chat_mic1_gain: %d, call_mic0_gain: %d, call_mic1_gain: %d \r", mic_gain.chat_mic0_gain, mic_gain.chat_mic1_gain, mic_gain.call_mic0_gain, mic_gain.call_mic1_gain);
+        return &mic_gain;
     }
-    return &mic_gain;
+    log_info("rdx_record_mic_gain_read_from_vm fail, err=%d\r", ret);
+    return NULL;
 }
 
 /**************************************************************************
@@ -1441,18 +1675,56 @@ int rdx_record_mic_gain_write_into_vm(MicGainPara* gain)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    int ret = 0;
+    rdx_err_t ret;
+    rdx_err_t read_ret;
+    MicGainPara verify;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    log_info("===> %s \r", __func__);
-    ret = syscfg_write(VM_RDX_MIC_GAIN, gain, sizeof(MicGainPara));
-    if (ret > 0) {
-        log_info("rdx_record_mic_gain_write_into_vm success \r");
-    }else{
-        log_info("rdx_record_mic_gain_write_into_vm fail \r");
+    if(!rdx_record_mic_gain_values_valid_for_write(gain)){
+        log_info("rdx_record_mic_gain_write_into_vm invalid data\r");
+        return -1;
     }
-    return ret;
+
+    log_info("===> %s \r", __func__);
+    ret = rdx_storage_write(RDX_VM_ID_MIC_GAIN, (const u8 *)gain, sizeof(MicGainPara));
+    if (ret != RDX_OK) {
+        log_info("rdx_record_mic_gain_write_into_vm fail, err=%d\r", ret);
+        return -1;
+    }
+
+    memset(&verify, 0, sizeof(verify));
+    read_ret = rdx_storage_read(RDX_VM_ID_MIC_GAIN, (u8 *)&verify, sizeof(verify));
+    if(read_ret != RDX_OK || memcmp(&verify, gain, sizeof(verify)) != 0){
+        log_info("rdx_record_mic_gain_write_into_vm verify fail, err=%d\r", read_ret);
+        return -1;
+    }
+
+    memcpy(&mic_gain, &verify, sizeof(mic_gain));
+    log_info("rdx_record_mic_gain_write_into_vm success and verified\r");
+    return sizeof(MicGainPara);
+}
+
+static int rdx_record_mic_gain_apply(int mode, const MicGainPara *gain)
+{
+    int ret1;
+    int ret2;
+
+    if(!gain){
+        return -1;
+    }
+
+    if(mode == RDX_RECORD_MIC_MODE_CHAT){
+        ret1 = rdx_audio_adc_file_set_gain_checked(RECORD_MIC_0, gain->chat_mic0_gain);
+        ret2 = rdx_audio_adc_file_set_gain_checked(RECORD_MIC_3, gain->chat_mic1_gain);
+    }else if(mode == RDX_RECORD_MIC_MODE_CALL){
+        ret1 = rdx_audio_adc_file_set_gain_checked(RECORD_MIC_2, gain->call_mic0_gain);
+        ret2 = rdx_audio_adc_file_set_gain_checked(RECORD_MIC_3, gain->call_mic1_gain);
+    }else{
+        return -1;
+    }
+
+    return (ret1 == 0 && ret2 == 0) ? 0 : -1;
 }
 
 /**************************************************************************
@@ -1507,12 +1779,19 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2)
     if(!gain1 || !gain2) return -1;
 
     pn = rdx_record_mic_gain_read_from_vm();
-    if(!pn){
+    if(pn){
+        memcpy(&gain_para, pn, sizeof(MicGainPara));
+        rdx_record_mic_gain_normalize_legacy(&gain_para, -1);
+    }else{
+        rdx_record_mic_gain_fill_defaults(&gain_para);
+    }
+
+    if(mode != RDX_RECORD_MIC_MODE_CHAT && mode != RDX_RECORD_MIC_MODE_CALL){
+        r_printf("%s --> bad mode=%d \r", __func__, mode);
         *gain1 = 0;
         *gain2 = 0;
         return -1;
     }
-    memcpy(&gain_para, pn, sizeof(MicGainPara));
 
     if(mode == RDX_RECORD_MIC_MODE_CHAT){
         if(*gain1 >= RECORD_MIC_DB_VALUE_MIN && *gain1 <= RECORD_MIC_DB_VALUE_MAX){
@@ -1539,6 +1818,12 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2)
 
     ret = rdx_record_mic_gain_write_into_vm(&gain_para);
     if(ret > 0){
+        if((record_status.run == RECORD_STATE_START || record_status.run == RECORD_STATE_RESUME) &&
+           ((mode == RDX_RECORD_MIC_MODE_CHAT && record_status.scene == RECORD_SCENE_CHAT) ||
+            (mode == RDX_RECORD_MIC_MODE_CALL && record_status.scene == RECORD_SCENE_CALL)) &&
+           rdx_record_mic_gain_apply(mode, &gain_para) != 0){
+            log_info("rdx_record_mic_gain_set: ADC not ready, defer apply until record start\r");
+        }
         return 0;
     }
 
@@ -1574,13 +1859,7 @@ void rdx_record_mic_gain_set_default(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    memset(&gain_para, 0, sizeof(MicGainPara));
-    gain_para.chat_mic0_gain = RECORD_CHAT_GAIN_DEFAULT_MIC0;
-    gain_para.chat_mic1_gain = RECORD_CHAT_GAIN_DEFAULT_MIC3;
-    gain_para.call_mic0_gain = RECORD_CALL_GAIN_DEFAULT_MIC2;
-    gain_para.call_mic1_gain = RECORD_CALL_GAIN_DEFAULT_MIC3;
-    gain_para.chat_mic_flag = false;
-    gain_para.call_mic_flag = false;
+    rdx_record_mic_gain_fill_defaults(&gain_para);
     rdx_record_mic_gain_write_into_vm(&gain_para);    
 }
 
@@ -1590,74 +1869,80 @@ void rdx_record_mic_gain_set_default(void)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_record_mic_gain_check(void)
+static int rdx_record_mic_gain_apply_current(void)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     RecordStatus* rp = rdx_record_get_status();  
     MicGainPara* p;
+    MicGainPara defaults;
+    int mode;
+    int actual1;
+    int actual2;
+    int expected1;
+    int expected2;
+    u8 actual_gain1;
+    u8 actual_gain2;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    mode = (rp->scene == RECORD_SCENE_CHAT) ?
+           RDX_RECORD_MIC_MODE_CHAT : RDX_RECORD_MIC_MODE_CALL;
+
     p = rdx_record_mic_gain_read_from_vm();
-    if(rp->scene == RECORD_SCENE_CHAT){
-        y_printf("===> read mic gain, chat_mic0_gain: %d, chat_mic1_gain: %d, chat_mic_flag: %d \r", p->chat_mic0_gain, p->chat_mic1_gain, p->chat_mic_flag);
-        //record by chat mode.
-        if(p->chat_mic_flag == false){
-            //write to vm.
-            MicGainPara gain_para;
-            memcpy(&gain_para, p, sizeof(MicGainPara));
-            if(p->chat_mic0_gain == 0 || p->chat_mic0_gain == 0xff){
-                u8 gain_value_0 = rdx_audio_adc_file_get_gain(RECORD_MIC_0);
-                gain_para.chat_mic0_gain = gain_value_0;
-            }
-            if(p->chat_mic1_gain == 0 || p->chat_mic1_gain == 0xff){
-                u8 gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-                gain_para.chat_mic1_gain = gain_value_3;
-            }
-            p->chat_mic_flag = true;
-            rdx_record_mic_gain_write_into_vm(&gain_para);
+    if(!p){
+        rdx_record_mic_gain_fill_defaults(&defaults);
+        if(rdx_record_mic_gain_write_into_vm(&defaults) <= 0){
+            log_info("rdx_record_mic_gain_check: use runtime defaults; VM repair failed\r");
+            p = &defaults;
         }else{
-            if(p->chat_mic0_gain >= RECORD_MIC_DB_VALUE_MIN && p->chat_mic0_gain <= RECORD_MIC_DB_VALUE_MAX){
-                rdx_audio_adc_file_set_gain(RECORD_MIC_0, p->chat_mic0_gain);
-            }
-            if(p->chat_mic1_gain >= RECORD_MIC_DB_VALUE_MIN && p->chat_mic1_gain <= RECORD_MIC_DB_VALUE_MAX){
-                rdx_audio_adc_file_set_gain(RECORD_MIC_3, p->chat_mic1_gain);
-            }
+            p = &mic_gain;
         }
-        u8 r_gain_value_0 = rdx_audio_adc_file_get_gain(RECORD_MIC_0);
-        u8 r_gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-        y_printf("===> new mic gain, chat_mic0_gain: %d, chat_mic1_gain: %d \r", r_gain_value_0, r_gain_value_3);
+    }else if(rdx_record_mic_gain_normalize_legacy(p, mode)){
+        if(rdx_record_mic_gain_write_into_vm(p) <= 0){
+            log_info("rdx_record_mic_gain_check: legacy gain repair persist failed\r");
+        }
+    }
+
+    if(rdx_record_mic_gain_apply(mode, p) != 0){
+        log_info("rdx_record_mic_gain_check: ADC apply failed, mode=%d\r", mode);
+        return -1;
+    }
+
+    if(mode == RDX_RECORD_MIC_MODE_CHAT){
+        expected1 = p->chat_mic0_gain;
+        expected2 = p->chat_mic1_gain;
+        if(rdx_audio_adc_file_get_gain_checked(RECORD_MIC_0, &actual_gain1) != 0 ||
+           rdx_audio_adc_file_get_gain_checked(RECORD_MIC_3, &actual_gain2) != 0){
+            return -1;
+        }
     }else{
-        y_printf("===> read mic gain, call_mic0_gain: %d, call_mic1_gain: %d, call_mic_flag: %d \r", p->call_mic0_gain, p->call_mic1_gain, p->call_mic_flag);
-        //record by call mode.
-        if(p->call_mic_flag == false){
-            //write to vm.
-            MicGainPara gain_para;
-            memcpy(&gain_para, p, sizeof(MicGainPara));
-            if(p->call_mic0_gain == 0 || p->call_mic0_gain == 0xff){
-                //骨麦
-                u8 gain_value_2 = rdx_audio_adc_file_get_gain(RECORD_MIC_2);
-                gain_para.call_mic0_gain = gain_value_2;
-            }
-            if(p->call_mic1_gain == 0 || p->call_mic1_gain == 0xff){
-                u8 gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-                gain_para.call_mic1_gain = gain_value_3;
-            }
-            gain_para.call_mic_flag = true;
-            rdx_record_mic_gain_write_into_vm(&gain_para);
-        }else{
-            if(p->call_mic0_gain >= RECORD_MIC_DB_VALUE_MIN && p->call_mic0_gain <= RECORD_MIC_DB_VALUE_MAX){
-                rdx_audio_adc_file_set_gain(RECORD_MIC_2, p->call_mic0_gain);
-            }
-            if(p->call_mic1_gain >= RECORD_MIC_DB_VALUE_MIN && p->call_mic1_gain <= RECORD_MIC_DB_VALUE_MAX){
-                rdx_audio_adc_file_set_gain(RECORD_MIC_3, p->call_mic1_gain);
-            }
+        expected1 = p->call_mic0_gain;
+        expected2 = p->call_mic1_gain;
+        if(rdx_audio_adc_file_get_gain_checked(RECORD_MIC_2, &actual_gain1) != 0 ||
+           rdx_audio_adc_file_get_gain_checked(RECORD_MIC_3, &actual_gain2) != 0){
+            return -1;
         }
-        u8 r_gain_value_2 = rdx_audio_adc_file_get_gain(RECORD_MIC_2);
-        u8 r_gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-        y_printf("===> new mic gain, call_mic0_gain: %d, call_mic1_gain: %d \r", r_gain_value_2, r_gain_value_3);
+    }
+
+    actual1 = actual_gain1;
+    actual2 = actual_gain2;
+
+    if(actual1 != expected1 || actual2 != expected2){
+        log_info("rdx_record_mic_gain_check verify fail, mode=%d expected=%d/%d actual=%d/%d\r",
+                 mode, expected1, expected2, actual1, actual2);
+        return -1;
+    }
+
+    y_printf("===> mic gain applied, mode=%d gain=%d/%d\r", mode, actual1, actual2);
+    return 0;
+}
+
+void rdx_record_mic_gain_check(void)
+{
+    if(rdx_record_mic_gain_apply_current() != 0){
+        log_info("rdx_record_mic_gain_check: apply/verify failed; recording continues\r");
     }
 }
 
