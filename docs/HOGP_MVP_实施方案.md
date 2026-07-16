@@ -254,7 +254,7 @@ static volatile u8 hid_notify_enabled = 0;
 
 ### PC 发现验证
 
-1. 设备进入 HOGP 模式（短按 IO NUM0）；
+1. 三击 KEY5（IO NUM4），设备切换到 HOGP 模式；
 2. PC 蓝牙设置里应看到键盘图标设备；
 3. 用 nRF Connect / LightBlue 扫描，广播包应包含 0x1812 和 Appearance 0x03C1；
 4. **广播名与 GAP Device Name 必须一致**（当前统一为 RDX 本地名，例如 "Beanstalk RKB 0002"），否则 PC 可能在连接后因身份不一致而断开。
@@ -280,36 +280,21 @@ static volatile u8 hid_notify_enabled = 0;
 
 | 状态 | 按键 | 动作 | HID Usage | 说明 |
 |------|------|------|-----------|------|
-| 非 HOGP | IO NUM0 短按 | 进入 HOGP 模式 | — | 切换广播为 HID |
-| HOGP | IO NUM0 长按 | 退出 HOGP 模式 | — | 恢复 RDX 广播，断开连接 |
+| 任意模式 | IO NUM4 三击 | 切换 HOGP/Config 模式 | — | 由正式 mode controller 执行断连与广播切换 |
 | HOGP | IO NUM1 短按 | 发送字母 A | 0x04 | down + 20ms 后自动 up |
 | HOGP | IO NUM2 短按 | 发送字母 B | 0x05 | 同上 |
 | HOGP | IO NUM3 短按 | 发送字母 C | 0x06 | 同上 |
 | HOGP | IO NUM4 短按 | 发送字母 D | 0x07 | 同上 |
 
-### 实际按键拦截代码（rdx_app.c 行 ~609–634）
+### 当前正式按键拦截代码
 
 ```c
-if (hogp_mode_get()) {
-    if (num_idx == 0) {
-        if (index == KEY_ACTION_LONG) {
-            hogp_mode_set(0);
-            y_printf("[HOGP] exit HOGP mode\r");
-        }
-    } else {
-        if (index == KEY_ACTION_CLICK) {
-            hogp_key_click_send(num_idx - 1);   // NUM1=A, NUM2=B, NUM3=C, NUM4=D
-        }
-    }
+/* 早期 MVP 的 IO NUM0 短按/长按切换已废弃。产品正式契约为
+ * KEY5/IO_NUM4 三击，并统一通过 mode controller 切换。 */
+if (num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK) {
+    rdx_ble_mode_request_toggle();
     *value = APP_MSG_NULL;
     return;
-} else {
-    if (num_idx == 0 && index == KEY_ACTION_CLICK) {
-        hogp_mode_set(1);
-        y_printf("[HOGP] enter HOGP mode\r");
-        *value = APP_MSG_NULL;
-        return;
-    }
 }
 ```
 
@@ -561,11 +546,11 @@ void hogp_mode_set(u8 enable)
 ### 测试步骤
 
 1. 设备上电，RDX 模式正常运行
-2. **短按 IO NUM0** → 进入 HOGP 模式
+2. **三击 KEY5（IO NUM4）** → 切换到 HOGP 模式
 3. PC 蓝牙扫描 → 发现键盘图标设备（名称与 GAP Device Name 一致，例如 "Beanstalk RKB 0002"）→ 连接
 4. 打开记事本
 5. **短按 IO NUM1~4** → 记事本出现 A / B / C / D
-6. **长按 IO NUM0** → 退出 HOGP 模式，恢复 RDX 广播
+6. **再次三击 KEY5（IO NUM4）** → 退出 HOGP 模式，恢复 RDX 广播
 
 ### 正常流程串口日志序列
 

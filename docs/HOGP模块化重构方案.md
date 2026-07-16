@@ -2,7 +2,7 @@
 
 > 适用项目：VibeCoding Keyboard / T2620 / JL AC701N（BR28）
 > 文档定位：本文件合并了原重构方案与收尾实施方案，是 HOGP Profile v1 的唯一重构与收尾依据。
-> 当前结论：HOGP HID 模块、正式 APP keymap 下发路径、VM 持久化和 host 侧软件契约已经落地；模式切换键索引存在一处已确认的不一致，固件双配置构建和完整硬件回归仍需完成。
+> 当前结论：HOGP HID 模块、正式 APP keymap 下发路径、两阶段 A/B VM 持久化和 host 侧软件契约已经落地；产品确认由 KEY5 三击切换模式，仍需确认量产默认 keymap、接入真实连接级鉴权并完成真实掉电与硬件回归。当前 weak 鉴权钩子默认允许 Config owner，VM 绑定状态不作为当前 BLE 会话身份凭据。
 
 ## 1. 关键产品状态
 
@@ -59,24 +59,24 @@ HOGP HID 传输层仍不解析 APP 配置帧、不保存 Flash，也不解释 Ma
 - `LONG`、`HOLD`、`HOLDUP` 等其他事件继续走原 RDX key table，不由 HOGP Key Action executor 消费。
 - 模式切换入口不受 keymap 配置控制，它属于正式模式控制路径；五键 HID 动作映射由正式 APP keymap/VM 配置驱动，未配置时按默认 keymap 行为处理。
 
-### 1.3 已确认的不一致：模式切换键索引
+### 1.3 模式切换键为 KEY5
 
-当前模式切换的设计意图、产品映射和实际条件不一致：
+模式切换已经按产品确认统一：
 
-- `rdx_app.c` 注释写明 `KEY1 (IO_NUM0) TRIPLE_CLICK` 切换 HOGP/Config。
-- 产品映射确认 KEY1=`KEY_IO_NUM0`/PB2，KEY5=`KEY_IO_NUM4`/PC2。
-- 实际代码却判断 `num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK`。
+- KEY5=`KEY_IO_NUM4`/PC2，对应 `num_idx == 4`。
+- `rdx_app.c` 判断 `num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK`。
+- KEY1=`KEY_IO_NUM0`/PB2，只保留普通 keymap 动作，不承担模式切换。
 
-因此当前代码实际由 **KEY5 三击**触发模式切换，不是注释、项目配置注释和测试名称所称的 KEY1 三击。这不是“产品 KEY1 对应 IO_NUM4”的别名关系，而是一处需要收尾修正的键索引不一致。
+因此当前代码由 **KEY5 三击**触发模式切换。host 契约明确冻结 `num_idx == 4`，避免再次依据旧文档把产品行为误改为 KEY1。
 
-建议按当前一致的产品映射处理：
+当前处理：
 
-1. 将 `rdx_app.c` 的模式切换条件改为 `num_idx == 0`。
+1. `rdx_app.c` 的模式切换条件为 `num_idx == 4`。
 2. 保持 KEY1-KEY5 的 keymap payload/executor 顺序不变。
-3. 扩展 host 契约，明确断言三击条件绑定 `num_idx == 0`，避免只检查存在 `KEY_ACTION_TRIPLE_CLICK` 和 `rdx_ble_mode_request_toggle()`。
-4. 修正后重跑统一 host tests，并在硬件上验证 KEY1 可切换、KEY5 不再切换。
+3. host 契约明确断言三击条件绑定 `num_idx == 4`。
+4. 统一 host tests 已通过；仍需在硬件上验证 KEY5 可切换、KEY1 不触发切换。
 
-在代码修正和硬件确认前，文档不再把该路径标记为“KEY1 三击已完成”。
+在硬件确认前，该路径标记为“软件已完成、硬件待确认”。
 
 ## 2. 收尾目标与边界
 
@@ -210,7 +210,7 @@ rdx_app.c
 | Phase 5：host 契约 | 已完成 | HOGP profile contract 已纳入统一 host runner |
 | Mode Controller 独立化 | 已完成 | 状态位于 `rdx_ble_mode_controller.*`，BLE 副作用仍由 Server 执行 |
 | Key Action 最小拆分 | 已完成 | RAM keymap、转换和 release timer 已移出 App/HOGP 传输层 |
-| 模式切换物理键绑定 | 待修正 | 设计与产品映射为 KEY1/IO_NUM0，实际条件为 `num_idx == 4`，当前触发键是 KEY5/IO_NUM4 |
+| 模式切换物理键绑定 | 软件已完成 | 产品确认为 KEY5/IO_NUM4，条件和 host 契约均冻结 `num_idx == 4`；硬件待确认 |
 | Profile v2 | 不进入本轮 | Output Report 规范化、Consumer Control、Report ID/GATT cache 另行设计 |
 
 ## 6. 正式 Key Action 接入实现
@@ -232,9 +232,16 @@ v1 wire frame 的稳定事实：
 1. `rdx_hogp_keymap_protocol.c` 只负责编解码、长度/版本/CRC 校验和 HID usage 合法性校验。
 2. `rdx_hogp_keymap_config.c` 只允许 Config owner 执行配置命令，并通过 pending 请求串行化处理。
 3. SET 先校验 candidate，再计算 canonical keymap CRC，再检查 revision/idempotency。
-4. commit 时先 apply 到 `rdx_hogp_key_action_keymap_apply()`，再写入 A/B VM；VM 失败会回滚到旧 payload。
+4. commit 时先 PREPARE/读回校验 A/B VM 非活动槽，再 apply executor，最后写 commit record；COMMIT 失败会回滚旧 payload。
 5. commit 成功后更新 RAM current keymap、revision、keymap CRC 和 active VM slot。
 6. GET 读取当前 RAM keymap；init 时从 VM 恢复，VM 无有效记录时使用产品默认 keymap。
+
+掉电与断连边界：
+
+- commit record 首次读回失败时会再次读取完整 slot，并重新校验 data/commit 的 magic、schema、revision、payload 与 CRC；该兜底不能证明底层 `syscfg` 已完成物理落盘，真实掉电测试仍需覆盖写缓存和部分写入。
+- A/B 槽 revision 相同但 payload 不同时视为存储冲突并进入默认安全状态，不得任意选择某个槽；如需改善现场诊断，应增加异常计数或上报，而不是猜测有效配置。
+- 请求在 COMMIT 前检测到断连会停止事务或回滚 RAM；COMMIT 已成功后发生断连则保留新持久化结果但抑制旧连接 ACK，APP 重连后通过 GET_KEYMAP 对账。
+- generation 可拦截未开始的 pending 请求、排队状态响应和事务关键边界；发送前仍需依赖 BLE/RDX 连接状态检查共同缩小断连竞态，硬件压力测试不能省略。
 
 边界仍需保持：
 
@@ -295,7 +302,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.
 - HOGP keymap architecture：通过，覆盖长回包绕过旧 wrapper、返回值语义和 HOGPKM trace 默认关闭。
 - RDX local playback configuration：通过。
 - RDX playback navigation：通过。
-- 统一 runner：5 个测试全部通过。
+- 统一 runner：6 个测试全部通过。
 
 Host 契约主要覆盖：
 
@@ -306,13 +313,13 @@ Host 契约主要覆盖：
 - T2620 默认 HOGP、正式 keymap 配置模块边界、CLICK 路由结构和 executor 生命周期。
 - HOGPKM 长回包不走旧 `rdx_protocol_custom_msg_indicate()`，避免预编译库栈缓冲区溢出。
 
-已知测试缺口：当前 `C5_KEY1_TRIPLE_CLICK_TOGGLE` 只检查 `rdx_app.c` 中存在 `KEY_ACTION_TRIPLE_CLICK` 和 `rdx_ble_mode_request_toggle()`，没有检查三击分支绑定的是 `num_idx == 0`。因此 137 项全部通过不能证明 KEY1/KEY5 的物理索引正确。
+新增行为测试执行 A1/A2 SET/GET/CAPS 向量、CRC32、keymap usage 校验以及 PREPARE/APPLY/COMMIT 和处理中断连的语义模型；架构契约同时冻结两阶段事务顺序、访问策略、app_core 响应串行化和 KEY5 的 `num_idx == 4`。这些是 host 语义模型，不等同于真实 `syscfg` 掉电故障注入；量产关闭仍需验证写缓存、部分写入和 commit record 落盘行为。
 
 ### 7.2 固件构建状态
 
 ```text
 [x] TCFG_RDX_HOGP_ENABLE=1 全量编译
-[ ] TCFG_RDX_HOGP_ENABLE=0 全量编译
+[x] TCFG_RDX_HOGP_ENABLE=0 全量编译
 [x] 确认新增模块均进入最终链接
 [ ] 确认 tools/output 生成二进制不作为源码提交
 ```
@@ -324,9 +331,9 @@ Host 契约主要覆盖：
 [ ] Windows 首次配对、Just Works、加密和 CCC 订阅正常
 [ ] 五键默认/APP 配置映射在 HID 输入中正常生效
 [ ] 每次 click 都有正确 release，无卡键
-[ ] 修正模式切换条件为 `num_idx == 0`
-[ ] 产品 KEY1（IO_NUM0/PB2）三击进入 Config，先断开 HOGP 再切广播
-[ ] 产品 KEY5（IO_NUM4/PC2）三击不触发模式切换
+[x] 模式切换条件确认为 `num_idx == 4`
+[ ] 产品 KEY5（IO_NUM4/PC2）三击进入 Config，先断开 HOGP 再切广播
+[ ] 产品 KEY1（IO_NUM0/PB2）三击不触发模式切换
 [ ] 再次三击恢复 HOGP 广播并可回连
 [ ] HOGP owner 下 RDX APP 属性写/notify/OTA 被拒绝
 [ ] Config owner 下 HID read/write/notify 被拒绝
@@ -359,7 +366,7 @@ Host 契约主要覆盖：
 Profile v1 最终关闭还需要：
 
 - HOGP enabled/disabled 两种固件构建通过。
-- 模式切换条件修正为 KEY1/IO_NUM0，并增加对应 host 断言。
+- 模式切换条件确认为 KEY5/IO_NUM4，并增加对应 host 断言。
 - 本文硬件回归项通过。
 
 ### 8.2 BLE APP 正式配键

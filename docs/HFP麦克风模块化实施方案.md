@@ -392,7 +392,7 @@ int rdx_hogp_key_action_release(void);
 - UP 只在 active 时 release；
 - disconnect、HOGP->Config、deinit、关机清理 active 并 best-effort release；
 - release 失败记录错误并走 HOGP 既有 reset；
-- KEY5 三击模式切换迁到 KEY1，与 HOGP 模块方案一致；
+- KEY5 三击继续承担 HOGP/Config 模式切换；KEY5 长按/HOLD 的 PTT 行为按 action 类型与三击共存；
 - 不新增底层物理 down/up observer。
 
 ### 7.3 与其他键并发
@@ -689,7 +689,7 @@ BLE priority 有双向数据支撑，名称和 Windows 枚举结果入库。
 1. 扩展 HOGP key action press/release API。
 2. 新增 `rdx_voice_ptt.*`。
 3. KEY5 LONG 启动、全部 HOLD 家族事件消费、UP 释放、CLICK 保持短按策略。
-4. KEY5 三击模式切换迁到 KEY1。
+4. 保持 KEY5 三击模式切换不变，KEY5 长按/HOLD 仅用于 PTT，按 action 类型隔离。
 5. executor 合成持久 held report 与普通 click transient report，click timer 恢复 held。
 6. disconnect/mode switch/deinit 清理 active。
 
@@ -700,7 +700,7 @@ BLE priority 有双向数据支撑，名称和 Windows 枚举结果入库。
 - 覆盖 F24 held 期间 KEY1～KEY4 click，timer 后必须恢复 F24 而不是发送全零；
 - 覆盖 F24 held + KEY1 click + KEY2 click 的 transient 重叠、usage 去重、modifier 合并和 6-slot 容量边界；
 - 覆盖 F24 held 期间 HOGP disconnect、进入 Config、press 失败和重复 LONG/HOLD；
-- 迁移 HOGP 旧的 KEY5 三击和 no-press/release 契约，必须用新断言替换；
+- 保留并冻结 HOGP KEY5 三击契约；新增 PTT 断言不得覆盖或吞掉三击模式切换；
 - Report Map、handle 和 8-byte payload 字节不变；
 - PTT 模块不依赖 HFP/Classic/SCO；
 - 全量 host 测试和固件构建通过。
@@ -855,7 +855,7 @@ PowerShell 只检查直接 include、直接函数调用、直接全局变量引�
 - [ ] CLICK 不启动 PTT。
 - [ ] KEY1～KEY4 click timer 不会释放 held F24。
 - [ ] disconnect/mode/deinit 均清理 active。
-- [ ] KEY5 不再承担模式切换三击。
+- [ ] KEY5 三击仍切换 HOGP/Config，长按/HOLD PTT 不影响该路径。
 
 ### 回归
 

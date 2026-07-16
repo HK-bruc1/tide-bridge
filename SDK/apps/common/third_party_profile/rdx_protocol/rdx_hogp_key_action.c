@@ -166,6 +166,9 @@ int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
         return -1;
     }
 
+    /* Do not let a key-up from the previous map race the replacement. */
+    rdx_hogp_key_action_cancel_release_timer();
+    rdx_hogp_keyboard_release_all();
     memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
     s_rdx_hogp_key_action_active_keymap.version = keymap->version;
     s_rdx_hogp_key_action_active_keymap.key_count = keymap->key_count;

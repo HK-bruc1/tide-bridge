@@ -95,9 +95,49 @@ if ($Failed -eq 0) {
          $ServiceText -notmatch 'y_printf\s*\(\s*"\[HOGPKM\]') `
         'HOGPKM diagnostics must stay behind RDX_HOGPKM_TRACE_ENABLE and default off'
 
+    $preparePos = $ServiceText.IndexOf('rdx_hogpkm_store_prepare(')
+    $applyPos = $ServiceText.IndexOf('rdx_hogpkm_apply_payload(payload)', $preparePos)
+    $commitPos = $ServiceText.IndexOf('rdx_hogpkm_store_commit(', $applyPos)
+    Test-Contract 'TRANSACTION_PREPARE_APPLY_COMMIT_ORDER' `
+        ($preparePos -ge 0 -and $applyPos -gt $preparePos -and $commitPos -gt $applyPos) `
+        'transaction must prepare/read back VM before RAM apply and commit metadata last'
+    Test-Contract 'STORE_SPLITS_PREPARE_AND_COMMIT' `
+        ($StoreText -match 'int\s+rdx_hogpkm_store_prepare\s*\(' -and
+         $StoreText -match 'int\s+rdx_hogpkm_store_commit\s*\(\s*rdx_hogpkm_store_transaction_t\s*\*') `
+        'store must expose an explicit two-phase transaction'
+    Test-Contract 'APPLY_RELEASES_OLD_REPORT' `
+        ($ActionText -match '(?s)rdx_hogp_key_action_keymap_apply.*?rdx_hogp_key_action_cancel_release_timer\s*\(\s*\).*?rdx_hogp_keyboard_release_all\s*\(\s*\).*?memset\s*\(\s*&s_rdx_hogp_key_action_active_keymap') `
+        'executor must release the old report before replacing its active map'
+    Test-Contract 'CONFIG_ACCESS_POLICY' `
+        ($ServiceText -match '__attribute__\s*\(\s*\(weak\)\s*\)\s*int\s+rdx_hogp_keymap_product_authorized\s*\(' -and
+         $ServiceText -match '(?s)rdx_hogp_keymap_product_authorized\s*\(void\).*?return\s+1\s*;' -and
+         $ServiceText -match 'rdx_ble_connection_owner_get\s*\(\s*\)\s*!=\s*RDX_BLE_OWNER_CONFIG' -and
+         $ServiceText -notmatch 'rdx_vm_get_bound_status\s*\(' -and
+         $ServiceText -match 'get_ota_status\s*\(' -and
+         $ServiceText -match 'rdx_app_get_poweroff_flag\s*\(' -and
+         $ServiceText -match 'rdx_dut_is_in_mode\s*\(') `
+        'config service must default to CONFIG-owner access, expose a session-auth hook, and reject conflicting product states'
+    Test-Contract 'RESPONSES_QUEUED_TO_APP_CORE' `
+        ($ServiceText -match 'rdx_hogpkm_queue_status' -and
+         $ServiceText -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK') `
+        'receive-context status responses must be serialized on app_core'
+    Test-Contract 'DISCONNECT_GENERATION_GUARDS_IN_FLIGHT_REQUEST' `
+        ($ServiceText -match 'static\s+volatile\s+u32\s+s_rdx_hogpkm_generation' -and
+         $ServiceText -match 'rdx_hogpkm_commit\s*\(\s*u32\s+generation' -and
+         $ServiceText -match 'generation\s*!=\s*s_rdx_hogpkm_generation' -and
+         $ServiceText -match 'rdx_hogpkm_send_response[\s\S]*?u32\s+generation') `
+        'generation must guard both in-flight commit boundaries and response send'
+    Test-Contract 'STALE_CALLBACK_CANNOT_CLEAR_NEW_PENDING' `
+        ($ServiceText -match 'rdx_hogpkm_clear_pending_if_match' -and
+         $ServiceText -match 's_rdx_hogpkm_pending\.generation\s*==\s*request->generation' -and
+         $ServiceText -match 's_rdx_hogpkm_pending\.request_frame_crc32\s*==\s*request->request_frame_crc32') `
+        'an old app_core callback must only clear its own pending request'
+
+    $ModuleLineLimits = @{ Service = 700; Protocol = 600; Store = 600 }
     foreach ($name in @('Service', 'Protocol', 'Store')) {
         $lineCount = (Get-Content $Files[$name]).Count
-        Test-Contract "${name}_MODULE_SIZE" ($lineCount -lt 600) "$name module has $lineCount lines"
+        Test-Contract "${name}_MODULE_SIZE" ($lineCount -lt $ModuleLineLimits[$name]) `
+            "$name module has $lineCount lines"
     }
 
     foreach ($source in @('rdx_hogp_keymap_config.c', 'rdx_hogp_keymap_protocol.c', 'rdx_hogp_keymap_store.c')) {

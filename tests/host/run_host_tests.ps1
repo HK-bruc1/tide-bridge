@@ -36,6 +36,10 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_hogp_keymap_architecture.ps1'
     },
     [PSCustomObject]@{
+        Name = 'HOGP keymap behavior'
+        Path = Join-Path $PSScriptRoot 'test_hogp_keymap_behavior.ps1'
+    },
+    [PSCustomObject]@{
         Name = 'RDX local playback configuration'
         Path = Join-Path $PSScriptRoot 'test_rdx_local_playback_config.ps1'
     }

@@ -18,6 +18,9 @@ void rdx_hogp_keymap_config_init(void);
 void rdx_hogp_keymap_config_handle_custom(const char *value);
 void rdx_hogp_keymap_config_on_disconnect(void);
 
+/* Override only with authentication that identifies the current BLE session. */
+int rdx_hogp_keymap_product_authorized(void);
+
 #ifdef __cplusplus
 }
 #endif

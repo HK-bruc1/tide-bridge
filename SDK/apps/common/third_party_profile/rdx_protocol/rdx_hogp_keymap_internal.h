@@ -54,6 +54,14 @@ typedef struct {
     u8 payload[RDX_HOGPKM_KEYMAP_LEN];
 } rdx_hogpkm_store_entry_t;
 
+typedef struct {
+    u8 prepared;
+    u8 slot;
+    u32 revision;
+    u32 keymap_crc32;
+    u8 payload[RDX_HOGPKM_KEYMAP_LEN];
+} rdx_hogpkm_store_transaction_t;
+
 u16 rdx_hogpkm_get_le16(const u8 *p);
 u32 rdx_hogpkm_get_le32(const u8 *p);
 void rdx_hogpkm_put_le16(u8 *p, u16 value);
@@ -74,10 +82,12 @@ int rdx_hogpkm_encode_response(u8 request_opcode,
                                u16 hex_size);
 
 int rdx_hogpkm_store_load(rdx_hogpkm_store_entry_t *entry);
-int rdx_hogpkm_store_commit(u8 active_slot,
-                            u32 revision,
-                            const u8 *payload,
-                            u32 keymap_crc32,
+int rdx_hogpkm_store_prepare(u8 active_slot,
+                             u32 revision,
+                             const u8 *payload,
+                             u32 keymap_crc32,
+                             rdx_hogpkm_store_transaction_t *transaction);
+int rdx_hogpkm_store_commit(rdx_hogpkm_store_transaction_t *transaction,
                             u8 *committed_slot);
 
 #endif /* _RDX_HOGP_KEYMAP_INTERNAL_H_ */

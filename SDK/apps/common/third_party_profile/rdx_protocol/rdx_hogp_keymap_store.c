@@ -160,22 +160,23 @@ int rdx_hogpkm_store_load(rdx_hogpkm_store_entry_t *entry)
     return 0;
 }
 
-int rdx_hogpkm_store_commit(u8 active_slot,
-                            u32 revision,
-                            const u8 *payload,
-                            u32 keymap_crc32,
-                            u8 *committed_slot)
+int rdx_hogpkm_store_prepare(u8 active_slot,
+                             u32 revision,
+                             const u8 *payload,
+                             u32 keymap_crc32,
+                             rdx_hogpkm_store_transaction_t *transaction)
 {
     static u8 data_record[RDX_HOGPKM_VM_DATA_LEN];
     static u8 data_readback[RDX_HOGPKM_VM_DATA_LEN];
-    static u8 commit_record[RDX_HOGPKM_VM_COMMIT_LEN];
-    static u8 commit_readback[RDX_HOGPKM_VM_COMMIT_LEN];
     static u8 verify_payload[RDX_HOGPKM_KEYMAP_LEN];
-    static rdx_hogpkm_store_entry_t verified_slot;
     u8 target_slot = (active_slot == 0) ? 1 : 0;
     u32 verify_revision;
     u32 verify_keymap_crc32;
-    int commit_valid = 0;
+
+    if (transaction == NULL || payload == NULL) {
+        return -1;
+    }
+    memset(transaction, 0, sizeof(*transaction));
 
     rdx_hogpkm_vm_build_data(data_record, revision, payload);
     if (syscfg_write(rdx_hogpkm_vm_data_id(target_slot), data_record, sizeof(data_record)) != sizeof(data_record) ||
@@ -191,22 +192,47 @@ int rdx_hogpkm_store_commit(u8 active_slot,
         return -1;
     }
 
-    rdx_hogpkm_vm_build_commit(commit_record, target_slot, revision, keymap_crc32);
-    if (syscfg_write(rdx_hogpkm_vm_commit_id(target_slot), commit_record, sizeof(commit_record)) == sizeof(commit_record) &&
-        syscfg_read(rdx_hogpkm_vm_commit_id(target_slot), commit_readback, sizeof(commit_readback)) == sizeof(commit_readback) &&
+    transaction->prepared = 1;
+    transaction->slot = target_slot;
+    transaction->revision = revision;
+    transaction->keymap_crc32 = keymap_crc32;
+    memcpy(transaction->payload, payload, RDX_HOGPKM_KEYMAP_LEN);
+    return 0;
+}
+
+int rdx_hogpkm_store_commit(rdx_hogpkm_store_transaction_t *transaction,
+                            u8 *committed_slot)
+{
+    static u8 commit_record[RDX_HOGPKM_VM_COMMIT_LEN];
+    static u8 commit_readback[RDX_HOGPKM_VM_COMMIT_LEN];
+    static rdx_hogpkm_store_entry_t verified_slot;
+    int commit_valid = 0;
+
+    if (transaction == NULL || committed_slot == NULL || !transaction->prepared) {
+        return -1;
+    }
+
+    rdx_hogpkm_vm_build_commit(commit_record,
+                               transaction->slot,
+                               transaction->revision,
+                               transaction->keymap_crc32);
+    if (syscfg_write(rdx_hogpkm_vm_commit_id(transaction->slot), commit_record, sizeof(commit_record)) == sizeof(commit_record) &&
+        syscfg_read(rdx_hogpkm_vm_commit_id(transaction->slot), commit_readback, sizeof(commit_readback)) == sizeof(commit_readback) &&
         memcmp(commit_record, commit_readback, sizeof(commit_record)) == 0 &&
         rdx_hogpkm_vm_validate_commit(commit_readback,
-                                      target_slot,
-                                      revision,
-                                      keymap_crc32) == 0) {
+                                      transaction->slot,
+                                      transaction->revision,
+                                      transaction->keymap_crc32) == 0) {
         commit_valid = 1;
     }
 
     if (!commit_valid &&
-        rdx_hogpkm_vm_read_slot(target_slot, &verified_slot) == 0 &&
-        verified_slot.revision == revision &&
-        verified_slot.keymap_crc32 == keymap_crc32 &&
-        memcmp(verified_slot.payload, payload, RDX_HOGPKM_KEYMAP_LEN) == 0) {
+        rdx_hogpkm_vm_read_slot(transaction->slot, &verified_slot) == 0 &&
+        verified_slot.revision == transaction->revision &&
+        verified_slot.keymap_crc32 == transaction->keymap_crc32 &&
+        memcmp(verified_slot.payload,
+               transaction->payload,
+               RDX_HOGPKM_KEYMAP_LEN) == 0) {
         commit_valid = 1;
     }
 
@@ -214,7 +240,8 @@ int rdx_hogpkm_store_commit(u8 active_slot,
         return -1;
     }
 
-    *committed_slot = target_slot;
+    *committed_slot = transaction->slot;
+    transaction->prepared = 0;
     return 0;
 }
 

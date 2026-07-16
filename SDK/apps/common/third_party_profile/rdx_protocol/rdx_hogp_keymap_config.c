@@ -12,6 +12,7 @@
 
 #include "rdx_app_config.h"
 #include "rdx_ble_mode_controller.h"
+#include "rdx_dut.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_hogp_keymap_config.h"
@@ -36,9 +37,18 @@ static u8 s_rdx_hogpkm_current_keymap[RDX_HOGPKM_KEYMAP_LEN];
 static u32 s_rdx_hogpkm_current_revision;
 static u32 s_rdx_hogpkm_current_keymap_crc32;
 static u8 s_rdx_hogpkm_active_slot = RDX_HOGPKM_VM_SLOT_NONE;
-static u32 s_rdx_hogpkm_generation;
+static volatile u32 s_rdx_hogpkm_generation;
 static rdx_hogpkm_request_t s_rdx_hogpkm_pending;
 static rdx_hogpkm_cache_t s_rdx_hogpkm_cache;
+
+extern u8 get_ota_status(void);
+extern bool rdx_app_get_poweroff_flag(void);
+
+__attribute__((weak)) int rdx_hogp_keymap_product_authorized(void)
+{
+    /* VM bound state records ownership, not the current BLE peer identity. */
+    return 1;
+}
 
 #define RDX_HOGPKM_UPLINK_LEN \
     ((sizeof(CMD_UP_CUSTOM) - 1) + \
@@ -102,12 +112,18 @@ static void rdx_hogpkm_send_response(u8 request_opcode,
                                      u16 request_id,
                                      u32 revision,
                                      const u8 *payload,
-                                     u16 payload_len)
+                                     u16 payload_len,
+                                     u32 generation)
 {
     /* app_core has a small stack; A1 GET responses need 101 bytes including
      * NUL, so keep the serialized response workspace in module BSS. */
     static char hex[RDX_HOGPKM_MAX_RESPONSE_HEX_LEN + 1];
 
+    if (generation != s_rdx_hogpkm_generation) {
+        HOGPKM_TRACE("[HOGPKM] drop stale response gen=%u curr=%u\n",
+                     generation, s_rdx_hogpkm_generation);
+        return;
+    }
     if (rdx_hogpkm_encode_response(request_opcode,
                                    request_id,
                                    revision,
@@ -120,12 +136,19 @@ static void rdx_hogpkm_send_response(u8 request_opcode,
     }
     HOGPKM_TRACE("[HOGPKM] rsp op=%02X rid=%u rev=%u payload_len=%u\n",
              request_opcode | 0x80, request_id, revision, payload_len);
+    if (generation != s_rdx_hogpkm_generation) {
+        HOGPKM_TRACE("[HOGPKM] drop stale encoded response\n");
+        return;
+    }
     if (rdx_hogpkm_send_custom_value(hex)) {
         HOGPKM_TRACE("[HOGPKM] uplink queue failed\n");
     }
 }
 
-static void rdx_hogpkm_send_status(u8 request_opcode, u16 request_id, u8 status)
+static void rdx_hogpkm_send_status(u8 request_opcode,
+                                   u16 request_id,
+                                   u8 status,
+                                   u32 generation)
 {
     HOGPKM_TRACE("[HOGPKM] status op=%02X rid=%u status=%u rev=%u\n",
              request_opcode | 0x80, request_id, status,
@@ -134,7 +157,44 @@ static void rdx_hogpkm_send_status(u8 request_opcode, u16 request_id, u8 status)
                              request_id,
                              s_rdx_hogpkm_current_revision,
                              &status,
-                             1);
+                             1,
+                             generation);
+}
+
+static void rdx_hogpkm_send_queued_status(u32 packed_status, u32 generation)
+{
+    if (generation != s_rdx_hogpkm_generation) {
+        HOGPKM_TRACE("[HOGPKM] drop stale queued status gen=%u curr=%u\n",
+                     generation, s_rdx_hogpkm_generation);
+        return;
+    }
+    rdx_hogpkm_send_status((u8)(packed_status >> 24),
+                           (u16)(packed_status >> 8),
+                           (u8)packed_status,
+                           generation);
+}
+
+static int rdx_hogpkm_queue_status(u8 request_opcode, u16 request_id, u8 status)
+{
+    int msg[4];
+
+    msg[0] = (int)rdx_hogpkm_send_queued_status;
+    msg[1] = 2;
+    msg[2] = (int)(((u32)request_opcode << 24) |
+                   ((u32)request_id << 8) |
+                   status);
+    msg[3] = (int)s_rdx_hogpkm_generation;
+    return os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+}
+
+static void rdx_hogpkm_clear_pending_if_match(const rdx_hogpkm_request_t *request)
+{
+    if (s_rdx_hogpkm_pending.valid &&
+        s_rdx_hogpkm_pending.generation == request->generation &&
+        s_rdx_hogpkm_pending.request_id == request->request_id &&
+        s_rdx_hogpkm_pending.request_frame_crc32 == request->request_frame_crc32) {
+        memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
+    }
 }
 
 static void rdx_hogpkm_payload_to_executor(const u8 *payload,
@@ -162,26 +222,39 @@ static int rdx_hogpkm_apply_payload(const u8 *payload)
     return rdx_hogp_key_action_keymap_apply(&keymap);
 }
 
-static int rdx_hogpkm_commit(u32 revision,
+static int rdx_hogpkm_commit(u32 generation,
+                             u32 revision,
                              const u8 *payload,
                              u32 keymap_crc32)
 {
     static u8 old_payload[RDX_HOGPKM_KEYMAP_LEN];
+    static rdx_hogpkm_store_transaction_t transaction;
     u8 committed_slot;
 
     HOGPKM_TRACE("[HOGPKM] commit begin new_rev=%u old_slot=%u keymap_crc=%08X\n",
              revision, s_rdx_hogpkm_active_slot, keymap_crc32);
     memcpy(old_payload, s_rdx_hogpkm_current_keymap, sizeof(old_payload));
+    if (rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,
+                                 revision,
+                                 payload,
+                                 keymap_crc32,
+                                 &transaction)) {
+        HOGPKM_TRACE("[HOGPKM] commit prepare failed\n");
+        return -1;
+    }
+    if (generation != s_rdx_hogpkm_generation) {
+        return -3;
+    }
     if (rdx_hogpkm_apply_payload(payload)) {
         HOGPKM_TRACE("[HOGPKM] commit apply failed\n");
         return -2;
     }
     HOGPKM_TRACE("[HOGPKM] commit apply ok\n");
-    if (rdx_hogpkm_store_commit(s_rdx_hogpkm_active_slot,
-                                revision,
-                                payload,
-                                keymap_crc32,
-                                &committed_slot)) {
+    if (generation != s_rdx_hogpkm_generation) {
+        rdx_hogpkm_apply_payload(old_payload);
+        return -3;
+    }
+    if (rdx_hogpkm_store_commit(&transaction, &committed_slot)) {
         rdx_hogpkm_apply_payload(old_payload);
         HOGPKM_TRACE("[HOGPKM] commit vm failed, rollback applied\n");
         return -1;
@@ -194,7 +267,7 @@ static int rdx_hogpkm_commit(u32 revision,
     HOGPKM_TRACE("[HOGPKM] commit ok rev=%u slot=%u keymap_crc=%08X\n",
              s_rdx_hogpkm_current_revision, s_rdx_hogpkm_active_slot,
              s_rdx_hogpkm_current_keymap_crc32);
-    return 0;
+    return (generation == s_rdx_hogpkm_generation) ? 0 : 1;
 }
 
 static void rdx_hogpkm_send_write_success(const rdx_hogpkm_request_t *request,
@@ -209,7 +282,8 @@ static void rdx_hogpkm_send_write_success(const rdx_hogpkm_request_t *request,
                              request->request_id,
                              revision,
                              payload,
-                             sizeof(payload));
+                             sizeof(payload),
+                             request->generation);
 }
 
 static void rdx_hogpkm_cache_success(const rdx_hogpkm_request_t *request)
@@ -240,9 +314,17 @@ static int rdx_hogpkm_resend_cached(const rdx_hogpkm_request_t *request)
     return 1;
 }
 
-static int rdx_hogpkm_is_authorized(void)
+static u8 rdx_hogpkm_access_status(void)
 {
-    return rdx_ble_connection_owner_get() == RDX_BLE_OWNER_CONFIG;
+    if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG ||
+        !rdx_hogp_keymap_product_authorized()) {
+        return RDX_HOGPKM_STATUS_NOT_AUTHORIZED;
+    }
+    if (get_ota_status() || rdx_app_get_poweroff_flag() ||
+        rdx_dut_is_in_mode()) {
+        return RDX_HOGPKM_STATUS_BUSY;
+    }
+    return RDX_HOGPKM_STATUS_OK;
 }
 
 static void rdx_hogpkm_process_get_keymap(const rdx_hogpkm_request_t *request)
@@ -258,7 +340,8 @@ static void rdx_hogpkm_process_get_keymap(const rdx_hogpkm_request_t *request)
                              request->request_id,
                              s_rdx_hogpkm_current_revision,
                              payload,
-                             sizeof(payload));
+                             sizeof(payload),
+                             request->generation);
 }
 
 static void rdx_hogpkm_process_get_caps(const rdx_hogpkm_request_t *request)
@@ -277,7 +360,8 @@ static void rdx_hogpkm_process_get_caps(const rdx_hogpkm_request_t *request)
                              request->request_id,
                              s_rdx_hogpkm_current_revision,
                              payload,
-                             sizeof(payload));
+                             sizeof(payload),
+                             request->generation);
 }
 
 static void rdx_hogpkm_process_set_keymap(const rdx_hogpkm_request_t *request)
@@ -291,7 +375,8 @@ static void rdx_hogpkm_process_set_keymap(const rdx_hogpkm_request_t *request)
              s_rdx_hogpkm_current_revision);
     if (status != RDX_HOGPKM_STATUS_OK) {
         HOGPKM_TRACE("[HOGPKM] set validate failed status=%u\n", status);
-        rdx_hogpkm_send_status(request->opcode, request->request_id, status);
+        rdx_hogpkm_send_status(request->opcode, request->request_id, status,
+                               request->generation);
         return;
     }
     if (rdx_hogpkm_resend_cached(request)) {
@@ -319,26 +404,33 @@ static void rdx_hogpkm_process_set_keymap(const rdx_hogpkm_request_t *request)
                  request->base_revision, s_rdx_hogpkm_current_revision);
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
-                               RDX_HOGPKM_STATUS_REVISION_CONFLICT);
+                               RDX_HOGPKM_STATUS_REVISION_CONFLICT,
+                               request->generation);
         return;
     }
     if (s_rdx_hogpkm_current_revision == 0xFFFFFFFFU) {
         HOGPKM_TRACE("[HOGPKM] set revision overflow\n");
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
-                               RDX_HOGPKM_STATUS_INTERNAL_ERROR);
+                               RDX_HOGPKM_STATUS_INTERNAL_ERROR,
+                               request->generation);
         return;
     }
 
-    ret = rdx_hogpkm_commit(s_rdx_hogpkm_current_revision + 1,
+    ret = rdx_hogpkm_commit(request->generation,
+                            s_rdx_hogpkm_current_revision + 1,
                             request->payload,
                             candidate_crc32);
+    if (ret == 1 || ret == -3) {
+        return;
+    }
     if (ret) {
         HOGPKM_TRACE("[HOGPKM] set commit failed ret=%d\n", ret);
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
                                ret == -2 ? RDX_HOGPKM_STATUS_INTERNAL_ERROR :
-                                           RDX_HOGPKM_STATUS_STORAGE_ERROR);
+                                           RDX_HOGPKM_STATUS_STORAGE_ERROR,
+                               request->generation);
         return;
     }
 
@@ -381,26 +473,33 @@ static void rdx_hogpkm_process_reset_keymap(const rdx_hogpkm_request_t *request)
                  request->base_revision, s_rdx_hogpkm_current_revision);
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
-                               RDX_HOGPKM_STATUS_REVISION_CONFLICT);
+                               RDX_HOGPKM_STATUS_REVISION_CONFLICT,
+                               request->generation);
         return;
     }
     if (s_rdx_hogpkm_current_revision == 0xFFFFFFFFU) {
         HOGPKM_TRACE("[HOGPKM] reset revision overflow\n");
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
-                               RDX_HOGPKM_STATUS_INTERNAL_ERROR);
+                               RDX_HOGPKM_STATUS_INTERNAL_ERROR,
+                               request->generation);
         return;
     }
 
-    ret = rdx_hogpkm_commit(s_rdx_hogpkm_current_revision + 1,
+    ret = rdx_hogpkm_commit(request->generation,
+                            s_rdx_hogpkm_current_revision + 1,
                             s_rdx_hogpkm_default_keymap,
                             default_crc32);
+    if (ret == 1 || ret == -3) {
+        return;
+    }
     if (ret) {
         HOGPKM_TRACE("[HOGPKM] reset commit failed ret=%d\n", ret);
         rdx_hogpkm_send_status(request->opcode,
                                request->request_id,
                                ret == -2 ? RDX_HOGPKM_STATUS_INTERNAL_ERROR :
-                                           RDX_HOGPKM_STATUS_STORAGE_ERROR);
+                                           RDX_HOGPKM_STATUS_STORAGE_ERROR,
+                               request->generation);
         return;
     }
 
@@ -416,6 +515,7 @@ static void rdx_hogpkm_process_reset_keymap(const rdx_hogpkm_request_t *request)
 static void rdx_hogpkm_process_pending(void)
 {
     static rdx_hogpkm_request_t request;
+    u8 access_status;
 
     if (!s_rdx_hogpkm_pending.valid) {
         return;
@@ -426,16 +526,19 @@ static void rdx_hogpkm_process_pending(void)
         HOGPKM_TRACE("[HOGPKM] pending stale op=%02X rid=%u req_gen=%u curr_gen=%u\n",
                  request.opcode, request.request_id,
                  request.generation, s_rdx_hogpkm_generation);
-        memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
+        rdx_hogpkm_clear_pending_if_match(&request);
         return;
     }
-    if (!rdx_hogpkm_is_authorized()) {
-        HOGPKM_TRACE("[HOGPKM] not authorized op=%02X rid=%u owner=%d\n",
-                 request.opcode, request.request_id, rdx_ble_connection_owner_get());
+    access_status = rdx_hogpkm_access_status();
+    if (access_status != RDX_HOGPKM_STATUS_OK) {
+        HOGPKM_TRACE("[HOGPKM] access rejected op=%02X rid=%u owner=%d status=%u\n",
+                 request.opcode, request.request_id,
+                 rdx_ble_connection_owner_get(), access_status);
         rdx_hogpkm_send_status(request.opcode,
                                request.request_id,
-                               RDX_HOGPKM_STATUS_NOT_AUTHORIZED);
-        memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
+                               access_status,
+                               request.generation);
+        rdx_hogpkm_clear_pending_if_match(&request);
         return;
     }
 
@@ -458,11 +561,12 @@ static void rdx_hogpkm_process_pending(void)
     default:
         rdx_hogpkm_send_status(request.opcode,
                                request.request_id,
-                               RDX_HOGPKM_STATUS_UNSUPPORTED_OPCODE);
+                               RDX_HOGPKM_STATUS_UNSUPPORTED_OPCODE,
+                               request.generation);
         break;
     }
 
-    memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
+    rdx_hogpkm_clear_pending_if_match(&request);
 }
 
 void rdx_hogp_keymap_config_init(void)
@@ -471,7 +575,7 @@ void rdx_hogp_keymap_config_init(void)
 
     memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
     memset(&s_rdx_hogpkm_cache, 0, sizeof(s_rdx_hogpkm_cache));
-    s_rdx_hogpkm_generation = 0;
+    s_rdx_hogpkm_generation++;
 
     if (rdx_hogpkm_store_load(&entry) == 0) {
         memcpy(s_rdx_hogpkm_current_keymap, entry.payload, RDX_HOGPKM_KEYMAP_LEN);
@@ -512,7 +616,9 @@ void rdx_hogp_keymap_config_handle_custom(const char *value)
         HOGPKM_TRACE("[HOGPKM] rx decode failed can_rsp=%u op=%02X rid=%u status=%u\n",
                  can_respond, request.opcode, request.request_id, status);
         if (can_respond) {
-            rdx_hogpkm_send_status(request.opcode, request.request_id, status);
+            if (rdx_hogpkm_queue_status(request.opcode, request.request_id, status)) {
+                HOGPKM_TRACE("[HOGPKM] queue decode error response failed\n");
+            }
         }
         return;
     }
@@ -531,7 +637,9 @@ void rdx_hogp_keymap_config_handle_custom(const char *value)
         }
         HOGPKM_TRACE("[HOGPKM] pending busy new_rid=%u pending_rid=%u status=%u\n",
                  request.request_id, s_rdx_hogpkm_pending.request_id, status);
-        rdx_hogpkm_send_status(request.opcode, request.request_id, status);
+        if (rdx_hogpkm_queue_status(request.opcode, request.request_id, status)) {
+            HOGPKM_TRACE("[HOGPKM] queue busy response failed\n");
+        }
         return;
     }
 
@@ -543,9 +651,8 @@ void rdx_hogp_keymap_config_handle_custom(const char *value)
         memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
         HOGPKM_TRACE("[HOGPKM] post app_core failed op=%02X rid=%u\n",
                  request.opcode, request.request_id);
-        rdx_hogpkm_send_status(request.opcode,
-                               request.request_id,
-                               RDX_HOGPKM_STATUS_BUSY);
+        /* A full app_core queue cannot safely accept a second callback. The
+         * APP timeout/retry path will recover this request. */
         return;
     }
     HOGPKM_TRACE("[HOGPKM] queued app_core op=%02X rid=%u gen=%u\n",
@@ -566,5 +673,6 @@ void rdx_hogp_keymap_config_on_disconnect(void)
 void rdx_hogp_keymap_config_init(void) {}
 void rdx_hogp_keymap_config_handle_custom(const char *value) { (void)value; }
 void rdx_hogp_keymap_config_on_disconnect(void) {}
+__attribute__((weak)) int rdx_hogp_keymap_product_authorized(void) { return 0; }
 
 #endif
