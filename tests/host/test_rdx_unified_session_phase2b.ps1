@@ -40,6 +40,7 @@ $SessionPath = Join-Path $ProtocolDir 'rdx_ble_session.c'
 $SessionHeaderPath = Join-Path $ProtocolDir 'rdx_ble_session.h'
 $KeyboardPath = Join-Path $ProtocolDir 'rdx_hogp_keyboard.c'
 $KeyboardHeaderPath = Join-Path $ProtocolDir 'rdx_hogp_keyboard.h'
+$SubscriptionStorePath = Join-Path $ProtocolDir 'rdx_hogp_subscription_store.c'
 $KeymapPath = Join-Path $ProtocolDir 'rdx_hogp_keymap_config.c'
 $AppPath = Join-Path $ProtocolDir 'rdx_app.c'
 $DutPath = Join-Path $ProtocolDir 'rdx_dut.c'
@@ -55,6 +56,7 @@ $SessionText = Get-Content -Raw $SessionPath
 $SessionHeaderText = Get-Content -Raw $SessionHeaderPath
 $KeyboardText = Get-Content -Raw $KeyboardPath
 $KeyboardHeaderText = Get-Content -Raw $KeyboardHeaderPath
+$SubscriptionStoreText = Get-Content -Raw $SubscriptionStorePath
 $KeymapText = Get-Content -Raw $KeymapPath
 $AppText = Get-Content -Raw $AppPath
 $DutText = Get-Content -Raw $DutPath
@@ -64,7 +66,8 @@ $MakefileText = Get-Content -Raw $MakefilePath
 
 $RuntimeText = $ServerText + "`n" + $ServerHeaderText + "`n" + $SessionText + "`n" +
                $SessionHeaderText + "`n" + $KeyboardText + "`n" + $KeyboardHeaderText +
-               "`n" + $KeymapText + "`n" + $AppText + "`n" + $DutText
+               "`n" + $SubscriptionStoreText + "`n" + $KeymapText + "`n" +
+               $AppText + "`n" + $DutText
 
 Test-Contract 'PHASE2B_MODE_CONTROLLER_DELETED' `
     (-not (Test-Path $ModeCPath) -and -not (Test-Path $ModeHPath) -and
@@ -192,10 +195,10 @@ Test-Contract 'PHASE2B_DISCONNECT_ADV_RESTART_IS_DEFERRED' `
      $ExitBody -match 'rdx_ble_server_disconnected_adv_restart_cancel\s*\(') `
     'advertising restart must run after the HCI callback, retry wrapper cleanup, and be cancelled by a newer link or server exit'
 
-Test-Contract 'PHASE2B_BONDED_CCC_RESTORED_BY_STACK' `
+Test-Contract 'PHASE2B_CCC_RUNTIME_NOT_CLEARED_ON_DISCONNECT' `
     ($DisconnectBody -notmatch 'multi_att_clear_ccc_config' -and
      $KeyboardText -match 'multi_att_get_ccc_config\s*\(\s*con_handle\s*,\s*HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE\s*\)') `
-    'disconnect must not erase bonded CCC and HID attach must query the current peer'
+    'disconnect must not erase the current stack runtime CCC and HID attach must query only its current handle'
 
 $SendBody = Get-FunctionBody $ServerText 'int\s+rdx_ble_server_send\s*\([^)]*\)'
 $OtaSendBody = Get-FunctionBody $ServerText 'int\s+rdx_ble_server_ota_send\s*\([^)]*\)'

@@ -259,26 +259,26 @@ const uint8_t rdx_profile_data[] = {
 #if TCFG_RDX_HOGP_ENABLE
     RDX_HOGP_ATT_PRIMARY_SERVICE_16(HID_SERVICE_HANDLE, RDX_HOGP_UUID_HID_SERVICE),
 
-     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE | DYNAMIC */
+     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE | DYNAMIC; value requires encryption */
     // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_PROTOCOL_MODE,
                                    HID_PROTOCOL_MODE_VALUE_HANDLE, RDX_HOGP_UUID_PROTOCOL_MODE),
-    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC
+    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC | ENCRYPTED READ/WRITE
     RDX_HOGP_ATT_VALUE_16(HID_PROTOCOL_MODE_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE,
                           RDX_HOGP_UUID_PROTOCOL_MODE),
 
-     /* CHARACTERISTIC,  2A4D, READ | NOTIFY | DYNAMIC */
+     /* CHARACTERISTIC,  2A4D, READ | NOTIFY | DYNAMIC; value/CCC require encryption */
     // 0x0019 CHARACTERISTIC 2A4D READ | NOTIFY | DYNAMIC
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INPUT_REPORT_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_INPUT_REPORT,
                                    HID_INPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x001a VALUE 2A4D READ | NOTIFY | DYNAMIC
+    // 0x001a VALUE 2A4D READ | NOTIFY | DYNAMIC | ENCRYPTED READ
     RDX_HOGP_ATT_VALUE_16(HID_INPUT_REPORT_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,
                           RDX_HOGP_UUID_REPORT),
-    // 0x001b CLIENT_CHARACTERISTIC_CONFIGURATION
+    // 0x001b CLIENT_CHARACTERISTIC_CONFIGURATION | ENCRYPTED READ/WRITE
     RDX_HOGP_ATT_CCC(HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE, RDX_HOGP_CCC_DEFAULT_VALUE),
     // 0x001c REPORT_REFERENCE, report_id=1, report_type=1 (Input)
     RDX_HOGP_ATT_REPORT_REFERENCE(HID_INPUT_REPORT_REFERENCE_HANDLE,
@@ -304,13 +304,13 @@ const uint8_t rdx_profile_data[] = {
                           RDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE,
                           RDX_HOGP_UUID_HID_INFORMATION),
 
-     /* CHARACTERISTIC,  2A4C, WRITE_WITHOUT_RESPONSE | DYNAMIC */
+     /* CHARACTERISTIC,  2A4C, WRITE_WITHOUT_RESPONSE | DYNAMIC; value requires encryption */
     // 0x0021 CHARACTERISTIC 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CONTROL_POINT_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_CONTROL_POINT,
                                    HID_CONTROL_POINT_VALUE_HANDLE,
                                    RDX_HOGP_UUID_HID_CONTROL_POINT),
-    // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
+    // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC | ENCRYPTED WRITE
     RDX_HOGP_ATT_VALUE_16(HID_CONTROL_POINT_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE,
                           RDX_HOGP_UUID_HID_CONTROL_POINT),
@@ -319,7 +319,7 @@ const uint8_t rdx_profile_data[] = {
     RDX_HOGP_ATT_CHARACTERISTIC_16(HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,
                                    RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,
                                    HID_OUTPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x0024 VALUE 0x2A4D, 1-byte keyboard LED bitmap, DYNAMIC
+    // 0x0024 VALUE 0x2A4D, 1-byte keyboard LED bitmap, DYNAMIC | ENCRYPTED READ/WRITE
     RDX_HOGP_ATT_VALUE_16(HID_OUTPUT_REPORT_VALUE_HANDLE,
                           RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
                           RDX_HOGP_UUID_REPORT),
@@ -1505,6 +1505,10 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     if (rdx_hogp_keyboard_is_connected()) {
                         rdx_hogp_on_encryption_change(enc_handle,
                                                       enc_enabled, enc_status);
+                    } else if (enc_enabled && enc_status == 0 &&
+                               rdx_hogp_peer_has_persisted_subscription(
+                                   enc_handle)) {
+                        rdx_ble_server_hogp_attach(enc_handle);
                     }
 #endif
                 }
@@ -1700,6 +1704,7 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_REPORT_MAP_VALUE_HANDLE:
         case HID_INFORMATION_VALUE_HANDLE:
         case HID_INPUT_REPORT_VALUE_HANDLE:
+        case HID_OUTPUT_REPORT_VALUE_HANDLE:
         case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
 #if TCFG_RDX_HOGP_ENABLE
             if (!rdx_ble_server_hogp_attach(connection_handle)) {

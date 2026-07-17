@@ -58,6 +58,7 @@ void rdx_hogp_on_connected(u16 con_handle, u8 encrypted);
 void rdx_hogp_on_disconnected(u16 con_handle);
 void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status);
 void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size);
+u8 rdx_hogp_peer_has_persisted_subscription(u16 con_handle);
 
 /******************************************************************************
 * Keyboard Report API

@@ -39,6 +39,7 @@
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
 #include "rdx_util.h"
+#include "rdx_hogp_subscription_store.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
 #pragma bss_seg(".rdx_vm.data.bss")
@@ -121,6 +122,14 @@ extern void rdx_ble_server_app_disconnect(void);
 #endif
 
 static bool rdx_vm_license_para_head_check(u8 *para);
+
+static void rdx_vm_ble_pairing_state_reset(void)
+{
+    bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+    if (rdx_hogp_subscription_store_reset()) {
+        y_printf("[HOGP_SUB] reset failed while deleting BLE bonds\r");
+    }
+}
 
 /*******************************************************************************
 * Function Section
@@ -271,7 +280,7 @@ void rdx_vm_unbound_cb(u8 result)
         rdx_ble_server_app_disconnect();
     }
     #endif
-        bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+        rdx_vm_ble_pairing_state_reset();
 
         //set default bt name.
         u8 name[LOCAL_NAME_LEN];
@@ -381,7 +390,7 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
     unbounding = true;
 
     if(usr_para == 1){
-        bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+        rdx_vm_ble_pairing_state_reset();
 
         //set default bt name.
         u8 name[LOCAL_NAME_LEN];
@@ -743,7 +752,7 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
     rdx_ble_server_app_disconnect();
 }
 #endif
-    bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+    rdx_vm_ble_pairing_state_reset();
 
     //set default bt name.
     u8 name[LOCAL_NAME_LEN];
@@ -813,7 +822,7 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
     rdx_ble_server_app_disconnect();
 }
 #endif
-    bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
+    rdx_vm_ble_pairing_state_reset();
 
     //set default bt name.
     u8 name[LOCAL_NAME_LEN];

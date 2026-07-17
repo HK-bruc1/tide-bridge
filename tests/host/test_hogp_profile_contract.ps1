@@ -48,7 +48,14 @@ $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
 $ServerHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.h')
 $SessionHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.h')
 $AppText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_app.c')
+$SubscriptionStorePath = Join-Path $ProtocolDir 'rdx_hogp_subscription_store.c'
+$SubscriptionStoreHeaderPath = Join-Path $ProtocolDir 'rdx_hogp_subscription_store.h'
+$SubscriptionStoreText = Get-Content -Raw $SubscriptionStorePath
+$SubscriptionStoreHeaderText = Get-Content -Raw $SubscriptionStoreHeaderPath
+$VmText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_vm.c')
+$SyscfgIdText = Get-Content -Raw (Join-Path $RepoRoot 'SDK/interface/utils/syscfg_id.h')
 $MakefileText = Get-Content -Raw (Join-Path $RepoRoot 'SDK/Makefile')
+$MultiProtocolText = Get-Content -Raw (Join-Path $RepoRoot 'SDK/apps/common/third_party_profile/multi_protocol_main.c')
 
 $Handles = [ordered]@{
     HID_SERVICE_HANDLE                           = 0x0016
@@ -159,7 +166,7 @@ $profileByteContracts = @(
     '#defineRDX_HOGP_ATT_PRIMARY_SERVICE_16(handle,service_uuid)RDX_HOGP_ATT_HEADER(0x000a,0x0002,(handle),RDX_HOGP_UUID_PRIMARY_SERVICE),RDX_HOGP_ATT_U16_LE(service_uuid)',
     '#defineRDX_HOGP_ATT_CHARACTERISTIC_16(handle,properties,value_handle,char_uuid)RDX_HOGP_ATT_HEADER(0x000d,0x0002,(handle),RDX_HOGP_UUID_CHARACTERISTIC),((u8)(properties)),RDX_HOGP_ATT_U16_LE(value_handle),RDX_HOGP_ATT_U16_LE(char_uuid)',
     '#defineRDX_HOGP_ATT_VALUE_16(handle,flags,value_uuid)RDX_HOGP_ATT_HEADER(0x0008,(flags),(handle),(value_uuid))',
-    '#defineRDX_HOGP_ATT_CCC(handle,value)RDX_HOGP_ATT_HEADER(0x000a,0x010a,(handle),RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION),RDX_HOGP_ATT_U16_LE(value)',
+    '#defineRDX_HOGP_ATT_CCC(handle,value)RDX_HOGP_ATT_HEADER(0x000a,RDX_HOGP_ATT_FLAGS_INPUT_REPORT_CCC,(handle),RDX_HOGP_UUID_CLIENT_CHARACTERISTIC_CONFIGURATION),RDX_HOGP_ATT_U16_LE(value)',
     '#defineRDX_HOGP_ATT_REPORT_REFERENCE(handle,report_id,report_type)RDX_HOGP_ATT_HEADER(0x000a,0x0002,(handle),RDX_HOGP_UUID_REPORT_REFERENCE),((u8)(report_id)),((u8)(report_type))'
 )
 $profileBytesOk = $true
@@ -171,6 +178,41 @@ foreach ($contract in $profileByteContracts) {
 }
 Test-Contract 'PROFILE_BYTE_VALUES' $profileBytesOk `
     'HID UUIDs, properties, descriptor values and ATT byte templates must remain frozen'
+
+$Phase3SmBranch = Get-SourceSlice $MultiProtocolText `
+    '#elif (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) && TCFG_RDX_HOGP_ENABLE' `
+    '#elif (TCFG_LE_AUDIO_APP_CONFIG'
+Test-Contract 'PHASE3_JUST_WORKS_GLOBAL_SM' `
+    ($ConfigText -match '#define\s+RDX_HOGP_PAIRING_MODE\s+0' -and
+     $Phase3SmBranch -match 'IO_CAPABILITY_NO_INPUT_NO_OUTPUT' -and
+     $Phase3SmBranch -match 'SM_AUTHREQ_BONDING\s*\|\s*SM_AUTHREQ_SECURE_CONNECTION' -and
+     $Phase3SmBranch -notmatch 'SM_AUTHREQ_MITM_PROTECTION') `
+    'NoInputNoOutput HOGP must use Just Works with Bonding + Secure Connections and no MITM claim'
+
+$EncryptedPermissionContracts = @(
+    '#defineRDX_HOGP_ATT_SECURITY_ENCRYPTED0x0001',
+    '#defineRDX_HOGP_ATT_READ_SECURITY_SHIFT10',
+    '#defineRDX_HOGP_ATT_WRITE_SECURITY_SHIFT12',
+    '#defineRDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE(RDX_HOGP_CHAR_PROP_PROTOCOL_MODE|RDX_HOGP_ATT_FLAG_DYNAMIC|RDX_HOGP_ATT_FLAG_ENCRYPTED_READ|RDX_HOGP_ATT_FLAG_ENCRYPTED_WRITE)',
+    '#defineRDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE(RDX_HOGP_CHAR_PROP_INPUT_REPORT|RDX_HOGP_ATT_FLAG_DYNAMIC|RDX_HOGP_ATT_FLAG_ENCRYPTED_READ)',
+    '#defineRDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE(RDX_HOGP_CHAR_PROP_CONTROL_POINT|RDX_HOGP_ATT_FLAG_DYNAMIC|RDX_HOGP_ATT_FLAG_ENCRYPTED_WRITE)',
+    '#defineRDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE(RDX_HOGP_CHAR_PROP_OUTPUT_REPORT|RDX_HOGP_ATT_FLAG_DYNAMIC|RDX_HOGP_ATT_FLAG_ENCRYPTED_READ|RDX_HOGP_ATT_FLAG_ENCRYPTED_WRITE)',
+    '#defineRDX_HOGP_ATT_FLAGS_INPUT_REPORT_CCC(RDX_HOGP_ATT_PROP_READ|RDX_HOGP_ATT_PROP_WRITE|RDX_HOGP_ATT_FLAG_DYNAMIC|RDX_HOGP_ATT_FLAG_ENCRYPTED_READ|RDX_HOGP_ATT_FLAG_ENCRYPTED_WRITE)'
+)
+$encryptedPermissionsOk = $ConfigText -match '#define\s+RDX_HOGP_ENCRYPTION_REQUIRED\s+1'
+foreach ($contract in $EncryptedPermissionContracts) {
+    if (-not $NormalizedHeader.Contains($contract)) {
+        $encryptedPermissionsOk = $false
+        break
+    }
+}
+Test-Contract 'PHASE3_HID_DYNAMIC_ATTRIBUTES_ENCRYPTED' $encryptedPermissionsOk `
+    'Protocol Mode, Input/Output Report, Control Point and Input CCC must require encrypted ATT access'
+
+Test-Contract 'PHASE3_HID_STATIC_DISCOVERY_UNENCRYPTED' `
+    ($NormalizedHeader.Contains('#defineRDX_HOGP_ATT_FLAGS_REPORT_MAP_VALUE(RDX_HOGP_CHAR_PROP_REPORT_MAP|RDX_HOGP_ATT_FLAG_DYNAMIC)') -and
+     $NormalizedHeader.Contains('#defineRDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE(RDX_HOGP_CHAR_PROP_HID_INFORMATION|RDX_HOGP_ATT_FLAG_DYNAMIC)')) `
+    'Report Map and HID Information must remain readable before pairing for host discovery'
 
 $SendBody = Get-FunctionBody $KeyboardText 'int\s+rdx_hogp_keyboard_report_send\s*\([^)]*\)'
 Test-Contract 'INPUT_REPORT_8_BYTES_NO_PREFIX' `
@@ -241,6 +283,69 @@ Test-Contract 'HID_PAIRING_DRIVEN_BY_CCC_ENABLE' `
      $WriteBody.Contains('sm_api_request_pairing(connection_handle);')) `
     'static HID discovery must not pair; a valid CCC enable may request encryption'
 
+Test-Contract 'PHASE3_HID_WRITE_DEFENSE_IN_DEPTH' `
+    ($WriteBody -match '!s_hogp_encrypted' -and
+     $WriteBody -match 'RDX_HOGP_ATT_ERR_INSUFFICIENT_ENCRYPTION' -and
+     $WriteBody -match 'sm_api_request_pairing\s*\(\s*connection_handle\s*\)') `
+    'dynamic HID writes must still reject plaintext if a stack variant dispatches the callback'
+
+Test-Contract 'PHASE3_OUTPUT_REPORT_READ_ROUTED' `
+    ($ServerText -match 'case\s+HID_OUTPUT_REPORT_VALUE_HANDLE\s*:' -and
+     $KeyboardText -match 'case\s+HID_OUTPUT_REPORT_VALUE_HANDLE\s*:') `
+    'Output Report reads must reach the HOGP handler through the unified server'
+
+$OnConnectedBody = Get-SourceSlice $KeyboardText `
+    'void rdx_hogp_on_connected(' 'void rdx_hogp_on_disconnected('
+$OnEncryptionBody = Get-SourceSlice $KeyboardText `
+    'void rdx_hogp_on_encryption_change(' 'void rdx_hogp_on_sm_event('
+$CccStoreContract = `
+    (Test-Path $SubscriptionStorePath) -and
+    (Test-Path $SubscriptionStoreHeaderPath) -and
+    $MakefileText.Contains('rdx_hogp_subscription_store.c') -and
+    $SyscfgIdText -match '#define\s+VM_RDX_HOGP_SUBSCRIPTION_A\s+165' -and
+    $SyscfgIdText -match '#define\s+VM_RDX_HOGP_SUBSCRIPTION_B\s+166' -and
+    $SubscriptionStoreText.Contains('#define RDX_HOGP_SUB_VM_MAGIC               "HCS1"') -and
+    $SubscriptionStoreText.Contains('#define RDX_HOGP_SUB_VM_SCHEMA              0x01') -and
+    $SubscriptionStoreText.Contains('#define RDX_HOGP_SUB_VM_SLOT_COUNT          4') -and
+    $SubscriptionStoreText.Contains('rdx_hogp_subscription_crc32') -and
+    $SubscriptionStoreText.Contains('VM_RDX_HOGP_SUBSCRIPTION_A') -and
+    $SubscriptionStoreText.Contains('VM_RDX_HOGP_SUBSCRIPTION_B') -and
+    $SubscriptionStoreText.Contains('memcmp(record, readback, sizeof(record))') -and
+    $SubscriptionStoreText.Contains('baseline_revision')
+Test-Contract 'PHASE3_BONDED_CCC_STORE_IS_PEER_SCOPED_AND_POWER_LOSS_TOLERANT' `
+    $CccStoreContract `
+    'bonded HID subscription must use verified A/B VM records with bounded peer slots, schema and CRC'
+
+Test-Contract 'PHASE3_CCC_WRITES_PERSIST_EXPLICIT_INTENT' `
+    ($WriteBody -match 's_subscription_update_pending' -and
+     $WriteBody -match 'RDX_HOGP_SUB_UPDATE_ENABLE' -and
+     $WriteBody -match 'RDX_HOGP_SUB_UPDATE_DISABLE' -and
+     $KeyboardText -match 'rdx_hogp_subscription_store_set\s*\(' -and
+     $KeyboardText -match 'rdx_hogp_peer_identity_get\s*\(') `
+    'only explicit valid CCC enable/disable writes may update the current peer subscription record'
+
+Test-Contract 'PHASE3_BONDED_CCC_RESTORE_COVERS_BOTH_EVENT_ORDERS' `
+    ($OnConnectedBody -match 'rdx_hogp_subscription_restore_if_available\s*\(' -and
+     $OnEncryptionBody -match 'rdx_hogp_subscription_restore_if_available\s*\(' -and
+     $KeyboardText -match 'rdx_hogp_subscription_store_contains\s*\(' -and
+     $KeyboardText -match 'multi_att_set_ccc_config\s*\(\s*s_hid_con_handle' -and
+     $ServerText -match 'rdx_hogp_peer_has_persisted_subscription\s*\(' -and
+     $ServerText -match 'rdx_ble_server_hogp_attach\s*\(\s*enc_handle\s*\)') `
+    'peer-matched CCC restore must work whether encryption or HID attach happens first'
+
+Test-Contract 'PHASE3_BONDED_CCC_USES_STABLE_SM_IDENTITY' `
+    ($KeyboardText -match 'get_sm_peer_address\s*\(' -and
+     $KeyboardText -match 'rdx_hogp_peer_identity_get\s*\(' -and
+     $SubscriptionStoreText -match 'memcmp\s*\([^;]*peer_addr') `
+    'persistent subscription lookup must use the SDK-resolved SM peer address, not connection handle or a global boolean'
+
+Test-Contract 'PHASE3_BOND_RESET_CLEARS_HID_SUBSCRIPTIONS' `
+    ($VmText -match 'static\s+void\s+rdx_vm_ble_pairing_state_reset\s*\(' -and
+     $VmText -match 'USER_CTRL_DEL_ALL_REMOTE_INFO' -and
+     $VmText -match 'rdx_hogp_subscription_store_reset\s*\(' -and
+     ([regex]::Matches($VmText, 'rdx_vm_ble_pairing_state_reset\s*\(')).Count -ge 5) `
+    'all RDX paths that delete BLE bonds must also invalidate persisted HID subscription intent'
+
 Test-Contract 'HID_PROTOCOL_MODE_STRICT' `
     ($WriteBody -match 'HID_PROTOCOL_MODE_VALUE_HANDLE' -and
      $WriteBody -match 'buffer_size\s*!=\s*1' -and
@@ -289,6 +394,7 @@ $requiredStubs = @(
     'rdx_hogp_init', 'rdx_hogp_deinit', 'rdx_hogp_runtime_cleanup',
     'rdx_hogp_att_read', 'rdx_hogp_att_write', 'rdx_hogp_on_connected',
     'rdx_hogp_on_disconnected', 'rdx_hogp_on_encryption_change',
+    'rdx_hogp_peer_has_persisted_subscription',
     'rdx_hogp_keyboard_report_send', 'rdx_hogp_keyboard_release_all',
     'rdx_hogp_keyboard_is_connected', 'rdx_hogp_keyboard_is_ready'
 )
