@@ -60,23 +60,9 @@
 #define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #endif
 
-/* T2620 boots into HOGP by default. The active keymap comes from the formal
- * APP keymap protocol/VM path; the built-in protocol test table stays off. */
-#ifndef RDX_BLE_DEFAULT_MODE
-#define RDX_BLE_DEFAULT_MODE                      RDX_BLE_DEFAULT_MODE_HOGP
-#endif
-
-/* Phase 1 development gate. Keep disabled until the RDX session authorization
- * boundary and the unified connection lifecycle are complete. */
+/* Phase 2B uses one RDX + HOGP advertising entry with no CONFIG/HOGP mode. */
 #ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
 #define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE        1
-#endif
-
-/* The current prebuilt RDX protocol library exposes no trustworthy remote
- * authentication-complete event.  Keep the Phase 2A sensitive-command gate
- * off until that external integration calls rdx_protocol_session_authorize(). */
-#ifndef TCFG_RDX_SESSION_AUTH_GATE_ENABLE
-#define TCFG_RDX_SESSION_AUTH_GATE_ENABLE          0
 #endif
 
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE

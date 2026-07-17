@@ -34,12 +34,6 @@ void rdx_hogp_runtime_cleanup(void);
 void rdx_hogp_dump_state(void);
 
 /******************************************************************************
-* Mode
-******************************************************************************/
-u8   rdx_hogp_mode_get(void);
-void rdx_hogp_mode_set(u8 enable);
-
-/******************************************************************************
 * ATT routing
 ******************************************************************************/
 u8   rdx_hogp_is_handle(u16 att_handle);
@@ -64,13 +58,6 @@ void rdx_hogp_on_connected(u16 con_handle, u8 encrypted);
 void rdx_hogp_on_disconnected(u16 con_handle);
 void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status);
 void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size);
-
-/******************************************************************************
-* Advertising
-******************************************************************************/
-int  rdx_hogp_fill_adv_data(u8 *adv_data, u8 max_len, const char *local_name);
-void rdx_hogp_adv_start(u16 adv_interval_min, const char *local_name);
-void rdx_hogp_adv_stop(void);
 
 /******************************************************************************
 * Keyboard Report API

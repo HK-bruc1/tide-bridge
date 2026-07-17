@@ -14,7 +14,6 @@ void rdx_ble_session_reset(void)
 {
     memset(&s_rdx_ble_link, 0, sizeof(s_rdx_ble_link));
     memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
-    s_rdx_config_session.auth_state = RDX_SESSION_UNAUTHORIZED;
 }
 
 void rdx_ble_session_on_connected(u16 con_handle)
@@ -53,6 +52,21 @@ void rdx_ble_session_set_encrypted(u16 con_handle, u8 encrypted)
     }
 }
 
+u8 rdx_ble_session_activate_rdx(u16 con_handle)
+{
+    if (!rdx_ble_session_is_current(con_handle)) {
+        return 0;
+    }
+    s_rdx_config_session.active = 1;
+    return 1;
+}
+
+u8 rdx_ble_session_is_rdx_active(u16 con_handle)
+{
+    return (rdx_ble_session_is_current(con_handle) &&
+            s_rdx_config_session.active) ? 1 : 0;
+}
+
 void rdx_ble_session_set_config_ccc(u16 con_handle, u8 configured)
 {
     if (rdx_ble_session_is_current(con_handle)) {
@@ -75,39 +89,4 @@ const rdx_ble_link_state_t *rdx_ble_session_get_link_state(void)
 const rdx_ble_config_session_t *rdx_ble_session_get_config_state(void)
 {
     return &s_rdx_config_session;
-}
-
-u8 rdx_protocol_session_mark_identified(u16 con_handle)
-{
-    if (!rdx_ble_session_is_current(con_handle)) {
-        return 0;
-    }
-    if (s_rdx_config_session.auth_state == RDX_SESSION_UNAUTHORIZED) {
-        s_rdx_config_session.auth_state = RDX_SESSION_IDENTIFIED;
-    }
-    return 1;
-}
-
-u8 rdx_protocol_session_authorize(u16 con_handle)
-{
-    if (!rdx_ble_session_is_current(con_handle) ||
-        s_rdx_config_session.auth_state < RDX_SESSION_IDENTIFIED) {
-        return 0;
-    }
-    s_rdx_config_session.auth_state = RDX_SESSION_AUTHORIZED;
-    return 1;
-}
-
-void rdx_protocol_session_revoke(u16 con_handle)
-{
-    if (!rdx_ble_session_is_current(con_handle)) {
-        return;
-    }
-    s_rdx_config_session.auth_state = RDX_SESSION_UNAUTHORIZED;
-}
-
-u8 rdx_protocol_session_is_authorized(u16 con_handle)
-{
-    return (rdx_ble_session_is_current(con_handle) &&
-            s_rdx_config_session.auth_state == RDX_SESSION_AUTHORIZED) ? 1 : 0;
 }

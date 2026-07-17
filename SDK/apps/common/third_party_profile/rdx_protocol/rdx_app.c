@@ -567,9 +567,8 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
-/* Phase 6 C5: temporary HOGP debug adapter removed.
- * Key action execution moved to rdx_hogp_key_action.c; mode toggle uses
- * rdx_ble_mode_request_toggle() via KEY5 triple-click. */
+/* HOGP key action execution lives in rdx_hogp_key_action.c.  Online/offline
+ * routing is capability based: only HID ready consumes product key events. */
 
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
@@ -621,18 +620,11 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
         // HOGP key action routing boundary:
-        //   KEY5 (IO_NUM4) TRIPLE_CLICK -> toggle HOGP/Config mode.
-        //   HOGP connected              -> consume every action; CLICK executes the HID keymap.
-        //   HOGP disconnected           -> dispatch through the legacy offline key table.
-        // Connected-but-unsupported actions must never leak into offline product behavior.
+        //   HID ready     -> consume every action; CLICK executes the HID keymap.
+        //   HID not ready -> dispatch through the legacy offline key table.
+        // Ready-but-unsupported actions must never leak into offline product behavior.
 #if TCFG_RDX_HOGP_ENABLE
-        if (num_idx == 4 && index == KEY_ACTION_TRIPLE_CLICK) {
-            rdx_ble_mode_request_toggle();
-            *value = APP_MSG_NULL;
-            return;
-        }
-
-        if (rdx_hogp_keyboard_is_connected()) {
+        if (rdx_hogp_keyboard_is_ready()) {
             if (index == KEY_ACTION_CLICK) {
                 int action_ret = rdx_hogp_key_action_click((u8)num_idx);
                 if (action_ret != 0) {
@@ -3019,37 +3011,6 @@ static void rdx_app_record_cmd_on_app_core(u32 packed_info)
     rdx_record_cmd_handle(&info);
 }
 
-#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
-/* Only side-effect-free discovery/query events and the existing Auth-SN
- * exchange are admitted before a verifiable per-link authentication.  Auth-SN
- * remains a handshake input; receiving it does not authorize the session. */
-static u8 rdx_app_protocol_event_is_public(ProtocolEvents event)
-{
-    switch (event) {
-        case PROTOCOL_EVENT_CMD_NONE:
-        case PROTOCOL_EVENT_CMD_BATTERY_QUERY:
-        case PROTOCOL_EVENT_CMD_INCHARGE_QUERY:
-        case PROTOCOL_EVENT_CMD_VERSION_QUERY:
-        case PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY:
-        case PROTOCOL_EVENT_CMD_AUTH_SN:
-        case PROTOCOL_EVENT_CMD_BT_NAME_QUERY:
-        case PROTOCOL_EVENT_CMD_BLE_NAME_QUERY:
-        case PROTOCOL_EVENT_CMD_OFFTIME_QUERY:
-        case PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY:
-        case PROTOCOL_EVENT_CMD_SD_MEM_QUERY:
-        case PROTOCOL_EVENT_CMD_OTA_STATE_QUERY:
-        case PROTOCOL_EVENT_CMD_NET_STATE_QUERY:
-        case PROTOCOL_EVENT_CMD_NET_INFO_QUERY:
-        case PROTOCOL_EVENT_CMD_SERVER_INFO_QUERY:
-        case PROTOCOL_EVENT_CMD_OS_TYPE:
-        case PROTOCOL_EVENT_CMD_BLE_FILE_TRANSFER_TIMEOUT:
-            return 1;
-        default:
-            return 0;
-    }
-}
-#endif
-
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3061,17 +3022,6 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
     if(!ops) return;
-
-#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
-    rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
-    if (!rdx_app_protocol_event_is_public(event) &&
-        (!ble_info ||
-         !rdx_protocol_session_is_authorized(ble_info->ble_con_handle))) {
-        r_printf("[RDX_AUTH] event rejected: event=%u hdl=0x%04x\n",
-                 event, ble_info ? ble_info->ble_con_handle : 0);
-        return;
-    }
-#endif
 
     switch(event){
         /* ============== 主动查询/上报类: data == NULL ============== */

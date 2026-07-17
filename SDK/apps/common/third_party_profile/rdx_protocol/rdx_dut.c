@@ -965,9 +965,7 @@ void rdx_dut_msg_handle(void)
         
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
         
-        /* Align BLE mode controller with CONFIG before disconnecting so the
-         * asynchronous disconnect callback does not restart HOGP advertising. */
-        rdx_ble_mode_request_hogp(0);
+        /* DUT suppresses the single unified advertising entry. */
         rdx_ble_server_app_disconnect();
         rdx_ble_server_adv_enable(0);
         
@@ -990,9 +988,7 @@ void rdx_dut_msg_handle(void)
         rdx_spp_exit();
         rdx_app_bt_shutdown();
         
-        /* Return to CONFIG identity before refreshing RDX broadcast so that
-         * the advertised mode matches the broadcast data after DUT. */
-        rdx_ble_mode_request_hogp(0);
+        /* Restore the single unified advertising entry after DUT. */
         rdx_ble_server_adv_data_changed();
         
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);

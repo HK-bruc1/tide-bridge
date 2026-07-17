@@ -125,33 +125,23 @@ Test-Contract 'UNIFIED_PACKET_BUILDERS_SELECTED' `
     ($AdvEnableBody -match '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*\r?\n\s*len\s*=\s*rdx_ble_server_fill_unified_rsp_data\s*\(\s*rspData\s*\)[\s\S]*?#else\s*\r?\n\s*len\s*=\s*rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)') `
     'the unified path must append HID UUID while the disabled path keeps the exact legacy RDX Scan Response'
 
-$OwnerClaimMatch = [regex]::Match($ServerText,
-    '(?sm)static\s+u8\s+rdx_ble_server_connection_owner_claim\s*\([^)]*\)\s*\{(.*?)^\}')
-$OwnerClaimBody = if ($OwnerClaimMatch.Success) { $OwnerClaimMatch.Groups[1].Value } else { '' }
-Test-Contract 'UNIFIED_CONNECTION_STARTS_UNCLAIMED' `
-    (([regex]::Matches($ServerText,
-        '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*\r?\n\s*rdx_ble_connection_owner_set\s*\(\s*RDX_BLE_OWNER_NONE\s*\)')).Count -ge 2) `
-    'normal and enhanced connection complete must not infer the peer from the unified advertised mode'
+Test-Contract 'PHASE2B_CONNECTION_HAS_NO_ADVERTISED_IDENTITY' `
+    ($ServerText -notmatch 'RDX_BLE_OWNER|RDX_BLE_MODE|connection_owner|rdx_ble_mode_get_advertised') `
+    'connection lifecycle must not infer CONFIG/HOGP identity from unified advertising'
 
-$claimLifecycleOk = $OwnerClaimBody -match 'current\s*!=\s*RDX_BLE_OWNER_NONE' -and
-                    $OwnerClaimBody -match 'owner\s*==\s*RDX_BLE_OWNER_CONFIG[\s\S]*?rdx_ble_server_connected_handle' -and
-                    $OwnerClaimBody -match 'owner\s*==\s*RDX_BLE_OWNER_HOGP[\s\S]*?rdx_hogp_on_connected'
-Test-Contract 'UNIFIED_OWNER_CLAIM_LIFECYCLE' $claimLifecycleOk `
-    'the first explicit service owner must initialize exactly its CONFIG or HOGP runtime'
+Test-Contract 'PHASE2B_SERVICE_ACCESS_HAS_NO_OWNER_CLAIM' `
+    ($ServerText -notmatch 'rdx_ble_server_connection_owner_claim|rdx_ble_connection_owner_set') `
+    'RDX and HID access must coexist on the current link without first-service owner claiming'
 
-$serviceClaimOk = ([regex]::Matches($ServerText,
-                       'rdx_ble_server_connection_owner_claim\s*\(\s*RDX_BLE_OWNER_CONFIG')).Count -ge 2 -and
-                  ([regex]::Matches($ServerText,
-                       'rdx_ble_server_connection_owner_claim\s*\(\s*RDX_BLE_OWNER_HOGP')).Count -ge 2
-Test-Contract 'UNIFIED_OWNER_CLAIMED_BY_SERVICE_ACCESS' $serviceClaimOk `
-    'RDX value/CCC writes and HID read/write access must claim their corresponding owner'
+Test-Contract 'PHASE2B_HID_CAPABILITY_ATTACH' `
+    ($ServerText -match 'static\s+u8\s+rdx_ble_server_hogp_attach\s*\(' -and
+     ([regex]::Matches($ServerText, 'rdx_ble_server_hogp_attach\s*\(\s*connection_handle\s*\)')).Count -ge 2) `
+    'HID read/write must attach the HID capability independently of RDX access'
 
-$hogpStartMatch = [regex]::Match($ServerText,
-    '(?sm)static\s+void\s+rdx_ble_mode_start_hogp_advertising\s*\([^)]*\)\s*\{(.*?)^\}')
-$hogpStartBody = if ($hogpStartMatch.Success) { $hogpStartMatch.Groups[1].Value } else { '' }
-Test-Contract 'UNIFIED_ADV_SINGLE_SERVER_ENTRY' `
-    ($hogpStartBody -match '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE[\s\S]*?rdx_ble_server_adv_enable\s*\(\s*0\s*\)[\s\S]*?rdx_ble_server_adv_enable\s*\(\s*1\s*\)[\s\S]*?#else[\s\S]*?rdx_hogp_adv_start') `
-    'the development gate must route HOGP startup through the server ADV/RSP builder while preserving the disabled path'
+Test-Contract 'PHASE2B_UNIFIED_ADV_SINGLE_SERVER_ENTRY' `
+    ($ServerText -notmatch 'rdx_hogp_adv_start|rdx_hogp_adv_stop|rdx_ble_mode_start_hogp_advertising' -and
+     $AdvEnableBody -match 'rdx_ble_server_fill_unified_rsp_data\s*\(\s*rspData\s*\)') `
+    'all advertising must use the RDX server unified ADV/RSP builder'
 
 $nameBufferOk = $ServerHeaderText -match 'char\s+ble_local_name\s*\[\s*BLE_LOCAL_NAME_MAX_LEN\s*\+\s*1\s*\]' -and
                 $ServerText -match 'rdx_ble_server_local_name_copy' -and

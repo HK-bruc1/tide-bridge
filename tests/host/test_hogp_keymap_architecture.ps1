@@ -111,12 +111,12 @@ if ($Failed -eq 0) {
     Test-Contract 'CONFIG_ACCESS_POLICY' `
         ($ServiceText -match '__attribute__\s*\(\s*\(weak\)\s*\)\s*int\s+rdx_hogp_keymap_product_authorized\s*\(' -and
          $ServiceText -match '(?s)rdx_hogp_keymap_product_authorized\s*\(void\).*?return\s+1\s*;' -and
-         $ServiceText -match 'rdx_ble_connection_owner_get\s*\(\s*\)\s*!=\s*RDX_BLE_OWNER_CONFIG' -and
+         $ServiceText -notmatch 'RDX_BLE_OWNER|rdx_protocol_session_is_authorized' -and
          $ServiceText -notmatch 'rdx_vm_get_bound_status\s*\(' -and
          $ServiceText -match 'get_ota_status\s*\(' -and
          $ServiceText -match 'rdx_app_get_poweroff_flag\s*\(' -and
          $ServiceText -match 'rdx_dut_is_in_mode\s*\(') `
-        'config service must default to CONFIG-owner access, expose a session-auth hook, and reject conflicting product states'
+        'keymap must be open to the current BLE link without identity gates while rejecting conflicting product states'
     Test-Contract 'RESPONSES_QUEUED_TO_APP_CORE' `
         ($ServiceText -match 'rdx_hogpkm_queue_status' -and
          $ServiceText -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK') `

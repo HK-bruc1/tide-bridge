@@ -19,21 +19,6 @@ extern "C" {
 #endif
 
 /******************************************************************************
-* BLE Mode Defaults
-******************************************************************************/
-#ifndef RDX_BLE_DEFAULT_MODE_CONFIG
-#define RDX_BLE_DEFAULT_MODE_CONFIG           0
-#endif
-
-#ifndef RDX_BLE_DEFAULT_MODE_HOGP
-#define RDX_BLE_DEFAULT_MODE_HOGP             1
-#endif
-
-#ifndef RDX_BLE_DEFAULT_MODE
-#define RDX_BLE_DEFAULT_MODE                  RDX_BLE_DEFAULT_MODE_CONFIG
-#endif
-
-/******************************************************************************
 * Master Enable
 *
 * TCFG_RDX_HOGP_ENABLE is the project-level kill switch. Define it in
@@ -48,24 +33,14 @@ extern "C" {
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
 
-/* Unified RDX + HOGP advertising is developed behind this gate. It must stay
- * off until the session authorization and lifecycle work is enabled with it. */
+/* Phase 2B product gate.  T2620 enables the single unified RDX + HOGP
+ * advertising entry; this compatibility switch is removed in Phase 4. */
 #ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
 #define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE    0
 #endif
 
 #if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE && !TCFG_RDX_HOGP_ENABLE
 #error "Unified RDX/HOGP entry requires TCFG_RDX_HOGP_ENABLE"
-#endif
-
-/* Phase 2A command gate.  Keep disabled until the prebuilt RDX protocol/App
- * integration reports a verifiable per-connection authentication success. */
-#ifndef TCFG_RDX_SESSION_AUTH_GATE_ENABLE
-#define TCFG_RDX_SESSION_AUTH_GATE_ENABLE       0
-#endif
-
-#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE && !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
-#error "RDX session authorization gate requires the unified BLE entry"
 #endif
 
 /******************************************************************************
