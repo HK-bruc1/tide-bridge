@@ -158,6 +158,7 @@ static rdx_ble_server_info_t g_rdx_ble_server_info = {
     .force_disconnect_timer = 0,
     .adv_interval_change_timer = 0,
     .adv_interval_min = 160,
+    .adv_refresh_pending = FALSE,
     .ble_local_name = {0},
     .ble_mac_addr = {0},
 };
@@ -472,6 +473,60 @@ static void rdx_ble_server_check_connetion_updata_deal(void)
     }
 }
 
+static u8 rdx_ble_server_local_name_copy(char *dst, const char *src, u8 len)
+{
+    if (len > BLE_LOCAL_NAME_MAX_LEN) {
+        len = BLE_LOCAL_NAME_MAX_LEN;
+    }
+    memset(dst, 0, BLE_LOCAL_NAME_MAX_LEN + 1);
+    if (src && len) {
+        memcpy(dst, src, len);
+    }
+    dst[len] = '\0';
+    return len;
+}
+
+static u8 rdx_ble_server_default_local_name_build(char *name)
+{
+    DevBaseInfo *p = rdx_app_get_dev_base_info();
+    u8 suffix[5] = {0};
+
+    if (strlen((char *)p->auth) >= 24) {
+        memcpy(suffix, p->auth + 20, 4);
+    }
+    if (suffix[0]) {
+        snprintf(name, BLE_LOCAL_NAME_MAX_LEN + 1, "%s %s", BLE_LOCAL_NAME, suffix);
+    } else {
+        snprintf(name, BLE_LOCAL_NAME_MAX_LEN + 1, "%s", BLE_LOCAL_NAME);
+    }
+    name[BLE_LOCAL_NAME_MAX_LEN] = '\0';
+    return (u8)strlen(name);
+}
+
+static int rdx_ble_server_local_name_store(const char *name, u8 len, u8 refresh_adv)
+{
+    int ret;
+
+    len = rdx_ble_server_local_name_copy(g_rdx_ble_server_info.ble_local_name,
+                                         name, len);
+    if (len == 0) {
+        return -1;
+    }
+    ret = syscfg_write(VM_RDX_BLE_NAME,
+                       g_rdx_ble_server_info.ble_local_name,
+                       len);
+    if (ret <= 0) {
+        log_info("%s --> write local name failed \r", __func__);
+    } else {
+        log_info("%s --> write local name success: %s \r",
+                 __func__, g_rdx_ble_server_info.ble_local_name);
+        if (refresh_adv) {
+            rdx_ble_server_adv_data_changed();
+        }
+    }
+    return ret;
+}
+
 /**************************************************************************
  * function: rdx_ble_server_reset_local_name
  * description: 
@@ -484,32 +539,12 @@ int rdx_ble_server_reset_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
-    DevBaseInfo* p = rdx_app_get_dev_base_info();
-    u16 len = strlen(BLE_LOCAL_NAME);
+    char name[BLE_LOCAL_NAME_MAX_LEN + 1];
+    u8 len = rdx_ble_server_default_local_name_build(name);
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-    if (len > BLE_LOCAL_NAME_MAX_LEN) {
-        len = BLE_LOCAL_NAME_MAX_LEN;
-    }
-    //clear local name in vm.
-    memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-
-    u8 buf[5] = {0};
-    y_printf("%s --> AuthKey:%s \r", __func__, p->auth);
-    if (strlen((char *)p->auth) >= 24) {
-        memcpy(buf, p->auth + 20, 4);
-    }
-    snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
-
-    int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
-    if (ret <= 0) {
-        log_info("%s --> write local name failed \r", __func__);
-    } else {
-        log_info("%s --> write local name success: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-    }
-
-    return ret;
+    return rdx_ble_server_local_name_store(name, len, 1);
 }
 
 /**************************************************************************
@@ -523,37 +558,19 @@ char* rdx_ble_server_get_local_name(void)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
-    DevBaseInfo* p = rdx_app_get_dev_base_info();
-    char tmp[BLE_LOCAL_NAME_MAX_LEN + 1];
+    char tmp[BLE_LOCAL_NAME_MAX_LEN + 1] = {0};
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-    memset(tmp, 0, BLE_LOCAL_NAME_MAX_LEN + 1);
     int ret = syscfg_read(VM_RDX_BLE_NAME, tmp, BLE_LOCAL_NAME_MAX_LEN);
     if (ret <= 0) {
         log_info("===> %s --> local name set default! \r", __func__);
-        int local_name_len = strlen(BLE_LOCAL_NAME);
-        if (local_name_len > BLE_LOCAL_NAME_MAX_LEN) {
-            local_name_len = BLE_LOCAL_NAME_MAX_LEN;
-        }
-        memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-
-        u8 buf[5] = {0};
-        if (strlen((char *)p->auth) >= 24) {
-            memcpy(buf, p->auth + 20, 4);
-        }
-        snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
-
-        ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, local_name_len);
-        if (ret <= 0) {
-            log_info("%s --> write local name failed \r", __func__);
-        } else {
-            log_info("%s --> write local name success: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-        }
-    }else{
+        u8 len = rdx_ble_server_default_local_name_build(tmp);
+        rdx_ble_server_local_name_store(tmp, len, 0);
+    } else {
         log_info("===> %s --> read local name success, current name: %s \r", __func__, tmp);
-        memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-        strncpy(g_rdx_ble_server_info.ble_local_name, tmp, strlen(tmp));
+        rdx_ble_server_local_name_copy(g_rdx_ble_server_info.ble_local_name,
+                                       tmp, (u8)ret);
     }
     return g_rdx_ble_server_info.ble_local_name;
 }
@@ -578,21 +595,7 @@ int rdx_ble_server_set_local_name(char *name, u8 len)
         log_info("%s --> name is NULL\r", __func__);
         return -1;
     }
-    if (len > BLE_LOCAL_NAME_MAX_LEN) {
-        len = BLE_LOCAL_NAME_MAX_LEN;
-    }
-    y_printf("===> %s --> set local name: %s, len = %d \r", __func__, name, len);
-    memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
-    sprintf(g_rdx_ble_server_info.ble_local_name, "%s", name);
-
-    g_printf("===> %s --> set local name: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-    int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
-    if (ret <= 0) {
-        log_info("%s --> write local name failed \r", __func__);
-    } else {
-        log_info("%s --> write local name success: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-    }
-    return ret;
+    return rdx_ble_server_local_name_store(name, len, 1);
 }
 
 /**************************************************************************
@@ -1076,6 +1079,7 @@ static void rdx_ble_server_disconnected_adv_restart(void)
 void rdx_ble_server_disconnected_handle(void)
 {
     g_rdx_ble_server_info.ble_conn = FALSE;
+    g_rdx_ble_server_info.adv_refresh_pending = FALSE;
     rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
     rdx_ble_server_disconnected_cleanup_internal();
     rdx_ble_server_disconnected_adv_restart();
@@ -1149,8 +1153,41 @@ void rdx_ble_server_connected_handle(void)
 #endif
 }
 
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+static u8 rdx_ble_server_connection_owner_claim(rdx_ble_connection_owner_t owner,
+                                                 u16 con_handle)
+{
+    rdx_ble_connection_owner_t current = rdx_ble_connection_owner_get();
+
+    if (current == owner) {
+        return 1;
+    }
+    if (current != RDX_BLE_OWNER_NONE) {
+        y_printf("[BLE_MODE] owner claim rejected: current=%s requested=%s\n",
+                 rdx_ble_owner_name(current), rdx_ble_owner_name(owner));
+        return 0;
+    }
+
+    rdx_ble_connection_owner_set(owner);
+    if (owner == RDX_BLE_OWNER_CONFIG) {
+        rdx_ble_server_set_ble_work_state(BLE_ST_CONNECT);
+        rdx_ble_server_reset_send_fail_cnt();
+        att_server_set_exchange_mtu(con_handle);
+        rdx_ble_server_connected_handle();
+    } else if (owner == RDX_BLE_OWNER_HOGP) {
+#if TCFG_RDX_HOGP_ENABLE
+        rdx_hogp_mode_set(1);
+        rdx_hogp_on_connected(con_handle);
+        rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
+#endif
+    }
+    rdx_ble_mode_controller_dump("owner claimed");
+    return 1;
+}
+#endif
+
 /**************************************************************************
- * function: 
+ * function:
  * description: 
  * param (*)
  * return (*)
@@ -1245,18 +1282,24 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             rdx_ble_server_set_conn_handle(con_handle);
                             g_rdx_ble_server_info.ble_conn = TRUE;
 
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+                            rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
+#else
                             if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
                                 rdx_ble_connection_owner_set(RDX_BLE_OWNER_HOGP);
                             } else {
                                 rdx_ble_connection_owner_set(RDX_BLE_OWNER_CONFIG);
                             }
+#endif
                             rdx_ble_mode_controller_dump("connected(enhanced)");
 
 #if TCFG_RDX_HOGP_ENABLE
+#if !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                             if (rdx_ble_connection_owner_is_hogp()) {
                                 rdx_hogp_on_connected(con_handle);
                                 rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                             }
+#endif
 #endif
                             /* RDX App Config full init is only done for normal connection complete */
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
@@ -1269,20 +1312,27 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                         rdx_ble_server_set_conn_handle(con_handle);
                         g_rdx_ble_server_info.ble_conn = TRUE;
 
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+                        rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
+#else
                         if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
                             rdx_ble_connection_owner_set(RDX_BLE_OWNER_HOGP);
                         } else {
                             rdx_ble_connection_owner_set(RDX_BLE_OWNER_CONFIG);
                         }
+#endif
                         rdx_ble_mode_controller_dump("connected");
 
 #if TCFG_RDX_HOGP_ENABLE
+#if !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                         if (rdx_ble_connection_owner_is_hogp()) {
                             rdx_hogp_on_connected(con_handle);
                             rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                         }
 #endif
+#endif
 
+#if !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                         if (rdx_ble_connection_owner_get() == RDX_BLE_OWNER_CONFIG) {
                             rdx_ble_server_set_ble_work_state(BLE_ST_CONNECT);
 
@@ -1305,6 +1355,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             //     log_info("%s record taskq post err \n", __func__);
                             // }
                         }
+#endif
                         break;
                     case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
                         if (con_handle != little_endian_read_16(packet, 4)) {
@@ -1335,6 +1386,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     con_handle = 0;
                     rdx_ble_server_set_conn_handle(con_handle);
                     g_rdx_ble_server_info.ble_conn = FALSE;
+                    g_rdx_ble_server_info.adv_refresh_pending = FALSE;
                     rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
 
                     rdx_ble_connection_owner_t prev_owner = rdx_ble_connection_owner_get();
@@ -1561,11 +1613,18 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_INPUT_REPORT_VALUE_HANDLE:
         case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
 #if TCFG_RDX_HOGP_ENABLE
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+            if (!rdx_ble_server_connection_owner_claim(RDX_BLE_OWNER_HOGP,
+                                                        connection_handle)) {
+                break;
+            }
+#else
             if (!rdx_ble_connection_owner_is_hogp()) {
                 y_printf("[HOGP] read rejected: owner=%s\n",
                          rdx_ble_owner_name(rdx_ble_connection_owner_get()));
                 break;
             }
+#endif
             att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
             if (att_value_len) {
                 y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
@@ -1668,11 +1727,18 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
 #if TCFG_RDX_HOGP_ENABLE
     /* HID Service handles: only HOGP owner */
     if (handle >= HID_SERVICE_START_HANDLE && handle <= HID_SERVICE_END_HANDLE) {
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+        if (!rdx_ble_server_connection_owner_claim(RDX_BLE_OWNER_HOGP,
+                                                    connection_handle)) {
+            return 0;
+        }
+#else
         if (!rdx_ble_connection_owner_is_hogp()) {
             y_printf("[HOGP] write rejected: owner=%s hdl=0x%04x\n",
                      rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
+#endif
         return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
     }
 
@@ -1681,20 +1747,34 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     /* RDX App Config handles: only CONFIG owner */
     if (handle == ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE ||
         handle == ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE) {
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+        if (!rdx_ble_server_connection_owner_claim(RDX_BLE_OWNER_CONFIG,
+                                                    connection_handle)) {
+            return 0;
+        }
+#else
         if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
             y_printf("[BLE_MODE] RDX write rejected: owner=%s hdl=0x%04x\n",
                      rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
+#endif
     }
 
     if (handle == ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE ||
         handle == ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE) {
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+        if (!rdx_ble_server_connection_owner_claim(RDX_BLE_OWNER_CONFIG,
+                                                    connection_handle)) {
+            return 0;
+        }
+#else
         if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG) {
             y_printf("[BLE_MODE] RDX CCC write rejected: owner=%s hdl=0x%04x\n",
                      rdx_ble_owner_name(rdx_ble_connection_owner_get()), handle);
             return 0;
         }
+#endif
     }
 
     switch (handle) {
@@ -1753,9 +1833,28 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     return 0;
 }
 
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+static u8 rdx_ble_server_adv_append_data(u8 *adv_data,
+                                         u8 *offset,
+                                         u8 eir_type,
+                                         const void *data,
+                                         u8 data_len)
+{
+    if (!adv_data || !offset || !data ||
+        (u16)(*offset) + 2 + data_len > ADV_RSP_PACKET_MAX) {
+        return 0;
+    }
+    *offset += make_eir_packet_data(&adv_data[*offset], *offset,
+                                    eir_type, (void *)data, data_len);
+    return 1;
+}
+
+static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data);
+#endif
+
 /**************************************************************************
  * function: rdx_ble_server_fill_adv_data
- * description: 
+ * description:
  * param (u8) *adv_data
  * return (*)
  **************************************************************************/
@@ -1766,19 +1865,42 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
     /*----------------------------------------------------------------*/
     u8 offset = 0;
     const char *name_p = rdx_ble_server_get_local_name();
-    int name_len = strlen(name_p);
+    u8 name_len = (u8)strlen(name_p);
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+    const u8 flags[] = {0x0A};
+    u8 name_type = HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME;
+    u8 name_capacity;
+
+    if (!rdx_ble_server_adv_append_data(adv_data, &offset,
+                                        HCI_EIR_DATATYPE_FLAGS,
+                                        flags, sizeof(flags))) {
+        return 0;
+    }
+
+    name_capacity = ADV_RSP_PACKET_MAX - offset - 2;
+    if (name_len > name_capacity) {
+        name_len = name_capacity;
+        name_type = HCI_EIR_DATATYPE_SHORTENED_LOCAL_NAME;
+    }
+    if (!name_len ||
+        !rdx_ble_server_adv_append_data(adv_data, &offset,
+                                        name_type, name_p, name_len)) {
+        return 0;
+    }
+#else
     //make eir.
     offset += make_eir_packet_val(&adv_data[offset], offset, HCI_EIR_DATATYPE_FLAGS, 0x0A, 1);
     if(name_len > BLE_LOCAL_NAME_MAX_LEN){
         name_len = BLE_LOCAL_NAME_MAX_LEN;
     }
     offset += make_eir_packet_data(&adv_data[offset], offset, HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME, (void *)name_p, name_len);
+#endif
 
     if (offset > ADV_RSP_PACKET_MAX) {
-        r_printf("***rsp_data overflow!!!!!!\n");
+        r_printf("***adv_data overflow!!!!!!\n");
         return 0;
     }
     return offset;
@@ -1864,6 +1986,25 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
 
     return offset;
 }
+
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+static u8 rdx_ble_server_fill_unified_rsp_data(u8 *rsp_data)
+{
+    u8 offset = rdx_ble_server_fill_rsp_data(rsp_data);
+    const u8 hid_uuid[] = {0x12, 0x18};
+
+    if (!offset || offset > ADV_RSP_PACKET_MAX) {
+        return 0;
+    }
+    if (!rdx_ble_server_adv_append_data(rsp_data, &offset,
+                                        HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS,
+                                        hid_uuid, sizeof(hid_uuid))) {
+        return 0;
+    }
+
+    return offset;
+}
+#endif
 
 void rdx_ble_server_adv_interval_change_timer_stop(void)
 {
@@ -2054,11 +2195,16 @@ int rdx_ble_server_adv_enable(u8 enable)
             put_buf(advData, len);
             app_ble_adv_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, advData, len);
         }
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+        len = rdx_ble_server_fill_unified_rsp_data(rspData);
+#else
         len = rdx_ble_server_fill_rsp_data(rspData);
+#endif
         if (len) {
             put_buf(rspData, len);
             app_ble_rsp_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, rspData, len);
         }
+        g_rdx_ble_server_info.adv_refresh_pending = FALSE;
         //start adv interval change timer.
         rdx_ble_server_adv_interval_change_timer_start();
     }
@@ -2099,6 +2245,18 @@ void rdx_ble_server_adv_data_changed(void)
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     r_printf("%s \r", __func__);
+
+    if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
+        g_rdx_ble_server_info.adv_refresh_pending = TRUE;
+        return;
+    }
+    if (g_rdx_ble_server_info.ble_conn ||
+        app_ble_get_hdl_con_handle(g_rdx_ble_server_info.rdx_ble_server_hdl)) {
+        g_rdx_ble_server_info.adv_refresh_pending = TRUE;
+        r_printf("%s --> refresh deferred until disconnect \r", __func__);
+        return;
+    }
+    g_rdx_ble_server_info.adv_refresh_pending = FALSE;
 
     /* Identity routing: callers such as DUT exit must not write RDX broadcast
      * data while the mode controller is still advertising HOGP. */
@@ -2403,8 +2561,14 @@ static void rdx_ble_mode_start_hogp_advertising(void)
     rdx_ble_server_adv_interval_change_timer_stop();
 #if TCFG_RDX_HOGP_ENABLE
     rdx_hogp_mode_set(1);
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+    rdx_ble_server_adv_enable(0);
+    rdx_ble_server_adv_enable(1);
+#else
     rdx_hogp_adv_start(g_rdx_ble_server_info.adv_interval_min,
                        rdx_ble_server_get_local_name());
+#endif
+    g_rdx_ble_server_info.adv_refresh_pending = FALSE;
     rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_ADV_START);
 #else
     /* HOGP compiled off: fall back to RDX advertising */

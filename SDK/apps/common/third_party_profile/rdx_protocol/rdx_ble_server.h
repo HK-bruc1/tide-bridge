@@ -98,13 +98,14 @@ typedef struct {
     
     // Advertising parameters
     u16 adv_interval_min;                ///< Minimum advertising interval
+    u8 adv_refresh_pending;              ///< Rebuild advertising after disconnect
     
     // Synchronization mechanisms
     OS_MUTEX ble_send_queue_mutex;           ///< Mutex for BLE send queue
     
     // BLE device information
     u8 ble_mac_addr[6];                  ///< BLE MAC address
-    char ble_local_name[BLE_LOCAL_NAME_MAX_LEN]; ///< BLE local name
+    char ble_local_name[BLE_LOCAL_NAME_MAX_LEN + 1]; ///< BLE local name plus NUL
 } rdx_ble_server_info_t;
 
 /******************************************************************************

@@ -1488,14 +1488,19 @@ $hogpLedConnectedCount = [regex]::Matches($ServerText,
     'rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_CONNECTED\s*\)').Count
 $hogpLedDisconnectedCount = [regex]::Matches($ServerText,
     'rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_DISCONNECTED\s*\)').Count
+$ownerClaimMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+u8\s+rdx_ble_server_connection_owner_claim\s*\([^)]*\)\s*\{(.*?)^\}')
+$hogpLedOnOwnerClaim = $ownerClaimMatch.Success -and
+                       ($ownerClaimMatch.Groups[1].Value -match 'owner\s*==\s*RDX_BLE_OWNER_HOGP[\s\S]*?rdx_ble_mode_set_hogp_led_scene\s*\(\s*RDX_LED_SCENE_BLE_CONNECTED\s*\)')
 $hogpLedRestartReusesStart = $restartFunctionMatch.Success -and
                              ($restartFunctionMatch.Groups[1].Value -match 'rdx_ble_mode_start_hogp_advertising\s*\(\s*\)')
 $hogpLedLifecycleOk = ($hogpLedAdvCount -eq 1) -and
-                      ($hogpLedConnectedCount -eq 2) -and
+                      ($hogpLedConnectedCount -eq 3) -and
+                      $hogpLedOnOwnerClaim -and
                       ($hogpLedDisconnectedCount -eq 1) -and
                       $hogpLedRestartReusesStart
 Add-CheckResult -Name 'C6_HOGP_LED_LIFECYCLE' -Passed $hogpLedLifecycleOk `
-    -Message $(if ($hogpLedLifecycleOk) { '' } else { 'HOGP LED hooks must cover advertising, normal/enhanced connection, and disconnection; restart must reuse the advertising entry point' })
+    -Message $(if ($hogpLedLifecycleOk) { '' } else { 'HOGP LED hooks must cover advertising, unified HOGP owner claim, legacy normal/enhanced connection, and disconnection; restart must reuse the advertising entry point' })
 
 # -----------------------------------------------------------------------------
 # Summary

@@ -48,6 +48,16 @@ extern "C" {
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
 
+/* Unified RDX + HOGP advertising is developed behind this gate. It must stay
+ * off until the session authorization and lifecycle work is enabled with it. */
+#ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+#define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE    0
+#endif
+
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE && !TCFG_RDX_HOGP_ENABLE
+#error "Unified RDX/HOGP entry requires TCFG_RDX_HOGP_ENABLE"
+#endif
+
 /******************************************************************************
 * Key Action
 ******************************************************************************/

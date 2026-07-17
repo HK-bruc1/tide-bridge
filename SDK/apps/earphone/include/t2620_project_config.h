@@ -66,6 +66,12 @@
 #define RDX_BLE_DEFAULT_MODE                      RDX_BLE_DEFAULT_MODE_HOGP
 #endif
 
+/* Phase 1 development gate. Keep disabled until the RDX session authorization
+ * boundary and the unified connection lifecycle are complete. */
+#ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+#define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE        1
+#endif
+
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
 #define RDX_HOGP_KEY_ACTION_TEST_ENABLE                0
 #endif
