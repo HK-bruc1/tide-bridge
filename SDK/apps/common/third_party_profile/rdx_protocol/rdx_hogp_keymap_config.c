@@ -11,6 +11,8 @@
 #include "system/includes.h"
 
 #include "rdx_app_config.h"
+#include "rdx_ble_server.h"
+#include "rdx_ble_session.h"
 #include "rdx_ble_mode_controller.h"
 #include "rdx_dut.h"
 #include "rdx_hogp_config.h"
@@ -317,6 +319,10 @@ static int rdx_hogpkm_resend_cached(const rdx_hogpkm_request_t *request)
 static u8 rdx_hogpkm_access_status(void)
 {
     if (rdx_ble_connection_owner_get() != RDX_BLE_OWNER_CONFIG ||
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+        !rdx_protocol_session_is_authorized(
+            rdx_ble_server_get_info()->ble_con_handle) ||
+#endif
         !rdx_hogp_keymap_product_authorized()) {
         return RDX_HOGPKM_STATUS_NOT_AUTHORIZED;
     }

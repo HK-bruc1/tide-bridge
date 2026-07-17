@@ -72,6 +72,13 @@
 #define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE        1
 #endif
 
+/* The current prebuilt RDX protocol library exposes no trustworthy remote
+ * authentication-complete event.  Keep the Phase 2A sensitive-command gate
+ * off until that external integration calls rdx_protocol_session_authorize(). */
+#ifndef TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+#define TCFG_RDX_SESSION_AUTH_GATE_ENABLE          0
+#endif
+
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
 #define RDX_HOGP_KEY_ACTION_TEST_ENABLE                0
 #endif

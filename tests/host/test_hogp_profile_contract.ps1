@@ -1497,10 +1497,10 @@ $hogpLedRestartReusesStart = $restartFunctionMatch.Success -and
 $hogpLedLifecycleOk = ($hogpLedAdvCount -eq 1) -and
                       ($hogpLedConnectedCount -eq 3) -and
                       $hogpLedOnOwnerClaim -and
-                      ($hogpLedDisconnectedCount -eq 1) -and
+                      ($hogpLedDisconnectedCount -eq 2) -and
                       $hogpLedRestartReusesStart
 Add-CheckResult -Name 'C6_HOGP_LED_LIFECYCLE' -Passed $hogpLedLifecycleOk `
-    -Message $(if ($hogpLedLifecycleOk) { '' } else { 'HOGP LED hooks must cover advertising, unified HOGP owner claim, legacy normal/enhanced connection, and disconnection; restart must reuse the advertising entry point' })
+    -Message $(if ($hogpLedLifecycleOk) { '' } else { 'HOGP LED hooks must cover advertising, unified HOGP owner claim, legacy normal/enhanced connection, and both unified/legacy disconnection paths; restart must reuse the advertising entry point' })
 
 # -----------------------------------------------------------------------------
 # Summary

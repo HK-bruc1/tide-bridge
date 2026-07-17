@@ -131,6 +131,10 @@ void rdx_uxfile_recordFileData_send_finish(ReqFileInfo * rf_info);
 void rdx_uxfile_txt_write_test(u8* d, u32 len);
 void rdx_uxfile_device_sd_mem_check(void);
 void rdx_uxfile_device_sd_format(uxfile_format_cb cb);
+/* Queue a file deletion.  A non-negative return value means accepted, not
+ * completed.  The UXFILE worker owns the DAT cache until it has removed and
+ * persisted the entry; callers must not invalidate/free that cache after
+ * enqueueing the request. */
 int rdx_uxfile_recordFile_delete_handle(int fnum, char* fname);
 
 // [优化] DAT 缓存管理（WiFi传输前调用释放内存）

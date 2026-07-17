@@ -58,6 +58,16 @@ extern "C" {
 #error "Unified RDX/HOGP entry requires TCFG_RDX_HOGP_ENABLE"
 #endif
 
+/* Phase 2A command gate.  Keep disabled until the prebuilt RDX protocol/App
+ * integration reports a verifiable per-connection authentication success. */
+#ifndef TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+#define TCFG_RDX_SESSION_AUTH_GATE_ENABLE       0
+#endif
+
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE && !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+#error "RDX session authorization gate requires the unified BLE entry"
+#endif
+
 /******************************************************************************
 * Key Action
 ******************************************************************************/

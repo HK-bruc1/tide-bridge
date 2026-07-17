@@ -196,10 +196,26 @@ Add-Check -Name 'EOF_STOPS_WITHOUT_AUTO_NEXT' -Passed (
     $NaturalBody -notmatch 'rdx_playback_next\(\);'
 ) -Message 'natural EOF must stop and wait for the next user command'
 
-Add-Check -Name 'DELETE_INVALIDATES_SELECTION' -Passed (
+$DeleteCaseStart = $AppText.IndexOf('case PROTOCOL_EVENT_CMD_FILE_DELETE:')
+$DeleteCaseEnd = if ($DeleteCaseStart -ge 0) {
+    $AppText.IndexOf('case PROTOCOL_EVENT_CMD_BT_NAME_SET:', $DeleteCaseStart)
+} else {
+    -1
+}
+$DeleteCaseBody = if ($DeleteCaseStart -ge 0 -and $DeleteCaseEnd -gt $DeleteCaseStart) {
+    $AppText.Substring($DeleteCaseStart, $DeleteCaseEnd - $DeleteCaseStart)
+} else {
+    ''
+}
+Add-Check -Name 'DELETE_INVALIDATES_PLAYBACK_SELECTION' -Passed (
     $PlaybackText -match 'void\s+rdx_playback_on_file_deleted\s*\(' -and
-    $AppText -match '(?s)if\s*\(ret\s*>=\s*0\)\s*\{\s*rdx_uxfile_invalidate_dat_cache\(\);\s*rdx_playback_on_file_deleted\(\(u32\)p->file_sn\);'
-) -Message 'successful deletion must invalidate UXFILE metadata before playback navigation state'
+    $DeleteCaseBody -match '(?s)rdx_uxfile_recordFile_delete_handle\([^;]+;.*?if\s*\(ret\s*>=\s*0\)\s*\{.*?rdx_playback_on_file_deleted\(\(u32\)p->file_sn\);'
+) -Message 'an accepted async delete must immediately invalidate only playback navigation state'
+
+Add-Check -Name 'DELETE_QUEUE_PRESERVES_UXFILE_CACHE' -Passed (
+    $DeleteCaseBody.Length -gt 0 -and
+    $DeleteCaseBody -notmatch 'rdx_uxfile_(?:invalidate|free)_dat_cache\s*\('
+) -Message 'the caller must not destroy the DAT cache while the asynchronous UXFILE delete worker still owns it'
 
 Add-Check -Name 'RECORD_REPLACEMENT_INVALIDATES_UXFILE_CACHE' -Passed (
     $AppText -match '(?s)void\s+rdx_app_playback_content_changed\s*\([^)]*\)\s*\{\s*/\*.*?\*/\s*rdx_uxfile_invalidate_dat_cache\(\);\s*rdx_playback_invalidate_playlist\(PB_PLAYLIST_CONTENT_CHANGED\);'

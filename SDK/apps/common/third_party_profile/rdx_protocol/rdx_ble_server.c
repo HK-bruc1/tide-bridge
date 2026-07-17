@@ -45,6 +45,7 @@
 #include "app_config.h"
 
 #include "rdx_ble_server.h"
+#include "rdx_ble_session.h"
 #include "rdx_hogp_config.h"
 #include "rdx_ble_mode_controller.h"
 #include "rdx_hogp_keyboard.h"
@@ -136,6 +137,14 @@ static void rdx_ble_mode_apply_requested_force(void);
 static int  rdx_ble_mode_request(rdx_ble_mode_t mode);
 static void rdx_ble_server_disconnected_cleanup_internal(void);
 static void rdx_ble_server_disconnected_adv_restart(void);
+static void rdx_ble_server_disconnected_idle_policy_resume(void);
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+static u8 rdx_ble_server_unified_link_connected(const u8 *packet,
+                                                u16 size,
+                                                u8 enhanced);
+static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
+                                                     u16 size);
+#endif
 
 /******************************************************************************
 * Global variable Section
@@ -1055,7 +1064,6 @@ static void rdx_ble_server_disconnected_adv_restart(void)
         }else{
             //wifi off, ble with adv.
             rdx_ble_server_adv_data_changed();
-            rdx_ble_server_auto_shut_down_enable(1);
         }
         if(!rdx_vm_is_unbouding()){
         #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
@@ -1064,6 +1072,21 @@ static void rdx_ble_server_disconnected_adv_restart(void)
             r_printf("=== %s ---> do not show disconnect icon, unbounding now! \r", __FUNCTION__);
         }
     }
+}
+
+/* Resume the idle policy only after link teardown and advertising recovery.
+ * Advertising identity is not an activity state: CONFIG and HOGP must obey
+ * the same auto-shutdown policy.  Keep suppression policy centralized so a
+ * disconnect during WiFi transfer, DUT, poweroff, or formatting cannot arm a
+ * conflicting shutdown timer. */
+static void rdx_ble_server_disconnected_idle_policy_resume(void)
+{
+    if (rdx_ble_mode_broadcast_suppressed()) {
+        y_printf("[POWEROFF] disconnect idle-policy resume suppressed\n");
+        return;
+    }
+
+    rdx_ble_server_auto_shut_down_enable(1);
 }
 
 /**************************************************************************
@@ -1083,6 +1106,7 @@ void rdx_ble_server_disconnected_handle(void)
     rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
     rdx_ble_server_disconnected_cleanup_internal();
     rdx_ble_server_disconnected_adv_restart();
+    rdx_ble_server_disconnected_idle_policy_resume();
 }
 
 /**************************************************************************
@@ -1120,9 +1144,6 @@ void rdx_ble_server_connected_handle(void)
     //set connect flag.
     g_rdx_ble_server_info.ble_conn = TRUE;
 
-    //disbale shutdown timer.
-    rdx_ble_server_auto_shut_down_enable(0);
-
     rdx_record_on_ble_conn_changed(true);
 
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
@@ -1154,6 +1175,116 @@ void rdx_ble_server_connected_handle(void)
 }
 
 #if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+/* JL's BLE packet callback keeps the complete HCI event in packet, but its
+ * size argument excludes the event-code byte.  Keep these limits in the
+ * callback-size domain rather than using the full on-wire event lengths. */
+#define RDX_LE_CONNECTION_COMPLETE_MIN_SIZE             20
+#define RDX_LE_ENHANCED_CONNECTION_COMPLETE_MIN_SIZE    32
+#define RDX_DISCONNECTION_COMPLETE_MIN_SIZE               5
+
+static u8 rdx_ble_server_unified_link_connected(const u8 *packet,
+                                                u16 size,
+                                                u8 enhanced)
+{
+    u16 min_size = enhanced ?
+                   RDX_LE_ENHANCED_CONNECTION_COMPLETE_MIN_SIZE :
+                   RDX_LE_CONNECTION_COMPLETE_MIN_SIZE;
+    u8 status;
+    u16 con_handle;
+
+    if (!packet || size < min_size) {
+        r_printf("[BLE_SESSION] connection complete too short: %u/%u\n",
+                 size, min_size);
+        return 0;
+    }
+
+    if (enhanced) {
+        status = hci_subevent_le_enhanced_connection_complete_get_status(packet);
+        con_handle = hci_subevent_le_enhanced_connection_complete_get_connection_handle(packet);
+    } else {
+        status = hci_subevent_le_connection_complete_get_status(packet);
+        con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
+    }
+    if (status != 0) {
+        r_printf("[BLE_SESSION] connection complete failed: status=0x%02x enhanced=%u\n",
+                 status, enhanced);
+        return 0;
+    }
+
+    rdx_ble_session_on_connected(con_handle);
+    rdx_ble_server_set_conn_handle(con_handle);
+    g_rdx_ble_server_info.ble_conn = TRUE;
+    rdx_ble_server_auto_shut_down_enable(0);
+    rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
+    rdx_ble_mode_controller_dump(enhanced ?
+                                 "connected(enhanced)" : "connected");
+    return 1;
+}
+
+static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
+                                                     u16 size)
+{
+    u16 disconnected_handle;
+    u8 status;
+    u8 reason;
+    rdx_ble_connection_owner_t prev_owner;
+
+    if (!packet || size < RDX_DISCONNECTION_COMPLETE_MIN_SIZE) {
+        r_printf("[BLE_SESSION] disconnection complete too short: %u\n", size);
+        return;
+    }
+
+    disconnected_handle = hci_event_disconnection_complete_get_connection_handle(packet);
+    status = hci_event_disconnection_complete_get_status(packet);
+    reason = hci_event_disconnection_complete_get_reason(packet);
+    if (!rdx_ble_session_is_current(disconnected_handle)) {
+        r_printf("[BLE_SESSION] stale disconnect ignored: hdl=0x%04x current=0x%04x status=0x%02x reason=0x%02x\n",
+                 disconnected_handle, g_rdx_ble_server_info.ble_con_handle,
+                 status, reason);
+        return;
+    }
+
+    prev_owner = rdx_ble_connection_owner_get();
+    r_printf("[BLE_SESSION] disconnect hdl=0x%04x status=0x%02x reason=0x%02x owner=%s\n",
+             disconnected_handle, status, reason,
+             rdx_ble_owner_name(prev_owner));
+    rdx_ble_mode_controller_dump("disconnecting");
+
+#if TCFG_RDX_HOGP_ENABLE
+    /* Always clear HID per-link runtime.  This is safe even when CONFIG was
+     * the first service used and prevents a stale CCC/key state leaking into
+     * the next connection. */
+    rdx_hogp_on_disconnected(disconnected_handle);
+    if (prev_owner == RDX_BLE_OWNER_HOGP) {
+        rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
+    }
+#endif
+
+    if (prev_owner == RDX_BLE_OWNER_CONFIG) {
+        rdx_ble_server_reset_send_fail_cnt();
+        rdx_record_stream_interrupt();
+        rdx_ble_server_disconnected_cleanup_internal();
+    }
+
+    rdx_ble_session_on_disconnected(disconnected_handle);
+    rdx_ble_server_set_conn_handle(0);
+    g_rdx_ble_server_info.ble_conn = FALSE;
+    g_rdx_ble_server_info.adv_refresh_pending = FALSE;
+    rdx_ble_server_set_ble_work_state(BLE_ST_DISCONN);
+    rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
+    rdx_ble_mode_controller_dump("disconnected");
+
+    rdx_ble_mode_apply_requested_force();
+    if (rdx_ble_mode_get_advertised() == RDX_BLE_MODE_HOGP) {
+        rdx_ble_mode_restart_hogp_advertising();
+    } else {
+        rdx_ble_server_disconnected_adv_restart();
+    }
+    rdx_ble_server_disconnected_idle_policy_resume();
+}
+#endif
+
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
 static u8 rdx_ble_server_connection_owner_claim(rdx_ble_connection_owner_t owner,
                                                  u16 con_handle)
 {
@@ -1176,8 +1307,16 @@ static u8 rdx_ble_server_connection_owner_claim(rdx_ble_connection_owner_t owner
         rdx_ble_server_connected_handle();
     } else if (owner == RDX_BLE_OWNER_HOGP) {
 #if TCFG_RDX_HOGP_ENABLE
+        const rdx_ble_link_state_t *link_state;
+        u8 encrypted = 0;
+
         rdx_hogp_mode_set(1);
-        rdx_hogp_on_connected(con_handle);
+        link_state = rdx_ble_session_get_link_state();
+        if (link_state && link_state->connected &&
+            link_state->con_handle == con_handle) {
+            encrypted = link_state->encrypted;
+        }
+        rdx_hogp_on_connected(con_handle, encrypted);
         rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
 #endif
     }
@@ -1276,11 +1415,15 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
                         {
                             r_printf("---------> HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE \n");
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+                            rdx_ble_server_unified_link_connected(packet, size, 1);
+#else
                             con_handle = little_endian_read_16(packet, 4);
                             log_info("HCI_SUBEVENT_LE_CONNECTION_COMPLETE: %0x", con_handle);
 
                             rdx_ble_server_set_conn_handle(con_handle);
                             g_rdx_ble_server_info.ble_conn = TRUE;
+                            rdx_ble_server_auto_shut_down_enable(0);
 
 #if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                             rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
@@ -1296,21 +1439,26 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 #if TCFG_RDX_HOGP_ENABLE
 #if !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                             if (rdx_ble_connection_owner_is_hogp()) {
-                                rdx_hogp_on_connected(con_handle);
+                                rdx_hogp_on_connected(con_handle, 0);
                                 rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                             }
 #endif
 #endif
                             /* RDX App Config full init is only done for normal connection complete */
                             // set_connection_data_phy(con_handle, CONN_SET_2M_PHY, CONN_SET_2M_PHY);
+#endif
                         }
                         break;
                     case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+                        rdx_ble_server_unified_link_connected(packet, size, 0);
+#else
                         con_handle = little_endian_read_16(packet, 4);
                         log_info("HCI_SUBEVENT_LE_CONNECTION_COMPLETE: %0x", con_handle);
 
                         rdx_ble_server_set_conn_handle(con_handle);
                         g_rdx_ble_server_info.ble_conn = TRUE;
+                        rdx_ble_server_auto_shut_down_enable(0);
 
 #if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                         rdx_ble_connection_owner_set(RDX_BLE_OWNER_NONE);
@@ -1326,7 +1474,7 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 #if TCFG_RDX_HOGP_ENABLE
 #if !TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
                         if (rdx_ble_connection_owner_is_hogp()) {
-                            rdx_hogp_on_connected(con_handle);
+                            rdx_hogp_on_connected(con_handle, 0);
                             rdx_ble_mode_set_hogp_led_scene(RDX_LED_SCENE_BLE_CONNECTED);
                         }
 #endif
@@ -1356,9 +1504,13 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                             // }
                         }
 #endif
+#endif
                         break;
                     case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
-                        if (con_handle != little_endian_read_16(packet, 4)) {
+                        if (size < 11 ||
+                            hci_subevent_le_connection_update_complete_get_status(packet) != 0 ||
+                            g_rdx_ble_server_info.ble_con_handle !=
+                            hci_subevent_le_connection_update_complete_get_connection_handle(packet)) {
                             break;
                         }
                         rdx_ble_server_connection_update_complete_success(packet);
@@ -1382,6 +1534,9 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
 
             case HCI_EVENT_DISCONNECTION_COMPLETE:
                 {
+#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
+                    rdx_ble_server_unified_link_disconnected(packet, size);
+#else
                     log_info("HCI_EVENT_DISCONNECTION_COMPLETE: %0x", packet[5]);
                     con_handle = 0;
                     rdx_ble_server_set_conn_handle(con_handle);
@@ -1419,6 +1574,8 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     } else {
                         rdx_ble_server_disconnected_adv_restart();
                     }
+                    rdx_ble_server_disconnected_idle_policy_resume();
+#endif
                 }
                 break;
             case HCI_EVENT_ENCRYPTION_CHANGE:
@@ -1426,17 +1583,24 @@ static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, ui
                     u16 enc_handle = hci_event_encryption_change_get_connection_handle(packet);
                     u8 enc_enabled = hci_event_encryption_change_get_encryption_enabled(packet);
                     u8 enc_status = hci_event_encryption_change_get_status(packet);
+                    rdx_ble_session_set_encrypted(enc_handle,
+                                                  (enc_enabled && enc_status == 0));
 #if TCFG_RDX_HOGP_ENABLE
-                    rdx_hogp_on_encryption_change(enc_handle, enc_enabled, enc_status);
+                    if (rdx_hogp_keyboard_is_connected()) {
+                        rdx_hogp_on_encryption_change(enc_handle,
+                                                      enc_enabled, enc_status);
+                    }
 #endif
                 }
                 break;
 
             case ATT_EVENT_MTU_EXCHANGE_COMPLETE:
                 u16 mtu = att_event_mtu_exchange_complete_get_MTU(packet) - 3;
+                u16 mtu_handle = att_event_mtu_exchange_complete_get_handle(packet);
                 log_info("===== ATT MTU = %u\r", mtu);
                 ble_op_att_set_send_mtu(mtu);
                 g_rdx_ble_server_info.ble_mtu_size = mtu;
+                rdx_ble_session_set_mtu(mtu_handle, mtu);
                 /* set_connection_data_length(251, 2120); */
                 // rdx_ble_server_check_connetion_updata_deal();
                 break;
@@ -1671,8 +1835,12 @@ void rdx_ble_server_gatt_receive_data(u8* p_data, u16 len)
  **************************************************************************/
 static void rdx_ble_server_stream_tx_ready_cb(void* priv)
 {
-    g_rdx_ble_server_info.stream_tx_ready = TRUE;
-    y_printf("[BLE] Stream TX ready! (delayed after sync data)\r");
+    g_rdx_ble_server_info.stream_tx_ready =
+        g_rdx_ble_server_info.ccc_configured ? TRUE : FALSE;
+    rdx_ble_session_set_stream_tx_ready(g_rdx_ble_server_info.ble_con_handle,
+                                        g_rdx_ble_server_info.stream_tx_ready);
+    y_printf("[BLE] Stream TX ready=%d (delayed after sync data)\r",
+             g_rdx_ble_server_info.stream_tx_ready);
 }
 
 void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
@@ -1803,6 +1971,13 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
         case ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE:
             {
                 log_info("ota rx(%d):\r", buffer_size);
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+                if (!rdx_protocol_session_is_authorized(connection_handle)) {
+                    r_printf("[RDX_AUTH] OTA write rejected: unauthorized hdl=0x%04x\n",
+                             connection_handle);
+                    break;
+                }
+#endif
                 rdx_protocol_ota_handle(buffer, buffer_size);
             }
             break;
@@ -1811,13 +1986,21 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             log_info("\nwrite ccc:%04x, %02x\n", handle, buffer[0]);
             att_set_ccc_config(handle, buffer[0]);
             g_rdx_ble_server_info.ccc_configured = (buffer[0] == 0x01) ? TRUE : FALSE;
+            rdx_ble_session_set_config_ccc(connection_handle,
+                                           g_rdx_ble_server_info.ccc_configured);
+            if (!g_rdx_ble_server_info.ccc_configured) {
+                g_rdx_ble_server_info.stream_tx_ready = FALSE;
+                rdx_ble_session_set_stream_tx_ready(connection_handle, FALSE);
+            }
 
             if(g_syn_data_timer) {
                 sys_timeout_del(g_syn_data_timer);
                 g_syn_data_timer = 0;
             }
-            g_syn_data_timer = sys_timeout_add(NULL, rdx_ble_server_syn_data_after_ble_write_ready, 1000);
-            y_printf("====== syn_data_timer created: %d \r", g_syn_data_timer);
+            if (g_rdx_ble_server_info.ccc_configured) {
+                g_syn_data_timer = sys_timeout_add(NULL, rdx_ble_server_syn_data_after_ble_write_ready, 1000);
+                y_printf("====== syn_data_timer created: %d \r", g_syn_data_timer);
+            }
             break;
 
         case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE:
@@ -2342,6 +2525,14 @@ int rdx_ble_server_send(u8 *data, u32 len)
         g_ble_send_fail_cnt++;
         return -1;
     }
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+    if (!rdx_protocol_session_is_authorized(
+            g_rdx_ble_server_info.ble_con_handle)) {
+        y_printf("[RDX_AUTH] server send rejected: unauthorized\n");
+        g_ble_send_fail_cnt++;
+        return -1;
+    }
+#endif
     //is connected?
     if(!g_rdx_ble_server_info.ble_con_handle){ 
         g_ble_send_fail_cnt++;
@@ -2396,6 +2587,13 @@ int rdx_ble_server_ota_send(u8 *data, u32 len)
                  rdx_ble_owner_name(rdx_ble_connection_owner_get()));
         return -1;
     }
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+    if (!rdx_protocol_session_is_authorized(
+            g_rdx_ble_server_info.ble_con_handle)) {
+        y_printf("[RDX_AUTH] OTA send rejected: unauthorized\n");
+        return -1;
+    }
+#endif
     if(!data || len == 0){
         r_printf("%s --> buf is null \r", __FUNCTION__);
         return 0;
@@ -2792,6 +2990,7 @@ void rdx_ble_server_init(void)
         app_ble_sm_event_callback_register(g_rdx_ble_server_info.rdx_ble_server_hdl, rdx_ble_server_sm_event_callback);
 
         //init BLE mode controller before HOGP submodule.
+        rdx_ble_session_reset();
         rdx_ble_mode_controller_init();
 
         //init HOGP submodule.
@@ -2843,6 +3042,7 @@ void rdx_ble_server_exit(void)
     
     rdx_hogp_key_action_deinit();
     rdx_hogp_deinit();
+    rdx_ble_session_reset();
     rdx_ble_mode_controller_reset();
 
     app_ble_hdl_free(g_rdx_ble_server_info.rdx_ble_server_hdl);

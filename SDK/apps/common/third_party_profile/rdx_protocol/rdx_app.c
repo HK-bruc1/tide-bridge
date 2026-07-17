@@ -67,6 +67,7 @@
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
 #include "rdx_ble_server.h"
+#include "rdx_ble_session.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
@@ -3018,6 +3019,37 @@ static void rdx_app_record_cmd_on_app_core(u32 packed_info)
     rdx_record_cmd_handle(&info);
 }
 
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+/* Only side-effect-free discovery/query events and the existing Auth-SN
+ * exchange are admitted before a verifiable per-link authentication.  Auth-SN
+ * remains a handshake input; receiving it does not authorize the session. */
+static u8 rdx_app_protocol_event_is_public(ProtocolEvents event)
+{
+    switch (event) {
+        case PROTOCOL_EVENT_CMD_NONE:
+        case PROTOCOL_EVENT_CMD_BATTERY_QUERY:
+        case PROTOCOL_EVENT_CMD_INCHARGE_QUERY:
+        case PROTOCOL_EVENT_CMD_VERSION_QUERY:
+        case PROTOCOL_EVENT_CMD_RECORD_MODE_QUERY:
+        case PROTOCOL_EVENT_CMD_AUTH_SN:
+        case PROTOCOL_EVENT_CMD_BT_NAME_QUERY:
+        case PROTOCOL_EVENT_CMD_BLE_NAME_QUERY:
+        case PROTOCOL_EVENT_CMD_OFFTIME_QUERY:
+        case PROTOCOL_EVENT_CMD_MIC_GAIN_QUERY:
+        case PROTOCOL_EVENT_CMD_SD_MEM_QUERY:
+        case PROTOCOL_EVENT_CMD_OTA_STATE_QUERY:
+        case PROTOCOL_EVENT_CMD_NET_STATE_QUERY:
+        case PROTOCOL_EVENT_CMD_NET_INFO_QUERY:
+        case PROTOCOL_EVENT_CMD_SERVER_INFO_QUERY:
+        case PROTOCOL_EVENT_CMD_OS_TYPE:
+        case PROTOCOL_EVENT_CMD_BLE_FILE_TRANSFER_TIMEOUT:
+            return 1;
+        default:
+            return 0;
+    }
+}
+#endif
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3029,6 +3061,17 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
     if(!ops) return;
+
+#if TCFG_RDX_SESSION_AUTH_GATE_ENABLE
+    rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
+    if (!rdx_app_protocol_event_is_public(event) &&
+        (!ble_info ||
+         !rdx_protocol_session_is_authorized(ble_info->ble_con_handle))) {
+        r_printf("[RDX_AUTH] event rejected: event=%u hdl=0x%04x\n",
+                 event, ble_info ? ble_info->ble_con_handle : 0);
+        return;
+    }
+#endif
 
     switch(event){
         /* ============== 主动查询/上报类: data == NULL ============== */
@@ -3213,7 +3256,12 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
             if(ret >= 0){
-                rdx_uxfile_invalidate_dat_cache();
+                /* Deletion is asynchronous: ret only confirms that UXFILE
+                 * accepted the work item.  Its worker still needs the DAT
+                 * cache to remove and persist the entry, so this layer must
+                 * not invalidate/free that cache before completion.  The
+                 * playback cache is independent and can be conservatively
+                 * invalidated as soon as the delete request is accepted. */
                 rdx_playback_on_file_deleted((u32)p->file_sn);
             }
 #endif

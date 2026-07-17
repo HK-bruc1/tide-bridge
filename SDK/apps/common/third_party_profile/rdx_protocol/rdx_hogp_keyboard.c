@@ -443,19 +443,27 @@ void rdx_hogp_dump_state(void)
                  s_hogp_app_ble_hdl);
 }
 
-void rdx_hogp_on_connected(u16 con_handle)
+void rdx_hogp_on_connected(u16 con_handle, u8 encrypted)
 {
+    u16 ccc_config;
+
     if (!s_hogp_mode) {
         return;
     }
     s_hogp_connected = 1;
     s_hid_con_handle = con_handle;
-    s_hogp_encrypted = 0;
+    ccc_config = multi_att_get_ccc_config(
+        con_handle, HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE);
+    s_hid_notify_enabled = (ccc_config & 0x0001) ? 1 : 0;
+    s_hogp_encrypted = encrypted ? 1 : 0;
     s_hogp_suspended = 0;
     s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
-    RDX_HOGP_LOG("conn complete hdl=0x%04x", con_handle);
+    RDX_HOGP_LOG("conn complete hdl=0x%04x restored_ccc=0x%04x",
+                 con_handle, ccc_config);
 #if RDX_HOGP_ENCRYPTION_REQUIRED
-    sm_api_request_pairing(con_handle);
+    if (!s_hogp_encrypted) {
+        sm_api_request_pairing(con_handle);
+    }
 #endif
     rdx_hogp_dump_state();
 }
@@ -646,7 +654,10 @@ u16  rdx_hogp_att_read(hci_con_handle_t ch, u16 h, u16 o, u8 *b, u16 bs) {
 int  rdx_hogp_att_write(hci_con_handle_t ch, u16 h, u16 tm, u16 o, u8 *b, u16 bs) {
     (void)ch; (void)h; (void)tm; (void)o; (void)b; (void)bs; return 0;
 }
-void rdx_hogp_on_connected(u16 con_handle) { (void)con_handle; }
+void rdx_hogp_on_connected(u16 con_handle, u8 encrypted) {
+    (void)con_handle;
+    (void)encrypted;
+}
 void rdx_hogp_on_disconnected(u16 con_handle) { (void)con_handle; }
 void rdx_hogp_on_encryption_change(u16 ch, u8 en, u8 st) { (void)ch; (void)en; (void)st; }
 void rdx_hogp_on_sm_event(u8 pt, u8 *pk, u16 sz) { (void)pt; (void)pk; (void)sz; }
