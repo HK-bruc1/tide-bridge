@@ -95,6 +95,9 @@ The host test runner currently covers:
 
 - `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
 - `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
+- `test_rdx_unified_adv_phase1.ps1` - freezes the production unified advertising layout and verifies that no development compatibility switch or standalone HOGP advertising configuration remains.
+- `test_rdx_unified_session_phase2b.ps1` - freezes the owner-free single-link capability model, deferred advertising restart, RDX access policy, HID-ready boundary, and peer-scoped bonded CCC recovery.
+- `test_hogp_keymap_architecture.ps1` / `test_hogp_keymap_behavior.ps1` - verify keymap transaction boundaries and keyboard action behavior.
 - `test_rdx_local_playback_config.ps1` - verifies the RDX local playback compile-time boundary: master switch propagation, decoder/encoder separation, guarded application and key wiring, public Source_Dev0 APIs, and recording-side fix independence.
 - `test_rdx_playback_navigation.ps1` - verifies local playback navigation, wrap/skip behavior, pause/resume state, seeking, and invalid-selection recovery.
 
@@ -135,17 +138,19 @@ The RDX stack lives in `SDK/apps/common/third_party_profile/rdx_protocol/` and i
 
 The HOGP feature is implemented by extending the same RDX GATT server instead of creating a separate one:
 
-- HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0025`
-- `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report)
-- `rdx_ble_server_att_write_callback()` handles HID Control Point and CCC writes
+- HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0022`; Device Information uses `0x0023–0x0027`, and the HID Output Report uses `0x0028–0x002a`
+- `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report, Output Report)
+- `rdx_ble_server_att_write_callback()` handles encrypted HID dynamic writes, including Protocol Mode, Input CCC, Control Point, and Output Report
 - HID reports are sent via `app_ble_att_send_data()` on the RDX wrapper handle
-- Mode toggle and key injection live in `rdx_app.c` (`rdx_app_earphone_key_remap`) and `rdx_ble_server.c` (`hogp_mode_set`, `hogp_key_send`, `hogp_key_click_send`)
+- Physical-key routing lives in `rdx_app_earphone_key_remap()`; `rdx_hogp_key_action.c` builds reports and `rdx_hogp_keyboard.c` owns ATT transport
 
 Key points:
 
 - `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
-- HOGP and RDX advertising are mutually exclusive; the firmware switches advertising data when toggling HOGP mode
-- PC-visible name in HOGP mode is **VibeKeyboard**
+- RDX and HOGP use one connectable advertising entry: primary ADV keeps `Flags + local name`, while Scan Response keeps RDX Manufacturer Data first and appends HID UUID `0x1812`
+- There is no CONFIG/HOGP advertising mode, connection owner, or unified-entry compatibility switch
+- Any current BLE center may access RDX commands; online keyboard routing is independently gated by `Input CCC enabled && encrypted && !suspended`
+- Bonded HID subscription intent is persisted per SM peer identity so a Windows reconnect can restore ready state without leaking CCC state to another peer
 
 ### T2620 project config overlay
 

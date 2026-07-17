@@ -85,6 +85,8 @@ The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls th
 ```powershell
 .\tests\host\test_t2620_config_overlay.ps1
 .\tests\host\test_hogp_profile_contract.ps1
+.\tests\host\test_rdx_unified_adv_phase1.ps1
+.\tests\host\test_rdx_unified_session_phase2b.ps1
 ```
 
 `test_t2620_config_overlay.ps1` verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
@@ -155,21 +157,20 @@ HID Service details:
 
 #### Data flow
 
-1. User short-presses IO NUM0 → `rdx_app_earphone_key_remap()` calls `hogp_mode_set(1)`
-2. `hogp_mode_set()` stops RDX advertising, clears stale scan response, and starts HID advertising with UUID `0x1812` and Appearance `0x03C1`
-3. PC discovers the device and connects
-4. On `HCI_SUBEVENT_LE_CONNECTION_COMPLETE`, the firmware records the handle and calls `sm_api_request_pairing()`
-5. `rdx_ble_server_sm_event_callback()` handles `SM_EVENT_JUST_WORKS_REQUEST` and confirms pairing
-6. On `HCI_EVENT_ENCRYPTION_CHANGE`, the `hogp_encrypted` flag is set
-7. PC reads Report Map, HID Information, and writes `0x0001` to the Input Report CCC (`hid_notify_enabled = 1`)
-8. Short-pressing IO NUM1~4 triggers `hogp_key_click_send()` → `hogp_key_send(pressed=1)` → 20 ms later `hogp_key_send(pressed=0)`
-9. `app_ble_att_send_data()` sends the 8-byte Input Report via ATT notify
+1. The device always exposes one connectable BLE entry: primary ADV contains Flags + the RDX local name; Scan Response contains RDX Manufacturer Data followed by HID UUID `0x1812`.
+2. A PC or phone establishes the only allowed BLE connection. Connection complete initializes link state only; it does not assign a CONFIG/HOGP owner or start either capability's business state.
+3. RDX ATT access lazily activates the RDX capability. Any current BLE center may call RDX commands subject to protocol, parameter, transaction, busy-state, and OTA-integrity checks.
+4. HID ATT access lazily attaches HOGP. Static Report Map/HID Information reads do not request pairing; a valid Input CCC enable on an unencrypted link requests Just Works pairing.
+5. HID becomes ready only when Input CCC is enabled, the link is encrypted, and Control Point is not suspended. Only then does `rdx_app_earphone_key_remap()` route physical keys to `rdx_hogp_key_action.c`.
+6. `rdx_hogp_key_action.c` builds the 8-byte keyboard report and `rdx_hogp_keyboard_report_send()` sends it through the shared RDX `app_ble` handle.
+7. Valid encrypted CCC intent is persisted by SM peer identity. A bonded Windows reconnect can restore the subscription; phones and other peers cannot inherit it.
 
 #### Key implementation points
 
 - `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
-- HOGP and RDX advertising are mutually exclusive; the firmware switches advertising data when toggling HOGP mode
-- PC-visible name in HOGP mode is taken from `rdx_ble_server_get_local_name()` so it matches the GAP Device Name
+- RDX and HOGP share one advertising entry and one BLE connection; there is no mode toggle, connection owner, or compatibility switch
+- The advertising name and GAP Device Name both come from `rdx_ble_server_get_local_name()`
+- The unified Scan Response preserves RDX Manufacturer Data first and appends HID UUID `0x1812`; Appearance is intentionally omitted to fit the 31-byte legacy budget
 - Input Reports are **8-byte payloads** (`modifier` + `reserved` + 6 key slots). The key code goes at `report[2]`.
 - **Do not prefix a Report ID byte in the ATT payload.** The Report ID (`0x01`) is declared inside the Report Map (`0x85, 0x01`) and associated with the characteristic via the Report Reference descriptor. This is the single biggest HOGP pitfall: USB HID prefixes reports with Report ID when multiple reports share an endpoint; BLE HID gives each report its own characteristic, so the payload is just the report body.
 - Reports are only sent after `HCI_EVENT_ENCRYPTION_CHANGE` sets the `hogp_encrypted` flag
@@ -179,12 +180,13 @@ HID Service details:
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| PC disconnects right after connection (reason 0x0D) | Advertising name ≠ GAP Device Name | `hogp_fill_adv_data()` must use `rdx_ble_server_get_local_name()` |
+| App cannot discover while Windows can | Legacy RDX ADV/Scan Response field order changed | Keep primary ADV as Flags + Name and Scan Response as Manufacturer Data + HID UUID |
+| Disconnect succeeds but the device never advertises again | `app_ble` wrapper still exposes the old handle inside the HCI disconnect callback | Keep the deferred, bounded advertising-restart task in `rdx_ble_server.c` |
+| Bonded Windows reconnects encrypted but HID stays not ready | Peer-scoped Input CCC intent was never persisted or restored | Check `rdx_hogp_subscription_store.c` and the `subscription persisted/restored` logs |
 | No SM/paring logs, then disconnect | `config_le_sm_support_enable = 0` | `SDK/apps/earphone/log_config/lib_btstack_config.c` |
 | Pairing request not confirmed | Missing SM event callback / `sm_just_works_confirm()` | `rdx_ble_server_sm_event_callback()` registration in `rdx_ble_server_init()` |
-| `key_send ret=0` but no letters | Input Report payload includes Report ID byte (wrong format) | `hogp_key_send()` must send 8 bytes with keycode at `report[2]`; see HOGP_MVP_实施方案.md 坑5 |
+| Report send succeeds but no letters appear | Input Report payload includes a Report ID byte (wrong format) | `rdx_hogp_keyboard_report_send()` must send 8 bytes with keycode at `report[2]`; see HOGP_MVP_实施方案.md 坑5 |
 | `key_send skipped: notify not enabled` | PC never wrote CCC | Check `HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE` write path; open `rdx_ble_server_att_write_callback()` debug print |
-| After disconnect, PC sees RDX broadcast instead of HOGP | HOGP disconnect handler falls through to RDX disconnect logic | Add `break` in the HOGP branch of `HCI_EVENT_DISCONNECTION_COMPLETE` |
 
 For the full step-by-step troubleshooting record, see `HOGP_MVP_实施方案.md` (especially the “踩坑记录” section).
 

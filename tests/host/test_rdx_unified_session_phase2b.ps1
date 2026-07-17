@@ -84,10 +84,9 @@ Test-Contract 'PHASE2B_AUTH_SCAFFOLD_REMOVED' `
      $ProjectConfigText -notmatch 'TCFG_RDX_SESSION_AUTH_GATE_ENABLE') `
     'unused session authorization must not masquerade as a product security boundary'
 
-Test-Contract 'PHASE2B_UNIFIED_ENTRY_ENABLED' `
-    ($ProjectConfigText -match '#define\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s+1' -and
-     $HogpConfigText -match '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*&&\s*!TCFG_RDX_HOGP_ENABLE') `
-    'T2620 must enable the unified entry and require the HOGP profile'
+Test-Contract 'PRODUCTION_UNIFIED_ENTRY_SWITCH_REMOVED' `
+    (($RuntimeText + $HogpConfigText + $ProjectConfigText) -notmatch 'TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE') `
+    'the validated unified entry must be the only production runtime path'
 
 Test-Contract 'PHASE2B_SESSION_IS_LINK_STATE_ONLY' `
     ($SessionHeaderText -match 'u16\s+con_handle' -and
@@ -236,5 +235,5 @@ if ($Failed -gt 0) {
     exit 1
 }
 
-Write-Host 'PASS: RDX unified session Phase 2B contracts are satisfied.'
+Write-Host 'PASS: Production RDX unified session contracts are satisfied.'
 exit 0

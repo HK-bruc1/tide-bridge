@@ -27,14 +27,13 @@ $ServerHeaderText = Get-Content -Raw $ServerHeaderPath
 $HogpConfigText = Get-Content -Raw $HogpConfigPath
 $ProjectConfigText = Get-Content -Raw $ProjectConfigPath
 
-Test-Contract 'PHASE1_GATE_EXPLICIT_AND_FALLBACK_OFF' `
-    ($ProjectConfigText -match '#define\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s+[01]' -and
-     $HogpConfigText -match '#ifndef\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*\r?\n\s*#define\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s+0') `
-    'the project must explicitly select the development gate while its reusable fallback remains off'
+Test-Contract 'PRODUCTION_UNIFIED_ENTRY_SWITCH_REMOVED' `
+    (($ServerText + $HogpConfigText + $ProjectConfigText) -notmatch 'TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE') `
+    'the validated unified entry must be the only production path, without a compatibility switch'
 
-Test-Contract 'PHASE1_GATE_REQUIRES_HOGP' `
-    ($HogpConfigText -match '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*&&\s*!TCFG_RDX_HOGP_ENABLE') `
-    'unified advertising must not compile without the HOGP profile'
+Test-Contract 'OBSOLETE_HOGP_ADVERTISING_CONFIG_REMOVED' `
+    ($HogpConfigText -notmatch 'RDX_HOGP_APPEARANCE|RDX_HOGP_NAME_SOURCE|RDX_HOGP_CUSTOM_NAME') `
+    'standalone HOGP appearance and name settings must not survive after advertising is unified'
 
 $FillMatch = [regex]::Match($ServerText,
     '(?sm)static\s+u8\s+rdx_ble_server_fill_adv_data\s*\([^)]*\)\s*\{(.*?)^\}')
@@ -75,11 +74,9 @@ $manufacturerPreserved = $RspBody -match 'PRODUCT_CODE' -and
 Test-Contract 'RDX_MANUFACTURER_BYTES_PRESERVED' $manufacturerPreserved `
     'RDX Manufacturer Data fields and byte order must remain unchanged'
 
-$UnifiedRspMatch = [regex]::Match($ServerText,
-    '(?sm)static\s+u8\s+rdx_ble_server_fill_unified_rsp_data\s*\([^)]*\)\s*\{(.*?)^\}')
-$UnifiedRspBody = if ($UnifiedRspMatch.Success) { $UnifiedRspMatch.Groups[1].Value } else { '' }
+$UnifiedRspBody = $RspBody
 $rspFieldTokens = @(
-    'rdx_ble_server_fill_rsp_data(rsp_data)',
+    'HCI_EIR_DATATYPE_MANUFACTURER_SPECIFIC_DATA',
     'HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS'
 )
 $lastPosition = -1
@@ -100,6 +97,10 @@ $rspValuesOk = $UnifiedRspBody -match 'const\s+u8\s+hid_uuid\[\]\s*=\s*\{\s*0x12
                $UnifiedRspBody -notmatch 'LOCAL_NAME'
 Test-Contract 'UNIFIED_SCAN_RESPONSE_HID_UUID_ONLY' $rspValuesOk `
     'candidate C must append HID UUID 0x1812 without Appearance or Name'
+
+Test-Contract 'HID_UUID_FOLLOWS_HOGP_MASTER_SWITCH' `
+    ($UnifiedRspBody -match '#if\s+TCFG_RDX_HOGP_ENABLE[\s\S]*?HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS[\s\S]*?#endif') `
+    'a build with HOGP disabled must keep RDX advertising but must not advertise HID capability'
 
 $capacityOk = $ServerText -match '\(u16\)\(\*offset\)\s*\+\s*2\s*\+\s*data_len\s*>\s*ADV_RSP_PACKET_MAX' -and
               $UnifiedRspBody -match 'offset\s*>\s*ADV_RSP_PACKET_MAX' -and
@@ -122,8 +123,9 @@ $AdvEnableMatch = [regex]::Match($ServerText,
     '(?sm)int\s+rdx_ble_server_adv_enable\s*\([^)]*\)\s*\{(.*?)^\}')
 $AdvEnableBody = if ($AdvEnableMatch.Success) { $AdvEnableMatch.Groups[1].Value } else { '' }
 Test-Contract 'UNIFIED_PACKET_BUILDERS_SELECTED' `
-    ($AdvEnableBody -match '#if\s+TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE\s*\r?\n\s*len\s*=\s*rdx_ble_server_fill_unified_rsp_data\s*\(\s*rspData\s*\)[\s\S]*?#else\s*\r?\n\s*len\s*=\s*rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)') `
-    'the unified path must append HID UUID while the disabled path keeps the exact legacy RDX Scan Response'
+    ($AdvEnableBody -match 'len\s*=\s*rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)' -and
+     $AdvEnableBody -notmatch 'fill_unified_rsp_data|TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE') `
+    'advertising must use one production Scan Response builder without a legacy fallback branch'
 
 Test-Contract 'PHASE2B_CONNECTION_HAS_NO_ADVERTISED_IDENTITY' `
     ($ServerText -notmatch 'RDX_BLE_OWNER|RDX_BLE_MODE|connection_owner|rdx_ble_mode_get_advertised') `
@@ -140,7 +142,7 @@ Test-Contract 'PHASE2B_HID_CAPABILITY_ATTACH' `
 
 Test-Contract 'PHASE2B_UNIFIED_ADV_SINGLE_SERVER_ENTRY' `
     ($ServerText -notmatch 'rdx_hogp_adv_start|rdx_hogp_adv_stop|rdx_ble_mode_start_hogp_advertising' -and
-     $AdvEnableBody -match 'rdx_ble_server_fill_unified_rsp_data\s*\(\s*rspData\s*\)') `
+     $AdvEnableBody -match 'rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)') `
     'all advertising must use the RDX server unified ADV/RSP builder'
 
 $nameBufferOk = $ServerHeaderText -match 'char\s+ble_local_name\s*\[\s*BLE_LOCAL_NAME_MAX_LEN\s*\+\s*1\s*\]' -and
@@ -171,9 +173,9 @@ Test-Contract 'LOCAL_NAME_REFRESH_POLICY' $refreshPolicyOk `
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {
-    Write-Host 'All RDX unified advertising Phase 1 checks passed.'
+    Write-Host 'All production RDX unified advertising checks passed.'
     exit 0
 }
 
-Write-Host "$Failed RDX unified advertising Phase 1 checks failed."
+Write-Host "$Failed production RDX unified advertising checks failed."
 exit 1

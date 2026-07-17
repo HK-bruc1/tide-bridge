@@ -60,11 +60,6 @@
 #define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #endif
 
-/* Phase 2B uses one RDX + HOGP advertising entry with no CONFIG/HOGP mode. */
-#ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
-#define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE        1
-#endif
-
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
 #define RDX_HOGP_KEY_ACTION_TEST_ENABLE                0
 #endif

@@ -1897,7 +1897,6 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     return 0;
 }
 
-#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
 static u8 rdx_ble_server_adv_append_data(u8 *adv_data,
                                          u8 *offset,
                                          u8 eir_type,
@@ -1912,9 +1911,6 @@ static u8 rdx_ble_server_adv_append_data(u8 *adv_data,
                                     eir_type, (void *)data, data_len);
     return 1;
 }
-
-static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data);
-#endif
 
 /**************************************************************************
  * function: rdx_ble_server_fill_adv_data
@@ -1933,7 +1929,6 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
     const u8 flags[] = {0x0A};
     u8 name_type = HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME;
     u8 name_capacity;
@@ -1954,14 +1949,6 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
                                         name_type, name_p, name_len)) {
         return 0;
     }
-#else
-    //make eir.
-    offset += make_eir_packet_val(&adv_data[offset], offset, HCI_EIR_DATATYPE_FLAGS, 0x0A, 1);
-    if(name_len > BLE_LOCAL_NAME_MAX_LEN){
-        name_len = BLE_LOCAL_NAME_MAX_LEN;
-    }
-    offset += make_eir_packet_data(&adv_data[offset], offset, HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME, (void *)name_p, name_len);
-#endif
 
     if (offset > ADV_RSP_PACKET_MAX) {
         r_printf("***adv_data overflow!!!!!!\n");
@@ -1989,6 +1976,9 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
     u8 fac[FACTORY_CODE_SIZE] = FACTORY_CODE;
     u8 len = 0;
     u8 bd = rdx_vm_get_bound_status();
+#if TCFG_RDX_HOGP_ENABLE
+    const u8 hid_uuid[] = {0x12, 0x18};
+#endif
 #if (RDX_AI_TRANSLATE_SUPPORT == 1)
     AImodeInfo* pm = rdx_app_get_AI_mode_info();
 #endif
@@ -2043,32 +2033,20 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
     len += 2;
     
     offset += make_eir_packet_data(&rsp_data[offset], offset, HCI_EIR_DATATYPE_MANUFACTURER_SPECIFIC_DATA, (void *)manu_data, len);
-    if (offset > ADV_RSP_PACKET_MAX) {
-        r_printf("***rsp_data overflow!!!!!!\n");
-        return -1;
-    }   
-
-    return offset;
-}
-
-#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
-static u8 rdx_ble_server_fill_unified_rsp_data(u8 *rsp_data)
-{
-    u8 offset = rdx_ble_server_fill_rsp_data(rsp_data);
-    const u8 hid_uuid[] = {0x12, 0x18};
-
-    if (!offset || offset > ADV_RSP_PACKET_MAX) {
-        return 0;
-    }
+#if TCFG_RDX_HOGP_ENABLE
     if (!rdx_ble_server_adv_append_data(rsp_data, &offset,
                                         HCI_EIR_DATATYPE_COMPLETE_16BIT_SERVICE_UUIDS,
                                         hid_uuid, sizeof(hid_uuid))) {
         return 0;
     }
+#endif
+    if (offset > ADV_RSP_PACKET_MAX) {
+        r_printf("***rsp_data overflow!!!!!!\n");
+        return 0;
+    }
 
     return offset;
 }
-#endif
 
 void rdx_ble_server_adv_interval_change_timer_stop(void)
 {
@@ -2259,11 +2237,7 @@ int rdx_ble_server_adv_enable(u8 enable)
             put_buf(advData, len);
             app_ble_adv_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, advData, len);
         }
-#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
-        len = rdx_ble_server_fill_unified_rsp_data(rspData);
-#else
         len = rdx_ble_server_fill_rsp_data(rspData);
-#endif
         if (len) {
             put_buf(rspData, len);
             app_ble_rsp_data_set(g_rdx_ble_server_info.rdx_ble_server_hdl, rspData, len);

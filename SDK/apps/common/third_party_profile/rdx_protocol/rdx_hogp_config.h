@@ -33,16 +33,6 @@ extern "C" {
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
 
-/* Phase 2B product gate.  T2620 enables the single unified RDX + HOGP
- * advertising entry; this compatibility switch is removed in Phase 4. */
-#ifndef TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE
-#define TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE    0
-#endif
-
-#if TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE && !TCFG_RDX_HOGP_ENABLE
-#error "Unified RDX/HOGP entry requires TCFG_RDX_HOGP_ENABLE"
-#endif
-
 /******************************************************************************
 * Key Action
 ******************************************************************************/
@@ -63,21 +53,6 @@ extern "C" {
 
 #if RDX_HOGP_PAIRING_MODE != 0
 #error "RDX_HOGP_PAIRING_MODE: only mode 0 (Just Works) is implemented in Phase 3"
-#endif
-
-/******************************************************************************
-* Advertising
-******************************************************************************/
-#ifndef RDX_HOGP_APPEARANCE
-#define RDX_HOGP_APPEARANCE                  0x03C1   /* Keyboard */
-#endif
-
-#ifndef RDX_HOGP_NAME_SOURCE
-#define RDX_HOGP_NAME_SOURCE                 0   /* 0=server local name, 1=custom */
-#endif
-
-#ifndef RDX_HOGP_CUSTOM_NAME
-#define RDX_HOGP_CUSTOM_NAME                 "VibeKeyboard"
 #endif
 
 /******************************************************************************

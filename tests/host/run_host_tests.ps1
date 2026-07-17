@@ -32,11 +32,11 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_hogp_profile_contract.ps1'
     },
     [PSCustomObject]@{
-        Name = 'RDX unified advertising Phase 1'
+        Name = 'RDX unified advertising production contract'
         Path = Join-Path $PSScriptRoot 'test_rdx_unified_adv_phase1.ps1'
     },
     [PSCustomObject]@{
-        Name = 'RDX unified session Phase 2B'
+        Name = 'RDX unified session production contract'
         Path = Join-Path $PSScriptRoot 'test_rdx_unified_session_phase2b.ps1'
     },
     [PSCustomObject]@{
