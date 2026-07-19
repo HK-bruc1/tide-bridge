@@ -23,6 +23,10 @@ void rdx_record_service_mode_active_check(bool show);
 /* BLE-driven mode switching */
 void rdx_record_service_set_mode_online(void);
 void rdx_record_service_set_mode_offline(void);
+bool rdx_record_service_is_running(void);
+bool rdx_record_service_can_auto_shutdown(void);
+rdx_err_t rdx_record_service_handle_ble_disconnected(void);
+rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void);
 
 /* shell stubs — filled during extraction */
 void rdx_record_service_start(u8 mode);

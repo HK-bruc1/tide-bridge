@@ -44,13 +44,11 @@
 #include "rdx_ble_server.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
-#include "rdx_record.h"
 #include "clock.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
 #include "rdx_app_config.h"
-#include "rdx_uxfile.h"
 #include "rdx_jl_osal.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
@@ -228,13 +226,10 @@ const uint8_t rdx_profile_data[] = {
 extern void sys_set_auto_off_time(u32 auto_off_time);
 extern u32 sys_get_auto_off_time(void);
 extern bool rdx_app_get_poweroff_flag(void);
-extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
 extern void rdx_ota_stop(void);
 extern void rdx_app_clk_unlock(const char *task_name);
-extern RecordStatus* rdx_record_get_status(void);
 extern u8 rdx_app_get_record_mode(void);
 extern int bt_modify_name(u8 *new_name);
-extern void rdx_protocol_record_state_indicate(void);
 extern u8 get_self_battery_level(void);
 extern u8 get_ota_status();
 extern void rdx_protocol_ble_name_set_ack_indicate(u8 result, char* ble_name);
@@ -247,7 +242,6 @@ extern void rdx_app_set_power_ready_flag(void);
 extern bool rdx_app_get_dut_status(void);
 extern void rdx_app_emmc_poweron(u8 check_en);
 extern void rdx_app_emmc_poweroff(void);
-extern void rdx_record_mode_active_check(bool show);
 extern u8 rdx_battery_get_percent(void);
 extern void rdx_protocol_clear_send_confirm_flag(void);
 extern void rdx_record_stream_interrupt(void);
@@ -809,7 +803,6 @@ void rdx_ble_server_disconnected_handle(void)
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
     RdxWifiInfo* k = rdx_app_get_wifi_info();
-    RecordStatus* rp = rdx_record_get_status();
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
@@ -836,22 +829,11 @@ void rdx_ble_server_disconnected_handle(void)
     rdx_ble_service_on_disconnected();
 
     //record stop.  //dons++ 20250326 离线录音时BLE断开后不停止录音
-#if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
-    // r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
-    rdx_record_service_set_mode_offline();
-#else
-    r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
-    if(rp->orig_mode != RECORD_MODE_OFFLINE){
-        if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        #if !(RDX_AI_SEL_APP & APP_TURING_EN)
-            rp->rerun = true;
-        #endif
-            rdx_ble_service_stop_recording();
-        }
+    if (rdx_record_service_handle_ble_disconnected() != RDX_OK) {
+        log_error("record service BLE disconnect handling failed\n");
     }
-#endif
-#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-    //tws sibling ble connect status. 
+#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)
+    //tws sibling ble connect status.
     rdx_app_tws_bind_info_sync();
 #endif
 
@@ -1319,23 +1301,14 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     g_syn_data_timer = 0;
 
-    y_printf("====== %s --> rp->run: %d, rp->mode: %d, rp->orig_mode: %d \r", __func__, rp->run, rp->mode, rp->orig_mode);
-
-    if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        y_printf("====== %s --> sync record state to app \r", __func__);
-        rdx_protocol_record_state_indicate();
-    } else {
-        r_printf("====== %s --> record not running, skip sync. rp->run: %d \r", __func__, rp->run);
+    if (rdx_record_service_sync_state_after_ble_write_ready() != RDX_OK) {
+        log_error("record service BLE write-ready sync failed\n");
     }
-
-    //check record mode.
-    rdx_record_mode_active_check(0);
 
     rdx_os_timer_add(rdx_ble_server_stream_tx_ready_cb, NULL, 500);
 }
@@ -1583,9 +1556,8 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
     
     // 进入慢速广播后，关闭 LED 灯效（广播继续但 LED 熄灭），但WiFi传输 / 录音中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    RecordStatus* rp = rdx_record_get_status();
     if(wifi_info->onoff != TRANSFER_BY_WIFI_ON
-       && !(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME))){
+       && !rdx_record_service_is_running()){
         rdx_hook_led_set_scene(RDX_LED_SCENE_OFF);
     }
 }
@@ -1936,14 +1908,13 @@ void rdx_ble_server_auto_shut_down_enable(u8 enable)
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
 #if TCFG_AUTO_SHUT_DOWN_TIME
     y_printf("rdx_ble_server_auto_shut_down_enable: %d\r", enable);
     if (enable) {
-        if (bt_get_total_connect_dev() == 0 && g_rdx_ble_server_info.ble_conn == 0 && (rp->run == RECORD_STATE_STOP)) { 
+        if (bt_get_total_connect_dev() == 0 && g_rdx_ble_server_info.ble_conn == 0 && rdx_record_service_can_auto_shutdown()) {
             sys_auto_shut_down_enable();
         }
     } else {

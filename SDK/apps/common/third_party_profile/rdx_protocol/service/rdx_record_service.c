@@ -5,6 +5,7 @@
 #include "rdx_log.h"
 #include "rdx_record.h"
 #include "rdx_protocol.h"
+#include "rdx_app_config.h"
 #include "rdx_ble_server.h"
 #include "rdx_dut.h"
 #include "rdx_command_dispatch.h"
@@ -20,6 +21,7 @@ extern void rdx_protocol_file_sync_busy_timer_stop(void);
 
 /* symbols from librdxApp.a */
 extern void rdx_protocol_record_trigger_indicate(RecordStatus *rp, u8 factor);
+extern void rdx_protocol_record_state_indicate(void);
 extern void rdx_util_str_hexstr2hexarray(u8 *str, u32 len, u8 *out);
 
 /* symbols from rdx_app.c (thin wrappers, avoid circular dep) */
@@ -458,6 +460,61 @@ void rdx_record_service_set_mode_offline(void)
 		rp->mode      = RECORD_MODE_OFFLINE;
 		rp->orig_mode = RECORD_MODE_OFFLINE;
 	}
+}
+
+bool rdx_record_service_is_running(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+	return rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME);
+}
+
+bool rdx_record_service_can_auto_shutdown(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+	return rp && rp->run == RECORD_STATE_STOP;
+}
+
+rdx_err_t rdx_record_service_handle_ble_disconnected(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+
+	if (!rp) {
+		return RDX_ERR_INVAL;
+	}
+
+#if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
+	rdx_record_service_set_mode_offline();
+#else
+	if (rp->orig_mode != RECORD_MODE_OFFLINE) {
+		if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+#if !(RDX_AI_SEL_APP & APP_TURING_EN)
+			rp->rerun = true;
+#endif
+			return rdx_record_service_stop_from_ble();
+		}
+	}
+#endif
+
+	return RDX_OK;
+}
+
+rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void)
+{
+	RecordStatus *rp = rdx_record_get_status();
+
+	if (!rp) {
+		return RDX_ERR_INVAL;
+	}
+
+	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+		y_printf("====== %s --> sync record state to app \r", __func__);
+		rdx_protocol_record_state_indicate();
+	} else {
+		r_printf("====== %s --> record not running, skip sync \r", __func__);
+	}
+
+	rdx_record_service_mode_active_check(false);
+	return RDX_OK;
 }
 
 void rdx_record_service_start(u8 mode)

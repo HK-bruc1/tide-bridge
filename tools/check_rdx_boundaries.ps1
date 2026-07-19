@@ -292,6 +292,15 @@ $p6SysTimerHits = Find-Pattern -Files $p6TargetFiles `
     -Pattern "\bsys_timer_(add|del|modify)\b"
 Assert-NoHits "P6 files have no direct sys_timer_add/del/modify calls" $p6SysTimerHits
 
+# P7: old BLE server must not directly access record/protocol state internals
+$bleServerFile = Join-Path $RdxRoot "rdx_ble_server.c"
+$p7BleServerStateHits = @()
+if (Test-Path $bleServerFile) {
+    $p7BleServerStateHits = Select-String -Path $bleServerFile `
+        -Pattern 'RecordStatus|rdx_record_get_status\s*\(|rdx_record_process\s*\(|rdx_record_mode_active_check\s*\(|rdx_protocol_record_(state|trigger)_indicate\s*\(|#\s*include\s*["<]rdx_record\.h[">]'
+}
+Assert-NoHits "P7 rdx_ble_server.c has no direct record/protocol state access" $p7BleServerStateHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"
