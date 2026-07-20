@@ -482,12 +482,12 @@ rdx_err_t rdx_record_service_handle_ble_disconnected(void)
 		return RDX_ERR_INVAL;
 	}
 
-#if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
+#if RDX_RECORD_DISCONNECT_TO_OFFLINE
 	rdx_record_service_set_mode_offline();
 #else
 	if (rp->orig_mode != RECORD_MODE_OFFLINE) {
 		if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
-#if !(RDX_AI_SEL_APP & APP_TURING_EN)
+#if RDX_RECORD_DISCONNECT_RERUN
 			rp->rerun = true;
 #endif
 			return rdx_record_service_stop_from_ble();

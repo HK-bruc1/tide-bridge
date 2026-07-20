@@ -55,9 +55,42 @@ POST_SCRIPT     := cpu/br28/tools/download.sh
 RUN_POST_SCRIPT := bash $(POST_SCRIPT)
 endif
 
-# RDX board / chip family selection (override from command line)
-RDX_BOARD        ?= t2616_cc
-RDX_CHIP_FAMILY  ?= jl7018
+# RDX product selection. The product profile keeps APP/DEVICE/BOARD aligned;
+# chip family remains overridable for jl7018_shadow isolation builds.
+RDX_PRODUCT     ?= zenchord_cc
+ifneq ($(value RDX_PRODUCT),zenchord_cc)
+ifneq ($(value RDX_PRODUCT),zenchord_ep)
+$(error RDX_PRODUCT must be the literal zenchord_cc or zenchord_ep, got $(value RDX_PRODUCT))
+endif
+endif
+ifneq ($(origin RDX_PRODUCT_MK),undefined)
+$(error RDX_PRODUCT_MK is internal; select a profile with RDX_PRODUCT)
+endif
+override RDX_PRODUCT_MK := apps/common/third_party_profile/rdx_protocol/config/build/$(value RDX_PRODUCT).mk
+
+ifeq ($(wildcard $(RDX_PRODUCT_MK)),)
+$(error Unknown RDX_PRODUCT: $(RDX_PRODUCT))
+endif
+
+include $(RDX_PRODUCT_MK)
+
+ifneq ($(value RDX_AI_SEL_APP),$(value RDX_EXPECTED_APP))
+$(error RDX_PRODUCT $(value RDX_PRODUCT) requires RDX_AI_SEL_APP=$(value RDX_EXPECTED_APP), got $(value RDX_AI_SEL_APP))
+endif
+
+ifneq ($(value RDX_SEL_DEVICE),$(value RDX_EXPECTED_DEVICE))
+$(error RDX_PRODUCT $(value RDX_PRODUCT) requires RDX_SEL_DEVICE=$(value RDX_EXPECTED_DEVICE), got $(value RDX_SEL_DEVICE))
+endif
+
+ifneq ($(value RDX_BOARD),$(value RDX_EXPECTED_BOARD))
+$(error RDX_PRODUCT $(value RDX_PRODUCT) requires RDX_BOARD=$(value RDX_EXPECTED_BOARD), got $(value RDX_BOARD))
+endif
+
+ifneq ($(value RDX_CHIP_FAMILY),jl7018)
+ifneq ($(value RDX_CHIP_FAMILY),jl7018_shadow)
+$(error RDX_CHIP_FAMILY must be the literal jl7018 or jl7018_shadow, got $(value RDX_CHIP_FAMILY))
+endif
+endif
 
 CC  := $(TOOL_DIR)/$(CC)
 CXX := $(TOOL_DIR)/$(CXX)
@@ -157,6 +190,11 @@ DEFINES := \
 
 
 DEFINES += $(EXT_CFLAGS) # 额外的一些定义
+ifneq ($(origin RDX_DEFINES),undefined)
+$(error RDX_DEFINES is internal to RDX_PRODUCT)
+endif
+override RDX_DEFINES := -DRDX_AI_SEL_APP=$(value RDX_AI_SEL_APP) -DRDX_SEL_DEVICE=$(value RDX_SEL_DEVICE)
+override DEFINES += $(RDX_DEFINES)
 
 # 头文件搜索路径
 INCLUDES := \
@@ -1273,7 +1311,7 @@ LINK_AT ?= 1
 # 表示下面的不是一个文件的名字，无论是否存在 all, clean, pre_build 这样的文件
 # 还是要执行命令
 # see: https://www.gnu.org/software/make/manual/html_node/Phony-Targets.html
-.PHONY: all clean pre_build
+.PHONY: all clean pre_build rdx_config_check
 
 # 不要使用 make 预设置的规则
 # see: https://www.gnu.org/software/make/manual/html_node/Suffix-Rules.html
@@ -1282,6 +1320,13 @@ LINK_AT ?= 1
 all: pre_build $(OUT_ELF)
 	$(info +POST-BUILD)
 	$(QUITE) $(RUN_POST_SCRIPT) sdk
+
+rdx_config_check:
+	$(if $(filter -DRDX_AI_SEL_APP=$(value RDX_AI_SEL_APP),$(DEFINES)),,$(error DEFINES is missing the RDX APP selection))
+	$(if $(filter -DRDX_SEL_DEVICE=$(value RDX_SEL_DEVICE),$(DEFINES)),,$(error DEFINES is missing the RDX DEVICE selection))
+	$(if $(wildcard apps/common/third_party_profile/rdx_protocol/port/jl/$(value RDX_CHIP_FAMILY)/rdx_ops.c),,$(error RDX_CHIP_FAMILY has no usable port source))
+	$(if $(filter apps/common/third_party_profile/rdx_protocol/port/jl/$(value RDX_CHIP_FAMILY)/rdx_ops.c,$(c_SRC_FILES)),,$(error RDX_CHIP_FAMILY is not selected in c_SRC_FILES))
+	@echo RDX product config valid: $(value RDX_PRODUCT), $(value RDX_SEL_DEVICE), $(value RDX_BOARD), $(value RDX_CHIP_FAMILY)
 
 pre_build:
 	$(info +PRE-BUILD)

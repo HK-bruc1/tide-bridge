@@ -40,7 +40,7 @@
 * Global Variables Section
 ******************************************************************************/ 
 
-#if (RDX_AI_SEL_APP & APP_TINGNAO_EN)
+#if RDX_IDLE_WAKE_ON_LONG_PRESS
 //idle.
 u8 key_table_idle_l[KEY_ACTION_MAX] = {
     APP_MSG_NULL,  //短按
@@ -449,5 +449,4 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 /******************************************************************************
 * Function Section
 ******************************************************************************/ 
-
 

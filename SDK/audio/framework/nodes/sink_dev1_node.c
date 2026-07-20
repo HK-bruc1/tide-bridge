@@ -103,7 +103,7 @@ static int sink_dev1_init(struct sink_dev1_hdl *hdl)
     // printf("sink_dev1_init,ch_num=%x,sr=%d,coding_type=%x\n", ch_num, sample_rate, coding_type);
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-#if (RDX_AI_SEL_APP & APP_TINGNAO_EN) || (RDX_AI_SEL_APP & APP_AITIR_EN) || (RDX_AI_SEL_APP & APP_TURING_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN)
+#if RDX_RECORD_SINK_AUTO_INIT
     //do init record run.
     rdx_record_run_init();
 #endif

@@ -6,9 +6,13 @@
 ifeq ($(OS),Windows_NT)
     MAKE_PATH := $(subst \,/,$(CURDIR))/../../SDK/tools/utils/make.exe
     EXE_EXT   := .exe
+    POWERSHELL := powershell.exe
+    POWERSHELL_FLAGS := -NoProfile -ExecutionPolicy Bypass -File
 else
     MAKE_PATH := make
     EXE_EXT   :=
+    POWERSHELL ?= pwsh
+    POWERSHELL_FLAGS := -NoProfile -File
 endif
 
 MAKE         := $(MAKE_PATH)
@@ -52,10 +56,13 @@ TESTS        := test_dispatch \
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
-.PHONY: all clean $(TESTS) $(addsuffix .run,$(TESTS))
+.PHONY: all clean rdx_config_matrix $(TESTS) $(addsuffix .run,$(TESTS))
 
-all: $(addsuffix .run,$(TESTS))
+all: rdx_config_matrix $(addsuffix .run,$(TESTS))
 	@echo All host mock tests passed.
+
+rdx_config_matrix:
+	$(POWERSHELL) $(POWERSHELL_FLAGS) test_rdx_config_matrix.ps1 -Compiler "$(CC)" -MakeCommand "$(MAKE_PATH)"
 
 # Pattern rule: build any test_<name>.exe from test_<name>.c and its deps.
 test_dispatch$(EXE_EXT): test_dispatch.c $(SERVICE_DIR)/rdx_command_dispatch.c

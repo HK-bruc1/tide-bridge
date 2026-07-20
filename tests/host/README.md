@@ -14,10 +14,23 @@ To clean build artifacts:
 tests\host\run_tests.bat clean
 ```
 
+To run only the RDX C and Make configuration matrices on Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/host/test_rdx_config_matrix.ps1
+```
+
+On Unix-like hosts, install `pwsh` and GNU Make, then run:
+
+```sh
+pwsh -NoProfile -File tests/host/test_rdx_config_matrix.ps1
+```
+
 ## Requirements
 
 - A host C compiler in PATH. The Makefile tries `gcc` first, then falls back to `tcc` (Tiny C Compiler) if `gcc` is unavailable.
-- Repository-local `make.exe` is used automatically (`SDK/tools/utils/make.exe`); you do not need a global make installation.
+- On Windows, `tests/host/Makefile` and the standalone matrix script use repository-local `SDK/tools/utils/make.exe` when available.
+- On Unix-like hosts, `pwsh` and `make` must be available in `PATH`.
 
 ## What is tested
 
@@ -27,6 +40,7 @@ tests\host\run_tests.bat clean
 | `test_event_bus` | `service/rdx_event_bus.c` | subscribe / publish / unsubscribe / async publish / multiple subscribers |
 | `test_time_ops` | `mock/rdx_time_ops_host.c` | vtable validation / leap year / days in month |
 | `test_board_config` | `board/t2616_cc/rdx_board_config.c` | config presence / board name / chip family / SPI parameters |
+| `test_rdx_config_matrix.ps1` | `rdx_app_config.h`, `config/product/*.h`, `SDK/Makefile` | 18 valid product/device combinations, 4 invalid C combinations, and 10 Make profile/compile-flag cases |
 
 ## Mock strategy
 

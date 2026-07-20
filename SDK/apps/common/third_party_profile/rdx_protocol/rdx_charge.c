@@ -71,7 +71,7 @@
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
 
-#if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403)
+#if RDX_HAS_SK4558_CHARGER
 #include "sk4558.h"
 #endif
 
@@ -191,11 +191,7 @@ void rdx_app_incharge_batPercent_show_cb(void* priv)
         }else if(is_in_oled_test == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_OLED_TEST);
         }else if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        #if (RDX_AI_SEL_APP == APP_AITIR_EN)
-            // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_RECORDING);
-        #else
-            // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 2, OLED_SHOW_RECORDING, rp->scene);
-        #endif
+            // OLED 功能已删除
         }else{
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT);
         }
@@ -531,11 +527,7 @@ void rdx_app_charge_stop(void)
         }else if(rdx_app_get_dut_oled_flag() == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_OLED_TEST);
         }else if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        #if (RDX_AI_SEL_APP == APP_AITIR_EN)
-            // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_RECORDING);
-        #else
-            // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 2, OLED_SHOW_RECORDING, rp->scene);
-        #endif 
+            // OLED 功能已删除
         }else{
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT);
         }

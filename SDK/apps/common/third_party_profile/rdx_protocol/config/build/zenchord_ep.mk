@@ -1,0 +1,17 @@
+ifneq ($(origin RDX_EXPECTED_APP),undefined)
+$(error RDX_EXPECTED_APP is internal to RDX_PRODUCT)
+endif
+ifneq ($(origin RDX_EXPECTED_DEVICE),undefined)
+$(error RDX_EXPECTED_DEVICE is internal to RDX_PRODUCT)
+endif
+ifneq ($(origin RDX_EXPECTED_BOARD),undefined)
+$(error RDX_EXPECTED_BOARD is internal to RDX_PRODUCT)
+endif
+
+override RDX_EXPECTED_APP := APP_ZENCHORD_EN
+override RDX_EXPECTED_DEVICE := DEVICE_ZENCORD_EP_T2616
+override RDX_EXPECTED_BOARD := t2616_ep
+RDX_AI_SEL_APP := $(RDX_EXPECTED_APP)
+RDX_SEL_DEVICE := $(RDX_EXPECTED_DEVICE)
+RDX_BOARD := $(RDX_EXPECTED_BOARD)
+RDX_CHIP_FAMILY ?= jl7018

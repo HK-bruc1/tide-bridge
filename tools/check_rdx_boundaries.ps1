@@ -301,6 +301,57 @@ if (Test-Path $bleServerFile) {
 }
 Assert-NoHits "P7 rdx_ble_server.c has no direct record/protocol state access" $p7BleServerStateHits
 
+# P8: product selection belongs to config, not business conditionals
+$p8BusinessFiles = @($businessFiles | Where-Object { $_.Extension -eq ".c" })
+foreach ($relPath in @(
+    "SDK/audio/framework/nodes/sink_dev1_node.c",
+    "SDK/apps/earphone/mode/bt/poweroff.c"
+)) {
+    $path = Join-Path $RepoRoot $relPath
+    if (Test-Path $path) {
+        $p8BusinessFiles += Get-Item $path
+    }
+}
+$p8ProductConditionalHits = Find-Pattern -Files $p8BusinessFiles `
+    -Pattern '^\s*#\s*(?:if|elif)\b.*\b(?:RDX_AI_SEL_APP|RDX_SEL_DEVICE|APP_[A-Z0-9_]+_EN|DEVICE_[A-Z0-9_]+)\b'
+Assert-NoHits "P8 business .c has no concrete APP/DEVICE conditionals" $p8ProductConditionalHits
+
+$appConfigFile = Join-Path $RdxRoot "rdx_app_config.h"
+$p8ExpectedAppConfig = @(
+    '#ifndef __RDX_APP_CONFIG_H__',
+    '#define __RDX_APP_CONFIG_H__',
+    '',
+    '#include "rdx_common.h"',
+    '#include "config/rdx_config_ids.h"',
+    '#include "config/rdx_build_select.h"',
+    '#include "config/rdx_config_common.h"',
+    '#include "config/rdx_product_select.h"',
+    '#include "rdx_config_validate.h"',
+    '',
+    '#endif'
+)
+if (Test-Path $appConfigFile) {
+    $p8ActualAppConfig = @(Get-Content -Path $appConfigFile | ForEach-Object { $_.TrimEnd() })
+    if (($p8ActualAppConfig -join "`n") -eq ($p8ExpectedAppConfig -join "`n")) {
+        Add-Pass "P8 rdx_app_config.h matches the compatibility include allowlist"
+    } else {
+        Add-Failure "P8 rdx_app_config.h differs from the compatibility include allowlist"
+    }
+} else {
+    Add-Failure "P8 rdx_app_config.h not found"
+}
+
+$productConfigRoot = Join-Path $RdxRoot "config/product"
+$productConfigCount = 0
+if (Test-Path $productConfigRoot) {
+    $productConfigCount = @(Get-ChildItem -Path $productConfigRoot -File -Filter "*.h").Count
+}
+if ($productConfigCount -eq 17) {
+    Add-Pass "P8 has 17 product config headers"
+} else {
+    Add-Failure "P8 expected 17 product config headers, found $productConfigCount"
+}
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"
