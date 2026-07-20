@@ -1657,7 +1657,9 @@ MicGainPara* rdx_record_mic_gain_read_from_vm(void)
     /*----------------------------------------------------------------*/
     ret = rdx_storage_read(RDX_VM_ID_MIC_GAIN, (u8 *)&mic_gain, sizeof(MicGainPara));
     if (ret == RDX_OK && rdx_record_mic_gain_values_readable(&mic_gain)) {
-        y_printf("===> read mic gain ok, chat_mic0_gain: %d, chat_mic1_gain: %d, call_mic0_gain: %d, call_mic1_gain: %d \r", mic_gain.chat_mic0_gain, mic_gain.chat_mic1_gain, mic_gain.call_mic0_gain, mic_gain.call_mic1_gain);
+        y_printf("===> current VM mic gain: chat=%d/%d call=%d/%d \r",
+                 mic_gain.chat_mic0_gain, mic_gain.chat_mic1_gain,
+                 mic_gain.call_mic0_gain, mic_gain.call_mic1_gain);
         return &mic_gain;
     }
     log_info("rdx_record_mic_gain_read_from_vm fail, err=%d\r", ret);
@@ -1701,7 +1703,9 @@ int rdx_record_mic_gain_write_into_vm(MicGainPara* gain)
     }
 
     memcpy(&mic_gain, &verify, sizeof(mic_gain));
-    log_info("rdx_record_mic_gain_write_into_vm success and verified\r");
+    log_info("mic gain stored and verified: chat=%d/%d call=%d/%d\r",
+             verify.chat_mic0_gain, verify.chat_mic1_gain,
+             verify.call_mic0_gain, verify.call_mic1_gain);
     return sizeof(MicGainPara);
 }
 
