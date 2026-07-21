@@ -689,6 +689,12 @@ int rdx_app_battery_msg_handler(int *msg)
 
         case CHARGE_EVENT_LDO5V_OFF:
             y_printf("%s --> BAT_MSG_CHARGE_LDO5V_OFF, charge out, rdx_app_get_charge_state() = %d \r", __func__, rdx_app_get_charge_state());
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+            if (get_power_on_status()) {
+                y_printf("[PC-STORAGE] USB removed with DIP ON: stay powered \r");
+                break;
+            }
+#endif
 #if TCFG_CHARGE_OFF_POWERON_EN
             rdx_cpu_reset();
 #else

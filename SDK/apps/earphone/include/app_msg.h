@@ -283,6 +283,7 @@ enum {
 
     APP_MSG_PC_MODE_ON,
     APP_MSG_PC_MODE_OFF,
+    APP_MSG_REQUEST_POWEROFF,
 };
 
 

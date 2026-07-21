@@ -25,6 +25,54 @@
 #define TCFG_DIP_SWITCH_POWER_IO                  IO_PORTB_01
 #endif
 
+/* USB PC mode exposes SD0 as the product's only USB class.
+ * USB insertion while the DIP switch is OFF remains charge-only. */
+#undef TCFG_CHARGE_POWERON_ENABLE
+#define TCFG_CHARGE_POWERON_ENABLE                 0
+
+#undef TCFG_APP_PC_EN
+#define TCFG_APP_PC_EN                             1
+
+#undef TCFG_USB_SLAVE_MSD_ENABLE
+#define TCFG_USB_SLAVE_MSD_ENABLE                  1
+
+/* SD0 is soldered SD NAND, not removable media. Keep detect events stable
+ * when the FAT owner changes between the device and USB MSC. */
+#undef TCFG_SD_ALWAY_ONLINE_ENABLE
+#define TCFG_SD_ALWAY_ONLINE_ENABLE                1
+
+#undef TCFG_USB_SLAVE_HID_ENABLE
+#define TCFG_USB_SLAVE_HID_ENABLE                  0
+
+#undef TCFG_USB_SLAVE_AUDIO_SPK_ENABLE
+#define TCFG_USB_SLAVE_AUDIO_SPK_ENABLE            0
+
+#undef TCFG_USB_SLAVE_AUDIO_MIC_ENABLE
+#define TCFG_USB_SLAVE_AUDIO_MIC_ENABLE            0
+
+#undef TCFG_USB_SLAVE_CDC_ENABLE
+#define TCFG_USB_SLAVE_CDC_ENABLE                  0
+
+#undef TCFG_USB_CUSTOM_HID_ENABLE
+#define TCFG_USB_CUSTOM_HID_ENABLE                 0
+
+#undef TCFG_USB_SLAVE_MTP_ENABLE
+#define TCFG_USB_SLAVE_MTP_ENABLE                  0
+
+#undef TCFG_USB_SLAVE_MIDI_ENABLE
+#define TCFG_USB_SLAVE_MIDI_ENABLE                 0
+
+#undef TCFG_USB_SLAVE_PRINTER_ENABLE
+#define TCFG_USB_SLAVE_PRINTER_ENABLE              0
+
+/* Never format user storage merely because a mount attempt failed. */
+#undef TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
+#define TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE  0
+
+#if TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
+#error "T2620 production firmware must not auto-format SD0 on mount failure"
+#endif
+
 #if TCFG_DIP_SWITCH_POWER_ENABLE
 /*
  * The current generated ADKEY and LP_TOUCH defaults use PB1. PB1 is reserved

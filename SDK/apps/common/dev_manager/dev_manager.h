@@ -24,6 +24,7 @@ struct __dev {
     struct imount 		*fmnt;
     volatile u8			valid;//有效设备标记， 这里有效是指是否有可播放文件
     volatile u32		active_stamp;///活动设备时间戳，通过时间戳记录当前最后活动设备
+    volatile u8         mount_blocked;
 };
 
 
@@ -83,6 +84,8 @@ void dev_manager_list_check_mount(void);
 int dev_manager_mount(char *logo);
 //设备卸载
 int dev_manager_unmount(char *logo);
+int dev_manager_takeover(char *logo);
+int dev_manager_restore(char *logo);
 
 //dev_manager初始化
 void dev_manager_init(void);
@@ -90,4 +93,3 @@ void dev_manager_init(void);
 void dev_manager_var_init();
 
 #endif//__DEV_MANAGER_H__
-

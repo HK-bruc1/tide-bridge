@@ -73,6 +73,18 @@ extern int usb_cdc_background_standby(const usb_dev usbfd);
 u8 msd_in_task;
 u8 msd_run_reset;
 static OS_SEM msg_sem;
+static OS_MUTEX msg_mutex;
+static volatile u32 msg_wait_seq;
+static volatile int msg_wait_result;
+static u32 msg_next_seq;
+
+static void usb_stack_message_complete(u32 seq, int result)
+{
+    if (seq && msg_wait_seq == seq) {
+        msg_wait_result = result;
+        os_sem_post(&msg_sem);
+    }
+}
 
 static void usb_task(void *p)
 {
@@ -165,7 +177,7 @@ static void usb_task(void *p)
             usb_stop(usb_id);
 #endif
             usb_start(usb_id);
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 
         case USBSTACK_PAUSE:
@@ -174,13 +186,13 @@ static void usb_task(void *p)
 #if TCFG_USB_CDC_BACKGROUND_RUN
             usb_cdc_background_run(usb_id);
 #endif
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 
         case USBSTACK_STOP:
             usb_id = msg[2];
             usb_stop(usb_id);
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 
 #if TCFG_USB_SLAVE_MSD_ENABLE
@@ -209,7 +221,7 @@ static void usb_task(void *p)
         case USBSTACK_CDC_BACKGROUND:
             usb_id = msg[2];
             usb_cdc_background_run(usb_id);
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 #endif
 #endif
@@ -252,7 +264,7 @@ static void usb_task(void *p)
             usb_id = ((int *)msg[2])[0];
             ret = usb_host_remount(usb_id, TCFG_USB_HOST_MOUNT_RETRY, TCFG_USB_HOST_MOUNT_RESET, TCFG_USB_HOST_MOUNT_TIMEOUT, 0);
             ((int *)msg[2])[1] = ret;
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], ret);
             break;
 
 #if TCFG_USB_DM_MULTIPLEX_WITH_SD_DAT0
@@ -260,14 +272,14 @@ static void usb_task(void *p)
             usb_id = ((int *)msg[2])[0];
             ret = ((int *)msg[2])[1];
             mult_usb_online_mount_after(usb_id, ret);
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 
         case USBSTACK_HOST_UNMOUNT_AFTER:
             usb_id = ((int *)msg[2])[0];
             ret = ((int *)msg[2])[1];
             mult_usb_mount_offline(usb_id);
-            os_sem_post(&msg_sem);
+            usb_stack_message_complete(msg[3], OS_NO_ERR);
             break;
 #endif
 #endif
@@ -287,6 +299,7 @@ static int usb_stack_init(void)
     r_printf("%s()", __func__);
     int err;
     os_sem_create(&msg_sem, 0);
+    os_mutex_create(&msg_mutex);
     err = task_create(usb_task, NULL, USB_TASK_NAME);
     if (err != OS_NO_ERR) {
         r_printf("usb_msd task creat fail %x\n", err);
@@ -295,14 +308,41 @@ static int usb_stack_init(void)
 }
 late_initcall(usb_stack_init);
 
-void usb_message_to_stack(int msg, void *arg, u8 sync)
+int usb_message_to_stack(int msg, void *arg, u8 sync)
 {
-    //先将sem清零0，否则当sync为0时不会pend，另一边post会使counter累加
-    os_sem_set(&msg_sem, 0);
-    os_taskq_post_msg(USB_TASK_NAME, 2, msg, arg);
+    u32 seq = 0;
+    int err;
+
     if (sync) {
-        os_sem_pend(&msg_sem, 200);
+        os_mutex_pend(&msg_mutex, 0);
+        os_sem_set(&msg_sem, 0);
+        seq = ++msg_next_seq;
+        if (seq == 0) {
+            seq = ++msg_next_seq;
+        }
+        msg_wait_seq = seq;
+        msg_wait_result = OS_NO_ERR;
     }
+
+    err = os_taskq_post_msg(USB_TASK_NAME, 3, msg, arg, seq);
+    if (err) {
+        if (sync) {
+            msg_wait_seq = 0;
+            os_mutex_post(&msg_mutex);
+        }
+        return err;
+    }
+
+    if (sync) {
+        if (os_sem_pend(&msg_sem, 200) == OS_TIMEOUT) {
+            err = -OS_TIMEOUT;
+        } else {
+            err = msg_wait_result;
+        }
+        msg_wait_seq = 0;
+        os_mutex_post(&msg_mutex);
+    }
+    return err;
 }
 
 

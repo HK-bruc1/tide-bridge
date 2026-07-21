@@ -343,6 +343,9 @@ static void app_common_app_event_handler(int *msg)
     switch (msg[0]) {
     case APP_MSG_POWER_OFF:
         break;
+    case APP_MSG_REQUEST_POWEROFF:
+        sys_enter_soft_poweroff((enum poweroff_reason)msg[1]);
+        break;
 #if TCFG_AUDIO_ANC_ENABLE
     case APP_MSG_ANC_SWITCH:
 #if ANC_EAR_ADAPTIVE_EVERY_TIME && TCFG_AUDIO_ANC_EAR_ADAPTIVE_EN

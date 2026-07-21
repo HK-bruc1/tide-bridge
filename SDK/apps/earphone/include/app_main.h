@@ -130,6 +130,7 @@ enum app_mode_index {
 void app_power_off(void *priv);
 void bt_bredr_enter_dut_mode(u8 mode, u8 inquiry_scan_en);
 void bt_bredr_exit_dut_mode();
+u8 get_power_on_status(void);
 u8 get_charge_online_flag(void);
 u8 check_local_not_accept_sniff_by_remote();
 

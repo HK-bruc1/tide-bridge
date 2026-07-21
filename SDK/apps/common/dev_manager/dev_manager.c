@@ -23,6 +23,10 @@
 #define TCFG_SD0_FORMAT_DONE_MAGIC   0xA5
 #endif
 
+#ifndef TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
+#define TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE TCFG_SD0_FORMAT_ON_BOOT
+#endif
+
 #if TCFG_SD0_DIAG_ENABLE
 #include "device/device.h"
 #endif
@@ -468,7 +472,7 @@ int __dev_manager_add(char *logo, u8 need_mount)
 			}
 #endif
 
-#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
+#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT && TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE)
 			if (!strcmp(logo, "sd0")) {
 				static u8 _sd0_fmt_done = 0;
 				if (!_sd0_fmt_done) {
@@ -1364,6 +1368,9 @@ void dev_manager_list_check_mount(void)
 	struct __dev *dev;
 	os_mutex_pend(&__this->mutex, 0);
 	list_for_each_entry(dev, &__this->list, entry) {
+		if (dev->mount_blocked) {
+			continue;
+		}
 
         if(!strcmp(dev->parm->logo,"virfat_flash")){
             continue;
@@ -1394,9 +1401,21 @@ void dev_manager_list_check_mount(void)
 static int __dev_manager_mount(char *logo)
 {
 	int ret = 0;
+	struct __dev *dev = NULL;
+	struct __dev *item;
+
 	os_mutex_pend(&__this->mutex, 0);
-	struct __dev *dev = dev_manager_list_check_by_logo(logo);
+	list_for_each_entry(item, &__this->list, entry) {
+		if (!strcmp(item->parm->logo, logo)) {
+			dev = item;
+			break;
+		}
+	}
 	if (dev == NULL) {
+		os_mutex_post(&__this->mutex);
+		return -1;
+	}
+	if (dev->mount_blocked) {
 		os_mutex_post(&__this->mutex);
 		return -1;
 	}
@@ -1420,13 +1439,23 @@ static int __dev_manager_mount(char *logo)
 static int __dev_manager_unmount(char *logo)
 {
 	os_mutex_pend(&__this->mutex, 0);
-	struct __dev *dev = dev_manager_check_by_logo(logo);
+	struct __dev *dev = NULL;
+	struct __dev *item;
+	list_for_each_entry(item, &__this->list, entry) {
+		if (!strcmp(item->parm->logo, logo)) {
+			dev = item;
+			break;
+		}
+	}
 	if (dev == NULL) {
 		os_mutex_post(&__this->mutex);
 		return -1;
 	}
 	if(dev->fmnt){
-		unmount(dev->parm->storage_path);
+		if (unmount(dev->parm->storage_path)) {
+			os_mutex_post(&__this->mutex);
+			return -1;
+		}
 		dev->fmnt = NULL;
 	}
 	dev->valid = 0;
@@ -1472,10 +1501,124 @@ int dev_manager_unmount(char *logo)
 #if TCFG_RECORD_FOLDER_DEV_ENABLE
 	char rec_dev_logo[16] = {0};
 	sprintf(rec_dev_logo, "%s%s", logo, "_rec");
-	__dev_manager_unmount(rec_dev_logo);
+	err = __dev_manager_unmount(rec_dev_logo);
+	if (err) {
+		return err;
+	}
 #endif
 	err = __dev_manager_unmount(logo);
 	return err;
+}
+
+static int __dev_manager_set_mount_blocked(char *logo, u8 blocked)
+{
+	int ret = -1;
+	struct __dev *dev;
+
+	os_mutex_pend(&__this->mutex, 0);
+	list_for_each_entry(dev, &__this->list, entry) {
+		if (!strcmp(dev->parm->logo, logo)) {
+			dev->mount_blocked = blocked;
+			ret = 0;
+			break;
+		}
+	}
+	os_mutex_post(&__this->mutex);
+	return ret;
+}
+
+int dev_manager_takeover(char *logo)
+{
+	if (logo == NULL) {
+		return -1;
+	}
+
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+	char rec_dev_logo[16] = {0};
+	sprintf(rec_dev_logo, "%s%s", logo, "_rec");
+	if (__dev_manager_set_mount_blocked(rec_dev_logo, 1)) {
+		return -1;
+	}
+#endif
+
+	if (__dev_manager_set_mount_blocked(logo, 1)) {
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+		__dev_manager_set_mount_blocked(rec_dev_logo, 0);
+#endif
+		return -1;
+	}
+
+	int err = dev_manager_unmount(logo);
+	if (err) {
+		__dev_manager_set_mount_blocked(logo, 0);
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+		__dev_manager_set_mount_blocked(rec_dev_logo, 0);
+#endif
+		dev_manager_mount(logo);
+	}
+	return err;
+}
+
+static int __dev_manager_restore_mount(char *logo)
+{
+	int ret = -1;
+	struct __dev *dev;
+
+	os_mutex_pend(&__this->mutex, 0);
+	list_for_each_entry(dev, &__this->list, entry) {
+		if (strcmp(dev->parm->logo, logo)) {
+			continue;
+		}
+		if (!dev->mount_blocked) {
+			break;
+		}
+		if (dev->fmnt == NULL) {
+			struct __dev_reg *p = dev->parm;
+			dev->fmnt = mount(p->name, p->storage_path, p->fs_type, 3, NULL);
+			dev->valid = (dev->fmnt ? 1 : 0);
+		}
+		ret = (dev->valid ? 0 : -1);
+		break;
+	}
+	os_mutex_post(&__this->mutex);
+	return ret;
+}
+
+int dev_manager_restore(char *logo)
+{
+	if (logo == NULL) {
+		return -1;
+	}
+
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+	char rec_dev_logo[16] = {0};
+	sprintf(rec_dev_logo, "%s%s", logo, "_rec");
+#endif
+
+	/* Mount while blocked; publish the restored nodes only after all mounts pass. */
+	if (__dev_manager_restore_mount(logo)) {
+		return -1;
+	}
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+	if (__dev_manager_restore_mount(rec_dev_logo)) {
+		__dev_manager_unmount(logo);
+		return -1;
+	}
+#endif
+
+	if (__dev_manager_set_mount_blocked(logo, 0)) {
+		__dev_manager_unmount(logo);
+		return -1;
+	}
+#if TCFG_RECORD_FOLDER_DEV_ENABLE
+	if (__dev_manager_set_mount_blocked(rec_dev_logo, 0)) {
+		__dev_manager_set_mount_blocked(logo, 1);
+		__dev_manager_unmount(rec_dev_logo);
+		__dev_manager_unmount(logo);
+		return -1;
+	}
+#endif
+	return 0;
 }
 //*----------------------------------------------------------------------------*/
 /**@brief   设备消息处理

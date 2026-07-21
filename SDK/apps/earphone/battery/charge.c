@@ -98,6 +98,84 @@ static void charge_close_deal(void)
     batmgr_send_msg(BAT_MSG_CHARGE_CLOSE, 0);
 }
 
+#if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
+static u8 app_charge_wait_otg_role(const char *charge_event)
+{
+    u8 otg_status = IDLE_MODE;
+    u8 otg_last_status = 0xff;
+    u8 check_done = 0;
+    u32 disconnect_time = 0;
+    u32 wait_start = jiffies_msec();
+
+    log_info("[PC-STORAGE] %s: wait for OTG role\n", charge_event);
+
+    while (!check_done) {
+        otg_status = usb_otg_online(0);
+        if (otg_status != otg_last_status) {
+            log_info("[PC-STORAGE] OTG state %d -> %d\n",
+                     otg_last_status, otg_status);
+        }
+
+        switch (otg_status) {
+        case IDLE_MODE:
+            break;
+        case DISCONN_MODE:
+            if (otg_last_status == IDLE_MODE) {
+                check_done = 1;
+            } else if (disconnect_time == 0) {
+                disconnect_time = jiffies_msec();
+            } else if (jiffies_msec2offset(disconnect_time, jiffies_msec()) > 1000) {
+                check_done = 1;
+            }
+            break;
+        case PRE_SLAVE_MODE:
+            charge_check_and_set_pinr(0);
+            break;
+        case SLAVE_MODE_WAIT_CONFIRMATION:
+            break;
+        default:
+            check_done = 1;
+            break;
+        }
+
+        if (!check_done &&
+            jiffies_msec2offset(wait_start, jiffies_msec()) > 2000) {
+            log_error("[PC-STORAGE] OTG role wait timeout, state=%d\n",
+                      otg_status);
+            check_done = 1;
+        }
+
+        otg_last_status = otg_status;
+        if (!check_done) {
+            os_time_dly(2);
+        }
+    }
+
+    log_info("[PC-STORAGE] %s: OTG role=%d\n",
+             charge_event, otg_status);
+    return otg_status;
+}
+
+static u8 app_charge_allow_usb_pc_poweron(u8 otg_status)
+{
+    if (otg_status != SLAVE_MODE) {
+        return false;
+    }
+
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (!get_power_on_status()) {
+        set_charge_poweron_en(0);
+        log_info("[PC-STORAGE] USB slave detected with DIP OFF: charge only\n");
+        return false;
+    }
+#endif
+
+    set_charge_poweron_en(1);
+    log_info("[PC-STORAGE] USB slave detected with DIP ON: keep power for PC mode\n");
+    return true;
+}
+#endif
+
 
 void app_charge_power_off_keep_mode()
 {
@@ -322,9 +400,7 @@ static int app_charge_event_handler(int *msg)
 {
     int ret = false;
     u8 otg_status = 0;
-    u8 otg_last_status = 0xff;
-    u8 check_done = 0;
-    u32 time_stamp = 0;
+    u8 usb_pc_poweron = 0;
 
     r_printf("===== %s --> msg[0] = %d \r", __FUNCTION__, msg[0]);
 
@@ -339,42 +415,19 @@ static int app_charge_event_handler(int *msg)
         charge_full_deal();
         break;
     case CHARGE_EVENT_LDO5V_KEEP:
+#if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
+        otg_status = app_charge_wait_otg_role("LDO5V_KEEP");
+        usb_pc_poweron = app_charge_allow_usb_pc_poweron(otg_status);
+#endif
         ldo5v_keep_deal();
         break;
     case CHARGE_EVENT_LDO5V_IN:
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
-        while (!check_done) {
-            otg_status = usb_otg_online(0);
-            // r_printf("=======> otg_status = %d \r", otg_status);
-            switch (otg_status) {
-            case IDLE_MODE:
-                break;
-            case DISCONN_MODE:
-                if (otg_last_status == IDLE_MODE) {
-                    // poweron: idle -> disconnect
-                    check_done = 1;
-                } else if (time_stamp == 0) {
-                    // poweron: disconnect
-                    time_stamp = jiffies_msec();
-                } else if (jiffies_msec2offset(time_stamp, jiffies_msec()) > 1000) {
-                    check_done = 1;
-                }
-                break;
-            case PRE_SLAVE_MODE:
-                charge_check_and_set_pinr(0);
-                break;
-            default:
-                check_done = 1;
-            }
-            otg_last_status = otg_status;
-            os_time_dly(2);
-        }
-        if (otg_status == SLAVE_MODE) {
-            set_charge_poweron_en(1);
-        }
+        otg_status = app_charge_wait_otg_role("LDO5V_IN");
+        usb_pc_poweron = app_charge_allow_usb_pc_poweron(otg_status);
 #endif
 
-        if (get_charge_poweron_en() || (otg_status != SLAVE_MODE)) { 
+        if (usb_pc_poweron || (otg_status != SLAVE_MODE)) {
             //---------------------------------------------
             #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
             //rdx charge prepare. dons++
@@ -384,6 +437,10 @@ static int app_charge_event_handler(int *msg)
             //---------------------------------------------
 
             charge_ldo5v_in_deal();
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        } else if (!get_power_on_status()) {
+            charge_ldo5v_in_deal();
+#endif
         }
         break;
     case CHARGE_EVENT_LDO5V_OFF:
@@ -415,4 +472,3 @@ u8 get_charge_full_flag(void)
 }
 
 #endif
-

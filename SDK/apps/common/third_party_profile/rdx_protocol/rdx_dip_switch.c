@@ -7,12 +7,27 @@
 #include "gpio.h"
 #include "power/power_wakeup.h"
 #include "poweroff.h"
+#include "app_main.h"
+#include "app_msg.h"
+#include "usb/otg.h"
 
 #ifndef TCFG_DIP_SWITCH_POWER_IO
 #define TCFG_DIP_SWITCH_POWER_IO    IO_PORTB_01
 #endif
 
 static bool s_init_done = false;
+
+static void rdx_dip_switch_request_pc_if_usb_online(void)
+{
+#if TCFG_APP_PC_EN
+    u32 usb_state = usb_otg_online(0);
+    if (usb_state == SLAVE_MODE ||
+        usb_state == SLAVE_MODE_WAIT_CONFIRMATION) {
+        r_printf("[DIP] ON with USB connected -> request PC mode\n");
+        app_send_message(APP_MSG_GOTO_MODE, APP_MODE_PC);
+    }
+#endif
+}
 
 static void rdx_dip_switch_deferred_handle(void *priv)
 {
@@ -38,7 +53,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
         os_time_dly(1);
 
         if (gpio_read(TCFG_DIP_SWITCH_POWER_IO) == 1) {
-            sys_enter_soft_poweroff(POWEROFF_NORMAL);
+            app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
         } else {
             // User flipped back to ON quickly
             p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
@@ -47,6 +62,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     } else {
         // ON: switch toggled to LOW -- flip edge to detect next OFF
         p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
+        rdx_dip_switch_request_pc_if_usb_online();
     }
 }
 
@@ -81,11 +97,12 @@ void rdx_dip_switch_init(void)
         r_printf("[DIP] init OFF -> shutting down\n");
         p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, FALLING_EDGE);
         gpio_set_mode(IO_PORT_SPILT(TCFG_DIP_SWITCH_POWER_IO), PORT_INPUT_PULLUP_10K);
-        sys_enter_soft_poweroff(POWEROFF_NORMAL);
+        app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
     } else {
         // Currently ON -- set RISING_EDGE to detect next OFF
         r_printf("[DIP] init ON\n");
         p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
+        rdx_dip_switch_request_pc_if_usb_online();
     }
 }
 

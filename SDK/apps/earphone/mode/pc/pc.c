@@ -21,6 +21,10 @@
 #include "app_default_msg_handler.h"
 #include "dev_manager.h"
 
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_app.h"
+#endif
+
 #if ((TCFG_CHARGESTORE_ENABLE || TCFG_TEST_BOX_ENABLE || TCFG_ANC_BOX_ENABLE) \
      && TCFG_CHARGESTORE_PORT == IO_PORT_DP)
 #include "chargestore/chargestore.h"
@@ -35,9 +39,16 @@
 
 #if TCFG_APP_PC_EN
 
+enum pc_storage_state {
+    PC_STORAGE_DEVICE_OWNED = 0,
+    PC_STORAGE_HOST_OWNED,
+    PC_STORAGE_RESTORE_FAILED,
+};
+
 struct pc_opr {
     u8 onoff;
     u8 pc_is_active;
+    u8 storage_state;
     u8 prev_key_msg;
     u8 pp_wait_release;
     u16 key_hold_timer;
@@ -68,15 +79,71 @@ static int app_pc_check(void)
     return false;
 }
 
+static int pc_storage_prepare(void)
+{
+#if (TCFG_USB_SLAVE_MSD_ENABLE && TCFG_SD0_ENABLE && TCFG_DEV_MANAGER_ENABLE)
+    if (__this->storage_state != PC_STORAGE_DEVICE_OWNED) {
+        log_error("[PC-STORAGE] takeover rejected: storage not device-owned");
+        return -1;
+    }
+
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (rdx_pc_storage_is_busy()) {
+        log_error("[PC-STORAGE] takeover rejected: device storage busy");
+        return -1;
+    }
+#endif
+
+    if (!dev_manager_list_check_by_logo("sd0")) {
+        log_error("[PC-STORAGE] takeover rejected: sd0 is not registered");
+        return -1;
+    }
+    if (dev_manager_takeover("sd0")) {
+        log_error("[PC-STORAGE] takeover failed: sd0 unmount error");
+        return -1;
+    }
+
+    __this->storage_state = PC_STORAGE_HOST_OWNED;
+    log_info("[PC-STORAGE] DEVICE_OWNED -> HOST_OWNED");
+#endif
+    return 0;
+}
+
+static int pc_storage_restore(void)
+{
+#if (TCFG_USB_SLAVE_MSD_ENABLE && TCFG_SD0_ENABLE && TCFG_DEV_MANAGER_ENABLE)
+    if (__this->storage_state == PC_STORAGE_DEVICE_OWNED) {
+        return 0;
+    }
+
+    int err = dev_manager_restore("sd0");
+    if (err) {
+        __this->storage_state = PC_STORAGE_RESTORE_FAILED;
+        log_error("[PC-STORAGE] HOST_OWNED -> RESTORE_FAILED, sd0 remains blocked");
+        return err;
+    }
+
+    __this->storage_state = PC_STORAGE_DEVICE_OWNED;
+    log_info("[PC-STORAGE] HOST_OWNED -> DEVICE_OWNED, sd0 remount ok");
+#endif
+    return 0;
+}
+
 /**
  * @brief pc打开
  */
-static void pc_task_start(void)
+static int pc_task_start(void)
 {
     if (__this->onoff) {
         log_info("PC is start ");
-        return;
+        return 0;
     }
+#if (TCFG_USB_SLAVE_MSD_ENABLE && TCFG_SD0_ENABLE && TCFG_DEV_MANAGER_ENABLE)
+    if (__this->storage_state != PC_STORAGE_HOST_OWNED) {
+        log_error("[PC-STORAGE] USB start rejected: host does not own sd0");
+        return -1;
+    }
+#endif
     log_info("App Start - PC");
 
 #if ((TCFG_CHARGESTORE_ENABLE || TCFG_TEST_BOX_ENABLE || TCFG_ANC_BOX_ENABLE) \
@@ -86,48 +153,47 @@ static void pc_task_start(void)
 #endif
 
 #if TCFG_PC_ENABLE
-    usb_message_to_stack(USBSTACK_START, 0, 1);
+    int err = usb_message_to_stack(USBSTACK_START, 0, 1);
+    if (err) {
+        log_error("[PC-STORAGE] USB start failed: %d", err);
+        return err;
+    }
 #endif
 
     __this->onoff = 1;
+    return 0;
 }
 
 /**
  * @brief pc关闭
  */
-static void pc_task_stop(void)
+static int pc_task_stop(void)
 {
-    if (!__this->onoff) {
-        log_info("PC is stop ");
-#if TCFG_PC_ENABLE
-        usb_message_to_stack(USBSTACK_STOP, 0, 1);
-#endif
-        return ;
-    }
-    __this->onoff = 0;
-    u32 state = usb_otg_online(0);
-    if (state != SLAVE_MODE && state != SLAVE_MODE_WAIT_CONFIRMATION) {
-        log_info("App Stop - PC");
-#if TCFG_PC_ENABLE
-        usb_message_to_stack(USBSTACK_STOP, 0, 1);
-#endif
-    } else {
-        log_info("App Hold- PC");
-#if TCFG_PC_ENABLE
-        usb_message_to_stack(USBSTACK_PAUSE, 0, 1);
-#endif
-    }
-
 #if ((TCFG_CHARGESTORE_ENABLE || TCFG_TEST_BOX_ENABLE || TCFG_ANC_BOX_ENABLE) \
      && TCFG_CHARGESTORE_PORT == IO_PORT_DP)
-    chargestore_api_restart();
-    p33_io_wakeup_enable(TCFG_CHARGESTORE_PORT, 1);
+    u8 was_on = __this->onoff;
 #endif
 
-#if (TCFG_DEV_MANAGER_ENABLE)
-    dev_manager_list_check_mount();
-#endif/*TCFG_DEV_MANAGER_ENABLE*/
+    log_info("App Stop - PC");
+#if TCFG_PC_ENABLE
+    int err = usb_message_to_stack(USBSTACK_STOP, 0, 1);
+    if (err) {
+        log_error("[PC-STORAGE] USB stop failed: %d, sd0 remains HOST_OWNED", err);
+        return err;
+    }
+    log_info("[PC-STORAGE] USB resources released");
+#endif
 
+    __this->onoff = 0;
+#if ((TCFG_CHARGESTORE_ENABLE || TCFG_TEST_BOX_ENABLE || TCFG_ANC_BOX_ENABLE) \
+     && TCFG_CHARGESTORE_PORT == IO_PORT_DP)
+    if (was_on) {
+        chargestore_api_restart();
+        p33_io_wakeup_enable(TCFG_CHARGESTORE_PORT, 1);
+    }
+#endif
+
+    return pc_storage_restore();
 }
 
 static int pc_tone_play_end_callback(void *priv, enum stream_event event)
@@ -141,7 +207,9 @@ static int pc_tone_play_end_callback(void *priv, enum stream_event event)
     switch (event) {
     case STREAM_EVENT_NONE:
     case STREAM_EVENT_STOP:
-        pc_task_start();
+        if (pc_task_start()) {
+            app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+        }
         break;
     default:
         break;
@@ -152,6 +220,13 @@ static int pc_tone_play_end_callback(void *priv, enum stream_event event)
 static int pc_mode_init()
 {
     printf("pc mode\n");
+    if (pc_storage_prepare()) {
+        __this->pc_is_active = 0;
+        log_error("[PC-STORAGE] PC mode init aborted");
+        app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+        return -1;
+    }
+
     __this->pc_is_active = 1;
     tone_player_stop();
     int ret = play_tone_file_callback(get_tone_files()->pc_mode, NULL, pc_tone_play_end_callback);
@@ -160,13 +235,16 @@ static int pc_mode_init()
 #if  TCFG_USB_SLAVE_AUDIO_SPK_ENABLE
         dac_try_power_on_thread();//dac初始化耗时有120ms,此处提前将dac指定到独立任务内做初始化，优化PC通路启动的耗时，减少时间戳超时的情况
 #endif
-        pc_task_start();
+        if (pc_task_start()) {
+            app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+        }
     }
     app_send_message(APP_MSG_ENTER_MODE, APP_MODE_PC);
 
     return 0;
 }
 
+#if TCFG_USB_SLAVE_HID_ENABLE
 static void pc_hid_hold_release(void *priv)
 {
     //hid按键抬起
@@ -269,11 +347,19 @@ static void pc_call_reject_or_hand_up()
     sys_timeout_add(0, pc_hid_pp_long_press_release, 1200);
     __this->pp_wait_release = 1;
 }
+#endif
 
 
 static void pc_app_msg_handler(int *msg)
 {
     switch (msg[0]) {
+    case APP_MSG_REQUEST_POWEROFF:
+        if (pc_task_stop()) {
+            log_error("[PC-STORAGE] poweroff continues with sd0 blocked");
+        }
+        __this->pc_is_active = 0;
+        break;
+#if TCFG_USB_SLAVE_HID_ENABLE
     case APP_MSG_MUSIC_PP:
         pc_play_pause();
         break;
@@ -289,16 +375,29 @@ static void pc_app_msg_handler(int *msg)
     case APP_MSG_VOL_DOWN:
         pc_vol_down();
         break;
+#endif
     }
 
 }
 
 static int pc_mode_try_enter(int arg)
 {
-    if (true == app_pc_check()) {
-        return 0;
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (!get_power_on_status()) {
+        log_info("[PC-STORAGE] PC mode rejected: DIP OFF (charge only)");
+        return 1;
     }
-    return 1;
+#endif
+    if (false == app_pc_check()) {
+        return 1;
+    }
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (rdx_pc_storage_is_busy()) {
+        log_info("[PC-STORAGE] PC mode rejected: storage busy");
+        return 1;
+    }
+#endif
+    return 0;
 }
 
 /**
@@ -306,7 +405,10 @@ static int pc_mode_try_enter(int arg)
  */
 int pc_mode_try_exit()
 {
-    pc_task_stop();
+    if (pc_task_stop()) {
+        log_error("[PC-STORAGE] PC mode exit blocked: storage handoff incomplete");
+        return -1;
+    }
     __this->pc_is_active = 0;
 
     return 0;

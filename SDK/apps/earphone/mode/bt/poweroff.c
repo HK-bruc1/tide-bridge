@@ -232,7 +232,7 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
 
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
     u32 otg_status = usb_otg_online(0);
-    if (otg_status == SLAVE_MODE) {
+    if (otg_status == SLAVE_MODE && get_power_on_status()) {
         return;
     }
 #endif

@@ -396,6 +396,12 @@ int pc_device_event_handler(int *msg)
         log_debug("usb event : %d DEVICE_EVENT_FROM_OTG %s", msg[1], usb_msg);
         if (msg[1] == DEVICE_EVENT_IN) {
             log_info("usb %c online", usb_msg[2]);
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+            if (!get_power_on_status()) {
+                log_info("[PC-STORAGE] USB online with DIP OFF: charge only");
+                return false;
+            }
+#endif
             switch_app_case = 1;
         } else if (msg[1] == DEVICE_EVENT_OUT) {
             log_info("usb %c offline", usb_msg[2]);

@@ -24,6 +24,6 @@ enum {
 };
 
 
-void usb_message_to_stack(int msg, void *arg, u8 sync);
+int usb_message_to_stack(int msg, void *arg, u8 sync);
 
 #endif

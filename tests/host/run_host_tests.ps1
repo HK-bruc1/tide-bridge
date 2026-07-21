@@ -28,6 +28,10 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_t2620_config_overlay.ps1'
     },
     [PSCustomObject]@{
+        Name = 'T2620 PC storage ownership'
+        Path = Join-Path $PSScriptRoot 'test_pc_mode_storage_contract.ps1'
+    },
+    [PSCustomObject]@{
         Name = 'HOGP profile contract'
         Path = Join-Path $PSScriptRoot 'test_hogp_profile_contract.ps1'
     },

@@ -232,6 +232,8 @@ extern int rdx_ble_server_reset_local_name(void);
 // OLED 功能已删除
 extern void xxp_uart_set_wifi_default_flag(bool flag);
 extern RecordStatus* rdx_record_get_status(void);
+extern bool rdx_record_process_is_busy_check(void);
+extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 extern int rdx_protocol_task_create(RdxProtocolCallbacks *cb);
 extern int rdx_record_task_create(void);
 extern void motor_init(void);
@@ -312,6 +314,70 @@ bool rdx_app_get_power_ready_flag(void)
 void rdx_app_set_power_ready_flag(void)
 {
     poweron_ready_flag = true;
+}
+
+u8 rdx_pc_storage_is_busy(void)
+{
+    if (!rdx_app_init_flag) {
+        return false;
+    }
+
+    RecordStatus *record = rdx_record_get_status();
+    if (!record || record->run != RECORD_STATE_STOP) {
+        r_printf("[PC-STORAGE] busy: record state=%d\n",
+                 record ? record->run : -1);
+        return true;
+    }
+    if (rdx_record_process_is_busy_check()) {
+        r_printf("[PC-STORAGE] busy: record worker\n");
+        return true;
+    }
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    pb_public_info_t playback = {0};
+    rdx_playback_get_info(&playback);
+    if (playback.state != PB_STATE_UNREADY &&
+        playback.state != PB_STATE_STOPPED) {
+        r_printf("[PC-STORAGE] busy: playback state=%d\n", playback.state);
+        return true;
+    }
+#endif
+
+    extern u8 rdx_is_file_transfer_active(void);
+    extern u8 rdx_is_file_sync_busy(void);
+    extern u8 rdx_uxfile_is_datFileInfo_loading(void);
+    extern u8 rdx_uxfile_is_scan_active(void);
+    extern u8 rdx_uxfile_is_formatting(void);
+
+    ReqFileInfo *file_info = rdx_protocol_get_uploadfileInfo();
+    if ((file_info && file_info->file_send_busy) ||
+        rdx_is_file_transfer_active() ||
+        rdx_is_file_sync_busy()) {
+        r_printf("[PC-STORAGE] busy: file transfer or sync\n");
+        return true;
+    }
+    if (rdx_uxfile_is_datFileInfo_loading() ||
+        rdx_uxfile_is_scan_active()) {
+        r_printf("[PC-STORAGE] busy: file index operation\n");
+        return true;
+    }
+    if (rdx_uxfile_is_formatting() ||
+        rdx_uxfile_sd_format_status_check()) {
+        r_printf("[PC-STORAGE] busy: formatting\n");
+        return true;
+    }
+    if (get_ota_status()) {
+        r_printf("[PC-STORAGE] busy: OTA\n");
+        return true;
+    }
+#if RDX_WIFI_ENABLE
+    if (wifiInfo.onoff == TRANSFER_BY_WIFI_ON) {
+        r_printf("[PC-STORAGE] busy: WiFi transfer mode\n");
+        return true;
+    }
+#endif
+
+    return false;
 }
 
 /**************************************************************************
