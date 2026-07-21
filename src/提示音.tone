@@ -8,20 +8,23 @@
    "configName": "TCFG_TONE_EN_ENABLE",
    "files": [
     {
-     "name": "关机",
-     "path": "%PROJECT_PATH%\\output\\tone_en\\power_off.wts",
-     "outputName": "power_off",
-     "enable": true,
+     "name": "ding",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\ding.mp3",
+     "outputName": "ding",
      "format": {
-      "value": "原格式"
+      "value": "wts",
+      "simpleRate": "8000",
+      "bitRate": 16000,
+      "vad": 0,
+      "priority": 1
      },
-     "default": true,
-     "sizeKey": "d82797d4",
-     "size": 2266
+     "sizeKey": "c2e49d81",
+     "size": 3385,
+     "enable": true
     }
    ],
    "enableOutput": 1,
-   "size": 2416,
+   "size": 3520,
    "isOpen": true
   },
   {
@@ -41,8 +44,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "5ef15e62",
-     "size": 1199
+     "sizeKey": "7e219f09",
+     "size": 1193
     },
     {
      "name": "数字1",
@@ -57,8 +60,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "380873fa",
-     "size": 1027
+     "sizeKey": "5738b4a1",
+     "size": 1039
     },
     {
      "name": "数字2",
@@ -73,8 +76,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "9de4dadb",
-     "size": 1117
+     "sizeKey": "bd151b82",
+     "size": 1119
     },
     {
      "name": "数字3",
@@ -89,8 +92,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "d3e2147c",
-     "size": 1351
+     "sizeKey": "f3125523",
+     "size": 1354
     },
     {
      "name": "数字4",
@@ -105,8 +108,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "3fd2e346",
-     "size": 1199
+     "sizeKey": "5f0323ed",
+     "size": 1194
     },
     {
      "name": "数字5",
@@ -121,7 +124,7 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "cebc99a7",
+     "sizeKey": "edecda4e",
      "size": 1158
     },
     {
@@ -137,8 +140,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "a5dec928",
-     "size": 1157
+     "sizeKey": "c50f09cf",
+     "size": 1150
     },
     {
      "name": "数字7",
@@ -153,8 +156,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "68756ac0",
-     "size": 1193
+     "sizeKey": "87a5ab67",
+     "size": 1192
     },
     {
      "name": "数字8",
@@ -169,8 +172,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "fd73890a",
-     "size": 1153
+     "sizeKey": "1ca3c9b1",
+     "size": 1152
     },
     {
      "name": "数字9",
@@ -185,8 +188,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "e722940b",
-     "size": 1147
+     "sizeKey": "652d4b2",
+     "size": 1160
     },
     {
      "name": "开机",
@@ -201,7 +204,7 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "23788ea4",
+     "sizeKey": "e0d2ad6b",
      "size": 1639
     },
     {
@@ -217,8 +220,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "db887d59",
-     "size": 1480
+     "sizeKey": "44267500",
+     "size": 1467
     },
     {
      "name": "低电",
@@ -233,8 +236,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "fba1aff7",
-     "size": 2714
+     "sizeKey": "77fe9c7e",
+     "size": 2711
     },
     {
      "name": "最大音量",
@@ -249,8 +252,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "22e15708",
-     "size": 2270
+     "sizeKey": "ac7f38ef",
+     "size": 2278
     },
     {
      "name": "连接成功",
@@ -265,8 +268,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "92df3803",
-     "size": 2980
+     "sizeKey": "503956ca",
+     "size": 2979
     },
     {
      "name": "连接断开",
@@ -281,8 +284,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "e99b8343",
-     "size": 3106
+     "sizeKey": "f19600aa",
+     "size": 3115
     },
     {
      "name": "响铃",
@@ -293,7 +296,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "55d1eade",
+     "sizeKey": "e1907385",
      "size": 36
     },
     {
@@ -305,7 +308,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "314c9d9e",
+     "sizeKey": "5739b8e5",
      "size": 36
     },
     {
@@ -317,7 +320,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "8131af1f",
+     "sizeKey": "64c23346",
      "size": 36
     },
     {
@@ -329,7 +332,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "cf1ef339",
+     "sizeKey": "b2af7760",
      "size": 36
     },
     {
@@ -341,7 +344,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "8931cebb",
+     "sizeKey": "ded2d7c2",
      "size": 52
     },
     {
@@ -353,7 +356,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "7d55a2b7",
+     "sizeKey": "f2d8f11e",
      "size": 36
     },
     {
@@ -369,8 +372,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "61fdc82c",
-     "size": 2398
+     "sizeKey": "eb9baa13",
+     "size": 2399
     },
     {
      "name": "ANC关",
@@ -385,8 +388,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "2f30404b",
-     "size": 1859
+     "sizeKey": "ec8a5f12",
+     "size": 1880
     },
     {
      "name": "通透模式",
@@ -401,8 +404,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "fb7c38de",
-     "size": 2264
+     "sizeKey": "77d92565",
+     "size": 2275
     },
     {
      "name": "adaptive",
@@ -416,8 +419,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "32661d17",
-     "size": 2468
+     "sizeKey": "9b0414be",
+     "size": 2462
     },
     {
      "name": "智能免摘开",
@@ -431,8 +434,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "f712fb5",
-     "size": 3636
+     "sizeKey": "a2dc",
+     "size": 3625
     },
     {
      "name": "智能免摘关",
@@ -446,8 +449,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "e8bc5033",
-     "size": 3581
+     "sizeKey": "eb3a283a",
+     "size": 3571
     },
     {
      "name": "风噪检测开",
@@ -461,8 +464,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "48a29f36",
-     "size": 3720
+     "sizeKey": "3932125d",
+     "size": 3714
     },
     {
      "name": "风噪检测关",
@@ -476,8 +479,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "94abc734",
-     "size": 3588
+     "sizeKey": "97299f3b",
+     "size": 3583
     },
     {
      "name": "广域点击开",
@@ -491,8 +494,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "45198cd",
-     "size": 3473
+     "sizeKey": "b9bc314",
+     "size": 3460
     },
     {
      "name": "广域点击关",
@@ -506,8 +509,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "5842ba02",
-     "size": 3375
+     "sizeKey": "48d22d29",
+     "size": 3383
     },
     {
      "name": "按键音",
@@ -518,7 +521,7 @@
      "format": {
       "value": "sin"
      },
-     "sizeKey": "d8e8168c",
+     "sizeKey": "bc789ab3",
      "size": 36
     },
     {
@@ -533,8 +536,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "a9395003",
-     "size": 2710
+     "sizeKey": "ae71a58a",
+     "size": 2717
     },
     {
      "name": "linein模式",
@@ -548,8 +551,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "7cb8e2c9",
-     "size": 3749
+     "sizeKey": "f915cf50",
+     "size": 3753
     },
     {
      "name": "pc模式",
@@ -563,8 +566,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "9b1f74b6",
-     "size": 2997
+     "sizeKey": "47627b1d",
+     "size": 2978
     },
     {
      "name": "贴合度检测",
@@ -578,8 +581,8 @@
       "priority": 1
      },
      "enable": true,
-     "sizeKey": "dee54fbe",
-     "size": 5265
+     "sizeKey": "a8038be5",
+     "size": 5208
     },
     {
      "name": "共享搜索配对",
@@ -592,9 +595,9 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "cb3597ab",
+     "sizeKey": "f1106792",
      "enable": true,
-     "size": 4334
+     "size": 4332
     },
     {
      "name": "共享等待配对",
@@ -607,9 +610,9 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "68aa817b",
+     "sizeKey": "8e855162",
      "enable": true,
-     "size": 4246
+     "size": 4272
     },
     {
      "name": "共享主机",
@@ -622,9 +625,9 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "f1302e9e",
+     "sizeKey": "b502dd45",
      "enable": true,
-     "size": 3476
+     "size": 3462
     },
     {
      "name": "共享从机",
@@ -637,8 +640,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "fae92100",
-     "size": 3835
+     "sizeKey": "bebbcfa7",
+     "size": 3866
     },
     {
      "name": "共享断开",
@@ -651,12 +654,12 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "c84ae978",
-     "size": 3418
+     "sizeKey": "8c1d981f",
+     "size": 3417
     }
    ],
    "enableOutput": 0,
-   "size": 85648,
+   "size": 85536,
    "isOpen": false
   }
  ],

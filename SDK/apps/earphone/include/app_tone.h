@@ -60,6 +60,7 @@ struct tone_files {
     const char *key_trigger;
     const char *Min_max_mut;
     const char *phone_pair;
+    const char *ding;
 };
 
 

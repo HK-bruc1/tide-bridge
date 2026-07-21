@@ -84,7 +84,7 @@
 #if TCFG_SD0_ENABLE
 #define TCFG_SD0_DAT_MODE                         1                // 线数设置
 #define TCFG_SD0_DET_MODE                         SD_IO_DECT       // 检测方式
-#define TCFG_SD0_CLK                              1000000          // SD时钟频率
+#define TCFG_SD0_CLK                              24000000         // SD时钟频率
 #define TCFG_SD0_DET_IO                           NO_CONFIG_PORT   // 检测IO
 #define TCFG_SD0_DET_IO_LEVEL                     0                // IO检测方式
 #define TCFG_SD0_POWER_SEL                        SD_PWR_NULL      // SD卡电源

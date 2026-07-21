@@ -119,6 +119,7 @@ static const struct tone_files english_tone_files = {
     .key_trigger = "tone_en/key_trigger.*",
     .Min_max_mut = "tone_en/Min_max_mut.*",
     .phone_pair = "tone_en/phone_pair.*",
+    .ding = "tone_en/ding.*",
 };
 
 #if TCFG_TONE_EN_ENABLE

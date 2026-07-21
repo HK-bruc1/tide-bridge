@@ -123,6 +123,7 @@ static u16 record_alive_timer = 0;
 static BOOL record_keep = FALSE;
 static u8 heartbeat_timer_cnt = 0;
 static u8 stream_filter_cnt = 0;
+static bool record_tone_session_active = false;
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
 
@@ -274,10 +275,6 @@ void rdx_record_keep_alive_check_stop(void)
         if(ret) {
             printf("%s record taskq post err \n", __func__);
         } 
-    #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-        //play record tone.
-        tws_play_tone_file(get_tone_files()->record_off, 400);   
-    #endif
     }
 }
 
@@ -483,6 +480,7 @@ void rdx_record_set_default(void)
     record_status.begin_time = 0;
     record_status.ui_notify = rdx_record_ui_notify;
     record_status.stream_discont = false;
+    record_tone_session_active = false;
     /* V24: 暂停统计 / 录音标记缓冲在每次复位时一并清零，避免跨会话残留 */
     record_status.pause_start_ms = 0;
     record_status.paused_accumulated_ms = 0;
@@ -926,10 +924,20 @@ void rdx_record_start(void* priv)
     }
 }
 
-void rdx_record_finish_tone_play(void)
+static void rdx_record_ding_tone_play(void)
 {
-    //dac open once.
-    play_tone_file(get_tone_files()->power_off);
+    play_tone_file(get_tone_files()->ding);
+}
+
+static void rdx_record_ding_tone_post(void)
+{
+    int msg[2];
+
+    msg[0] = (int)rdx_record_ding_tone_play;
+    msg[1] = 0;
+    if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+        log_info("%s record tone taskq post err \n", __func__);
+    }
 
 }
 
@@ -953,6 +961,10 @@ void rdx_record_ui_notify(void)
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         //record start.
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        if(rp->run == RECORD_STATE_START && !record_tone_session_active){
+            record_tone_session_active = true;
+            rdx_record_ding_tone_post();
+        }
         if(rp->key_trigger == false){
             rp->key_trigger = true;
             //record start by app.
@@ -971,12 +983,9 @@ void rdx_record_ui_notify(void)
         //motor twice.
         rdx_record_motor_twice();
     #endif
-        int msg[2];
-        msg[0] = (int)rdx_record_finish_tone_play;
-        msg[1] = 0;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-        if(ret) {
-            log_info("%s record taskq post err \n", __func__);
+        if(rp->run == RECORD_STATE_STOP && record_tone_session_active){
+            record_tone_session_active = false;
+            rdx_record_ding_tone_post();
         }
     }
     //reset trigger.
@@ -1058,7 +1067,6 @@ void rdx_record_process(void)
             #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)     
                 //tws stop role switch.
                 tws_api_auto_role_switch_disable();
-                tws_play_tone_file(get_tone_files()->record_on, 400);   
             #endif
 
                 //LED控制：录音时呼吸灯
@@ -1134,10 +1142,6 @@ void rdx_record_process(void)
                 g_printf("====== %s --> RECORD STOP \r", __FUNCTION__);
                 rdx_record_set_filter_cnt(0);
 
-            #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-                //play record tone.
-                tws_play_tone_file(get_tone_files()->record_off, 400); 
-            #endif
             #ifdef RECORD_HEARTBEAT_SUPPORT
                 //stop record alive check timer.
                 rdx_record_keep_alive_check_stop();
@@ -1224,7 +1228,6 @@ void rdx_record_process(void)
             #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)     
                 //tws stop role switch.
                 tws_api_auto_role_switch_disable();
-                tws_play_tone_file(get_tone_files()->record_on, 400);   
             #endif
 
                 if(record_status.scene == RECORD_SCENE_CHAT){
@@ -1298,10 +1301,6 @@ void rdx_record_process(void)
 
                 rdx_record_set_filter_cnt(0);
 
-            #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
-                //play record tone.
-                tws_play_tone_file(get_tone_files()->record_off, 400); 
-            #endif
             #ifdef RECORD_HEARTBEAT_SUPPORT
                 //stop record alive check timer.
                 rdx_record_keep_alive_check_stop();
