@@ -1,46 +1,50 @@
-# RDX Host Mock Tests
+# RDX Configuration Checks and Optional Host Mocks
 
 ## Quick Start
 
-From repository root on Windows:
-
-```bat
-tests\host\run_tests.bat
-```
-
-To clean build artifacts:
-
-```bat
-tests\host\run_tests.bat clean
-```
-
-To run only the RDX C and Make configuration matrices on Windows:
+P9 does not require an additional native host compiler. Run the required C and
+Make configuration matrix with the existing JL production compiler and the
+repository-local make:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/host/test_rdx_config_matrix.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/host/test_rdx_config_matrix.ps1 -Compiler C:\JL\pi32\bin\clang.exe -MakeCommand SDK\tools\utils\make.exe
 ```
 
-On Unix-like hosts, install `pwsh` and GNU Make, then run:
+The repository wrapper runs the same required matrix by default:
 
-```sh
-pwsh -NoProfile -File tests/host/test_rdx_config_matrix.ps1
+```bat
+tests\host\run_tests.bat all
 ```
+
+The six executable C mocks are retained as optional developer checks. Run them
+only when a compatible native compiler is already available, and pass it
+explicitly so the repository never installs or silently selects an extra
+toolchain:
+
+```bat
+tests\host\run_tests.bat host_all HOST_CC=C:\path\to\native-clang.exe
+```
+
+Clean optional host artifacts with `tests\host\run_tests.bat clean` on Windows.
 
 ## Requirements
 
-- A host C11 compiler with `_Static_assert` support in PATH (`gcc`, `clang`, or a compatible `cc`). TinyCC 0.9.27 can compile the six C mock executables but cannot parse the configuration validator's `_Static_assert`, so it is not accepted for the full Host gate.
-- On Windows, `tests/host/Makefile` and the standalone matrix script use repository-local `SDK/tools/utils/make.exe` when available.
-- On Unix-like hosts, `pwsh` and `make` must be available in `PATH`.
+- P9 adds no dependency beyond the normal Windows/JL production environment: JL clang, repository-local `make.exe`, Windows PowerShell 5, and Git.
+- The optional executable mocks require an explicitly supplied native `HOST_CC`; absence of that compiler does not block P9.
+- The required matrix does not search `PATH` or fall back to Unix `pwsh`, system `make`, `cc`, `gcc`, or desktop LLVM.
+- On non-Windows systems, the Makefile refuses the required matrix instead of introducing a parallel P9 tool environment.
 
 ## What is tested
 
-| Test | Real source compiled | Coverage |
-|---|---|---|
-| `test_dispatch` | `service/rdx_command_dispatch.c` | register / dispatch / invalid event / unregistered event |
-| `test_event_bus` | `service/rdx_event_bus.c` | subscribe / publish / unsubscribe / async publish / multiple subscribers |
-| `test_time_ops` | `mock/rdx_time_ops_host.c` | vtable validation / leap year / days in month |
-| `test_board_config` | `board/t2616_cc/rdx_board_config.c` | config presence / board name / chip family / SPI parameters |
-| `test_rdx_config_matrix.ps1` | `rdx_app_config.h`, `config/product/*.h`, `SDK/Makefile` | 18 valid product/device combinations, 4 invalid C combinations, and 10 Make profile/compile-flag cases |
+| Check | P9 level | Source | Coverage |
+|---|---|---|---|
+| `test_rdx_config_matrix.ps1` | Required | `rdx_app_config.h`, `config/product/*.h`, `SDK/Makefile` | 18 valid product/device combinations, 4 invalid C combinations, and 10 Make profile/compile-flag cases; every negative case must match its expected diagnostic |
+| `test_dispatch` | Optional | `service/rdx_command_dispatch.c` | register / dispatch / invalid event / unregistered event |
+| `test_event_bus` | Optional | `service/rdx_event_bus.c` | subscribe / publish / unsubscribe / async publish / multiple subscribers |
+| `test_time_ops` | Optional | `mock/rdx_time_ops_host.c` | vtable validation / leap year / days in month |
+| `test_board_config` | Optional | `board/t2616_cc/rdx_board_config.c` | config presence / board name / chip family / SPI parameters |
+| `test_util` | Optional | `rdx_util.c` | utility conversions and boundary cases |
+| `test_time_service` | Optional | `service/rdx_time_service.c` | time command dispatch and event publication |
 
 ## Mock strategy
 
@@ -64,7 +68,8 @@ JL SDK headers are shadowed by `mock/include/` so that RDX service and board cod
 3. Add a build rule in `Makefile`:
    ```makefile
    test_<name>.exe: test_<name>.c <real_sources_or_mocks>
-       $(CC) $(INCS) $^ -o $@
+       $(HOST_CC) $(INCS) $^ -o $@
    ```
 4. Add `test_<name>` to the `TESTS` list.
 5. Add `test_<name>: test_<name>.run` to the convenience targets.
+6. Keep it under `host_all`; do not add an optional mock to the default P9 target.
