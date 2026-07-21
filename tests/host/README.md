@@ -28,7 +28,7 @@ pwsh -NoProfile -File tests/host/test_rdx_config_matrix.ps1
 
 ## Requirements
 
-- A host C compiler in PATH. The Makefile tries `gcc` first, then falls back to `tcc` (Tiny C Compiler) if `gcc` is unavailable.
+- A host C11 compiler with `_Static_assert` support in PATH (`gcc`, `clang`, or a compatible `cc`). TinyCC 0.9.27 can compile the six C mock executables but cannot parse the configuration validator's `_Static_assert`, so it is not accepted for the full Host gate.
 - On Windows, `tests/host/Makefile` and the standalone matrix script use repository-local `SDK/tools/utils/make.exe` when available.
 - On Unix-like hosts, `pwsh` and `make` must be available in `PATH`.
 

@@ -5,7 +5,15 @@ param(
 
 $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($Compiler)) {
-    $Compiler = if (Get-Command cc -ErrorAction SilentlyContinue) { "cc" } else { "gcc" }
+    if (Get-Command cc -ErrorAction SilentlyContinue) {
+        $Compiler = "cc"
+    } elseif (Get-Command gcc -ErrorAction SilentlyContinue) {
+        $Compiler = "gcc"
+    } elseif (Get-Command clang -ErrorAction SilentlyContinue) {
+        $Compiler = "clang"
+    } else {
+        throw "RDX config matrix requires a C11 compiler with _Static_assert support (cc, gcc, or clang); TinyCC 0.9.27 is not supported"
+    }
 }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $sdk = Join-Path $repo "SDK"
@@ -19,6 +27,33 @@ if ([string]::IsNullOrWhiteSpace($MakeCommand)) {
     $MakeCommand = if ($runningOnWindows -and (Test-Path $bundledMake)) { $bundledMake } else { "make" }
 }
 
+function Invoke-NativeCommand {
+    param(
+        [string]$Command,
+        [string[]]$Arguments
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5 promotes native stderr to NativeCommandError
+        # when ErrorActionPreference is Stop. Native non-zero exits are test
+        # inputs here, so capture them without terminating the script.
+        $ErrorActionPreference = "Continue"
+        $output = & $Command @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $output = @($_)
+        $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 1 }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    return @{
+        Output = @($output)
+        ExitCode = $exitCode
+    }
+}
+
 function Test-Config {
     param(
         [string]$Name,
@@ -27,8 +62,9 @@ function Test-Config {
     )
 
     $arguments = @("-std=c11", "-fsyntax-only", "-I$protocol") + $Defines + @($source)
-    $output = & $Compiler @arguments 2>&1
-    $passed = ($LASTEXITCODE -eq 0)
+    $result = Invoke-NativeCommand $Compiler $arguments
+    $output = $result.Output
+    $passed = ($result.ExitCode -eq 0)
 
     if ($passed -eq $ShouldPass) {
         Write-Host "[PASS] $Name"
@@ -48,8 +84,9 @@ function Test-MakeConfig {
     )
 
     $arguments = @("-C", $sdk) + $Variables + @("rdx_config_check")
-    $output = & $MakeCommand @arguments 2>&1
-    $passed = ($LASTEXITCODE -eq 0)
+    $result = Invoke-NativeCommand $MakeCommand $arguments
+    $output = $result.Output
+    $passed = ($result.ExitCode -eq 0)
 
     if ($passed -eq $ShouldPass) {
         Write-Host "[PASS] $Name"
@@ -69,11 +106,12 @@ function Test-MakeCompileFlags {
     )
 
     $arguments = @("-C", $sdk, "-n") + $Variables + @("pre_build")
-    $output = & $MakeCommand @arguments 2>&1
+    $result = Invoke-NativeCommand $MakeCommand $arguments
+    $output = $result.Output
     $expandedCommands = @($output) -join "`n"
     $missingFlags = @($ExpectedFlags | Where-Object { -not $expandedCommands.Contains($_) })
 
-    if (($LASTEXITCODE -eq 0) -and ($missingFlags.Count -eq 0)) {
+    if (($result.ExitCode -eq 0) -and ($missingFlags.Count -eq 0)) {
         Write-Host "[PASS] $Name"
         return
     }

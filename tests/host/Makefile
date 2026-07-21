@@ -18,14 +18,11 @@ endif
 MAKE         := $(MAKE_PATH)
 RM           := $(subst \,/,$(CURDIR))/../../SDK/tools/utils/rm.exe
 
-# Host C compiler detection.
+# Host C compiler detection. The configuration validator requires C11
+# _Static_assert support, so TinyCC 0.9.27 is not a valid fallback.
 # Override with: make CC=path/to/gcc
 ifeq ($(origin CC),default)
     CC := gcc
-    # Fall back to tcc if gcc is not in PATH (common on Windows without MSYS).
-    ifeq ($(shell where $(CC) 2>nul),)
-        CC := tcc
-    endif
 endif
 
 # Source roots

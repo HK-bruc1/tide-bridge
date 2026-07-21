@@ -49,6 +49,8 @@
 #endif
 #include "iic_api.h"
 
+#ifdef RDX_BJ_VERSION
+
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_01)
 #define IIC_SCL_IO                              IO_PORTB_04
 #define IIC_SDA_IO                              IO_PORTB_05
@@ -709,3 +711,22 @@ void charge_task_init(void)
     gpio_set_mode(IO_PORT_SPILT(CHARGE_FULL_CHECK_IO), PORT_INPUT_PULLUP_100K);
 #endif
 }
+
+#else
+
+/* EP has no confirmed charger GPIO contract; keep the compile-only profile inert. */
+void charge_onoff(bool enable)
+{
+    (void)enable;
+}
+
+bool charge_check_is_full(void)
+{
+    return FALSE;
+}
+
+void charge_task_init(void)
+{
+}
+
+#endif

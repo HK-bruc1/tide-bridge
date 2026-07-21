@@ -107,6 +107,8 @@ void rdx_device_service_reboot(void)
 
 /* ---- device pair (charge case) ---- */
 
+#if RDX_PRODUCT_IS_CHARGE_CASE
+
 rdx_err_t rdx_device_service_pair(char *au_code, char *mac_str, char *label_sn)
 {
 	EarphoneInfo *p_epInfo = rdx_vm_get_ep_info();
@@ -157,6 +159,8 @@ rdx_err_t rdx_device_service_unpair(void)
 
 	return RDX_OK;
 }
+
+#endif
 
 /* ---- unbound (moved from rdx_vm.c) ---- */
 

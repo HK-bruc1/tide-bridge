@@ -203,12 +203,14 @@ static const RdxProtocolIndicateOps* g_protocol_ops = NULL;
 
 /* WiFi AP 产品配置 - 在 rdx_app_tasks_init() 通过 xxp_uart_register_wifi_cfg()
  * 注入到 xxpUart 库. lib 不再直接读 WIFI_AP_SSID 等产品宏, 完全由这里传入. */
+#if RDX_HAS_WIFI_AP_CONFIG
 static const RdxWifiCfg wifi_cfg = {
     .ap_ssid            = WIFI_AP_SSID,
     .ap_password        = WIFI_AP_PASSWORD,
     .dynamic_psw_enable = WIFI_AP_SSID_PSW_DYN_GENERATE,
     .ssid_suffix_mode   = WIFI_AP_SSID_SUFFIX_MODE,
 };
+#endif
 
 /******************************************************************************
 * Function Declaration Section
@@ -1866,8 +1868,10 @@ void rdx_app_tasks_init(void)
     rdx_protocol_task_create(&protocol_cbs);
     g_protocol_ops = rdx_protocol_get_indicate_ops();
 	
-	//do wifi regist.
+    //do wifi regist.
+#if RDX_HAS_WIFI_AP_CONFIG
     xxp_uart_register_wifi_cfg(&wifi_cfg);
+#endif
     rdx_wifi_event_register(rdx_app_wifi_event_handle);
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 1)

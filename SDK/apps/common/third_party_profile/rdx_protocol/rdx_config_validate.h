@@ -73,6 +73,20 @@ _Static_assert((RDX_AI_SEL_APP != 0) &&
 #endif
 #endif
 
+#ifdef PRODUCT_TYPE
+#define RDX_HAS_PRODUCT_TYPE                           (1)
+#else
+#define RDX_HAS_PRODUCT_TYPE                           (0)
+#endif
+
+#if defined(WIFI_AP_SSID) && defined(WIFI_AP_PASSWORD)
+#define RDX_HAS_WIFI_AP_CONFIG                         (1)
+#elif defined(WIFI_AP_SSID) || defined(WIFI_AP_PASSWORD)
+#error "WIFI_AP_SSID and WIFI_AP_PASSWORD must be configured together"
+#else
+#define RDX_HAS_WIFI_AP_CONFIG                         (0)
+#endif
+
 _Static_assert((RDX_AI_TRANSLATE_SUPPORT == 0) || (RDX_AI_TRANSLATE_SUPPORT == 1),
                "RDX_AI_TRANSLATE_SUPPORT must be 0 or 1");
 _Static_assert((RDX_RECORD_USE_LOCAL_PIPELINE == 0) || (RDX_RECORD_USE_LOCAL_PIPELINE == 1),

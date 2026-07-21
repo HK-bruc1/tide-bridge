@@ -7,16 +7,32 @@ $recordHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.
 $recordSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
 $adcSourceRel = 'SDK/audio/framework/plugs/source/adc_file.c'
 
+function Normalize-LineEndings([string]$Text) {
+    return $Text.Replace("`r`n", "`n").Replace("`r", "`n")
+}
+
 function Read-Working([string]$RelativePath) {
-    return Get-Content -Raw -LiteralPath (Join-Path $repo $RelativePath)
+    $path = Join-Path $repo $RelativePath
+    return Normalize-LineEndings ([System.IO.File]::ReadAllText($path))
 }
 
 function Read-Head([string]$RelativePath) {
-    $content = & git -C $repo show "HEAD:$RelativePath"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to read HEAD:$RelativePath"
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = 'git'
+    $startInfo.Arguments = "-C `"$repo`" show `"HEAD:$RelativePath`""
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $content = $process.StandardOutput.ReadToEnd()
+    $errorOutput = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        throw "Unable to read HEAD:$RelativePath`: $errorOutput"
     }
-    return ($content -join "`n") + "`n"
+    return Normalize-LineEndings $content
 }
 
 function Extract-One([string]$Text, [string]$Pattern, [string]$Label) {
@@ -28,7 +44,8 @@ function Extract-One([string]$Text, [string]$Pattern, [string]$Label) {
 }
 
 function Assert-Equal([string]$Actual, [string]$Expected, [string]$Message) {
-    if ($Actual -cne $Expected) {
+    if ((Normalize-LineEndings $Actual).TrimEnd("`n") -cne
+        (Normalize-LineEndings $Expected).TrimEnd("`n")) {
         throw "FAIL: $Message"
     }
     Write-Host "PASS: $Message"

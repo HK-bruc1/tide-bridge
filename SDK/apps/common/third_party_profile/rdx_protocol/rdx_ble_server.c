@@ -1489,9 +1489,11 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
 #if (BLE_FILE_TRANSFER_PACK_SIZE == BLE_SEND_SINGLE_PACK_SIZE)
     manu_data[len++] = rdx_protocol_get_version();
 #endif
+#if RDX_HAS_PRODUCT_TYPE
     // Add protocol type.
     memcpy(manu_data + len, PRODUCT_TYPE, 2);
     len += 2;
+#endif
     // Add self mark.
     memcpy(manu_data + len, RDX_SELF_MARK, 2);
     len += 2;
