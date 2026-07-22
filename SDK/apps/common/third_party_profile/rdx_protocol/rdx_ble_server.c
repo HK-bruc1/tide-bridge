@@ -263,7 +263,7 @@ static void rdx_ble_server_phase0b_adv_token_capture(void *hdl)
 
 static u8 rdx_ble_server_phase0b_adv_token_is_current(void)
 {
-    return rdx_ble_session_token_resolve(&g_rdx_ble_adv_token) ? 1 : 0;
+    return rdx_ble_session_idle_token_resolve(&g_rdx_ble_adv_token) ? 1 : 0;
 }
 
 static u8 rdx_ble_server_phase0a_event_matches(void *hdl,
@@ -1649,11 +1649,67 @@ static void set_connection_data_phy(u16 con_handle, u8 tx_phy, u8 rx_phy)
 }
 
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+static void rdx_ble_server_phase0a_link_state_capture(
+    rdx_ble_link_state_t *link,
+    const u8 *packet,
+    u8 enhanced)
+{
+    bd_addr_t peer_addr;
+    u8 peer_addr_type;
+    u16 conn_interval;
+    u16 conn_latency;
+    u16 supervision_timeout;
+
+    if (!link || !packet) {
+        return;
+    }
+    if (enhanced) {
+        peer_addr_type =
+            hci_subevent_le_enhanced_connection_complete_get_peer_address_type(packet);
+        hci_subevent_le_enhanced_connection_complete_get_peer_addresss(
+            packet, peer_addr);
+        conn_interval =
+            hci_subevent_le_enhanced_connection_complete_get_conn_interval(packet);
+        conn_latency =
+            hci_subevent_le_enhanced_connection_complete_get_conn_latency(packet);
+        supervision_timeout =
+            hci_subevent_le_enhanced_connection_complete_get_supervision_timeout(packet);
+    } else {
+        peer_addr_type =
+            hci_subevent_le_connection_complete_get_peer_address_type(packet);
+        hci_subevent_le_connection_complete_get_peer_address(packet, peer_addr);
+        conn_interval =
+            hci_subevent_le_connection_complete_get_conn_interval(packet);
+        conn_latency =
+            hci_subevent_le_connection_complete_get_conn_latency(packet);
+        supervision_timeout =
+            hci_subevent_le_connection_complete_get_supervision_timeout(packet);
+    }
+    rdx_ble_session_link_set_peer(link, peer_addr_type, peer_addr);
+    rdx_ble_session_link_set_conn_params(link, conn_interval, conn_latency,
+                                         supervision_timeout);
+}
+
+static void rdx_ble_server_phase0a_link_conn_params_update(
+    rdx_ble_link_state_t *link,
+    const u8 *packet)
+{
+    if (!link || !packet) {
+        return;
+    }
+    rdx_ble_session_link_set_conn_params(
+        link,
+        hci_subevent_le_connection_update_complete_get_conn_interval(packet),
+        hci_subevent_le_connection_update_complete_get_conn_latency(packet),
+        hci_subevent_le_connection_update_complete_get_supervision_timeout(packet));
+}
+
 static void rdx_ble_server_phase0a_link_connected(void *hdl,
                                                   const u8 *packet,
                                                   u16 size,
                                                   u8 enhanced)
 {
+    rdx_ble_link_state_t *link;
     u16 min_size = enhanced ?
                    RDX_LE_ENHANCED_CONNECTION_COMPLETE_MIN_SIZE :
                    RDX_LE_CONNECTION_COMPLETE_MIN_SIZE;
@@ -1697,11 +1753,13 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     }
 
     wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
-    if (!rdx_ble_session_link_accept(hdl, con_handle)) {
+    link = rdx_ble_session_link_accept(hdl, con_handle);
+    if (!link) {
         y_printf("[BLE_PHASE1] connect rejected: registry conflict wrapper=%u con=0x%04x\n",
                  wrapper_index, con_handle);
         return;
     }
+    rdx_ble_server_phase0a_link_state_capture(link, packet, enhanced);
     multi_att_clear_ccc_config(con_handle);
     rdx_ble_server_disconnected_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
@@ -1770,8 +1828,12 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             if (size >= 11) {
                 con_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
-                rdx_ble_server_phase0a_event_matches(hdl, con_handle,
-                                                      "connection_update");
+                if (hci_subevent_le_connection_update_complete_get_status(packet) == 0 &&
+                    rdx_ble_server_phase0a_event_matches(hdl, con_handle,
+                                                         "connection_update")) {
+                    rdx_ble_server_phase0a_link_conn_params_update(
+                        rdx_ble_server_phase0b_link_find(hdl, con_handle), packet);
+                }
             }
             break;
         default:

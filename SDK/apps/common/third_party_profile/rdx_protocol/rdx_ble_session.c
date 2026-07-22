@@ -179,7 +179,7 @@ rdx_ble_async_token_t rdx_ble_session_token_capture(
     return token;
 }
 
-rdx_ble_link_state_t *rdx_ble_session_token_resolve(
+static rdx_ble_link_state_t *rdx_ble_session_token_slot_resolve(
     const rdx_ble_async_token_t *token)
 {
     rdx_ble_link_state_t *link;
@@ -189,10 +189,26 @@ rdx_ble_link_state_t *rdx_ble_session_token_resolve(
         return NULL;
     }
     link = &s_rdx_ble_links[token->slot_index];
-    if (link->slot_generation != token->slot_generation || link->connected) {
+    if (link->slot_generation != token->slot_generation) {
         return NULL;
     }
     return link;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_idle_token_resolve(
+    const rdx_ble_async_token_t *token)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_token_slot_resolve(token);
+
+    return (link && !link->connected) ? link : NULL;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(
+    const rdx_ble_async_token_t *token)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_token_slot_resolve(token);
+
+    return (link && link->connected) ? link : NULL;
 }
 
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size)
@@ -207,6 +223,38 @@ void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
 {
     if (link && link->connected) {
         link->encrypted = encrypted ? 1 : 0;
+    }
+}
+
+void rdx_ble_session_link_set_peer(rdx_ble_link_state_t *link,
+                                   u8 peer_addr_type,
+                                   const u8 peer_addr[6])
+{
+    if (!link || !link->connected || !peer_addr) {
+        return;
+    }
+    link->peer_addr_type = peer_addr_type;
+    memcpy(link->peer_addr, peer_addr, sizeof(link->peer_addr));
+}
+
+void rdx_ble_session_link_set_conn_params(rdx_ble_link_state_t *link,
+                                          u16 interval,
+                                          u16 latency,
+                                          u16 supervision_timeout)
+{
+    if (!link || !link->connected) {
+        return;
+    }
+    link->conn_interval = interval;
+    link->conn_latency = latency;
+    link->supervision_timeout = supervision_timeout;
+}
+
+void rdx_ble_session_link_set_conn_param_index(rdx_ble_link_state_t *link,
+                                                u8 conn_param_index)
+{
+    if (link && link->connected) {
+        link->conn_param_index = conn_param_index;
     }
 }
 

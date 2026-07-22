@@ -15,6 +15,9 @@ typedef struct {
     u8 encrypted;
     u8 peer_addr_type;
     u8 peer_addr[6];
+    u16 conn_interval;
+    u16 conn_latency;
+    u16 supervision_timeout;
     u8 conn_param_index;
 } rdx_ble_link_state_t;
 
@@ -41,11 +44,22 @@ u8 rdx_ble_session_active_count(void);
 u8 rdx_ble_session_link_index(const rdx_ble_link_state_t *link);
 rdx_ble_async_token_t rdx_ble_session_token_capture(
     const rdx_ble_link_state_t *link);
-rdx_ble_link_state_t *rdx_ble_session_token_resolve(
+rdx_ble_link_state_t *rdx_ble_session_idle_token_resolve(
+    const rdx_ble_async_token_t *token);
+rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(
     const rdx_ble_async_token_t *token);
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size);
 void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
                                         u8 encrypted);
+void rdx_ble_session_link_set_peer(rdx_ble_link_state_t *link,
+                                   u8 peer_addr_type,
+                                   const u8 peer_addr[6]);
+void rdx_ble_session_link_set_conn_params(rdx_ble_link_state_t *link,
+                                          u16 interval,
+                                          u16 latency,
+                                          u16 supervision_timeout);
+void rdx_ble_session_link_set_conn_param_index(rdx_ble_link_state_t *link,
+                                                u8 conn_param_index);
 
 void rdx_ble_session_on_connected(u16 con_handle);
 void rdx_ble_session_on_disconnected(u16 con_handle);

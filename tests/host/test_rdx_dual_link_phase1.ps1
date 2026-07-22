@@ -67,14 +67,27 @@ Test-Contract 'PHASE1_PER_LINK_TRANSPORT_STATE' `
      $PacketHandler -match 'rdx_ble_session_link_set_encrypted\s*\(\s*link\s*,\s*encrypted\s*\)') `
     'MTU and encryption must be stored only on the matched link slot'
 
+Test-Contract 'PHASE1_PER_LINK_PEER_AND_CONN_PARAMS' `
+    ($SessionHeaderText -match 'u8 peer_addr_type;' -and
+     $SessionHeaderText -match 'u8 peer_addr\[6\];' -and
+     $SessionHeaderText -match 'u16 conn_interval;' -and
+     $SessionHeaderText -match 'u16 conn_latency;' -and
+     $SessionHeaderText -match 'u16 supervision_timeout;' -and
+     $SessionText -match 'rdx_ble_session_link_set_peer' -and
+     $SessionText -match 'rdx_ble_session_link_set_conn_params' -and
+     $ServerText -match 'rdx_ble_server_phase0a_link_state_capture\s*\(\s*link\s*,\s*packet\s*,\s*enhanced\s*\)' -and
+     $ServerText -match 'rdx_ble_server_phase0a_link_conn_params_update') `
+    'peer identity and negotiated connection parameters must stay on the matched link slot'
+
 Test-Contract 'PHASE1_ASYNC_TOKEN_EPOCH' `
     ($SessionHeaderText -match 'rdx_ble_async_token_t' -and
      $SessionText -match 's_rdx_ble_transport_epoch' -and
      $SessionText -match 'rdx_ble_session_token_capture' -and
-     $SessionText -match 'rdx_ble_session_token_resolve' -and
+     $SessionText -match 'rdx_ble_session_idle_token_resolve' -and
+     $SessionText -match 'rdx_ble_session_link_token_resolve' -and
      $ServerText -match 'rdx_ble_session_token_capture' -and
-     $ServerText -match 'rdx_ble_session_token_resolve') `
-    'deferred advertising must use slot generation plus transport epoch validation'
+     $ServerText -match 'rdx_ble_session_idle_token_resolve') `
+    'idle advertising and connected-link work must use explicit slot generation plus transport epoch validation'
 
 Test-Contract 'PHASE1_MULTI_ATT_TRANSPORT' `
     ($PacketHandler -match 'ble_op_multi_att_set_send_mtu\s*\(\s*con_handle\s*,\s*mtu\s*\)' -and
