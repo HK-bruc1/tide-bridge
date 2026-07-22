@@ -807,9 +807,6 @@ int rdx_app_earphone_state_set_page_scan_enable()
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if RDX_CLASSIC_BT_PAGE_SCAN_ENABLE
-    lmp_hci_write_scan_enable((1 << 1) | 1);
-#endif
     return 0;
 }
 
@@ -854,9 +851,6 @@ int rdx_app_earphone_state_cancel_page_scan()
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if RDX_CLASSIC_BT_PAGE_SCAN_ENABLE
-    lmp_hci_write_scan_enable(0);
-#endif
     return 0;
 }
 
@@ -1074,9 +1068,7 @@ static int rdx_app_bt_status_event_handler(int *msg)
     y_printf("\r====== rdx_app_bt_status_event_handler event: %d \r", bt->event);
     switch (bt->event) {
     case BT_STATUS_INIT_OK:
-#if !RDX_CLASSIC_BT_PAGE_SCAN_ENABLE
         sys_timeout_add(NULL, rdx_app_bt_shutdown, 1000);
-#endif
         break;
 
     case BT_STATUS_SECOND_CONNECTED:
