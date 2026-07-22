@@ -7,56 +7,273 @@
 
 #include "rdx_ble_session.h"
 
-static rdx_ble_link_state_t s_rdx_ble_link;
+static rdx_ble_link_state_t s_rdx_ble_links[RDX_BLE_LINK_MAX];
 static rdx_ble_config_session_t s_rdx_config_session;
+static u32 s_rdx_ble_transport_epoch = 1;
+static u8 s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
+
+static void rdx_ble_session_generation_advance(rdx_ble_link_state_t *link)
+{
+    link->slot_generation++;
+    if (!link->slot_generation) {
+        link->slot_generation = 1;
+    }
+}
+
+static void rdx_ble_session_link_clear(rdx_ble_link_state_t *link)
+{
+    void *hdl = link->ble_hdl;
+    u32 generation = link->slot_generation;
+
+    memset(link, 0, sizeof(*link));
+    link->ble_hdl = hdl;
+    link->mtu_size = 20;
+    link->slot_generation = generation;
+}
+
+void rdx_ble_session_transport_init(void *primary_hdl, void *secondary_hdl)
+{
+    memset(s_rdx_ble_links, 0, sizeof(s_rdx_ble_links));
+    memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    s_rdx_ble_links[0].ble_hdl = primary_hdl;
+    s_rdx_ble_links[1].ble_hdl = secondary_hdl;
+    s_rdx_ble_links[0].mtu_size = 20;
+    s_rdx_ble_links[1].mtu_size = 20;
+    s_rdx_ble_links[0].slot_generation = 1;
+    s_rdx_ble_links[1].slot_generation = 1;
+    s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    s_rdx_ble_transport_epoch++;
+    if (!s_rdx_ble_transport_epoch) {
+        s_rdx_ble_transport_epoch = 1;
+    }
+}
+
+void rdx_ble_session_transport_deinit(void)
+{
+    s_rdx_ble_transport_epoch++;
+    if (!s_rdx_ble_transport_epoch) {
+        s_rdx_ble_transport_epoch = 1;
+    }
+    memset(s_rdx_ble_links, 0, sizeof(s_rdx_ble_links));
+    memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_find_by_hdl(void *hdl)
+{
+    u8 index;
+
+    if (!hdl) {
+        return NULL;
+    }
+    for (index = 0; index < RDX_BLE_LINK_MAX; index++) {
+        if (s_rdx_ble_links[index].ble_hdl == hdl) {
+            return &s_rdx_ble_links[index];
+        }
+    }
+    return NULL;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_find(void *hdl, u16 con_handle)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_find_by_hdl(hdl);
+
+    if (!link || !link->connected || link->con_handle != con_handle) {
+        return NULL;
+    }
+    return link;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_find_by_con_handle(u16 con_handle)
+{
+    u8 index;
+
+    if (!con_handle) {
+        return NULL;
+    }
+    for (index = 0; index < RDX_BLE_LINK_MAX; index++) {
+        if (s_rdx_ble_links[index].connected &&
+            s_rdx_ble_links[index].con_handle == con_handle) {
+            return &s_rdx_ble_links[index];
+        }
+    }
+    return NULL;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_link_accept(void *hdl, u16 con_handle)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_find_by_hdl(hdl);
+
+    if (!link || !con_handle || link->connected ||
+        rdx_ble_session_find_by_con_handle(con_handle)) {
+        return NULL;
+    }
+    rdx_ble_session_generation_advance(link);
+    link->con_handle = con_handle;
+    link->mtu_size = 20;
+    link->connected = 1;
+    link->encrypted = 0;
+    link->peer_addr_type = 0;
+    memset(link->peer_addr, 0, sizeof(link->peer_addr));
+    link->conn_param_index = 0;
+    return link;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_link_release(void *hdl, u16 con_handle)
+{
+    rdx_ble_link_state_t *link;
+
+    link = hdl ? rdx_ble_session_find(hdl, con_handle) :
+           rdx_ble_session_find_by_con_handle(con_handle);
+
+    if (!link) {
+        return NULL;
+    }
+    if (rdx_ble_session_link_index(link) == s_rdx_compat_link_index) {
+        s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
+        memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    }
+    rdx_ble_session_generation_advance(link);
+    rdx_ble_session_link_clear(link);
+    return link;
+}
+
+u8 rdx_ble_session_active_count(void)
+{
+    u8 index;
+    u8 count = 0;
+
+    for (index = 0; index < RDX_BLE_LINK_MAX; index++) {
+        if (s_rdx_ble_links[index].connected) {
+            count++;
+        }
+    }
+    return count;
+}
+
+u8 rdx_ble_session_link_index(const rdx_ble_link_state_t *link)
+{
+    u8 index;
+
+    for (index = 0; index < RDX_BLE_LINK_MAX; index++) {
+        if (&s_rdx_ble_links[index] == link) {
+            return index;
+        }
+    }
+    return RDX_BLE_LINK_INVALID_INDEX;
+}
+
+rdx_ble_async_token_t rdx_ble_session_token_capture(
+    const rdx_ble_link_state_t *link)
+{
+    rdx_ble_async_token_t token = {
+        .slot_index = RDX_BLE_LINK_INVALID_INDEX,
+        .slot_generation = 0,
+        .transport_epoch = s_rdx_ble_transport_epoch,
+    };
+
+    if (link) {
+        token.slot_index = rdx_ble_session_link_index(link);
+        token.slot_generation = link->slot_generation;
+    }
+    return token;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_token_resolve(
+    const rdx_ble_async_token_t *token)
+{
+    rdx_ble_link_state_t *link;
+
+    if (!token || token->slot_index >= RDX_BLE_LINK_MAX ||
+        token->transport_epoch != s_rdx_ble_transport_epoch) {
+        return NULL;
+    }
+    link = &s_rdx_ble_links[token->slot_index];
+    if (link->slot_generation != token->slot_generation || link->connected) {
+        return NULL;
+    }
+    return link;
+}
+
+void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size)
+{
+    if (link && link->connected) {
+        link->mtu_size = mtu_size;
+    }
+}
+
+void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
+                                        u8 encrypted)
+{
+    if (link && link->connected) {
+        link->encrypted = encrypted ? 1 : 0;
+    }
+}
 
 void rdx_ble_session_reset(void)
 {
-    memset(&s_rdx_ble_link, 0, sizeof(s_rdx_ble_link));
-    memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    rdx_ble_session_transport_deinit();
 }
 
 void rdx_ble_session_on_connected(u16 con_handle)
 {
-    rdx_ble_session_reset();
-    s_rdx_ble_link.con_handle = con_handle;
-    s_rdx_ble_link.connected = 1;
+    rdx_ble_link_state_t *link;
+    u8 index;
+
+    link = rdx_ble_session_find_by_con_handle(con_handle);
+    if (!link) {
+        for (index = 0; index < RDX_BLE_LINK_MAX; index++) {
+            if (!s_rdx_ble_links[index].connected) {
+                link = &s_rdx_ble_links[index];
+                rdx_ble_session_generation_advance(link);
+                link->con_handle = con_handle;
+                link->mtu_size = 20;
+                link->connected = 1;
+                break;
+            }
+        }
+    }
+    s_rdx_compat_link_index = rdx_ble_session_link_index(link);
+    memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
 }
 
 void rdx_ble_session_on_disconnected(u16 con_handle)
 {
-    if (!s_rdx_ble_link.connected ||
-        s_rdx_ble_link.con_handle != con_handle) {
+    rdx_ble_link_state_t *link = rdx_ble_session_find_by_con_handle(con_handle);
+
+    if (!link) {
         return;
     }
-    rdx_ble_session_reset();
+    rdx_ble_session_link_release(link->ble_hdl, con_handle);
 }
 
 u8 rdx_ble_session_is_current(u16 con_handle)
 {
-    return (s_rdx_ble_link.connected &&
-            s_rdx_ble_link.con_handle == con_handle) ? 1 : 0;
+    const rdx_ble_link_state_t *link = rdx_ble_session_get_link_state();
+
+    return (link && link->connected && link->con_handle == con_handle) ? 1 : 0;
 }
 
 void rdx_ble_session_set_mtu(u16 con_handle, u16 mtu_size)
 {
-    if (rdx_ble_session_is_current(con_handle)) {
-        s_rdx_ble_link.mtu_size = mtu_size;
-    }
+    rdx_ble_session_link_set_mtu(rdx_ble_session_find_by_con_handle(con_handle),
+                                 mtu_size);
 }
 
 void rdx_ble_session_set_encrypted(u16 con_handle, u8 encrypted)
 {
-    if (rdx_ble_session_is_current(con_handle)) {
-        s_rdx_ble_link.encrypted = encrypted ? 1 : 0;
-    }
+    rdx_ble_session_link_set_encrypted(
+        rdx_ble_session_find_by_con_handle(con_handle), encrypted);
 }
 
 u8 rdx_ble_session_activate_rdx(u16 con_handle)
 {
-    if (!rdx_ble_session_is_current(con_handle)) {
+    rdx_ble_link_state_t *link = rdx_ble_session_find_by_con_handle(con_handle);
+
+    if (!link) {
         return 0;
     }
+    s_rdx_compat_link_index = rdx_ble_session_link_index(link);
     s_rdx_config_session.active = 1;
     return 1;
 }
@@ -83,7 +300,10 @@ void rdx_ble_session_set_stream_tx_ready(u16 con_handle, u8 ready)
 
 const rdx_ble_link_state_t *rdx_ble_session_get_link_state(void)
 {
-    return &s_rdx_ble_link;
+    if (s_rdx_compat_link_index >= RDX_BLE_LINK_MAX) {
+        return NULL;
+    }
+    return &s_rdx_ble_links[s_rdx_compat_link_index];
 }
 
 const rdx_ble_config_session_t *rdx_ble_session_get_config_state(void)
