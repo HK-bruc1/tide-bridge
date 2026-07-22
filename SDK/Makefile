@@ -1284,6 +1284,8 @@ LIBS := \
 
 
 c_OBJS    := $(c_SRC_FILES:%.c=%.c.o)
+# JL clang truncates long Windows output paths; keep the RCSP subtree relative to BUILD_DIR.
+c_OBJS    := $(patsubst apps/common/third_party_profile/jieli/rcsp/%.c.o,rcsp/%.c.o,$(c_OBJS))
 S_OBJS    := $(S_SRC_FILES:%.S=%.S.o)
 s_OBJS    := $(s_SRC_FILES:%.s=%.s.o)
 cpp_OBJS  := $(cpp_SRC_FILES:%.cpp=%.cpp.o)
@@ -1356,6 +1358,11 @@ $(OUT_ELF): $(OBJS)
 	$(QUITE) $(LD) -o $(OUT_ELF) $(OBJS) $(LFLAGS) $(LIBPATHS) $(LIBS)
 endif
 
+
+$(BUILD_DIR)/rcsp/%.c.o : apps/common/third_party_profile/jieli/rcsp/%.c
+	$(info +CC $<)
+	$(QUITE) $(MKDIR) $(@D)
+	$(QUITE) $(CC) $(CFLAGS) $(DEFINES) $(INCLUDES) -MMD -MF $(@:.o=.d) -c $< -o $@
 
 $(BUILD_DIR)/%.c.o : %.c
 	$(info +CC $<)
