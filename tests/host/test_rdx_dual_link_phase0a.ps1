@@ -105,11 +105,11 @@ Test-Contract 'PHASE0A_EVENT_ROUTE_FILTER' `
      $ServerText -match 'wrapper=%u cb_hdl=%p event_con=0x%04x wrapper_con=0x%04x') `
     'event acceptance must log and compare wrapper identity plus connection handle'
 
-Test-Contract 'PHASE0A_PACKET_PATH_IS_OBSERVATION_ONLY' `
+Test-Contract 'PHASE0A_PACKET_PATH_PRESERVES_TRANSPORT_ROUTING' `
     ($PacketHandler -match 'rdx_ble_server_phase0a_link_connected' -and
      $PacketHandler -match 'rdx_ble_server_phase0a_link_disconnected' -and
-     $PacketHandler -notmatch 'rdx_protocol_set_ble_sent|os_sem_post|rdx_hogp_on_|rdx_ble_session_on_') `
-    'the Phase 0A packet path must not mutate the RDX/HOGP single-link runtime'
+     $PacketHandler -notmatch 'rdx_ble_session_on_connected|rdx_ble_session_on_disconnected') `
+    'later phases may attach capabilities but must retain the Phase 0A wrapper-aware transport handlers'
 
 Test-Contract 'PHASE0A_CONNECTION_ADV_DEFERRED' `
     ($ConnectHandler -match 'hdl\s*!=\s*g_rdx_ble_advertising_hdl' -and
@@ -122,10 +122,8 @@ Test-Contract 'PHASE0A_HOGP_ENUMERATION_CONTROL_PLANE' `
     ($HogpControlHarness -match 'HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE' -and
      $HogpControlHarness -match 'multi_att_set_ccc_config\s*\(\s*connection_handle' -and
      $HogpControlHarness -match 'RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION' -and
-     $HogpControlHarness -notmatch 'rdx_hogp_att_write|rdx_hogp_on_|rdx_ble_session|rdx_protocol' -and
-     $WriteCallback -match 'rdx_ble_server_phase0a_hogp_control_write' -and
-     $WriteCallback -match 'write rejected att=0x%04x; business runtime detached') `
-    'Windows-required HOGP control writes may enumerate per connection while RDX and both business singletons stay detached'
+     $WriteCallback -match 'rdx_ble_server_phase0a_hogp_control_write') `
+    'the Phase 0A per-connection HOGP enumeration control plane must remain available after capability integration'
 
 Test-Contract 'PHASE0A_STATIC_READS_DO_NOT_ATTACH' `
     ($ReadCallback -match '(?s)#if\s+TCFG_RDX_HOGP_DUAL_LINK_ENABLE.*?rdx_ble_server_phase0a_event_matches.*?#else' -and

@@ -6,6 +6,19 @@
 #define RDX_BLE_LINK_MAX               2
 #define RDX_BLE_LINK_INVALID_INDEX     0xff
 
+typedef enum {
+    RDX_BLE_CAPABILITY_NONE = 0,
+    RDX_BLE_CAPABILITY_RDX,
+    RDX_BLE_CAPABILITY_HID,
+} rdx_ble_capability_t;
+
+typedef enum {
+    RDX_BLE_CLAIM_OK = 0,
+    RDX_BLE_CLAIM_BUSY,
+    RDX_BLE_CLAIM_CONFLICT,
+    RDX_BLE_CLAIM_STALE,
+} rdx_ble_claim_result_t;
+
 typedef struct {
     void *ble_hdl;
     u16 con_handle;
@@ -19,6 +32,11 @@ typedef struct {
     u16 conn_latency;
     u16 supervision_timeout;
     u8 conn_param_index;
+    u8 capability;
+    u8 hid_pairing_pending;
+    u8 rdx_runtime_active;
+    u8 rdx_ccc_configured;
+    u8 rdx_stream_tx_ready;
 } rdx_ble_link_state_t;
 
 typedef struct {
@@ -42,6 +60,21 @@ rdx_ble_link_state_t *rdx_ble_session_find(void *hdl, u16 con_handle);
 rdx_ble_link_state_t *rdx_ble_session_find_by_con_handle(u16 con_handle);
 u8 rdx_ble_session_active_count(void);
 u8 rdx_ble_session_link_index(const rdx_ble_link_state_t *link);
+rdx_ble_claim_result_t rdx_ble_session_claim_rdx(
+    rdx_ble_link_state_t *link,
+    u32 expected_slot_generation);
+rdx_ble_claim_result_t rdx_ble_session_claim_hid(
+    rdx_ble_link_state_t *link,
+    u32 expected_slot_generation);
+rdx_ble_link_state_t *rdx_ble_session_get_rdx_link(void);
+rdx_ble_link_state_t *rdx_ble_session_get_hid_link(void);
+u8 rdx_ble_session_link_is_rdx(const rdx_ble_link_state_t *link);
+u8 rdx_ble_session_link_is_hid(const rdx_ble_link_state_t *link);
+void rdx_ble_session_link_set_hid_pairing_pending(
+    rdx_ble_link_state_t *link,
+    u8 pending);
+u8 rdx_ble_session_link_is_hid_pairing_pending(
+    const rdx_ble_link_state_t *link);
 rdx_ble_async_token_t rdx_ble_session_token_capture(
     const rdx_ble_link_state_t *link);
 rdx_ble_link_state_t *rdx_ble_session_idle_token_resolve(

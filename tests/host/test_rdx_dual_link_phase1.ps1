@@ -101,9 +101,11 @@ Test-Contract 'PHASE1_DISCONNECT_ADV_TOKEN' `
         $DisconnectHandler.IndexOf('rdx_ble_session_link_release(hdl, con_handle)')) `
     'disconnect advertising must capture the released slot generation after release'
 
-Test-Contract 'PHASE1_CAPABILITY_DETACHED' `
-    ($DualLinkBuild -notmatch 'rdx_protocol_packet_recv|rdx_hogp_on_encryption_change|rdx_ble_session_activate_rdx') `
-    'Phase 1 must not attach RDX or HOGP business capability'
+Test-Contract 'PHASE1_CAPABILITY_REGISTRY_BOUNDARY' `
+    ($SessionText -match 'rdx_ble_session_claim_rdx' -and
+     $SessionText -match 'rdx_ble_session_claim_hid' -and
+     $ServerText -notmatch 'g_rdx_ble_phase0b_links') `
+    'later capability phases must keep ownership in the Phase 1 registry'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

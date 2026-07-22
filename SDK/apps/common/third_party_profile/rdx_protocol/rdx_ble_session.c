@@ -10,6 +10,8 @@
 static rdx_ble_link_state_t s_rdx_ble_links[RDX_BLE_LINK_MAX];
 static rdx_ble_config_session_t s_rdx_config_session;
 static u32 s_rdx_ble_transport_epoch = 1;
+static u8 s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
+static u8 s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
 
 static void rdx_ble_session_generation_advance(rdx_ble_link_state_t *link)
@@ -41,6 +43,8 @@ void rdx_ble_session_transport_init(void *primary_hdl, void *secondary_hdl)
     s_rdx_ble_links[1].mtu_size = 20;
     s_rdx_ble_links[0].slot_generation = 1;
     s_rdx_ble_links[1].slot_generation = 1;
+    s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
     s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
     s_rdx_ble_transport_epoch++;
     if (!s_rdx_ble_transport_epoch) {
@@ -56,6 +60,8 @@ void rdx_ble_session_transport_deinit(void)
     }
     memset(s_rdx_ble_links, 0, sizeof(s_rdx_ble_links));
     memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
     s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
 }
 
@@ -129,6 +135,12 @@ rdx_ble_link_state_t *rdx_ble_session_link_release(void *hdl, u16 con_handle)
     if (!link) {
         return NULL;
     }
+    if (rdx_ble_session_link_index(link) == s_rdx_rdx_link_index) {
+        s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    }
+    if (rdx_ble_session_link_index(link) == s_rdx_hid_link_index) {
+        s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    }
     if (rdx_ble_session_link_index(link) == s_rdx_compat_link_index) {
         s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
         memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
@@ -161,6 +173,112 @@ u8 rdx_ble_session_link_index(const rdx_ble_link_state_t *link)
         }
     }
     return RDX_BLE_LINK_INVALID_INDEX;
+}
+
+static rdx_ble_claim_result_t rdx_ble_session_claim(
+    rdx_ble_link_state_t *link,
+    u32 expected_slot_generation,
+    rdx_ble_capability_t capability)
+{
+    u8 index = rdx_ble_session_link_index(link);
+    u8 *owner_index;
+    u8 other_owner_index;
+
+    if (index >= RDX_BLE_LINK_MAX || !link->connected ||
+        link->slot_generation != expected_slot_generation) {
+        return RDX_BLE_CLAIM_STALE;
+    }
+    if (link->capability == capability) {
+        return RDX_BLE_CLAIM_OK;
+    }
+    if (link->capability != RDX_BLE_CAPABILITY_NONE) {
+        return RDX_BLE_CLAIM_CONFLICT;
+    }
+
+    if (capability == RDX_BLE_CAPABILITY_RDX) {
+        owner_index = &s_rdx_rdx_link_index;
+        other_owner_index = s_rdx_hid_link_index;
+    } else if (capability == RDX_BLE_CAPABILITY_HID) {
+        owner_index = &s_rdx_hid_link_index;
+        other_owner_index = s_rdx_rdx_link_index;
+    } else {
+        return RDX_BLE_CLAIM_CONFLICT;
+    }
+    if (*owner_index < RDX_BLE_LINK_MAX) {
+        return RDX_BLE_CLAIM_BUSY;
+    }
+    if (other_owner_index == index) {
+        return RDX_BLE_CLAIM_CONFLICT;
+    }
+
+    link->capability = capability;
+    *owner_index = index;
+    return RDX_BLE_CLAIM_OK;
+}
+
+rdx_ble_claim_result_t rdx_ble_session_claim_rdx(
+    rdx_ble_link_state_t *link,
+    u32 expected_slot_generation)
+{
+    return rdx_ble_session_claim(link, expected_slot_generation,
+                                 RDX_BLE_CAPABILITY_RDX);
+}
+
+rdx_ble_claim_result_t rdx_ble_session_claim_hid(
+    rdx_ble_link_state_t *link,
+    u32 expected_slot_generation)
+{
+    return rdx_ble_session_claim(link, expected_slot_generation,
+                                 RDX_BLE_CAPABILITY_HID);
+}
+
+static rdx_ble_link_state_t *rdx_ble_session_owner_get(u8 owner_index,
+                                                       u8 capability)
+{
+    rdx_ble_link_state_t *link;
+
+    if (owner_index >= RDX_BLE_LINK_MAX) {
+        return NULL;
+    }
+    link = &s_rdx_ble_links[owner_index];
+    return (link->connected && link->capability == capability) ? link : NULL;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_get_rdx_link(void)
+{
+    return rdx_ble_session_owner_get(s_rdx_rdx_link_index,
+                                     RDX_BLE_CAPABILITY_RDX);
+}
+
+rdx_ble_link_state_t *rdx_ble_session_get_hid_link(void)
+{
+    return rdx_ble_session_owner_get(s_rdx_hid_link_index,
+                                     RDX_BLE_CAPABILITY_HID);
+}
+
+u8 rdx_ble_session_link_is_rdx(const rdx_ble_link_state_t *link)
+{
+    return (link && link == rdx_ble_session_get_rdx_link()) ? 1 : 0;
+}
+
+u8 rdx_ble_session_link_is_hid(const rdx_ble_link_state_t *link)
+{
+    return (link && link == rdx_ble_session_get_hid_link()) ? 1 : 0;
+}
+
+void rdx_ble_session_link_set_hid_pairing_pending(
+    rdx_ble_link_state_t *link,
+    u8 pending)
+{
+    if (link && link->connected) {
+        link->hid_pairing_pending = pending ? 1 : 0;
+    }
+}
+
+u8 rdx_ble_session_link_is_hid_pairing_pending(
+    const rdx_ble_link_state_t *link)
+{
+    return (link && link->connected && link->hid_pairing_pending) ? 1 : 0;
 }
 
 rdx_ble_async_token_t rdx_ble_session_token_capture(
@@ -317,10 +435,16 @@ void rdx_ble_session_set_encrypted(u16 con_handle, u8 encrypted)
 u8 rdx_ble_session_activate_rdx(u16 con_handle)
 {
     rdx_ble_link_state_t *link = rdx_ble_session_find_by_con_handle(con_handle);
+    rdx_ble_claim_result_t claim_result;
 
     if (!link) {
         return 0;
     }
+    claim_result = rdx_ble_session_claim_rdx(link, link->slot_generation);
+    if (claim_result != RDX_BLE_CLAIM_OK) {
+        return 0;
+    }
+    link->rdx_runtime_active = 1;
     s_rdx_compat_link_index = rdx_ble_session_link_index(link);
     s_rdx_config_session.active = 1;
     return 1;
@@ -328,8 +452,11 @@ u8 rdx_ble_session_activate_rdx(u16 con_handle)
 
 u8 rdx_ble_session_is_rdx_active(u16 con_handle)
 {
-    return (rdx_ble_session_is_current(con_handle) &&
-            s_rdx_config_session.active) ? 1 : 0;
+    rdx_ble_link_state_t *link =
+        rdx_ble_session_find_by_con_handle(con_handle);
+
+    return (rdx_ble_session_link_is_rdx(link) &&
+            link->rdx_runtime_active) ? 1 : 0;
 }
 
 void rdx_ble_session_set_config_ccc(u16 con_handle, u8 configured)

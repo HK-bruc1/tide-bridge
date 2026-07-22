@@ -567,10 +567,15 @@ void rdx_hogp_dump_state(void)
                  s_hogp_app_ble_hdl);
 }
 
-void rdx_hogp_on_connected(u16 con_handle, u8 encrypted)
+void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl,
+                                    u16 con_handle,
+                                    u8 encrypted)
 {
     u16 ccc_config;
 
+    if (!app_ble_hdl) {
+        return;
+    }
     if (s_hogp_connected && s_hid_con_handle == con_handle) {
         return;
     }
@@ -578,6 +583,7 @@ void rdx_hogp_on_connected(u16 con_handle, u8 encrypted)
     if (s_peer_identity_con_handle != con_handle) {
         rdx_hogp_peer_identity_reset();
     }
+    s_hogp_app_ble_hdl = app_ble_hdl;
     s_hogp_connected = 1;
     s_hid_con_handle = con_handle;
     ccc_config = multi_att_get_ccc_config(
@@ -597,6 +603,11 @@ void rdx_hogp_on_connected(u16 con_handle, u8 encrypted)
     RDX_HOGP_LOG("conn complete hdl=0x%04x restored_ccc=0x%04x",
                  con_handle, ccc_config);
     rdx_hogp_dump_state();
+}
+
+void rdx_hogp_on_connected(u16 con_handle, u8 encrypted)
+{
+    rdx_hogp_on_connected_with_hdl(s_hogp_app_ble_hdl, con_handle, encrypted);
 }
 
 void rdx_hogp_on_disconnected(u16 con_handle)
@@ -681,6 +692,11 @@ u16  rdx_hogp_att_read(hci_con_handle_t ch, u16 h, u16 o, u8 *b, u16 bs) {
 }
 int  rdx_hogp_att_write(hci_con_handle_t ch, u16 h, u16 tm, u16 o, u8 *b, u16 bs) {
     (void)ch; (void)h; (void)tm; (void)o; (void)b; (void)bs; return 0;
+}
+void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl, u16 con_handle, u8 encrypted) {
+    (void)app_ble_hdl;
+    (void)con_handle;
+    (void)encrypted;
 }
 void rdx_hogp_on_connected(u16 con_handle, u8 encrypted) {
     (void)con_handle;

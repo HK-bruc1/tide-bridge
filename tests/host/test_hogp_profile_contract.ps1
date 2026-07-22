@@ -295,7 +295,7 @@ Test-Contract 'PHASE3_OUTPUT_REPORT_READ_ROUTED' `
     'Output Report reads must reach the HOGP handler through the unified server'
 
 $OnConnectedBody = Get-SourceSlice $KeyboardText `
-    'void rdx_hogp_on_connected(' 'void rdx_hogp_on_disconnected('
+    'void rdx_hogp_on_connected_with_hdl(' 'void rdx_hogp_on_disconnected('
 $OnEncryptionBody = Get-SourceSlice $KeyboardText `
     'void rdx_hogp_on_encryption_change(' 'void rdx_hogp_on_sm_event('
 $CccStoreContract = `
@@ -330,7 +330,8 @@ Test-Contract 'PHASE3_BONDED_CCC_RESTORE_COVERS_BOTH_EVENT_ORDERS' `
      $KeyboardText -match 'rdx_hogp_subscription_store_contains\s*\(' -and
      $KeyboardText -match 'multi_att_set_ccc_config\s*\(\s*s_hid_con_handle' -and
      $ServerText -match 'rdx_hogp_peer_has_persisted_subscription\s*\(' -and
-     $ServerText -match 'rdx_ble_server_hogp_attach\s*\(\s*enc_handle\s*\)') `
+     ($ServerText -match 'rdx_ble_server_hogp_attach\s*\(\s*enc_handle\s*\)' -or
+      $ServerText -match 'rdx_ble_server_phase2_hid_attach\s*\(\s*link\s*\)')) `
     'peer-matched CCC restore must work whether encryption or HID attach happens first'
 
 Test-Contract 'PHASE3_BONDED_CCC_USES_STABLE_SM_IDENTITY' `

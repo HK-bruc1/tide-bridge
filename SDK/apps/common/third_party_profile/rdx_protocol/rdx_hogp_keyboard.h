@@ -54,6 +54,9 @@ int  rdx_hogp_att_write(hci_con_handle_t connection_handle,
 /******************************************************************************
 * Connection / security events
 ******************************************************************************/
+void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl,
+                                    u16 con_handle,
+                                    u8 encrypted);
 void rdx_hogp_on_connected(u16 con_handle, u8 encrypted);
 void rdx_hogp_on_disconnected(u16 con_handle);
 void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status);
