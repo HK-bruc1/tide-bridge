@@ -110,6 +110,10 @@ u8 rcsp_allow_ble_spp_connect_simultaneously = 0;			// 1t1时，是否允许ble�
 	const int config_le_hci_connection_num = 1;//支持同时连接个数
 	const int config_le_sm_support_enable = 0; //是否支持加密配对
 #else
+	#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+	const int config_le_hci_connection_num = 2;//RDX + HOGP Phase 0A双Peripheral链路
+	const int config_le_sm_support_enable = 1; //HOGP后续阶段需要加密配对
+	#else
 	// const int config_le_hci_connection_num = 2;//支持同时连接个数
 	// const int config_le_sm_support_enable = 1; //是否支持加密配对
 
@@ -117,6 +121,7 @@ u8 rcsp_allow_ble_spp_connect_simultaneously = 0;			// 1t1时，是否允许ble�
 	const int config_le_hci_connection_num = 1;//支持同时连接个数
 	const int config_le_sm_support_enable = 1; //是否支持加密配对
 	//dons++-----------------------------------------------------------------
+	#endif
 #endif
 #endif
 

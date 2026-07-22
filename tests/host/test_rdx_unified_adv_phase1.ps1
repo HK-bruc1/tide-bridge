@@ -119,12 +119,12 @@ Test-Contract 'UNIFIED_PACKET_BUDGETS' `
      $maxCompleteNameLength -eq 26) `
     'candidate C must use a 23-byte current ADV, a full 31-byte Scan Response and allow 26 complete-name bytes'
 
-$AdvEnableMatch = [regex]::Match($ServerText,
-    '(?sm)int\s+rdx_ble_server_adv_enable\s*\([^)]*\)\s*\{(.*?)^\}')
-$AdvEnableBody = if ($AdvEnableMatch.Success) { $AdvEnableMatch.Groups[1].Value } else { '' }
+$AdvBuildMatch = [regex]::Match($ServerText,
+    '(?sm)static\s+int\s+rdx_ble_server_adv_enable_on_hdl\s*\([^)]*\)\s*\{(.*?)^\}')
+$AdvBuildBody = if ($AdvBuildMatch.Success) { $AdvBuildMatch.Groups[1].Value } else { '' }
 Test-Contract 'UNIFIED_PACKET_BUILDERS_SELECTED' `
-    ($AdvEnableBody -match 'len\s*=\s*rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)' -and
-     $AdvEnableBody -notmatch 'fill_unified_rsp_data|TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE') `
+    ($AdvBuildBody -match 'len\s*=\s*rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)' -and
+     $AdvBuildBody -notmatch 'fill_unified_rsp_data|TCFG_RDX_HOGP_UNIFIED_ENTRY_ENABLE') `
     'advertising must use one production Scan Response builder without a legacy fallback branch'
 
 Test-Contract 'PHASE2B_CONNECTION_HAS_NO_ADVERTISED_IDENTITY' `
@@ -142,7 +142,7 @@ Test-Contract 'PHASE2B_HID_CAPABILITY_ATTACH' `
 
 Test-Contract 'PHASE2B_UNIFIED_ADV_SINGLE_SERVER_ENTRY' `
     ($ServerText -notmatch 'rdx_hogp_adv_start|rdx_hogp_adv_stop|rdx_ble_mode_start_hogp_advertising' -and
-     $AdvEnableBody -match 'rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)') `
+     $AdvBuildBody -match 'rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)') `
     'all advertising must use the RDX server unified ADV/RSP builder'
 
 $nameBufferOk = $ServerHeaderText -match 'char\s+ble_local_name\s*\[\s*BLE_LOCAL_NAME_MAX_LEN\s*\+\s*1\s*\]' -and

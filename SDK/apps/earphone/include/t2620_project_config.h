@@ -90,6 +90,16 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+/*
+ * Phase 0A POC: validate that two app_ble_hdl wrappers can expose the same
+ * composite RDX + HOGP GATT database on two simultaneous Peripheral links.
+ * Business writes and the existing single-link RDX/HOGP runtime stay
+ * detached until the Phase 0B ATT-isolation work is complete.
+ */
+#ifndef TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+#define TCFG_RDX_HOGP_DUAL_LINK_ENABLE             1
+#endif
+
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1
 #endif
