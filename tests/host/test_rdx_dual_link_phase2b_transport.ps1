@@ -58,11 +58,11 @@ $PacketHandlerBody = Get-SourceSlice $ServerText `
     'static void rdx_ble_server_phase0a_packet_handler(' `
     'static void rdx_ble_server_sm_event_callback('
 $SendBody = Get-SourceSlice $ServerText `
-    'int rdx_ble_server_send(' `
-    'int rdx_ble_server_ota_send('
+    'static int rdx_ble_server_send_internal(' `
+    'int rdx_ble_server_send(u8 *data, u32 len)'
 $OtaSendBody = Get-SourceSlice $ServerText `
-    'int rdx_ble_server_ota_send(' `
-    'void rdx_ble_server_app_disconnect('
+    'static int rdx_ble_server_ota_send_internal(' `
+    'int rdx_ble_server_ota_send(u8 *data, u32 len)'
 $RdxWriteBody = Get-SourceSlice $ServerText `
     'static int rdx_ble_server_phase2_rdx_write(' `
     '/* Phase 0A still exposes'

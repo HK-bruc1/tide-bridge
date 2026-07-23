@@ -55,6 +55,7 @@
 #include "rdx_util.h"
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
+#include "rdx_ble_session.h"
 #include "driver/device/usb/usb.h"
 
 #include "rdx_uxfile.h"
@@ -115,6 +116,8 @@ OTA_UpgradePara otaPara;
 
 static u16 rdx_ota_get_data_timer = 0; //ota data response timer
 static u32 pack_cnt = 0; //for ota data transfer timeout timer rerun count.
+static rdx_ble_async_token_t g_rdx_ota_session_token;
+static u8 g_rdx_ota_session_token_valid = 0;
 
 /******************************************************************************
 * Function Section
@@ -130,6 +133,43 @@ extern const usb_dev rdx_webusb_get_usb_id(void);
 extern u16 rdx_ble_server_get_conn_handle(void);
 
 void rdx_ota_stop(void);
+
+static void rdx_ota_session_clear(void)
+{
+    g_rdx_ota_session_token_valid = 0;
+    g_rdx_ota_session_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
+    g_rdx_ota_session_token.slot_generation = 0;
+    g_rdx_ota_session_token.transport_epoch = 0;
+}
+
+static u8 rdx_ota_session_bind_current(void)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_ble_session_rdx_token_capture(&g_rdx_ota_session_token, 1)) {
+        rdx_ota_session_clear();
+        return 0;
+    }
+#else
+    g_rdx_ota_session_token.slot_index = 0;
+    g_rdx_ota_session_token.slot_generation = 0;
+    g_rdx_ota_session_token.transport_epoch = 0;
+#endif
+    g_rdx_ota_session_token_valid = 1;
+    return 1;
+}
+
+static u8 rdx_ota_session_is_current(void)
+{
+    if (!g_rdx_ota_session_token_valid) {
+        return 0;
+    }
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    return rdx_ble_session_rdx_token_resolve(
+               &g_rdx_ota_session_token, 1) ? 1 : 0;
+#else
+    return 1;
+#endif
+}
 
 /**************************************************************************
  * function: _rdx_ota_split_params
@@ -302,12 +342,16 @@ int rdx_ota_data_response_and_request(void)
 	/*----------------------------------------------------------------*/
 	/* Code Body                                                      */
 	/*----------------------------------------------------------------*/
+    if (!rdx_ota_session_is_current()) {
+        y_printf("[BLE_PHASE2B] drop stale OTA response\r");
+        return -1;
+    }
     memset(buf, 0, 100);
     strncpy(buf, CMD_UP_OTA_DATA_REQ, len);
     sprintf(buf + len, "%d#%d#", otaPara.state, otaPara.cur_pack_num);
     len = strlen(buf);
-    rdx_ble_server_ota_send((u8*)buf, len);
-    return 0;
+    return rdx_ble_server_ota_send_for_token(
+        (u8*)buf, len, &g_rdx_ota_session_token);
 }
 
 /**************************************************************************
@@ -843,6 +887,10 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 	switch (type){
 		case OTA_UPGRADE_BEGIN:
 			{
+                if (!rdx_ota_session_bind_current()) {
+                    y_printf("[BLE_PHASE2B] drop OTA begin without RDX owner\r");
+                    break;
+                }
                 rdx_ota_get_data_timer_start();
 				rdx_ota_upgrade_cmd_handler(recv_data, recv_len);
 			}
@@ -850,6 +898,10 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 
 		case OTA_DATA_DL:
 			{
+				if (!rdx_ota_session_is_current()) {
+					y_printf("[BLE_PHASE2B] drop stale OTA data\r");
+					break;
+				}
 				rdx_ota_get_data_handler(recv_data, recv_len);
 			}
 			break;
@@ -876,6 +928,7 @@ void rdx_ota_stop(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     log_info("ota stop \r");
+    rdx_ota_session_clear();
     rdx_ota_get_data_timer_stop();
     pack_cnt = 0;
 
@@ -903,6 +956,7 @@ void rdx_ota_init(void)
     memset(&otaPara, 0, sizeof(OTA_UpgradePara));
     rdx_ota_get_data_timer = 0;
     pack_cnt = 0;
+    rdx_ota_session_clear();
 }
 
 /**************************************************************************

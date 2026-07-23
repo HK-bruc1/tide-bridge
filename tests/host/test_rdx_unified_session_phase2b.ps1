@@ -199,8 +199,8 @@ Test-Contract 'PHASE2B_CCC_RUNTIME_NOT_CLEARED_ON_DISCONNECT' `
      $KeyboardText -match 'multi_att_get_ccc_config\s*\(\s*con_handle\s*,\s*HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE\s*\)') `
     'disconnect must not erase the current stack runtime CCC and HID attach must query only its current handle'
 
-$SendBody = Get-FunctionBody $ServerText 'int\s+rdx_ble_server_send\s*\([^)]*\)'
-$OtaSendBody = Get-FunctionBody $ServerText 'int\s+rdx_ble_server_ota_send\s*\([^)]*\)'
+$SendBody = Get-FunctionBody $ServerText 'static\s+int\s+rdx_ble_server_send_internal\s*\([^)]*\)'
+$OtaSendBody = Get-FunctionBody $ServerText 'static\s+int\s+rdx_ble_server_ota_send_internal\s*\([^)]*\)'
 $InactiveSendGuard = Get-SourceSlice $SendBody `
     'if (!rdx_ble_session_is_rdx_active(' `
     '//is data none?'

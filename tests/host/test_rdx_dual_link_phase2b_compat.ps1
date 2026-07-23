@@ -50,8 +50,8 @@ $ActiveLinkBody = Get-SourceSlice $ServerText `
     'u8 rdx_ble_server_has_active_link(void)' `
     '/**************************************************************************'
 $SendBody = Get-SourceSlice $ServerText `
-    'int rdx_ble_server_send(' `
-    'int rdx_ble_server_ota_send('
+    'static int rdx_ble_server_send_internal(' `
+    'int rdx_ble_server_send(u8 *data, u32 len)'
 $RdxWriteBody = Get-SourceSlice $ServerText `
     'static int rdx_ble_server_phase2_rdx_write(' `
     '/* Phase 0A still exposes'

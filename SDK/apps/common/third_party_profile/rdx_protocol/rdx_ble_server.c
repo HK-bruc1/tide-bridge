@@ -1209,6 +1209,15 @@ void rdx_ble_server_disconnected_delay_handle(void* priv)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    /* A disconnect cleanup may run after the freed slot has already been
+     * reused.  Never let that delayed callback clear the new RDX owner's
+     * upload/bulk buffers.  The old session's synchronous detach path has
+     * already invalidated its token; if a replacement owner is present, the
+     * replacement owns all remaining runtime state. */
+    if (rdx_ble_session_get_rdx_link()) {
+        r_printf("[BLE_PHASE2B] skip stale delayed RDX cleanup: new owner active\r");
+        return;
+    }
     if (k->onoff == TRANSFER_BY_WIFI_ON) {
         r_printf("[BLE] disconnected_delay_handle: WiFi transfer active, skip file cleanup\n");
         return;
@@ -3494,7 +3503,10 @@ void rdx_ble_server_reset_send_fail_cnt(void)
  * RETURNS
  *  成功返回0，失败返回错误码
 **************************************************************************/
-int rdx_ble_server_send(u8 *data, u32 len)
+static int rdx_ble_server_send_internal(
+    u8 *data,
+    u32 len,
+    const rdx_ble_async_token_t *expected_token)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
@@ -3511,6 +3523,13 @@ int rdx_ble_server_send(u8 *data, u32 len)
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
         y_printf("[RDX_SESSION] send skipped: runtime not active\n");
+        return -1;
+    }
+    if (expected_token &&
+        (snapshot.token.slot_index != expected_token->slot_index ||
+         snapshot.token.slot_generation != expected_token->slot_generation ||
+         snapshot.token.transport_epoch != expected_token->transport_epoch)) {
+        r_printf("[BLE_PHASE2B] drop stale token-bound RDX send\r");
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
@@ -3565,6 +3584,20 @@ int rdx_ble_server_send(u8 *data, u32 len)
     return ret;
 }
 
+int rdx_ble_server_send(u8 *data, u32 len)
+{
+    return rdx_ble_server_send_internal(data, len, NULL);
+}
+
+int rdx_ble_server_send_for_token(u8 *data, u32 len,
+                                  const rdx_ble_async_token_t *token)
+{
+    if (!token) {
+        return -1;
+    }
+    return rdx_ble_server_send_internal(data, len, token);
+}
+
 /**************************************************************************
  * function: rdx_ble_server_ota_send
  * description: 
@@ -3572,7 +3605,10 @@ int rdx_ble_server_send(u8 *data, u32 len)
  * param (u32) len
  * return (*)
  **************************************************************************/
-int rdx_ble_server_ota_send(u8 *data, u32 len)
+static int rdx_ble_server_ota_send_internal(
+    u8 *data,
+    u32 len,
+    const rdx_ble_async_token_t *expected_token)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
@@ -3592,6 +3628,13 @@ int rdx_ble_server_ota_send(u8 *data, u32 len)
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
         y_printf("[RDX_SESSION] OTA send skipped: runtime not active\n");
+        return -1;
+    }
+    if (expected_token &&
+        (snapshot.token.slot_index != expected_token->slot_index ||
+         snapshot.token.slot_generation != expected_token->slot_generation ||
+         snapshot.token.transport_epoch != expected_token->transport_epoch)) {
+        r_printf("[BLE_PHASE2B] drop stale token-bound OTA send\r");
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
@@ -3630,6 +3673,20 @@ int rdx_ble_server_ota_send(u8 *data, u32 len)
 #endif
     }
     return ret;
+}
+
+int rdx_ble_server_ota_send(u8 *data, u32 len)
+{
+    return rdx_ble_server_ota_send_internal(data, len, NULL);
+}
+
+int rdx_ble_server_ota_send_for_token(u8 *data, u32 len,
+                                      const rdx_ble_async_token_t *token)
+{
+    if (!token) {
+        return -1;
+    }
+    return rdx_ble_server_ota_send_internal(data, len, token);
 }
 
 /**************************************************************************

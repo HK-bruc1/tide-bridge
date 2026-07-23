@@ -57,10 +57,11 @@ Test-Contract 'PHASE2B_RECORD_MODE_REQUIRES_SESSION_TOKEN' `
     'both product branches must classify a recording as online only for its fixed current token'
 
 Test-Contract 'PHASE2B_RECORD_AUDIO_DATA_IS_SESSION_GATED' `
-    (([regex]::Matches($RecordText,
-        '(?s)rdx_record_online_session_is_current\s*\(\s*\).*?rdx_protocol_audio_data_indicate\s*\(').Count -eq 2) -and
-     ([regex]::Matches($RecordText,
-        'rdx_protocol_audio_data_indicate\s*\(\s*d\s*,\s*len\s*\)').Count -eq 2)) `
+    (($DataBodies.Count -eq 2) -and
+     (@($DataBodies | Where-Object {
+        $_ -match 'rdx_record_online_session_is_current\s*\(\s*\)' -and
+        $_ -match 'rdx_protocol_audio_data_indicate\s*\(\s*d\s*,\s*len\s*\)'
+     }).Count -eq 2)) `
     'every audio-frame indication must validate the fixed session token immediately before protocol output'
 
 Test-Contract 'PHASE2B_RECORD_STREAM_RESUME_TIMER_OWNS_TOKEN' `

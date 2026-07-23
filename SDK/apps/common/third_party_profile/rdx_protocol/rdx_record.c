@@ -157,6 +157,7 @@ static u8 g_stream_resume_token_valid = 0;
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
     const rdx_ble_async_token_t *token);
+extern void rdx_protocol_record_state_indicate(void);
 
 static u8 rdx_record_rdx_token_is_current(
     const rdx_ble_async_token_t *token)
@@ -208,6 +209,26 @@ static u8 rdx_record_online_session_is_current(void)
 #endif
 }
 
+u8 rdx_record_online_session_token_capture(rdx_ble_async_token_t *token)
+{
+    if (!token || !g_record_session_token_valid ||
+        !rdx_record_online_session_is_current()) {
+        return 0;
+    }
+    *token = g_record_session_token;
+    return 1;
+}
+
+u8 rdx_record_online_session_token_is_current(
+    const rdx_ble_async_token_t *token)
+{
+    if (!token || !g_record_session_token_valid ||
+        !rdx_record_token_equal(token, &g_record_session_token)) {
+        return 0;
+    }
+    return rdx_record_online_session_is_current();
+}
+
 static u8 rdx_record_online_session_accepts(
     const rdx_ble_async_token_t *token)
 {
@@ -223,6 +244,56 @@ static void rdx_record_pending_cmd_clear(void)
     g_pending_record_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
     g_pending_record_token.slot_generation = 0;
     g_pending_record_token.transport_epoch = 0;
+}
+
+typedef struct {
+    rdx_ble_async_token_t token;
+} rdx_record_state_request_t;
+
+static void rdx_record_state_indicate_if_current(
+    const rdx_ble_async_token_t *token)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_record_online_session_token_is_current(token)) {
+        r_printf("[BLE_PHASE2B] drop stale record state indication\r");
+        return;
+    }
+#else
+    (void)token;
+#endif
+    rdx_protocol_record_state_indicate();
+}
+
+static void rdx_record_state_on_app_core(rdx_record_state_request_t *request)
+{
+    if (!request) {
+        return;
+    }
+    rdx_record_state_indicate_if_current(&request->token);
+    free(request);
+}
+
+static int rdx_record_state_post_for_session(void)
+{
+    rdx_record_state_request_t *request;
+    int msg[3];
+
+    request = malloc(sizeof(*request));
+    if (!request) {
+        return -1;
+    }
+    if (!rdx_record_online_session_token_capture(&request->token)) {
+        free(request);
+        return -1;
+    }
+    msg[0] = (int)rdx_record_state_on_app_core;
+    msg[1] = 1;
+    msg[2] = (int)request;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        free(request);
+        return -1;
+    }
+    return 0;
 }
 
 /**************************************************************************
@@ -628,7 +699,30 @@ u8 rdx_record_get_marks(u32 *out, u8 max)
     return n;
 }
 
-int rdx_record_add_mark(u8 source)
+static void rdx_record_mark_indicate_if_current(
+    const rdx_ble_async_token_t *token,
+    u8 result,
+    u32 sn,
+    const char *fname,
+    u8 index,
+    u32 offset_ms,
+    u8 source)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_record_online_session_token_is_current(token)) {
+        r_printf("[BLE_PHASE2B] drop stale record mark indication\r");
+        return;
+    }
+#else
+    (void)token;
+#endif
+    rdx_protocol_record_mark_indicate(result, sn, fname, index, offset_ms,
+                                      source);
+}
+
+static int rdx_record_add_mark_internal(
+    u8 source,
+    const rdx_ble_async_token_t *token)
 {
 #if defined(__UUX_FILE__)
     uxfile_data_t* fi = rdx_uxfile_get_operateFile_info();
@@ -643,8 +737,9 @@ int rdx_record_add_mark(u8 source)
     /* 仅 START / RESUME 接受标记；PAUSE/STOP 返回 result=1（BAD_STATE） */
     if(record_status.run != RECORD_STATE_START && record_status.run != RECORD_STATE_RESUME){
         r_printf("[RECMARK] reject: not in START/RESUME (run=%d) \r", record_status.run);
-        rdx_protocol_record_mark_indicate(RDX_RECMARK_RESULT_BAD_STATE,
-                                          0, "", 0, 0, source);
+        rdx_record_mark_indicate_if_current(token,
+                                            RDX_RECMARK_RESULT_BAD_STATE,
+                                            0, "", 0, 0, source);
         return RDX_RECMARK_RESULT_BAD_STATE;
     }
 
@@ -653,8 +748,9 @@ int rdx_record_add_mark(u8 source)
     /* 标记数已达上限 → 拒绝 */
     if(s_cur_mark_count >= RDX_RECORD_MARK_MAX){
         r_printf("[RECMARK] full: count=%u \r", s_cur_mark_count);
-        rdx_protocol_record_mark_indicate(RDX_RECMARK_RESULT_FULL,
-                                          0, "", 0, 0, source);
+        rdx_record_mark_indicate_if_current(token,
+                                            RDX_RECMARK_RESULT_FULL,
+                                            0, "", 0, 0, source);
         return RDX_RECMARK_RESULT_FULL;
     }
 
@@ -665,8 +761,9 @@ int rdx_record_add_mark(u8 source)
             r_printf("[RECMARK] dedup: cur=%lums last=%lums (win=%ums) \r",
                      (unsigned long)offset_ms, (unsigned long)last,
                      RDX_RECORD_MARK_DEDUP_WINDOW_MS);
-            rdx_protocol_record_mark_indicate(RDX_RECMARK_RESULT_BUSY,
-                                              0, "", 0, 0, source);
+            rdx_record_mark_indicate_if_current(token,
+                                                RDX_RECMARK_RESULT_BUSY,
+                                                0, "", 0, 0, source);
             return RDX_RECMARK_RESULT_BUSY;
         }
     }
@@ -676,8 +773,8 @@ int rdx_record_add_mark(u8 source)
     y_printf("[RECMARK] added: sn=%lu, name=%s, idx=%u, off=%lums, src=%u \r",
              (unsigned long)sn, fname,
              s_cur_mark_count, (unsigned long)offset_ms, source);
-    rdx_protocol_record_mark_indicate(RDX_RECMARK_RESULT_OK, sn, fname,
-                                      s_cur_mark_count, offset_ms, source);
+    rdx_record_mark_indicate_if_current(token, RDX_RECMARK_RESULT_OK, sn, fname,
+                                        s_cur_mark_count, offset_ms, source);
 
 #if (RDX_SUPPORT_MOTOR == 1)
     /* 打标成功 → 马达单次震动反馈 */
@@ -685,6 +782,23 @@ int rdx_record_add_mark(u8 source)
 #endif
 
     return RDX_RECMARK_RESULT_OK;
+}
+
+int rdx_record_add_mark(u8 source)
+{
+    rdx_ble_async_token_t token;
+    const rdx_ble_async_token_t *token_ptr = NULL;
+
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (rdx_record_online_session_token_capture(&token)) {
+        token_ptr = &token;
+    } else {
+        /* Local/offline recording marks remain valid storage operations.  They
+         * simply have no RDX response destination. */
+        r_printf("[BLE_PHASE2B] local record mark has no RDX uplink\r");
+    }
+#endif
+    return rdx_record_add_mark_internal(source, token_ptr);
 }
 
 /**************************************************************************
@@ -1355,12 +1469,7 @@ void rdx_record_process(void)
     //send record state to app.
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     if(con_hdl != 0xffff && con_hdl != 0){
-        //send state to app.
-        int msg[2];
-        msg[0] = (int)rdx_protocol_record_state_indicate;
-        msg[1] = 0;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-        if(ret) {
+        if(rdx_record_state_post_for_session()) {
             log_info("%s record taskq post err \n", __func__);
         }
     }
@@ -2118,7 +2227,7 @@ int rdx_record_run_init(void)
     if(con_hdl != 0xffff && con_hdl != 0 &&
        rdx_record_online_session_is_current()){
         //send state to app.
-        rdx_protocol_record_state_indicate();
+        rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 
     //start max record time.
@@ -2219,7 +2328,7 @@ int rdx_record_run_exit(void)
     //send ack of record state.
     if(con_hdl != 0xffff && con_hdl != 0 &&
        rdx_record_online_session_is_current()){
-        rdx_protocol_record_state_indicate();
+        rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 
     y_printf("%s --> con_hdl = %d, rp->mode = %d \r", __FUNCTION__, con_hdl, rp->mode);

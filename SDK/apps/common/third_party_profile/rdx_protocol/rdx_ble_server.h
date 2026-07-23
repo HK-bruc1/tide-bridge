@@ -27,6 +27,7 @@
 ******************************************************************************/ 
 #include "system/includes.h"
 #include "ble_user.h"
+#include "rdx_ble_session.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -114,7 +115,15 @@ typedef struct {
 int rdx_ble_server_adv_enable(u8 enable);
 void rdx_ble_server_app_disconnect(void);
 void rdx_ble_server_auto_shut_down_enable(u8 enable);
+int rdx_ble_server_send(u8 *data, u32 len);
 int rdx_ble_server_ota_send(u8 *data, u32 len);
+/* Source-controlled asynchronous business paths must use the token-bound
+ * variants.  They reject owner replacement between callback validation and
+ * ATT enqueue instead of recapturing whichever RDX link is current. */
+int rdx_ble_server_send_for_token(u8 *data, u32 len,
+                                  const rdx_ble_async_token_t *token);
+int rdx_ble_server_ota_send_for_token(u8 *data, u32 len,
+                                      const rdx_ble_async_token_t *token);
 void rdx_ble_server_stop_force_disconnect_timer(void);
 void rdx_ble_server_fast_adv_restart(void);  // 按键唤醒时重新进入快速广播并点亮 LED
 

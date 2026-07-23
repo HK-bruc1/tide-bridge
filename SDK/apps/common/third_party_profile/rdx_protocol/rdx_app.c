@@ -163,6 +163,8 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 #endif
 
 static u16 record_state_upload_timer = 0;
+static rdx_ble_async_token_t record_state_upload_token;
+static u8 record_state_upload_token_valid = 0;
 static RdxWifiInfo wifiInfo;
 static bool rdx_ble_conn = FALSE;
 
@@ -301,6 +303,57 @@ void rdx_app_auto_shutdown(void);
 void rdx_app_emmc_poweroff_check_timer_stop(void);
 
 void xxp_wifi_tcp_file_stop_indicate(void);
+
+typedef struct {
+    RecordStatus status;
+    rdx_ble_async_token_t token;
+    u8 factor;
+} rdx_app_record_trigger_request_t;
+
+static void rdx_app_record_trigger_on_app_core(
+    rdx_app_record_trigger_request_t *request)
+{
+    if (!request) {
+        return;
+    }
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[BLE_PHASE2B] drop stale record trigger indication\r");
+        free(request);
+        return;
+    }
+#endif
+    rdx_protocol_record_trigger_indicate(&request->status, request->factor);
+    free(request);
+}
+
+static int rdx_app_record_trigger_post(
+    const RecordStatus *status,
+    u8 factor,
+    const rdx_ble_async_token_t *token)
+{
+    rdx_app_record_trigger_request_t *request;
+    int msg[3];
+
+    if (!status || !token) {
+        return -1;
+    }
+    request = malloc(sizeof(*request));
+    if (!request) {
+        return -1;
+    }
+    request->status = *status;
+    request->token = *token;
+    request->factor = factor;
+    msg[0] = (int)rdx_app_record_trigger_on_app_core;
+    msg[1] = 1;
+    msg[2] = (int)request;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        free(request);
+        return -1;
+    }
+    return 0;
+}
 
 /******************************************************************************
 * Function Section
@@ -1367,7 +1420,20 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
     /*----------------------------------------------------------------*/
     g_printf("====== %s \r", __func__);
 
+    rdx_ble_async_token_t token = record_state_upload_token;
+    u8 token_valid = record_state_upload_token_valid;
+
     rdx_app_record_state_upload_timer_stop();
+
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!token_valid ||
+        !rdx_ble_session_rdx_token_resolve(&token, 1)) {
+        record_state_upload_token_valid = 0;
+        r_printf("[BLE_PHASE2B] drop stale record state timer\r");
+        return;
+    }
+#endif
+    record_state_upload_token_valid = 0;
 
     if(RECORD_STATE_START == rp->run || RECORD_STATE_RESUME == rp->run){
         u16 con_hdl = rdx_ble_server_get_conn_handle();
@@ -1378,13 +1444,8 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
             set_rp.formate = rp->formate;
             set_rp.scene = rp->scene;
             //report this action to app.
-            int msg[4];
             u8 factor = 0;
-            msg[0] = (int)rdx_protocol_record_trigger_indicate;
-            msg[1] = 2;
-            msg[2] = (int)&set_rp;
-            msg[3] = (int)factor;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+            int ret = rdx_app_record_trigger_post(&set_rp, factor, &token);
             if(ret) {
                 r_printf("%s rdx_record_state_indicate taskq post err \n", __func__);
             }
@@ -1420,6 +1481,7 @@ void rdx_app_record_state_upload_timer_stop(void)
         sys_timeout_del(record_state_upload_timer);
         record_state_upload_timer = 0;
     }
+    record_state_upload_token_valid = 0;
     y_printf("====== %s \r", __func__);
 }
 
@@ -1439,6 +1501,13 @@ void rdx_app_record_state_upload_timer_start(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_ble_session_rdx_token_capture(&record_state_upload_token, 1)) {
+        r_printf("[BLE_PHASE2B] skip record state timer without RDX owner\r");
+        return;
+    }
+    record_state_upload_token_valid = 1;
+#endif
     if(record_state_upload_timer == 0){
         record_state_upload_timer = sys_timeout_add(NULL, rdx_app_record_state_upload_timer_cb, 3000);
     }
@@ -1458,6 +1527,8 @@ void rdx_app_device_record_handle(u8 scene)
     u8 formate = 0;
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
+    rdx_ble_async_token_t rdx_token = {0};
+    u8 rdx_token_valid = 0;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -1471,6 +1542,13 @@ void rdx_app_device_record_handle(u8 scene)
     }
 
     if(0xffff != con_hdl && 0 != con_hdl){
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+        rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
+        if (!rdx_token_valid) {
+            r_printf("[BLE_PHASE2B] ignore online record trigger without RDX owner\r");
+            return;
+        }
+#endif
         //ota?
         if(get_ota_status()){
             return;
@@ -1507,13 +1585,8 @@ void rdx_app_device_record_handle(u8 scene)
             }
         }
         //report this action to app. 
-        int msg[4];
         u8 factor = 0;
-        msg[0] = (int)rdx_protocol_record_trigger_indicate;
-        msg[1] = 2;
-        msg[2] = (int)&set_rp;
-        msg[3] = (int)factor;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token);
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }
@@ -2588,6 +2661,8 @@ void rdx_app_record_switch(u8 orig_scene)
     /*----------------------------------------------------------------*/
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     u8 orignal_scene = orig_scene;
+    rdx_ble_async_token_t rdx_token = {0};
+    u8 rdx_token_valid = 0;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -2597,7 +2672,12 @@ void rdx_app_record_switch(u8 orig_scene)
         return; 
     }
     //record mode switch.
-    if(g_protocol_ops){
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
+#else
+    rdx_token_valid = (con_hdl != 0 && con_hdl != 0xffff);
+#endif
+    if(g_protocol_ops && rdx_token_valid){
         RecordStatus* rp_cur = rdx_record_get_status();
         u8 scene = (rp_cur->scene == RECORD_SCENE_CALL) ? 1 : 0;
         g_protocol_ops->record_mode_indicate(scene, rp_cur->run);
@@ -2624,13 +2704,8 @@ void rdx_app_record_switch(u8 orig_scene)
         set_rp.scene = orignal_scene; //正在录音的，则上报停止上一次的模式
 
         //report this action to app.
-        int msg[4];
         u8 factor = 0;
-        msg[0] = (int)rdx_protocol_record_trigger_indicate;
-        msg[1] = 2;
-        msg[2] = (int)&set_rp;
-        msg[3] = (int)factor;
-        int ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token);
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }

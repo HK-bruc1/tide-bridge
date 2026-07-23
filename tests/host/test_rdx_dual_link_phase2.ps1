@@ -38,8 +38,8 @@ $SmBody = if ($SmStart -ge 0 -and $SmEnd -gt $SmStart) {
 } else {
     ''
 }
-$SendStart = $ServerText.IndexOf('int rdx_ble_server_send(')
-$SendEnd = $ServerText.IndexOf('int rdx_ble_server_ota_send(', $SendStart)
+$SendStart = $ServerText.IndexOf('static int rdx_ble_server_send_internal(')
+$SendEnd = $ServerText.IndexOf('int rdx_ble_server_send(u8 *data, u32 len)', $SendStart)
 $SendBody = if ($SendStart -ge 0 -and $SendEnd -gt $SendStart) {
     $ServerText.Substring($SendStart, $SendEnd - $SendStart)
 } else {
