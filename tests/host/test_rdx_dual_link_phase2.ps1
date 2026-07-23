@@ -61,6 +61,7 @@ Test-Contract 'PHASE2_CAPABILITY_MODEL' `
     ($SessionHeaderText -match 'RDX_BLE_CAPABILITY_NONE' -and
      $SessionHeaderText -match 'RDX_BLE_CAPABILITY_RDX' -and
      $SessionHeaderText -match 'RDX_BLE_CAPABILITY_HID' -and
+     $SessionHeaderText -match 'RDX_BLE_CAPABILITY_RDX_HID' -and
      $SessionHeaderText -match 'RDX_BLE_CLAIM_BUSY' -and
      $SessionHeaderText -match 'RDX_BLE_CLAIM_CONFLICT' -and
      $SessionHeaderText -match 'RDX_BLE_CLAIM_STALE') `
@@ -71,17 +72,18 @@ Test-Contract 'PHASE2_SINGLE_OWNER_REGISTRY' `
      $SessionText -match 's_rdx_hid_link_index' -and
      $SessionText -match 'rdx_ble_session_claim_rdx' -and
      $SessionText -match 'rdx_ble_session_claim_hid' -and
-     $SessionText -match 'link->capability\s*=\s*capability' -and
+     $SessionText -match 'link->capability\s*\|=\s*capability' -and
      $ServerText -notmatch 'g_rdx_ble_phase0b_links') `
     'only rdx_ble_session may own capability indexes and transitions'
 
-Test-Contract 'PHASE2_STICKY_MUTUAL_EXCLUSION' `
-    ($SessionText -match 'link->capability\s*==\s*capability' -and
-     $SessionText -match 'link->capability\s*!=\s*RDX_BLE_CAPABILITY_NONE' -and
+Test-Contract 'PHASE2_STICKY_UNIQUE_COMPOSITE_OWNERS' `
+    ($SessionText -match 'link->capability\s*&\s*capability' -and
+     $SessionText -match 'link->capability\s*\|=\s*capability' -and
+     $SessionText -notmatch 'other_owner_index' -and
      $SessionText -match 'return\s+RDX_BLE_CLAIM_CONFLICT' -and
      $SessionText -match 'return\s+RDX_BLE_CLAIM_BUSY' -and
      $SessionText -match 'rdx_ble_session_link_release') `
-    'claims must be idempotent, mutually exclusive, and released with the physical link'
+    'claims must be idempotent, globally unique per capability, composable on one link, and released with the physical link'
 
 Test-Contract 'PHASE2_HID_CLAIM_BOUNDARY' `
     ($ServerText -match 'rdx_ble_server_phase2_hid_attach' -and

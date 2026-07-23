@@ -8,8 +8,10 @@
 
 typedef enum {
     RDX_BLE_CAPABILITY_NONE = 0,
-    RDX_BLE_CAPABILITY_RDX,
-    RDX_BLE_CAPABILITY_HID,
+    RDX_BLE_CAPABILITY_RDX = 1 << 0,
+    RDX_BLE_CAPABILITY_HID = 1 << 1,
+    RDX_BLE_CAPABILITY_RDX_HID =
+        RDX_BLE_CAPABILITY_RDX | RDX_BLE_CAPABILITY_HID,
 } rdx_ble_capability_t;
 
 typedef enum {

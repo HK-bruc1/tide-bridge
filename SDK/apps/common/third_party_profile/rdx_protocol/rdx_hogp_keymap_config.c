@@ -148,6 +148,9 @@ static int rdx_hogpkm_send_custom_value(
         HOGPKM_TRACE("[HOGPKM] drop stale token-bound uplink\n");
         return -1;
     }
+    HOGPKM_TRACE("[BLE_PHASE3] RDX response route slot=%u generation=%u epoch=%u len=%u\n",
+                 token->slot_index, token->slot_generation,
+                 token->transport_epoch, offset);
     return rdx_ble_server_send_for_token(packet, offset, token) ? -1 : 0;
 }
 
@@ -340,6 +343,9 @@ static int rdx_hogpkm_commit(const rdx_hogpkm_request_t *request,
     s_rdx_hogpkm_current_revision = revision;
     s_rdx_hogpkm_current_keymap_crc32 = keymap_crc32;
     s_rdx_hogpkm_active_slot = committed_slot;
+    HOGPKM_TRACE("[BLE_PHASE3] keymap committed revision=%u slot=%u crc=%08X\n",
+                 s_rdx_hogpkm_current_revision, s_rdx_hogpkm_active_slot,
+                 s_rdx_hogpkm_current_keymap_crc32);
     HOGPKM_TRACE("[HOGPKM] commit ok rev=%u slot=%u keymap_crc=%08X\n",
              s_rdx_hogpkm_current_revision, s_rdx_hogpkm_active_slot,
              s_rdx_hogpkm_current_keymap_crc32);
@@ -693,9 +699,13 @@ void rdx_hogp_keymap_config_init(void)
         HOGPKM_TRACE("[HOGPKM] executor apply failed during init\n");
     }
     HOGPKM_TRACE("[HOGPKM] init revision=%u slot=%u keymap_crc=%08X\n",
-             s_rdx_hogpkm_current_revision,
-             s_rdx_hogpkm_active_slot,
-             s_rdx_hogpkm_current_keymap_crc32);
+              s_rdx_hogpkm_current_revision,
+              s_rdx_hogpkm_active_slot,
+              s_rdx_hogpkm_current_keymap_crc32);
+    HOGPKM_TRACE("[BLE_PHASE3] keymap ready revision=%u slot=%u crc=%08X\n",
+                 s_rdx_hogpkm_current_revision,
+                 s_rdx_hogpkm_active_slot,
+                 s_rdx_hogpkm_current_keymap_crc32);
 }
 
 void rdx_hogp_keymap_config_handle_custom(const char *value)
@@ -773,6 +783,8 @@ void rdx_hogp_keymap_config_on_disconnect(void)
     s_rdx_hogpkm_generation++;
     memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
     memset(&s_rdx_hogpkm_cache, 0, sizeof(s_rdx_hogpkm_cache));
+    HOGPKM_TRACE("[BLE_PHASE3] RDX disconnect invalidated keymap generation=%u\n",
+                 s_rdx_hogpkm_generation);
 }
 
 #else

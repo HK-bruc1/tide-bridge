@@ -90,14 +90,16 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
-/*
- * Phase 0A POC: validate that two app_ble_hdl wrappers can expose the same
- * composite RDX + HOGP GATT database on two simultaneous Peripheral links.
- * Business writes and the existing single-link RDX/HOGP runtime stay
- * detached until the Phase 0B ATT-isolation work is complete.
- */
+/* Production 1 + 1 model: two wrappers share one composite RDX + HOGP GATT
+ * database while capability owners and all business sends stay link-scoped. */
 #ifndef TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 #define TCFG_RDX_HOGP_DUAL_LINK_ENABLE             1
+#endif
+
+/* Phase 3 qualification image: keep transaction and owner-routing evidence in
+ * the UART log until the online keymap on-device gate is closed. */
+#ifndef RDX_HOGPKM_TRACE_ENABLE
+#define RDX_HOGPKM_TRACE_ENABLE                    1
 #endif
 
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE

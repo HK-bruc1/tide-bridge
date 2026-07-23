@@ -2126,6 +2126,13 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
             sm_just_works_confirm(con_handle);
             return;
         }
+        if (!rdx_ble_session_get_hid_link()) {
+            rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+            r_printf("[BLE_PHASE3] Just Works confirmed for provisional HID candidate con=0x%04x capability=0x%02x\n",
+                     con_handle, link->capability);
+            sm_just_works_confirm(con_handle);
+            return;
+        }
         r_printf("[BLE_PHASE2] Just Works rejected: no HID candidate con=0x%04x\n",
                  con_handle);
         break;
@@ -2570,6 +2577,7 @@ static u8 rdx_ble_server_phase2_claim_to_att_error(
 static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
 {
     rdx_ble_claim_result_t claim_result;
+    u8 had_hid_owner;
 
     if (!link) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
@@ -2577,6 +2585,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     if (rdx_ble_session_link_is_rdx(link) && link->rdx_runtime_active) {
         return 0;
     }
+    had_hid_owner = rdx_ble_session_link_is_hid(link);
     claim_result = rdx_ble_session_claim_rdx(link, link->slot_generation);
     if (claim_result != RDX_BLE_CLAIM_OK) {
         y_printf("[BLE_PHASE2] RDX claim rejected result=%u con=0x%04x\n",
@@ -2589,6 +2598,10 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     g_rdx_ble_server_info.stream_tx_ready = FALSE;
     rdx_ble_server_reset_send_fail_cnt();
     rdx_ble_server_rdx_connected_handle();
+    if (had_hid_owner) {
+        r_printf("[BLE_PHASE3] composite owner slot=%u con=0x%04x order=HID+RDX\n",
+                 rdx_ble_session_link_index(link), link->con_handle);
+    }
     r_printf("[BLE_PHASE2B] RDX runtime ACTIVE con=0x%04x hdl=%p epoch=%u one-session-per-boot\n",
              link->con_handle, link->ble_hdl,
              rdx_ble_session_rdx_runtime_epoch_get());
@@ -2623,10 +2636,14 @@ static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
 static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
 {
     rdx_ble_claim_result_t claim_result;
+    u8 had_hid_owner;
+    u8 had_rdx_owner;
 
     if (!link) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
+    had_hid_owner = rdx_ble_session_link_is_hid(link);
+    had_rdx_owner = rdx_ble_session_link_is_rdx(link);
     claim_result = rdx_ble_session_claim_hid(link, link->slot_generation);
     if (claim_result != RDX_BLE_CLAIM_OK) {
         y_printf("[BLE_PHASE2] HID claim rejected result=%u con=0x%04x\n",
@@ -2638,6 +2655,11 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
                                        link->encrypted);
         r_printf("[BLE_PHASE2] HID owner attached con=0x%04x hdl=%p\n",
                  link->con_handle, link->ble_hdl);
+    }
+    if (had_rdx_owner && !had_hid_owner &&
+        rdx_hogp_keyboard_is_connected()) {
+        r_printf("[BLE_PHASE3] composite owner slot=%u con=0x%04x order=RDX+HID\n",
+                 rdx_ble_session_link_index(link), link->con_handle);
     }
     return rdx_hogp_keyboard_is_connected() ? 0 :
            RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
@@ -2897,10 +2919,6 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
         }
         if (handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE &&
             cfg == 0x0001) {
-            if (link && link->capability != RDX_BLE_CAPABILITY_NONE &&
-                !rdx_ble_session_link_is_hid(link)) {
-                return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
-            }
             if (!link || !link->encrypted) {
                 if (link) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 1);

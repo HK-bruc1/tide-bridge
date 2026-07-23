@@ -201,36 +201,28 @@ static rdx_ble_claim_result_t rdx_ble_session_claim(
 {
     u8 index = rdx_ble_session_link_index(link);
     u8 *owner_index;
-    u8 other_owner_index;
 
     if (index >= RDX_BLE_LINK_MAX || !link->connected ||
         link->slot_generation != expected_slot_generation) {
         return RDX_BLE_CLAIM_STALE;
     }
-    if (link->capability == capability) {
-        return RDX_BLE_CLAIM_OK;
-    }
-    if (link->capability != RDX_BLE_CAPABILITY_NONE) {
-        return RDX_BLE_CLAIM_CONFLICT;
-    }
 
     if (capability == RDX_BLE_CAPABILITY_RDX) {
         owner_index = &s_rdx_rdx_link_index;
-        other_owner_index = s_rdx_hid_link_index;
     } else if (capability == RDX_BLE_CAPABILITY_HID) {
         owner_index = &s_rdx_hid_link_index;
-        other_owner_index = s_rdx_rdx_link_index;
     } else {
         return RDX_BLE_CLAIM_CONFLICT;
+    }
+    if (link->capability & capability) {
+        return *owner_index == index ? RDX_BLE_CLAIM_OK :
+               RDX_BLE_CLAIM_CONFLICT;
     }
     if (*owner_index < RDX_BLE_LINK_MAX) {
         return RDX_BLE_CLAIM_BUSY;
     }
-    if (other_owner_index == index) {
-        return RDX_BLE_CLAIM_CONFLICT;
-    }
 
-    link->capability = capability;
+    link->capability |= capability;
     *owner_index = index;
     return RDX_BLE_CLAIM_OK;
 }
@@ -278,7 +270,7 @@ static rdx_ble_link_state_t *rdx_ble_session_owner_get(u8 owner_index,
         return NULL;
     }
     link = &s_rdx_ble_links[owner_index];
-    return (link->connected && link->capability == capability) ? link : NULL;
+    return (link->connected && (link->capability & capability)) ? link : NULL;
 }
 
 rdx_ble_link_state_t *rdx_ble_session_get_rdx_link(void)
