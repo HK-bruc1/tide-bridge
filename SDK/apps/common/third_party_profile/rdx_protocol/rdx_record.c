@@ -146,6 +146,13 @@ static u8 g_record_cmd_retry_cnt = 0;
 static Record_info g_pending_record_info;
 static rdx_ble_async_token_t g_pending_record_token;
 static u8 g_pending_record_token_valid = 0;
+/* The token is fixed for the lifetime of one App-originated online recording
+ * session.  It must not be recaptured from whichever RDX owner happens to be
+ * connected when an audio frame or delayed callback runs. */
+static rdx_ble_async_token_t g_record_session_token;
+static u8 g_record_session_token_valid = 0;
+static rdx_ble_async_token_t g_stream_resume_token;
+static u8 g_stream_resume_token_valid = 0;
 
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
@@ -160,6 +167,54 @@ static u8 rdx_record_rdx_token_is_current(
     (void)token;
     return 1;
 #endif
+}
+
+static u8 rdx_record_token_equal(const rdx_ble_async_token_t *left,
+                                 const rdx_ble_async_token_t *right)
+{
+    return (left && right &&
+            left->slot_index == right->slot_index &&
+            left->slot_generation == right->slot_generation &&
+            left->transport_epoch == right->transport_epoch) ? 1 : 0;
+}
+
+static void rdx_record_online_session_clear(void)
+{
+    g_record_session_token_valid = 0;
+    g_record_session_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
+    g_record_session_token.slot_generation = 0;
+    g_record_session_token.transport_epoch = 0;
+}
+
+static void rdx_record_online_session_bind(
+    const rdx_ble_async_token_t *token)
+{
+    if (!token) {
+        rdx_record_online_session_clear();
+        return;
+    }
+    g_record_session_token = *token;
+    g_record_session_token_valid = 1;
+}
+
+static u8 rdx_record_online_session_is_current(void)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    return (g_record_session_token_valid &&
+            rdx_record_rdx_token_is_current(&g_record_session_token)) ? 1 : 0;
+#else
+    u16 con_handle = rdx_ble_server_get_conn_handle();
+    return (con_handle != 0 && con_handle != 0xffff) ? 1 : 0;
+#endif
+}
+
+static u8 rdx_record_online_session_accepts(
+    const rdx_ble_async_token_t *token)
+{
+    if (!token || !g_record_session_token_valid) {
+        return 1;
+    }
+    return rdx_record_token_equal(token, &g_record_session_token);
 }
 
 static void rdx_record_pending_cmd_clear(void)
@@ -511,6 +566,8 @@ void rdx_record_set_default(void)
     /* V24: 暂停统计 / 录音标记缓冲在每次复位时一并清零，避免跨会话残留 */
     record_status.pause_start_ms = 0;
     record_status.paused_accumulated_ms = 0;
+    rdx_record_online_session_clear();
+    g_stream_resume_token_valid = 0;
     s_cur_mark_count = 0;
     memset(s_cur_marks, 0, sizeof(s_cur_marks));
 }
@@ -820,6 +877,10 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[BLE_PHASE2B] drop stale record cmd\r");
         return;
     }
+    if (token && !rdx_record_online_session_accepts(token)) {
+        r_printf("[BLE_PHASE2B] drop record cmd for another session\r");
+        return;
+    }
     info_type = r_info->type - 0x30;
 
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
@@ -869,6 +930,7 @@ static void rdx_record_cmd_handle_internal(
     if(r_info->cmd == '0'){
         //do record start.
         // g_printf("====== %s --> record START", __FUNCTION__);
+        rdx_record_online_session_bind(token);
         record_status.run = RECORD_STATE_START;
         if(info_type == RECORD_SCENE_CHAT){
             record_status.formate = RECORD_FORMATE_OPUS_16K_STERO; 
@@ -910,6 +972,9 @@ static void rdx_record_cmd_handle_internal(
                 record_status.paused_accumulated_ms += (now - record_status.pause_start_ms);
             }
             record_status.pause_start_ms = 0;
+        }
+        if (token && !g_record_session_token_valid) {
+            rdx_record_online_session_bind(token);
         }
         rdx_record_pause_timeout_stop();
         record_status.run = RECORD_STATE_RESUME;
@@ -1930,12 +1995,22 @@ void rdx_record_stream_resume(void* priv)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf();("====== %s --> rp->run: %d, rp->stream_discont: %d \r", __func__, rp->run, rp->stream_discont);
+    if (!g_stream_resume_token_valid ||
+        !rdx_record_token_equal(&g_stream_resume_token,
+                                &g_record_session_token) ||
+        !rdx_record_online_session_is_current()) {
+        r_printf("[BLE_PHASE2B] drop stale record stream resume\r");
+        g_stream_resume_token_valid = 0;
+        stream_resume_timer = 0;
+        return;
+    }
     // Only reset stream_discont when recording is in progress
-    if ((rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) 
+    if ((rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
         && (rp->stream_discont != false)) {
         rp->stream_discont = false;
     }
     rdx_led_ctrl_restore_system_state();
+    g_stream_resume_token_valid = 0;
     stream_resume_timer = 0;
 }
 
@@ -1955,13 +2030,16 @@ void rdx_record_stream_resume_delayed(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     // Only start timer when recording is in progress
-    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+    if ((rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) &&
+        rdx_record_online_session_is_current()) {
         if (stream_resume_timer) {
             // If timer is already running, delete it first
             sys_timeout_del(stream_resume_timer);
             stream_resume_timer = 0;
         }
         
+        g_stream_resume_token = g_record_session_token;
+        g_stream_resume_token_valid = 1;
         stream_resume_timer = sys_timeout_add(NULL, rdx_record_stream_resume, 3000);
     }
 }
@@ -1998,7 +2076,8 @@ int rdx_record_run_init(void)
     //stop limit timer.
     rdx_record_max_timer_stop();
     //check way of record.
-    if(0xffff == con_hdl || 0 == con_hdl){
+    if(0xffff == con_hdl || 0 == con_hdl ||
+       !rdx_record_online_session_is_current()){
         rp->mode = RECORD_MODE_OFFLINE;
         rp->orig_mode = RECORD_MODE_OFFLINE;
         y_printf("%s --> not connected, rp->mode = %d, rp->scene = %d \r", __FUNCTION__, rp->mode, rp->scene);
@@ -2036,7 +2115,8 @@ int rdx_record_run_init(void)
     }
 
     //send record state to app.
-    if(con_hdl != 0xffff && con_hdl != 0){
+    if(con_hdl != 0xffff && con_hdl != 0 &&
+       rdx_record_online_session_is_current()){
         //send state to app.
         rdx_protocol_record_state_indicate();
     }
@@ -2073,7 +2153,9 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     rdx_record_set_process_state_ready();
 
     //online stream send.
-    if(0xffff != con_hdl && 0 != con_hdl && rp->stream_discont == false &&
+    if(0xffff != con_hdl && 0 != con_hdl &&
+       rdx_record_online_session_is_current() &&
+       rp->stream_discont == false &&
        rdx_ble_server_is_stream_tx_ready()){
         rdx_protocol_audio_data_indicate(d, len);
     }
@@ -2135,7 +2217,8 @@ int rdx_record_run_exit(void)
 	rdx_record_set_filter_cnt(0);
 
     //send ack of record state.
-    if(con_hdl != 0xffff && con_hdl != 0){
+    if(con_hdl != 0xffff && con_hdl != 0 &&
+       rdx_record_online_session_is_current()){
         rdx_protocol_record_state_indicate();
     }
 
@@ -2182,6 +2265,9 @@ int rdx_record_run_exit(void)
     rdx_uxfile_operate_file_init();
 
     rp->stream_discont = false;
+    if (rp->run == RECORD_STATE_STOP) {
+        rdx_record_online_session_clear();
+    }
     
     return 0;
 }
@@ -2217,7 +2303,8 @@ int rdx_record_run_init(void)
     //stop limit timer.
     rdx_record_max_timer_stop();
     //check way of record.
-    if(0xffff == con_hdl || 0 == con_hdl){
+    if(0xffff == con_hdl || 0 == con_hdl ||
+       !rdx_record_online_session_is_current()){
         rp->mode = RECORD_MODE_OFFLINE;
         rp->orig_mode = RECORD_MODE_OFFLINE;
         // 现在 RECORD_SCENE_xxx 与 COMMAND_RECORD_SCENE_xxx 值一致，无需映射
@@ -2317,7 +2404,9 @@ int rdx_record_run_data_handle(u8* d, u32 len)
             // r_printf("\n写文件后 --> au_len = %d, data_len = %d \r", au_len, len);
         }
     }else{
-        if(0xffff != con_hdl && 0 != con_hdl && rp->stream_discont == false &&
+        if(0xffff != con_hdl && 0 != con_hdl &&
+           rdx_record_online_session_is_current() &&
+           rp->stream_discont == false &&
            rdx_ble_server_is_stream_tx_ready()){
             rdx_protocol_audio_data_indicate(d, len);
         }
@@ -2385,6 +2474,10 @@ int rdx_record_run_exit(void)
     }
 
     rdx_uxfile_operate_file_init();
+
+    if (rp->run == RECORD_STATE_STOP) {
+        rdx_record_online_session_clear();
+    }
 
     return 0;
 }
