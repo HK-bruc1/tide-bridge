@@ -81,6 +81,11 @@ rdx_ble_link_state_t *rdx_ble_session_idle_token_resolve(
     const rdx_ble_async_token_t *token);
 rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(
     const rdx_ble_async_token_t *token);
+u8 rdx_ble_session_rdx_token_capture(rdx_ble_async_token_t *token,
+                                     u8 require_runtime_active);
+rdx_ble_link_state_t *rdx_ble_session_rdx_token_resolve(
+    const rdx_ble_async_token_t *token,
+    u8 require_runtime_active);
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size);
 void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
                                         u8 encrypted);

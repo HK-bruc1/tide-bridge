@@ -56,6 +56,10 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2.ps1'
     },
     [PSCustomObject]@{
+        Name = 'RDX dual-link Phase 2B transport contract'
+        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_transport.ps1'
+    },
+    [PSCustomObject]@{
         Name = 'HOGP keymap architecture'
         Path = Join-Path $PSScriptRoot 'test_hogp_keymap_architecture.ps1'
     },

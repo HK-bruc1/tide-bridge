@@ -110,7 +110,7 @@ Test-Contract 'PHASE2_DIRECTIONAL_RUNTIME' `
     ($ServerText -match 'rdx_ble_session_link_is_rdx\s*\(\s*link\s*\)' -and
      $ServerText -match 'rdx_ble_session_link_is_hid\s*\(\s*link\s*\)' -and
      $ServerText -match 'rdx_hogp_on_encryption_change' -and
-     $ServerText -match 'can_send_now RDX') `
+     $ServerText -match 'rdx_ble_server_rdx_send_pending_consume\s*\(\s*link\s*\)') `
     'encryption and send-ready events must be gated by the matching capability owner'
 
 Test-Contract 'PHASE2_HID_PAIRING_CANDIDATE_ROUTED' `
@@ -133,8 +133,9 @@ Test-Contract 'PHASE2_CAPABILITY_AWARE_DISCONNECT' `
     'business runtime must be cleaned while capability identity is still available, before slot release'
 
 Test-Contract 'PHASE2_RDX_OWNER_WRAPPER_SEND' `
-    ($SendBody -match 'rdx_ble_session_get_rdx_link\s*\(\s*\)' -and
-     $SendBody -match 'send_hdl\s*=\s*rdx_link->ble_hdl' -and
+    ($SendBody -match 'rdx_ble_server_rdx_transport_snapshot_capture\s*\(\s*&snapshot\s*\)' -and
+     $SendBody -match 'send_hdl\s*=\s*snapshot.ble_hdl' -and
+     $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*&snapshot\s*\)' -and
      $SendBody -match 'app_ble_att_vaild_len_get\s*\(\s*send_hdl\s*\)' -and
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl' -and
      $ServerText -match 'runtime=fenced') `

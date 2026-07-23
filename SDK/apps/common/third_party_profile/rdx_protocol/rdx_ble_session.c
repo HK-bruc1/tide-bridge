@@ -329,6 +329,42 @@ rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(
     return (link && link->connected) ? link : NULL;
 }
 
+u8 rdx_ble_session_rdx_token_capture(rdx_ble_async_token_t *token,
+                                     u8 require_runtime_active)
+{
+    rdx_ble_link_state_t *link;
+
+    if (!token) {
+        return 0;
+    }
+    link = rdx_ble_session_get_rdx_link();
+    if (!link || (require_runtime_active && !link->rdx_runtime_active)) {
+        token->slot_index = RDX_BLE_LINK_INVALID_INDEX;
+        token->slot_generation = 0;
+        token->transport_epoch = 0;
+        return 0;
+    }
+    *token = rdx_ble_session_token_capture(link);
+    return rdx_ble_session_rdx_token_resolve(
+               token, require_runtime_active) ? 1 : 0;
+}
+
+rdx_ble_link_state_t *rdx_ble_session_rdx_token_resolve(
+    const rdx_ble_async_token_t *token,
+    u8 require_runtime_active)
+{
+    rdx_ble_link_state_t *link =
+        rdx_ble_session_link_token_resolve(token);
+
+    if (!rdx_ble_session_link_is_rdx(link)) {
+        return NULL;
+    }
+    if (require_runtime_active && !link->rdx_runtime_active) {
+        return NULL;
+    }
+    return link;
+}
+
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size)
 {
     if (link && link->connected) {
