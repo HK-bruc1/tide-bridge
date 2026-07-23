@@ -101,11 +101,12 @@ Test-Contract 'PHASE2B_RECORD_DELAY_REPLACEMENT_IS_STALE_SAFE' `
         $RecordInternalBody.IndexOf('record_status.run = RECORD_STATE_START')) `
     'a reconnect may replace an obsolete delay, and every tokenized command is validated before record state changes'
 
-Test-Contract 'PHASE2B_RECORD_INPUT_REMAINS_FENCED' `
-    ($RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $RdxWriteBody -notmatch 'rdx_protocol_ota_handle\s*\(') `
-    'record command tokenization must not expose production RDX input before the remaining business work is migrated'
+Test-Contract 'PHASE2B_RECORD_INPUT_RUNTIME_GATED' `
+    ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
+     $ServerText -match 'one-session-per-boot') `
+    'record input may run only in the first RDX runtime session of the boot'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

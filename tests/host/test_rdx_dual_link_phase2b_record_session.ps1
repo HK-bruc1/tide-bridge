@@ -78,10 +78,11 @@ Test-Contract 'PHASE2B_RECORD_STOP_RELEASES_SESSION' `
      }).Count -eq 2)) `
     'both record-exit branches must release the fixed token only after a physical STOP'
 
-Test-Contract 'PHASE2B_RECORD_SESSION_INPUT_REMAINS_FENCED' `
-    ($RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(') `
-    'record data-plane migration must not expose production RDX input prematurely'
+Test-Contract 'PHASE2B_RECORD_SESSION_INPUT_RUNTIME_GATED' `
+    ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $ServerText -match 'one-session-per-boot') `
+    'record data-plane input must remain bound to the first runtime owner of the boot'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

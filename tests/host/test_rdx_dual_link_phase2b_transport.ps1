@@ -128,11 +128,12 @@ Test-Contract 'PHASE2B_PENDING_TOKEN_LIFECYCLE' `
      $ServerText -match 'rdx_ble_server_exit[\s\S]*?rdx_ble_server_rdx_send_pending_reset\s*\(\s*\)') `
     'pending completion state must be invalidated on owner detach and transport lifecycle changes'
 
-Test-Contract 'PHASE2B_PRODUCTION_INPUT_STILL_FENCED' `
-    ($RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $RdxWriteBody -notmatch 'rdx_protocol_ota_handle\s*\(') `
-    'transport completion must not expose production RDX input before business async migration'
+Test-Contract 'PHASE2B_PRODUCTION_INPUT_RUNTIME_GATED' `
+    ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
+     $ServerText -match 'one-session-per-boot') `
+    'production input must enter only the active, non-reusable RDX runtime'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

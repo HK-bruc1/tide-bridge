@@ -96,11 +96,12 @@ Test-Contract 'PHASE2B_OWNER_WRAPPER_CAPACITY_IS_AUTHORITATIVE' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(') `
     'the final enqueue path must recheck capacity and ownership on the selected RDX wrapper'
 
-Test-Contract 'PHASE2B_COMPAT_UNIT_KEEPS_INPUT_FENCED' `
-    ($RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $RdxWriteBody -notmatch 'rdx_protocol_ota_handle\s*\(') `
-    'compatibility query migration must not expose production RDX input'
+Test-Contract 'PHASE2B_COMPAT_UNIT_USES_RUNTIME_GATE' `
+    ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
+     $ServerText -match 'one-session-per-boot') `
+    'the compatibility view may expose input only through the non-reusable runtime owner'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

@@ -17,7 +17,18 @@ typedef enum {
     RDX_BLE_CLAIM_BUSY,
     RDX_BLE_CLAIM_CONFLICT,
     RDX_BLE_CLAIM_STALE,
+    RDX_BLE_CLAIM_NOT_READY,
 } rdx_ble_claim_result_t;
+
+typedef enum {
+    RDX_BLE_RUNTIME_OFF = 0,
+    RDX_BLE_RUNTIME_STARTING,
+    RDX_BLE_RUNTIME_READY,
+    RDX_BLE_RUNTIME_ACTIVE,
+    RDX_BLE_RUNTIME_QUIESCING,
+    RDX_BLE_RUNTIME_RESETTING,
+    RDX_BLE_RUNTIME_FAILED,
+} rdx_ble_runtime_state_t;
 
 typedef struct {
     void *ble_hdl;
@@ -86,6 +97,11 @@ u8 rdx_ble_session_rdx_token_capture(rdx_ble_async_token_t *token,
 rdx_ble_link_state_t *rdx_ble_session_rdx_token_resolve(
     const rdx_ble_async_token_t *token,
     u8 require_runtime_active);
+rdx_ble_runtime_state_t rdx_ble_session_rdx_runtime_state_get(void);
+u32 rdx_ble_session_rdx_runtime_epoch_get(void);
+u8 rdx_ble_session_rdx_runtime_begin_quiesce(
+    rdx_ble_link_state_t *link);
+void rdx_ble_session_rdx_runtime_fail_closed(void);
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size);
 void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
                                         u8 encrypted);

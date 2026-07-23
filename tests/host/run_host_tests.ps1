@@ -76,6 +76,14 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_async_source.ps1'
     },
     [PSCustomObject]@{
+        Name = 'RDX dual-link Phase 2B keymap async contract'
+        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_keymap_async.ps1'
+    },
+    [PSCustomObject]@{
+        Name = 'RDX dual-link Phase 2B immutable runtime fallback'
+        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_runtime_fallback.ps1'
+    },
+    [PSCustomObject]@{
         Name = 'HOGP keymap architecture'
         Path = Join-Path $PSScriptRoot 'test_hogp_keymap_architecture.ps1'
     },

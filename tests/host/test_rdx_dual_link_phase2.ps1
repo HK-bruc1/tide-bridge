@@ -95,11 +95,12 @@ Test-Contract 'PHASE2_HID_CLAIM_BOUNDARY' `
 Test-Contract 'PHASE2_RDX_CLAIM_BOUNDARY' `
     ($ServerText -match 'rdx_ble_server_phase2_rdx_write' -and
      $ServerText -match 'rdx_ble_session_claim_rdx' -and
-     $RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $RdxWriteBody -notmatch 'rdx_protocol_ota_handle\s*\(' -and
+     $SessionHeaderText -match 'RDX_BLE_RUNTIME_READY' -and
+     $SessionHeaderText -match 'RDX_BLE_RUNTIME_ACTIVE' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
      $ServerText -match 'multi_att_set_ccc_config\s*\(\s*link->con_handle') `
-    'CCC enable may claim RDX, but production command and OTA entry must remain fenced until async-token migration'
+    'RDX command, OTA and CCC access must activate the runtime through the capability gate'
 
 Test-Contract 'PHASE2_STATIC_READS_OWNER_FREE' `
     ($ReadCallback -match 'rdx_ble_server_phase0a_event_matches' -and
@@ -138,8 +139,8 @@ Test-Contract 'PHASE2_RDX_OWNER_WRAPPER_SEND' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*&snapshot\s*\)' -and
      $SendBody -match 'app_ble_att_vaild_len_get\s*\(\s*send_hdl\s*\)' -and
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl' -and
-     $ServerText -match 'runtime=fenced') `
-    'RDX send transport must resolve the current owner wrapper and remain inactive until runtime migration'
+     $ServerText -match 'one-session-per-boot') `
+    'RDX send transport must resolve the active owner wrapper under the single-session runtime policy'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

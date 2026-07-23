@@ -65,10 +65,11 @@ Test-Contract 'PHASE2B_DELAYED_DISCONNECT_CLEANUP_CANNOT_CLEAR_NEW_OWNER' `
      $ServerText -match 'rdx_ble_session_get_rdx_link\s*\(\s*\)') `
     'delayed disconnect cleanup must not clear replacement-owner file/bulk state'
 
-Test-Contract 'PHASE2B_ASYNC_SOURCE_INPUT_REMAINS_FENCED' `
-    ($RdxWriteBody -match 'RDX value write fenced' -and
-     $RdxWriteBody -notmatch 'rdx_ble_server_gatt_receive_data\s*\(') `
-    'source async migration must not remove the production input fence prematurely'
+Test-Contract 'PHASE2B_ASYNC_SOURCE_INPUT_RUNTIME_GATED' `
+    ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
+     $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
+     $ServerText -match 'one-session-per-boot') `
+    'source async input must be exposed only through the non-reusable runtime owner'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

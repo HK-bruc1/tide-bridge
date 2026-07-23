@@ -142,8 +142,11 @@ $EffectText = Get-Content -Raw -Path $EffectPath
 $RecordSourceText = Get-Content -Raw -Path $RecordSourcePath
 $MakefileText = Get-Content -Raw -Path $MakefilePath
 
-Test-Pattern -Name 'PROJECT_SWITCH_ENABLED' -Text $ProjectConfigText `
-    -Pattern '^[ \t]*#define[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t]+1[ \t]*$'
+Test-Pattern -Name 'VALIDATION_PROFILE_PLAYBACK_DISABLED' -Text $ProjectConfigText `
+    -Pattern '^[ \t]*#define[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t]+0[ \t]*$'
+
+Test-Pattern -Name 'VALIDATION_PROFILE_OGG_DECODER_DISABLED' -Text $ProjectConfigText `
+    -Pattern '^[ \t]*#define[ \t]+TCFG_DEC_OGG_OPUS_ENABLE[ \t]+0[ \t]*$'
 
 Test-Pattern -Name 'MODULE_FALLBACK_DISABLED' -Text $PlaybackConfigText `
     -Pattern '(?s)#ifndef[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE.*?#define[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t]+0'

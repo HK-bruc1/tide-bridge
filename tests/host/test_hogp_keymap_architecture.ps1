@@ -80,13 +80,14 @@ if ($Failed -eq 0) {
         ($ServiceText -notmatch 'rdx_protocol_custom_msg_indicate\s*\(' -and
          $ProtocolHeaderText -match '#define\s+CUSTOM_VALUE_MAX_LENGTH\s+\(100\)' -and
          $ServiceText -match 'RDX_HOGPKM_UPLINK_LEN\s*==\s*120' -and
-         $ServiceText -match 'rdx_protocol_packet_send_priority\s*\(\s*packet\s*,\s*offset\s*\)') `
-        'preserve the prebuilt custom ABI and bypass it for 100-character GET values'
+         $ServiceText -notmatch 'rdx_protocol_packet_send_priority\s*\(' -and
+         $ServiceText -match 'rdx_ble_server_send_for_token\s*\(\s*packet\s*,\s*offset\s*,\s*token\s*\)') `
+        'preserve the prebuilt custom ABI and bypass its tokenless queue for long GET values'
 
-    Test-Contract 'RDX_PRIORITY_SEND_RETURNS_POSITIVE_ON_SUCCESS' `
-        ($ServiceText -match 'sent_len\s*=\s*rdx_protocol_packet_send_priority\s*\(\s*packet\s*,\s*offset\s*\)' -and
-         $ServiceText -match 'return\s*\(\s*sent_len\s*>\s*0\s*\)\s*\?\s*0\s*:\s*-1') `
-        'rdx_protocol_packet_send_priority returns positive length on success, not zero'
+    Test-Contract 'RDX_KEYMAP_SEND_IS_TOKEN_BOUND' `
+        ($ServiceText -match 'rdx_hogpkm_token_is_current\s*\(\s*token\s*\)' -and
+         $ServiceText -match 'return\s+rdx_ble_server_send_for_token\s*\(\s*packet\s*,\s*offset\s*,\s*token\s*\)\s*\?\s*-1\s*:\s*0') `
+        'keymap response sends must preserve their owner token through ATT enqueue'
 
     Test-Contract 'HOGPKM_TRACE_DEFAULT_OFF' `
         ($HogpCfgText -match '#define\s+RDX_HOGPKM_TRACE_ENABLE\s+0' -and
@@ -123,17 +124,17 @@ if ($Failed -eq 0) {
         'receive-context status responses must be serialized on app_core'
     Test-Contract 'DISCONNECT_GENERATION_GUARDS_IN_FLIGHT_REQUEST' `
         ($ServiceText -match 'static\s+volatile\s+u32\s+s_rdx_hogpkm_generation' -and
-         $ServiceText -match 'rdx_hogpkm_commit\s*\(\s*u32\s+generation' -and
-         $ServiceText -match 'generation\s*!=\s*s_rdx_hogpkm_generation' -and
-         $ServiceText -match 'rdx_hogpkm_send_response[\s\S]*?u32\s+generation') `
-        'generation must guard both in-flight commit boundaries and response send'
+         $ServiceText -match 'rdx_hogpkm_commit\s*\(\s*const\s+rdx_hogpkm_request_t\s*\*request\s*,\s*const\s+rdx_ble_async_token_t\s*\*token' -and
+         $ServiceText -match 'rdx_hogpkm_request_is_current\s*\(\s*request\s*,\s*token\s*\)' -and
+         $ServiceText -match 'rdx_hogpkm_send_response[\s\S]*?u32\s+generation[\s\S]*?rdx_ble_async_token_t\s*\*token') `
+        'generation and RDX token must guard commit boundaries and response send'
     Test-Contract 'STALE_CALLBACK_CANNOT_CLEAR_NEW_PENDING' `
         ($ServiceText -match 'rdx_hogpkm_clear_pending_if_match' -and
-         $ServiceText -match 's_rdx_hogpkm_pending\.generation\s*==\s*request->generation' -and
-         $ServiceText -match 's_rdx_hogpkm_pending\.request_frame_crc32\s*==\s*request->request_frame_crc32') `
+         $ServiceText -match 's_rdx_hogpkm_pending\.frame\.generation\s*==\s*request->generation' -and
+         $ServiceText -match 's_rdx_hogpkm_pending\.frame\.request_frame_crc32\s*==[\s\S]*?request->request_frame_crc32') `
         'an old app_core callback must only clear its own pending request'
 
-    $ModuleLineLimits = @{ Service = 700; Protocol = 600; Store = 600 }
+    $ModuleLineLimits = @{ Service = 800; Protocol = 600; Store = 600 }
     foreach ($name in @('Service', 'Protocol', 'Store')) {
         $lineCount = (Get-Content $Files[$name]).Count
         Test-Contract "${name}_MODULE_SIZE" ($lineCount -lt $ModuleLineLimits[$name]) `

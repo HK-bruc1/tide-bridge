@@ -101,12 +101,12 @@
 #endif
 
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            0
 #endif
 
 /* RDX recordings are headerless, fixed-size standard Opus packets. */
 #ifndef TCFG_DEC_OGG_OPUS_ENABLE
-#define TCFG_DEC_OGG_OPUS_ENABLE                  1
+#define TCFG_DEC_OGG_OPUS_ENABLE                  0
 #endif
 
 /* RDX local recordings use JL stereo Opus packets: 16 kHz, 2 ch, 20 ms, 80 B. */

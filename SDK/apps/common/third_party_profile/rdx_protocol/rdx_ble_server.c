@@ -181,6 +181,9 @@ static rdx_ble_server_info_t g_rdx_ble_server_info = {
 };
 
 static u16 g_syn_data_timer = 0;
+static u16 g_stream_tx_ready_timer = 0;
+static rdx_ble_async_token_t g_syn_data_token;
+static u8 g_syn_data_token_valid;
 static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
@@ -2489,12 +2492,35 @@ void rdx_ble_server_gatt_receive_data(u8* p_data, u16 len)
  **************************************************************************/
 static void rdx_ble_server_stream_tx_ready_cb(void* priv)
 {
-    g_rdx_ble_server_info.stream_tx_ready =
-        g_rdx_ble_server_info.ccc_configured ? TRUE : FALSE;
-    rdx_ble_session_set_stream_tx_ready(g_rdx_ble_server_info.ble_con_handle,
-                                        g_rdx_ble_server_info.stream_tx_ready);
+    rdx_ble_link_state_t *link;
+
+    (void)priv;
+    g_stream_tx_ready_timer = 0;
+    link = g_syn_data_token_valid ?
+           rdx_ble_session_rdx_token_resolve(&g_syn_data_token, 1) : NULL;
+    if (!link || !link->rdx_ccc_configured) {
+        g_syn_data_token_valid = 0;
+        r_printf("[BLE_PHASE2B] stale stream-ready timer dropped\r");
+        return;
+    }
+    link->rdx_stream_tx_ready = 1;
+    g_rdx_ble_server_info.stream_tx_ready = TRUE;
+    g_syn_data_token_valid = 0;
     y_printf("[BLE] Stream TX ready=%d (delayed after sync data)\r",
              g_rdx_ble_server_info.stream_tx_ready);
+}
+
+static void rdx_ble_server_syn_data_timers_cancel(void)
+{
+    if (g_syn_data_timer) {
+        sys_timeout_del(g_syn_data_timer);
+        g_syn_data_timer = 0;
+    }
+    if (g_stream_tx_ready_timer) {
+        sys_timeout_del(g_stream_tx_ready_timer);
+        g_stream_tx_ready_timer = 0;
+    }
+    g_syn_data_token_valid = 0;
 }
 
 void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
@@ -2508,6 +2534,13 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     /*----------------------------------------------------------------*/
     g_syn_data_timer = 0;
 
+    if (!g_syn_data_token_valid ||
+        !rdx_ble_session_rdx_token_resolve(&g_syn_data_token, 1)) {
+        g_syn_data_token_valid = 0;
+        r_printf("[BLE_PHASE2B] stale sync-data timer dropped\r");
+        return;
+    }
+
     y_printf("====== %s --> rp->run: %d, rp->mode: %d, rp->orig_mode: %d \r", __func__, rp->run, rp->mode, rp->orig_mode);
 
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
@@ -2520,7 +2553,11 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     //check record mode.
     rdx_record_mode_active_check(0);
 
-    sys_timeout_add(NULL, rdx_ble_server_stream_tx_ready_cb, 500);
+    g_stream_tx_ready_timer = sys_timeout_add(
+        NULL, rdx_ble_server_stream_tx_ready_cb, 500);
+    if (!g_stream_tx_ready_timer) {
+        g_syn_data_token_valid = 0;
+    }
 }
 
 static u8 rdx_ble_server_phase2_claim_to_att_error(
@@ -2537,17 +2574,24 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     if (!link) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
+    if (rdx_ble_session_link_is_rdx(link) && link->rdx_runtime_active) {
+        return 0;
+    }
     claim_result = rdx_ble_session_claim_rdx(link, link->slot_generation);
     if (claim_result != RDX_BLE_CLAIM_OK) {
         y_printf("[BLE_PHASE2] RDX claim rejected result=%u con=0x%04x\n",
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
-    /* This first Phase 2 unit owns only capability selection.  Do not enter
-     * the legacy RDX runtime until its queued work and CAN_SEND_NOW state carry
-     * a link token; otherwise a stale task can target a later slot occupant. */
-    r_printf("[BLE_PHASE2] RDX capability claimed con=0x%04x hdl=%p runtime=fenced\n",
-             link->con_handle, link->ble_hdl);
+    rdx_ble_server_set_conn_handle(link->con_handle);
+    g_rdx_ble_server_info.ble_mtu_size = link->mtu_size;
+    g_rdx_ble_server_info.ccc_configured = FALSE;
+    g_rdx_ble_server_info.stream_tx_ready = FALSE;
+    rdx_ble_server_reset_send_fail_cnt();
+    rdx_ble_server_rdx_connected_handle();
+    r_printf("[BLE_PHASE2B] RDX runtime ACTIVE con=0x%04x hdl=%p epoch=%u one-session-per-boot\n",
+             link->con_handle, link->ble_hdl,
+             rdx_ble_session_rdx_runtime_epoch_get());
     return 0;
 }
 
@@ -2556,18 +2600,23 @@ static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
     if (!link || !rdx_ble_session_link_is_rdx(link)) {
         return;
     }
+    if (!rdx_ble_session_rdx_runtime_begin_quiesce(link)) {
+        return;
+    }
+    rdx_ble_server_syn_data_timers_cancel();
     rdx_ble_server_rdx_send_pending_reset();
-    link->rdx_runtime_active = 0;
-    link->rdx_ccc_configured = 0;
-    link->rdx_stream_tx_ready = 0;
+    rdx_ble_server_reset_send_fail_cnt();
+    rdx_ble_server_rdx_disconnected_cleanup_internal();
     if (g_rdx_ble_server_info.ble_con_handle == link->con_handle) {
         rdx_ble_server_set_conn_handle(0);
         g_rdx_ble_server_info.ble_conn = FALSE;
         g_rdx_ble_server_info.ccc_configured = FALSE;
         g_rdx_ble_server_info.stream_tx_ready = FALSE;
     }
-    r_printf("[BLE_PHASE2] RDX capability detached con=0x%04x hdl=%p\n",
-             link->con_handle, link->ble_hdl);
+    rdx_ble_session_rdx_runtime_fail_closed();
+    r_printf("[BLE_PHASE2B] RDX runtime FAILED con=0x%04x hdl=%p epoch=%u; HID remains available, RDX requires reboot\n",
+             link->con_handle, link->ble_hdl,
+             rdx_ble_session_rdx_runtime_epoch_get());
 }
 
 #if TCFG_RDX_HOGP_ENABLE
@@ -2624,8 +2673,11 @@ static int rdx_ble_server_phase2_rdx_write(
             if (att_handle ==
                     ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE &&
                 rdx_ble_session_link_is_rdx(link)) {
+                rdx_ble_server_syn_data_timers_cancel();
                 link->rdx_ccc_configured = 0;
                 link->rdx_stream_tx_ready = 0;
+                g_rdx_ble_server_info.ccc_configured = FALSE;
+                g_rdx_ble_server_info.stream_tx_ready = FALSE;
             }
             return 0;
         }
@@ -2633,12 +2685,19 @@ static int rdx_ble_server_phase2_rdx_write(
 
     switch (att_handle) {
     case ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE:
+        attach_error = rdx_ble_server_phase2_rdx_attach(link);
+        if (attach_error) {
+            return attach_error;
+        }
+        rdx_ble_server_gatt_receive_data(buffer, buffer_size);
+        return 0;
     case ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE:
-        /* Reject before claim: production command/OTA handlers enqueue work
-         * without a slot token and are intentionally outside this unit. */
-        r_printf("[BLE_PHASE2] RDX value write fenced att=0x%04x con=0x%04x\n",
-                 att_handle, link->con_handle);
-        return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+        attach_error = rdx_ble_server_phase2_rdx_attach(link);
+        if (attach_error) {
+            return attach_error;
+        }
+        rdx_protocol_ota_handle(buffer, buffer_size);
+        return 0;
     case ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
@@ -2646,6 +2705,17 @@ static int rdx_ble_server_phase2_rdx_write(
         }
         multi_att_set_ccc_config(link->con_handle, att_handle, cfg);
         link->rdx_ccc_configured = 1;
+        g_rdx_ble_server_info.ccc_configured = TRUE;
+        g_rdx_ble_server_info.stream_tx_ready = FALSE;
+        rdx_ble_server_syn_data_timers_cancel();
+        if (rdx_ble_session_rdx_token_capture(&g_syn_data_token, 1)) {
+            g_syn_data_token_valid = 1;
+            g_syn_data_timer = sys_timeout_add(
+                NULL, rdx_ble_server_syn_data_after_ble_write_ready, 1000);
+            if (!g_syn_data_timer) {
+                g_syn_data_token_valid = 0;
+            }
+        }
         return 0;
     case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
@@ -3976,6 +4046,7 @@ void rdx_ble_server_exit(void)
     log_info("====== %s\n", __func__);
 
     rdx_ble_server_disconnected_adv_restart_cancel();
+    rdx_ble_server_syn_data_timers_cancel();
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     rdx_ble_server_rdx_send_pending_reset();
