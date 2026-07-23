@@ -3052,13 +3052,27 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
 #endif
 
 
-static void rdx_app_record_cmd_on_app_core(u32 packed_info)
+typedef struct {
+    Record_info info;
+    rdx_ble_async_token_t token;
+} rdx_app_record_cmd_request_t;
+
+static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request)
 {
-    Record_info info = {
-        .cmd = (u8)(packed_info & 0xff),
-        .formate = (u8)((packed_info >> 8) & 0xff),
-        .type = (u8)((packed_info >> 16) & 0xff),
-    };
+    Record_info info;
+
+    if (!request) {
+        return;
+    }
+    info = request->info;
+
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[BLE_PHASE2B] drop stale app_core record cmd\r");
+        free(request);
+        return;
+    }
+#endif
 
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (info.cmd == (RECORD_STATE_START + 0x30) ||
@@ -3066,7 +3080,8 @@ static void rdx_app_record_cmd_on_app_core(u32 packed_info)
         rdx_playback_stop();
     }
 #endif
-    rdx_record_cmd_handle(&info);
+    rdx_record_cmd_handle_from_rdx(&info, &request->token);
+    free(request);
 }
 
 /**
@@ -3367,17 +3382,33 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
         }
 
         case PROTOCOL_EVENT_CMD_RECORD: {
+            rdx_app_record_cmd_request_t *request;
             if(!data || len < sizeof(Record_info)) break;
             Record_info *info = (Record_info *)data;
-            u32 packed_info = (u32)info->cmd |
-                              ((u32)info->formate << 8) |
-                              ((u32)info->type << 16);
+            request = malloc(sizeof(*request));
+            if (!request) {
+                r_printf("[BLE_PHASE2B] record cmd alloc failed\r");
+                break;
+            }
+            memcpy(&request->info, info, sizeof(request->info));
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+            if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
+                r_printf("[BLE_PHASE2B] drop record cmd without active RDX owner\r");
+                free(request);
+                break;
+            }
+#else
+            request->token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
+            request->token.slot_generation = 0;
+            request->token.transport_epoch = 0;
+#endif
             int msg[3];
             msg[0] = (int)rdx_app_record_cmd_on_app_core;
             msg[1] = 1;
-            msg[2] = (int)packed_info;
+            msg[2] = (int)request;
             if(os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)){
                 r_printf("record cmd app_core post err\r");
+                free(request);
             }
             break;
         }

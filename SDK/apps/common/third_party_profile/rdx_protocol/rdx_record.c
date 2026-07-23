@@ -29,6 +29,7 @@
 #pragma code_seg(".rdx_record.text")
 #endif
 
+#include "app_config.h"
 #include "rdx_record.h"
 #include "effects/eq_config.h"
 #include "audio_config.h"
@@ -49,6 +50,7 @@
 #include "rdx_protocol.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_ble_server.h"
+#include "rdx_ble_session.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -142,6 +144,31 @@ static u16 stream_resume_timer = 0;
 static u16 g_record_cmd_delay_timer = 0;
 static u8 g_record_cmd_retry_cnt = 0;
 static Record_info g_pending_record_info;
+static rdx_ble_async_token_t g_pending_record_token;
+static u8 g_pending_record_token_valid = 0;
+
+static void rdx_record_cmd_handle_internal(
+    Record_info *r_info,
+    const rdx_ble_async_token_t *token);
+
+static u8 rdx_record_rdx_token_is_current(
+    const rdx_ble_async_token_t *token)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    return rdx_ble_session_rdx_token_resolve(token, 1) ? 1 : 0;
+#else
+    (void)token;
+    return 1;
+#endif
+}
+
+static void rdx_record_pending_cmd_clear(void)
+{
+    g_pending_record_token_valid = 0;
+    g_pending_record_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
+    g_pending_record_token.slot_generation = 0;
+    g_pending_record_token.transport_epoch = 0;
+}
 
 /**************************************************************************
  * V24: 录音标记缓冲（运行时持有，记录每条标记相对于录音起点的 offset_ms）
@@ -727,7 +754,18 @@ void rdx_record_motor_twice(void)
 
 static void rdx_record_cmd_delay_cb(void *priv)
 {
+    rdx_ble_async_token_t token = g_pending_record_token;
+    u8 token_valid = g_pending_record_token_valid;
+
     g_record_cmd_delay_timer = 0;
+
+    if (g_pending_record_token_valid &&
+        !rdx_record_rdx_token_is_current(&g_pending_record_token)) {
+        r_printf("[BLE_PHASE2B] drop stale delayed record cmd\r");
+        g_record_cmd_retry_cnt = 0;
+        rdx_record_pending_cmd_clear();
+        return;
+    }
 
     if(!rdx_ble_server_is_stream_tx_ready()) {
         g_record_cmd_retry_cnt++;
@@ -739,13 +777,22 @@ static void rdx_record_cmd_delay_cb(void *priv)
         } else {
             r_printf("[REC_DELAY] Max retry reached, abort record cmd!\r");
             g_record_cmd_retry_cnt = 0;
+            rdx_record_pending_cmd_clear();
             return;
         }
     }
 
     y_printf("[REC_DELAY] stream_tx_ready=1, processing record cmd now\r");
     g_record_cmd_retry_cnt = 0;
-    rdx_record_cmd_handle(&g_pending_record_info);
+    if (g_pending_record_token_valid &&
+        !rdx_record_rdx_token_is_current(&g_pending_record_token)) {
+        r_printf("[BLE_PHASE2B] drop stale ready record cmd\r");
+        rdx_record_pending_cmd_clear();
+        return;
+    }
+    rdx_record_pending_cmd_clear();
+    rdx_record_cmd_handle_internal(&g_pending_record_info,
+                                   token_valid ? &token : NULL);
 }
 
 /**************************************************************************
@@ -754,25 +801,52 @@ static void rdx_record_cmd_delay_cb(void *priv)
  * param (Record_info) *r_info
  * return (*)
  **************************************************************************/
-void rdx_record_cmd_handle(Record_info *r_info)
+static void rdx_record_cmd_handle_internal(
+    Record_info *r_info,
+    const rdx_ble_async_token_t *token)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    uint8_t info_type = r_info->type - 0x30;
+    uint8_t info_type;
 
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if (!r_info) {
+        return;
+    }
+    if (token && !rdx_record_rdx_token_is_current(token)) {
+        r_printf("[BLE_PHASE2B] drop stale record cmd\r");
+        return;
+    }
+    info_type = r_info->type - 0x30;
+
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
 
     if(r_info->cmd == (RECORD_STATE_START + 0x30)) {
         if(!rdx_ble_server_is_stream_tx_ready()) {
             if(g_record_cmd_delay_timer) {
-                r_printf("[REC_DELAY] Already waiting, ignore duplicate cmd\r");
-                return;
+                if (token && g_pending_record_token_valid &&
+                    !rdx_record_rdx_token_is_current(
+                        &g_pending_record_token)) {
+                    sys_timeout_del(g_record_cmd_delay_timer);
+                    g_record_cmd_delay_timer = 0;
+                    g_record_cmd_retry_cnt = 0;
+                    rdx_record_pending_cmd_clear();
+                    r_printf("[BLE_PHASE2B] replace stale delayed record cmd\r");
+                } else {
+                    r_printf("[REC_DELAY] Already waiting, ignore duplicate cmd\r");
+                    return;
+                }
             }
             memcpy(&g_pending_record_info, r_info, sizeof(Record_info));
+            if (token) {
+                g_pending_record_token = *token;
+                g_pending_record_token_valid = 1;
+            } else {
+                rdx_record_pending_cmd_clear();
+            }
             g_record_cmd_retry_cnt = 0;
             r_printf("[REC_DELAY] stream_tx_ready=0, delay %dms\r", RECORD_CMD_DELAY_MS);
             g_record_cmd_delay_timer = sys_timeout_add(NULL, rdx_record_cmd_delay_cb, RECORD_CMD_DELAY_MS);
@@ -864,6 +938,20 @@ void rdx_record_cmd_handle(Record_info *r_info)
     
     //start record process.
     rdx_record_process();
+}
+
+void rdx_record_cmd_handle(Record_info *r_info)
+{
+    rdx_record_cmd_handle_internal(r_info, NULL);
+}
+
+void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
+                                    const rdx_ble_async_token_t *token)
+{
+    if (!token) {
+        return;
+    }
+    rdx_record_cmd_handle_internal(r_info, token);
 }
 
 /**************************************************************************

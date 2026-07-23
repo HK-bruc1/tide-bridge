@@ -22,6 +22,8 @@
 #ifndef _RDX_RECORD_H_
 #define _RDX_RECORD_H_
 
+#include "rdx_ble_session.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -134,6 +136,10 @@ typedef struct {
 ******************************************************************************/ 
 void rdx_record_process(void);
 void rdx_record_cmd_handle(Record_info *r_info);
+/* App-originated commands carry the RDX link token captured by the protocol
+ * callback.  A stale token must never be allowed to mutate recording state. */
+void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
+                                    const rdx_ble_async_token_t *token);
 int rdx_record_task_create(void);
 int rdx_record_task_free(void);
 RecordStatus* rdx_record_get_status(void);

@@ -204,7 +204,7 @@ Test-Pattern -Name 'APP_PAUSE_CALL_GUARDED' -Text $AppText `
     -Pattern '(?s)case[ \t]+APP_MSG_REC_PAUSE:.*?#if[ \t]+TCFG_RDX_LOCAL_PLAYBACK_ENABLE[ \t\r\n]+[ \t]*rdx_playback_pause\(\);[ \t\r\n]+#endif'
 
 Add-CheckResult -Name 'RECORD_START_PREEMPTS_PLAYBACK_ON_APP_CORE' -Passed (
-    $AppText -match '(?s)static\s+void\s+rdx_app_record_cmd_on_app_core\s*\([^)]*\).*?RECORD_STATE_START.*?RECORD_STATE_RESUME.*?rdx_playback_stop\(\);.*?rdx_record_cmd_handle\(&info\);' -and
+    $AppText -match '(?s)static\s+void\s+rdx_app_record_cmd_on_app_core\s*\([^)]*\).*?rdx_ble_session_rdx_token_resolve\s*\(&request->token,\s*1\).*?RECORD_STATE_START.*?RECORD_STATE_RESUME.*?rdx_playback_stop\(\);.*?rdx_record_cmd_handle_from_rdx\(&info,\s*&request->token\);' -and
     $AppText -match '(?s)case\s+PROTOCOL_EVENT_CMD_RECORD:.*?os_taskq_post_type\("app_core",\s*Q_CALLBACK,\s*3,\s*msg\).*?break;' -and
     $AppText -notmatch '(?s)case\s+PROTOCOL_EVENT_CMD_RECORD:.*?rdx_record_cmd_handle\(\(Record_info\s*\*\)data\)'
 ) -Message 'protocol record start/resume must stop playback and execute record control serially on app_core'
