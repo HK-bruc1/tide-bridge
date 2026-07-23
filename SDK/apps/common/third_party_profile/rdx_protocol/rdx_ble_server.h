@@ -121,6 +121,13 @@ void rdx_ble_server_fast_adv_restart(void);  // 按键唤醒时重新进入快�
 u8 rdx_ble_server_get_send_fail_cnt(void);
 void rdx_ble_server_reset_send_fail_cnt(void);
 
+u8 rdx_ble_server_has_active_link(void);
+u16 rdx_ble_server_get_conn_handle(void);
+u16 rdx_ble_server_get_mtu(void);
+u8 rdx_ble_server_is_stream_tx_ready(void);
+
+/* Binary compatibility only. Source modules must use the narrow queries
+ * above instead of reading connection fields from this legacy structure. */
 rdx_ble_server_info_t * rdx_ble_server_get_info(void);
 
 int rdx_ble_server_bt_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);

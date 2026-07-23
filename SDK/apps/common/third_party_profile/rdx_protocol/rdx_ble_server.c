@@ -993,6 +993,15 @@ u16 rdx_ble_server_get_conn_handle(void)
 #endif
 }
 
+u8 rdx_ble_server_has_active_link(void)
+{
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    return rdx_ble_session_active_count() ? TRUE : FALSE;
+#else
+    return g_rdx_ble_server_info.ble_conn ? TRUE : FALSE;
+#endif
+}
+
 /**************************************************************************
  * function: rdx_ble_server_set_conn_handle
  * description: 
@@ -3708,7 +3717,7 @@ int rdx_ble_server_get_ble_mac(void *addr)
  * param (*)
  * return (*)
  **************************************************************************/
-rdx_ble_server_info_t * rdx_ble_server_get_info(void) 
+rdx_ble_server_info_t * rdx_ble_server_get_info(void)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
@@ -3717,6 +3726,31 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
+    rdx_ble_rdx_transport_snapshot_t snapshot;
+
+    /* librdxApp.a still imports this ABI and reads only ble_conn and
+     * ble_mtu_size. Keep the adjacent legacy fields coherent as a view of
+     * the active RDX runtime, never as a second link-state registry. */
+    if (rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
+        rdx_ble_link_state_t *link =
+            rdx_ble_session_rdx_token_resolve(&snapshot.token, 1);
+
+        g_rdx_ble_server_info.ble_conn = TRUE;
+        g_rdx_ble_server_info.ble_con_handle = snapshot.con_handle;
+        g_rdx_ble_server_info.ble_mtu_size = snapshot.mtu_size;
+        g_rdx_ble_server_info.ccc_configured =
+            link && link->rdx_ccc_configured ? TRUE : FALSE;
+        g_rdx_ble_server_info.stream_tx_ready =
+            link && link->rdx_stream_tx_ready ? TRUE : FALSE;
+    } else {
+        g_rdx_ble_server_info.ble_conn = FALSE;
+        g_rdx_ble_server_info.ble_con_handle = 0;
+        g_rdx_ble_server_info.ble_mtu_size = 0;
+        g_rdx_ble_server_info.ccc_configured = FALSE;
+        g_rdx_ble_server_info.stream_tx_ready = FALSE;
+    }
+#endif
     return &g_rdx_ble_server_info;
 }
 /**************************************************************************

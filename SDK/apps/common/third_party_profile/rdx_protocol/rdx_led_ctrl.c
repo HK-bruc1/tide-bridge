@@ -274,8 +274,7 @@ static void _rdx_led_restore_system_state(void)
         return;
     }
 
-    rdx_ble_server_info_t *ble_info = rdx_ble_server_get_info();
-    if (ble_info && ble_info->ble_conn) {
+    if (rdx_ble_server_has_active_link()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     } else {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);

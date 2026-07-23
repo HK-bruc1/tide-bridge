@@ -727,8 +727,6 @@ void rdx_record_motor_twice(void)
 
 static void rdx_record_cmd_delay_cb(void *priv)
 {
-    extern u8 rdx_ble_server_is_stream_tx_ready(void);
-
     g_record_cmd_delay_timer = 0;
 
     if(!rdx_ble_server_is_stream_tx_ready()) {
@@ -766,7 +764,6 @@ void rdx_record_cmd_handle(Record_info *r_info)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    extern u8 rdx_ble_server_is_stream_tx_ready(void);
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
 
     if(r_info->cmd == (RECORD_STATE_START + 0x30)) {
@@ -1988,9 +1985,8 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     rdx_record_set_process_state_ready();
 
     //online stream send.
-    rdx_ble_server_info_t* pd = rdx_ble_server_get_info();
     if(0xffff != con_hdl && 0 != con_hdl && rp->stream_discont == false &&
-       pd->ccc_configured == TRUE && pd->stream_tx_ready == TRUE){
+       rdx_ble_server_is_stream_tx_ready()){
         rdx_protocol_audio_data_indicate(d, len);
     }
 
@@ -2233,9 +2229,8 @@ int rdx_record_run_data_handle(u8* d, u32 len)
             // r_printf("\n写文件后 --> au_len = %d, data_len = %d \r", au_len, len);
         }
     }else{
-        rdx_ble_server_info_t* pd = rdx_ble_server_get_info();
         if(0xffff != con_hdl && 0 != con_hdl && rp->stream_discont == false &&
-           pd->ccc_configured == TRUE && pd->stream_tx_ready == TRUE){
+           rdx_ble_server_is_stream_tx_ready()){
             rdx_protocol_audio_data_indicate(d, len);
         }
     }
