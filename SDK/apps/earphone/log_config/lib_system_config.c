@@ -162,7 +162,8 @@ const int config_irq_time_debug_time = 0;
 const char log_tag_const_v_SYS_TMR  = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_i_SYS_TMR  = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_d_SYS_TMR  = CONFIG_DEBUG_LIB(FALSE);
-const char log_tag_const_w_SYS_TMR  = CONFIG_DEBUG_LIB(TRUE);
+/* The BLE controller legitimately schedules multi-link timers from IRQ context. */
+const char log_tag_const_w_SYS_TMR  = CONFIG_DEBUG_LIB(FALSE);
 const char log_tag_const_e_SYS_TMR  = CONFIG_DEBUG_LIB(TRUE);
 
 const char log_tag_const_v_JLFS  = CONFIG_DEBUG_LIB(FALSE);
@@ -225,4 +226,3 @@ const char log_tag_const_i_DLOG  = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_d_DLOG  = CONFIG_DEBUG_LIB(1);
 const char log_tag_const_w_DLOG  = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_DLOG  = CONFIG_DEBUG_LIB(1);
-

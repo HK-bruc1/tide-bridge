@@ -318,7 +318,7 @@ static void rdx_app_record_trigger_on_app_core(
     }
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
-        r_printf("[BLE_PHASE2B] drop stale record trigger indication\r");
+        r_printf("[RDX_RECORD] drop stale record trigger indication\r");
         free(request);
         return;
     }
@@ -442,7 +442,7 @@ u8 rdx_app_rdx_rebind_is_idle(void)
     if (!send_data || !bulk_data ||
         send_data->send_pending || send_data->bulk_sending ||
         bulk_data->busy || bulk_data->bulk_flag) {
-        r_printf("[BLE_PHASE3] busy: legacy send worker\r");
+        r_printf("[RDX_BLE_SESSION] busy: legacy send worker\r");
         return 0;
     }
     return 1;
@@ -1444,7 +1444,7 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
     if (!token_valid ||
         !rdx_ble_session_rdx_token_resolve(&token, 1)) {
         record_state_upload_token_valid = 0;
-        r_printf("[BLE_PHASE2B] drop stale record state timer\r");
+        r_printf("[RDX_RECORD] drop stale record state timer\r");
         return;
     }
 #endif
@@ -1518,7 +1518,7 @@ void rdx_app_record_state_upload_timer_start(void)
     y_printf("====== %s \r", __func__);
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_capture(&record_state_upload_token, 1)) {
-        r_printf("[BLE_PHASE2B] skip record state timer without RDX owner\r");
+        r_printf("[RDX_RECORD] skip state timer without RDX owner\r");
         return;
     }
     record_state_upload_token_valid = 1;
@@ -1560,7 +1560,7 @@ void rdx_app_device_record_handle(u8 scene)
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
         if (!rdx_token_valid) {
-            r_printf("[BLE_PHASE2B] ignore online record trigger without RDX owner\r");
+            r_printf("[RDX_RECORD] ignore online trigger without RDX owner\r");
             return;
         }
 #endif
@@ -1865,7 +1865,7 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     }
     if (rdx_ble_session_rdx_runtime_state_get() !=
         RDX_BLE_RUNTIME_ACTIVE) {
-        r_printf("[BLE_PHASE3] stale custom command dropped: %s\r", cmd);
+        r_printf("[RDX_BLE_SESSION] stale custom command dropped: %s\r", cmd);
         return;
     }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);
@@ -3168,7 +3168,7 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
 
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
-        r_printf("[BLE_PHASE2B] drop stale app_core record cmd\r");
+        r_printf("[RDX_RECORD] drop stale app_core command\r");
         free(request);
         return;
     }
@@ -3197,7 +3197,7 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
     if(!ops) return;
     if (rdx_ble_session_rdx_runtime_state_get() !=
         RDX_BLE_RUNTIME_ACTIVE) {
-        r_printf("[BLE_PHASE3] stale protocol event dropped: %u\r", event);
+        r_printf("[RDX_BLE_SESSION] stale protocol event dropped: %u\r", event);
         return;
     }
 
@@ -3492,13 +3492,13 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             Record_info *info = (Record_info *)data;
             request = malloc(sizeof(*request));
             if (!request) {
-                r_printf("[BLE_PHASE2B] record cmd alloc failed\r");
+                r_printf("[RDX_RECORD] command allocation failed\r");
                 break;
             }
             memcpy(&request->info, info, sizeof(request->info));
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
             if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
-                r_printf("[BLE_PHASE2B] drop record cmd without active RDX owner\r");
+                r_printf("[RDX_RECORD] drop command without active RDX owner\r");
                 free(request);
                 break;
             }

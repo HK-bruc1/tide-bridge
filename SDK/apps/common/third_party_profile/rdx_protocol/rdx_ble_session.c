@@ -316,6 +316,31 @@ rdx_ble_claim_result_t rdx_ble_session_claim_rdx(
     if (s_rdx_runtime_consumed_this_boot) {
         result = rdx_ble_session_rebind_peer_check(link);
         if (result != RDX_BLE_CLAIM_OK) {
+            r_printf("[RDX_BLE_SESSION] rebind peer rejected result=%u saved_valid=%u saved_identity=%u saved_type=%u saved=%02x:%02x:%02x:%02x:%02x:%02x current_type=%u current=%02x:%02x:%02x:%02x:%02x:%02x current_identity_valid=%u current_identity=%02x:%02x:%02x:%02x:%02x:%02x\n",
+                     result,
+                     s_rdx_rebind_peer_valid,
+                     s_rdx_rebind_peer_uses_identity,
+                     s_rdx_rebind_peer_addr_type,
+                     s_rdx_rebind_peer_addr[0],
+                     s_rdx_rebind_peer_addr[1],
+                     s_rdx_rebind_peer_addr[2],
+                     s_rdx_rebind_peer_addr[3],
+                     s_rdx_rebind_peer_addr[4],
+                     s_rdx_rebind_peer_addr[5],
+                     link ? link->peer_addr_type : 0,
+                     link ? link->peer_addr[0] : 0,
+                     link ? link->peer_addr[1] : 0,
+                     link ? link->peer_addr[2] : 0,
+                     link ? link->peer_addr[3] : 0,
+                     link ? link->peer_addr[4] : 0,
+                     link ? link->peer_addr[5] : 0,
+                     link ? link->peer_identity_valid : 0,
+                     link ? link->peer_identity[0] : 0,
+                     link ? link->peer_identity[1] : 0,
+                     link ? link->peer_identity[2] : 0,
+                     link ? link->peer_identity[3] : 0,
+                     link ? link->peer_identity[4] : 0,
+                     link ? link->peer_identity[5] : 0);
             return result;
         }
     }

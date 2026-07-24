@@ -343,7 +343,7 @@ int rdx_ota_data_response_and_request(void)
 	/* Code Body                                                      */
 	/*----------------------------------------------------------------*/
     if (!rdx_ota_session_is_current()) {
-        y_printf("[BLE_PHASE2B] drop stale OTA response\r");
+        y_printf("[RDX_OTA] drop stale response\r");
         return -1;
     }
     memset(buf, 0, 100);
@@ -888,7 +888,7 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 		case OTA_UPGRADE_BEGIN:
 			{
                 if (!rdx_ota_session_bind_current()) {
-                    y_printf("[BLE_PHASE2B] drop OTA begin without RDX owner\r");
+                    y_printf("[RDX_OTA] drop begin without RDX owner\r");
                     break;
                 }
                 rdx_ota_get_data_timer_start();
@@ -899,7 +899,7 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 		case OTA_DATA_DL:
 			{
 				if (!rdx_ota_session_is_current()) {
-					y_printf("[BLE_PHASE2B] drop stale OTA data\r");
+					y_printf("[RDX_OTA] drop stale data\r");
 					break;
 				}
 				rdx_ota_get_data_handler(recv_data, recv_len);

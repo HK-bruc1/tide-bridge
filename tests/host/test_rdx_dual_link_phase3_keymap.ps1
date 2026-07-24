@@ -11,6 +11,8 @@ $StoreText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_hogp_keymap_store.c')
 $ActionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_hogp_key_action.c')
 $AppText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_app.c')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
+$RecordText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.c')
+$OtaText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ota.c')
 $SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $SessionHeaderText = Get-Content -Raw `
     (Join-Path $ProtocolDir 'rdx_ble_session.h')
@@ -97,21 +99,21 @@ Test-Contract 'COMPOSITE_OWNER_RETAINS_GLOBAL_UNIQUENESS' `
 Test-Contract 'RDX_FIRST_DOES_NOT_BLOCK_HID_ATTACH' `
     ($HidAttachBody -match 'had_rdx_owner\s*=\s*rdx_ble_session_link_is_rdx\s*\(\s*link\s*\)' -and
      $HidAttachBody -match 'rdx_ble_session_claim_hid\s*\(\s*link' -and
-     $HidAttachBody -match '\[BLE_PHASE3\] composite owner' -and
+     $HidAttachBody -match '\[RDX_BLE_SESSION\] composite owner' -and
      $AttWriteBody -notmatch 'link->capability\s*!=\s*RDX_BLE_CAPABILITY_NONE') `
     'an RDX-owned PC ACL must still be able to pair, enable HID CCC, and attach HOGP'
 
 Test-Contract 'HID_FIRST_DOES_NOT_BLOCK_RDX_ACTIVATION' `
     ($RdxAttachBody -match 'had_hid_owner\s*=\s*rdx_ble_session_link_is_hid\s*\(\s*link\s*\)' -and
      $RdxAttachBody -match 'rdx_ble_session_claim_rdx\s*\(\s*link' -and
-     $RdxAttachBody -match '\[BLE_PHASE3\] composite owner' -and
+     $RdxAttachBody -match '\[RDX_BLE_SESSION\] composite owner' -and
      $RdxAttachBody -match 'order=HID\+RDX') `
     'a HID-ready PC ACL must still be able to activate the one allowed RDX runtime'
 
 Test-Contract 'FRESH_PC_PAIRING_CAN_PRECEDE_HID_CCC' `
     ($SmBody -match '!rdx_ble_session_get_hid_link\s*\(\s*\)' -and
      $SmBody -match 'rdx_ble_session_link_set_hid_pairing_pending\s*\(\s*link\s*,\s*1\s*\)' -and
-     $SmBody -match '\[BLE_PHASE3\] Just Works confirmed for provisional HID candidate' -and
+     $SmBody -match '\[RDX_BLE_SEC\] Just Works confirmed for provisional HID candidate' -and
      $SmBody -match 'sm_just_works_confirm\s*\(\s*con_handle\s*\)' -and
      $SmBody -notmatch 'rdx_ble_session_claim_hid') `
     'with no HID owner, Just Works may confirm a provisional PC link without claiming HID before encrypted CCC'
@@ -128,10 +130,15 @@ Test-Contract 'COMPOSITE_DISCONNECT_CLEANS_BOTH_OWNERS' `
 
 Test-Contract 'PHASE3_QUALIFICATION_TRACE_ENABLED' `
     ($ProjectConfigText -match '#define\s+RDX_HOGPKM_TRACE_ENABLE\s+1' -and
-     $ServiceText -match '\[BLE_PHASE3\] keymap ready' -and
-     $ServiceText -match '\[BLE_PHASE3\] keymap committed' -and
-     $ServiceText -match '\[BLE_PHASE3\] RDX response route') `
+     $ServiceText -match '\[RDX_KEYMAP\] ready' -and
+     $ServiceText -match '\[RDX_KEYMAP\] committed' -and
+     $ServiceText -match '\[RDX_KEYMAP\] response route') `
     'the qualification image must expose init, commit, and owner-route evidence'
+
+$RuntimeLogText = $ServerText + $AppText + $RecordText + $OtaText + $ServiceText
+Test-Contract 'RUNTIME_LOG_PREFIXES_ARE_SEMANTIC' `
+    ($RuntimeLogText -notmatch '\[BLE_PHASE(?:0A|0B|1|2|2B|3)\]') `
+    'development phase labels must not leak into production runtime logs'
 
 Test-Contract 'CUSTOM_COMMAND_ENTERS_FORMAL_KEYMAP_SERVICE' `
     ($CustomCallbackBody -match 'strcmp\s*\(\s*cmd\s*,\s*RDX_HOGP_KEYMAP_CUSTOM_CMD\s*\)' -and

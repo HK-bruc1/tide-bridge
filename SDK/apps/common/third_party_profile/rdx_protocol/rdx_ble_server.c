@@ -408,7 +408,7 @@ static u8 rdx_ble_server_phase0a_event_matches(void *hdl,
     u8 wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
     u16 wrapper_con_handle = hdl ? app_ble_get_hdl_con_handle(hdl) : 0;
 
-    r_printf("[BLE_PHASE0A] %s wrapper=%u cb_hdl=%p event_con=0x%04x wrapper_con=0x%04x\n",
+    r_printf("[RDX_BLE_LINK] %s wrapper=%u cb_hdl=%p event_con=0x%04x wrapper_con=0x%04x\n",
              event_name,
              wrapper_index,
              hdl,
@@ -417,7 +417,7 @@ static u8 rdx_ble_server_phase0a_event_matches(void *hdl,
 
     if (wrapper_index == RDX_BLE_PHASE0A_INVALID_WRAPPER_INDEX ||
         wrapper_con_handle != event_con_handle) {
-        r_printf("[BLE_PHASE0A] %s ignored: wrapper/connection mismatch\n",
+        r_printf("[RDX_BLE_LINK] %s ignored: wrapper/connection mismatch\n",
                  event_name);
         return 0;
     }
@@ -429,7 +429,7 @@ static void rdx_ble_server_phase0a_wrapper_connection_clear(void *hdl,
                                                             const char *reason)
 {
     if (hdl && app_ble_get_hdl_con_handle(hdl) == con_handle) {
-        y_printf("[BLE_PHASE0A] clear stale wrapper=%u con=0x%04x reason=%s\n",
+        y_printf("[RDX_BLE_LINK] clear stale wrapper=%u con=0x%04x reason=%s\n",
                  rdx_ble_server_phase0a_wrapper_index(hdl),
                  con_handle,
                  reason);
@@ -1227,7 +1227,7 @@ void rdx_ble_server_disconnected_delay_handle(void* priv)
      * already invalidated its token; if a replacement owner is present, the
      * replacement owns all remaining runtime state. */
     if (rdx_ble_session_get_rdx_link()) {
-        r_printf("[BLE_PHASE2B] skip stale delayed RDX cleanup: new owner active\r");
+        r_printf("[RDX_BLE_SESSION] skip stale delayed RDX cleanup: new owner active\r");
         return;
     }
     if (k->onoff == TRANSFER_BY_WIFI_ON) {
@@ -1284,7 +1284,7 @@ static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
                RDX_BLE_RUNTIME_READY;
     }
     if (!rdx_app_rdx_rebind_is_idle()) {
-        r_printf("[BLE_PHASE3] RDX runtime RESETTING: old workers still busy\r");
+        r_printf("[RDX_BLE_SESSION] runtime RESETTING: old workers still busy\r");
         return 0;
     }
 
@@ -1292,10 +1292,10 @@ static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
     rdx_app_emmc_poweroff_check();
     if (!rdx_ble_session_rdx_runtime_rearm()) {
         rdx_ble_session_rdx_runtime_fail_closed();
-        r_printf("[BLE_PHASE3] RDX runtime FAILED: peer identity unavailable\r");
+        r_printf("[RDX_BLE_SESSION] runtime FAILED: peer identity unavailable\r");
         return 0;
     }
-    r_printf("[BLE_PHASE3] RDX runtime READY: FIFO drained and workers idle\r");
+    r_printf("[RDX_BLE_SESSION] runtime READY: FIFO drained and workers idle\r");
     return 1;
 }
 
@@ -1309,7 +1309,7 @@ void rdx_ble_server_rdx_lifecycle_barrier_complete(void)
 {
     if (!g_rdx_lifecycle_barrier_armed ||
         !rdx_ble_session_rdx_runtime_barrier_arrive()) {
-        r_printf("[BLE_PHASE3] unexpected RDX lifecycle barrier ignored\r");
+        r_printf("[RDX_BLE_SESSION] unexpected lifecycle barrier ignored\r");
         return;
     }
 
@@ -1317,7 +1317,7 @@ void rdx_ble_server_rdx_lifecycle_barrier_complete(void)
     memset(g_rdx_lifecycle_barrier_value, 0,
            sizeof(g_rdx_lifecycle_barrier_value));
     g_rdx_ble_server_info.ble_conn = FALSE;
-    r_printf("[BLE_PHASE3] RDX receive FIFO drain barrier reached\r");
+    r_printf("[RDX_BLE_SESSION] receive FIFO drain barrier reached\r");
 
     /* Old receive packets may have started new work after the synchronous
      * disconnect cleanup. Abort once more on the FIFO consumer task before
@@ -1450,21 +1450,21 @@ static void rdx_ble_server_phase0a_connect_adv_restart_deferred(void *priv)
     g_rdx_ble_phase0a_connect_adv_timer = 0;
 
     if (!rdx_ble_server_phase0b_adv_token_is_current()) {
-        r_printf("[BLE_PHASE0B] stale connect ADV timer ignored\n");
+        r_printf("[RDX_BLE_LINK] stale connect ADV timer ignored\n");
         return;
     }
     if (rdx_ble_server_phase0a_connected_count() >=
             RDX_BLE_PHASE0A_WRAPPER_MAX ||
         !rdx_ble_server_phase0a_idle_wrapper_get() ||
         rdx_ble_server_broadcast_suppressed()) {
-        r_printf("[BLE_PHASE0A] delayed advertiser skipped connected=%u idle=%p suppressed=%u\n",
+        r_printf("[RDX_BLE_LINK] delayed advertiser skipped connected=%u idle=%p suppressed=%u\n",
                  rdx_ble_server_phase0a_connected_count(),
                  rdx_ble_server_phase0a_idle_wrapper_get(),
                  rdx_ble_server_broadcast_suppressed());
         return;
     }
 
-    r_printf("[BLE_PHASE0A] Connection Complete fan-out done; advertise on idle wrapper\n");
+    r_printf("[RDX_BLE_LINK] connection fan-out done; advertise on idle wrapper\n");
     rdx_ble_server_adv_enable(1);
 }
 
@@ -1479,7 +1479,7 @@ static void rdx_ble_server_phase0a_connect_adv_restart_schedule(void)
         rdx_ble_server_phase0a_connect_adv_restart_deferred,
         RDX_BLE_PHASE0A_ADV_RESTART_DELAY_MS);
     if (!g_rdx_ble_phase0a_connect_adv_timer) {
-        y_printf("[BLE_PHASE0A] failed to defer idle-wrapper advertising\n");
+        y_printf("[RDX_BLE_LINK] failed to defer idle-wrapper advertising\n");
     }
 }
 
@@ -1503,7 +1503,7 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
 
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_phase0b_adv_token_is_current()) {
-        r_printf("[BLE_PHASE0B] stale disconnect ADV timer ignored\n");
+        r_printf("[RDX_BLE_LINK] stale disconnect ADV timer ignored\n");
         g_disconnected_adv_restart_retry = 0;
         g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
         return;
@@ -1522,7 +1522,7 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
                 rdx_ble_server_disconnected_adv_restart_deferred,
                 RDX_DISCONNECT_ADV_RESTART_DELAY_MS);
         } else {
-            y_printf("[BLE_PHASE0A] advertising restart timed out waiting for wrapper cleanup\n");
+            y_printf("[RDX_BLE_LINK] advertising restart timed out waiting for wrapper cleanup\n");
             g_disconnected_adv_restart_retry = 0;
             g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
         }
@@ -1535,7 +1535,7 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
     if (rdx_ble_server_phase0a_connected_count() <
             RDX_BLE_PHASE0A_WRAPPER_MAX &&
         !rdx_ble_server_broadcast_suppressed()) {
-        r_printf("[BLE_PHASE0A] advertising restart on released wrapper\n");
+        r_printf("[RDX_BLE_LINK] advertising restart on released wrapper\n");
         rdx_ble_server_adv_enable(1);
     }
     return;
@@ -1963,7 +1963,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     u16 con_handle;
 
     if (!packet || size < min_size) {
-        r_printf("[BLE_PHASE0A] connection complete too short: %u/%u\n",
+        r_printf("[RDX_BLE_LINK] connection complete too short: %u/%u\n",
                  size, min_size);
         return;
     }
@@ -1975,7 +1975,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
         con_handle = hci_subevent_le_connection_complete_get_connection_handle(packet);
     }
     if (status != 0) {
-        r_printf("[BLE_PHASE0A] connection failed status=0x%02x enhanced=%u\n",
+        r_printf("[RDX_BLE_LINK] connection failed status=0x%02x enhanced=%u\n",
                  status, enhanced);
         return;
     }
@@ -1984,7 +1984,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
      * wrapper, so connection-handle equality alone is not sufficient while
      * the event is still in flight. */
     if (hdl != g_rdx_ble_advertising_hdl) {
-        r_printf("[BLE_PHASE0A] connect ignored: wrapper=%u advertiser=%u event_con=0x%04x\n",
+        r_printf("[RDX_BLE_LINK] connect ignored: wrapper=%u advertiser=%u event_con=0x%04x\n",
                  rdx_ble_server_phase0a_wrapper_index(hdl),
                  rdx_ble_server_phase0a_wrapper_index(
                      g_rdx_ble_advertising_hdl),
@@ -2000,7 +2000,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
     link = rdx_ble_session_link_accept(hdl, con_handle);
     if (!link) {
-        y_printf("[BLE_PHASE1] connect rejected: registry conflict wrapper=%u con=0x%04x\n",
+        y_printf("[RDX_BLE_LINK] connect rejected: registry conflict wrapper=%u con=0x%04x\n",
                  wrapper_index, con_handle);
         return;
     }
@@ -2009,7 +2009,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     rdx_ble_server_disconnected_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
     rdx_ble_server_adv_interval_change_timer_stop();
-    r_printf("[BLE_PHASE0A] connected_count=%u; defer idle-wrapper advertising\n",
+    r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
 }
@@ -2024,7 +2024,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     u8 reason;
 
     if (!packet || size < RDX_DISCONNECTION_COMPLETE_MIN_SIZE) {
-        r_printf("[BLE_PHASE0A] disconnection complete too short: %u\n", size);
+        r_printf("[RDX_BLE_LINK] disconnection complete too short: %u\n", size);
         return;
     }
     con_handle = hci_event_disconnection_complete_get_connection_handle(packet);
@@ -2038,7 +2038,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
         return;
     }
 
-    r_printf("[BLE_PHASE0A] disconnect accepted status=0x%02x reason=0x%02x\n",
+    r_printf("[RDX_BLE_LINK] disconnect accepted status=0x%02x reason=0x%02x\n",
              status, reason);
 #if TCFG_RDX_HOGP_ENABLE
     if (rdx_ble_session_link_is_hid(link)) {
@@ -2081,7 +2081,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 break;
             }
             if (!rdx_ble_server_rdx_send_pending_consume(link)) {
-                r_printf("[BLE_PHASE2B] can_send_now ignored: no current RDX pending token con=0x%04x\n",
+                r_printf("[RDX_BLE_TX] can_send_now ignored: no current pending token con=0x%04x\n",
                          link->con_handle);
                 break;
             }
@@ -2097,8 +2097,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                     bulk_send_data->bulk_flag = false;
                 }
                 os_sem_post(&ble_send_data->send_sem);
-                r_printf("[BLE_PHASE2B] can_send_now accepted con=0x%04x\n",
-                         link->con_handle);
+                /* Normal high-rate success path; log rejected events only. */
             }
         }
         break;
@@ -2163,7 +2162,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
 #endif
             }
-            r_printf("[BLE_PHASE2] encryption=%u con=0x%04x\n",
+            r_printf("[RDX_BLE_SEC] encryption=%u con=0x%04x\n",
                      encrypted, con_handle);
         }
         break;
@@ -2177,7 +2176,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
             if (link) {
                 rdx_ble_session_link_set_mtu(link, mtu);
                 ble_op_multi_att_set_send_mtu(con_handle, mtu);
-                r_printf("[BLE_PHASE0B] mtu=%u con=0x%04x\n",
+                r_printf("[RDX_BLE_LINK] mtu=%u con=0x%04x\n",
                          mtu, con_handle);
             }
         }
@@ -2216,23 +2215,23 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
         }
 #endif
         if (rdx_ble_session_link_is_hid_pairing_pending(link)) {
-            r_printf("[BLE_PHASE2] Just Works confirmed for HID candidate con=0x%04x\n",
+            r_printf("[RDX_BLE_SEC] Just Works confirmed for HID candidate con=0x%04x\n",
                      con_handle);
             sm_just_works_confirm(con_handle);
             return;
         }
         if (!rdx_ble_session_get_hid_link()) {
             rdx_ble_session_link_set_hid_pairing_pending(link, 1);
-            r_printf("[BLE_PHASE3] Just Works confirmed for provisional HID candidate con=0x%04x capability=0x%02x\n",
+            r_printf("[RDX_BLE_SEC] Just Works confirmed for provisional HID candidate con=0x%04x capability=0x%02x\n",
                      con_handle, link->capability);
             sm_just_works_confirm(con_handle);
             return;
         }
-        r_printf("[BLE_PHASE2] Just Works rejected: no HID candidate con=0x%04x\n",
+        r_printf("[RDX_BLE_SEC] Just Works rejected: no HID candidate con=0x%04x\n",
                  con_handle);
         break;
     default:
-        r_printf("[BLE_PHASE2] sm_event wrapper=%u type=0x%02x size=%u observed\n",
+        r_printf("[RDX_BLE_SEC] sm_event wrapper=%u type=0x%02x size=%u observed\n",
                  rdx_ble_server_phase0a_wrapper_index(hdl),
                  hci_event_packet_get_type(packet), size);
         break;
@@ -2602,7 +2601,7 @@ static void rdx_ble_server_stream_tx_ready_cb(void* priv)
            rdx_ble_session_rdx_token_resolve(&g_syn_data_token, 1) : NULL;
     if (!link || !link->rdx_ccc_configured) {
         g_syn_data_token_valid = 0;
-        r_printf("[BLE_PHASE2B] stale stream-ready timer dropped\r");
+        r_printf("[RDX_BLE_SESSION] stale stream-ready timer dropped\r");
         return;
     }
     link->rdx_stream_tx_ready = 1;
@@ -2639,7 +2638,7 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     if (!g_syn_data_token_valid ||
         !rdx_ble_session_rdx_token_resolve(&g_syn_data_token, 1)) {
         g_syn_data_token_valid = 0;
-        r_printf("[BLE_PHASE2B] stale sync-data timer dropped\r");
+        r_printf("[RDX_BLE_SESSION] stale sync-data timer dropped\r");
         return;
     }
 
@@ -2687,7 +2686,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     had_hid_owner = rdx_ble_session_link_is_hid(link);
     claim_result = rdx_ble_session_claim_rdx(link, link->slot_generation);
     if (claim_result != RDX_BLE_CLAIM_OK) {
-        y_printf("[BLE_PHASE2] RDX claim rejected result=%u con=0x%04x\n",
+        y_printf("[RDX_BLE_SESSION] RDX claim rejected result=%u con=0x%04x\n",
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
@@ -2698,10 +2697,10 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     rdx_ble_server_reset_send_fail_cnt();
     rdx_ble_server_rdx_connected_handle();
     if (had_hid_owner) {
-        r_printf("[BLE_PHASE3] composite owner slot=%u con=0x%04x order=HID+RDX\n",
+        r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=HID+RDX\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
-    r_printf("[BLE_PHASE3] RDX runtime ACTIVE con=0x%04x hdl=%p epoch=%u\n",
+    r_printf("[RDX_BLE_SESSION] runtime ACTIVE con=0x%04x hdl=%p epoch=%u\n",
               link->con_handle, link->ble_hdl,
               rdx_ble_session_rdx_runtime_epoch_get());
     return 0;
@@ -2744,10 +2743,10 @@ static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
         memset(g_rdx_lifecycle_barrier_value, 0,
                sizeof(g_rdx_lifecycle_barrier_value));
         rdx_ble_session_rdx_runtime_fail_closed();
-        r_printf("[BLE_PHASE3] RDX runtime FAILED: drain barrier enqueue failed\r");
+        r_printf("[RDX_BLE_SESSION] runtime FAILED: drain barrier enqueue failed\r");
         return;
     }
-    r_printf("[BLE_PHASE3] RDX runtime QUIESCING con=0x%04x hdl=%p epoch=%u; drain barrier queued\n",
+    r_printf("[RDX_BLE_SESSION] runtime QUIESCING con=0x%04x hdl=%p epoch=%u; drain barrier queued\n",
              link->con_handle, link->ble_hdl,
              rdx_ble_session_rdx_runtime_epoch_get());
 }
@@ -2766,19 +2765,19 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
     had_rdx_owner = rdx_ble_session_link_is_rdx(link);
     claim_result = rdx_ble_session_claim_hid(link, link->slot_generation);
     if (claim_result != RDX_BLE_CLAIM_OK) {
-        y_printf("[BLE_PHASE2] HID claim rejected result=%u con=0x%04x\n",
+        y_printf("[RDX_BLE_HID] claim rejected result=%u con=0x%04x\n",
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
     if (!rdx_hogp_keyboard_is_connected()) {
         rdx_hogp_on_connected_with_hdl(link->ble_hdl, link->con_handle,
                                        link->encrypted);
-        r_printf("[BLE_PHASE2] HID owner attached con=0x%04x hdl=%p\n",
+        r_printf("[RDX_BLE_HID] owner attached con=0x%04x hdl=%p\n",
                  link->con_handle, link->ble_hdl);
     }
     if (had_rdx_owner && !had_hid_owner &&
         rdx_hogp_keyboard_is_connected()) {
-        r_printf("[BLE_PHASE3] composite owner slot=%u con=0x%04x order=RDX+HID\n",
+        r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=RDX+HID\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
     return rdx_hogp_keyboard_is_connected() ? 0 :
@@ -2909,7 +2908,7 @@ static int rdx_ble_server_phase0a_hogp_control_write(
             return RDX_BLE_PHASE0A_ATT_ERR_VALUE_NOT_ALLOWED;
         }
         multi_att_set_ccc_config(connection_handle, att_handle, cfg);
-        r_printf("[BLE_PHASE0B] Battery CCC cfg=0x%04x con=0x%04x\n",
+        r_printf("[RDX_BLE_GATT] Battery CCC cfg=0x%04x con=0x%04x\n",
                  cfg, connection_handle);
         if (cfg == 0x0001) {
             battery = rdx_battery_get_percent();
@@ -2920,7 +2919,7 @@ static int rdx_ble_server_phase0a_hogp_control_write(
                 connection_handle,
                 ATT_CHARACTERISTIC_2A19_01_VALUE_HANDLE,
                 &battery, sizeof(battery), ATT_OP_AUTO_READ_CCC);
-            r_printf("[BLE_PHASE0B] Battery test notify con=0x%04x ret=%d\n",
+            r_printf("[RDX_BLE_GATT] Battery test notify con=0x%04x ret=%d\n",
                      connection_handle, send_ret);
         }
         return 0;
@@ -2936,14 +2935,14 @@ static int rdx_ble_server_phase0a_hogp_control_write(
         }
 #if RDX_HOGP_ENCRYPTION_REQUIRED
         if (cfg == 0x0001 && !encrypted) {
-            r_printf("[BLE_PHASE0A] HID CCC pairing requested con=0x%04x\n",
+            r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x\n",
                      connection_handle);
             sm_api_request_pairing(connection_handle);
             return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
         }
 #endif
         multi_att_set_ccc_config(connection_handle, att_handle, cfg);
-        r_printf("[BLE_PHASE0A] HID CCC control-plane cfg=0x%04x con=0x%04x (no claim)\n",
+        r_printf("[RDX_BLE_HID] CCC control-plane cfg=0x%04x con=0x%04x (no claim)\n",
                  cfg, connection_handle);
         return 0;
     }
@@ -2977,7 +2976,7 @@ static int rdx_ble_server_phase0a_hogp_control_write(
         return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
     }
 #endif
-    r_printf("[BLE_PHASE0A] HID control-plane write accepted att=0x%04x con=0x%04x (no claim)\n",
+    r_printf("[RDX_BLE_HID] control-plane write accepted att=0x%04x con=0x%04x (no claim)\n",
              att_handle, connection_handle);
     return 0;
 }
@@ -3043,7 +3042,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
                 if (link) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 1);
                 }
-                r_printf("[BLE_PHASE2] HID CCC pairing requested con=0x%04x (no claim)\n",
+                r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x (no claim)\n",
                          connection_handle);
                 sm_api_request_pairing(connection_handle);
                 return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
@@ -3077,7 +3076,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             rdx_ble_server_phase0b_link_find(hdl, connection_handle),
             handle, offset, buffer, buffer_size);
     }
-    r_printf("[BLE_PHASE2] write rejected att=0x%04x\n", handle);
+    r_printf("[RDX_BLE_GATT] write rejected att=0x%04x\n", handle);
     return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
 #else
     if (!rdx_ble_session_is_current(connection_handle)) {
@@ -3587,7 +3586,7 @@ int rdx_ble_server_adv_enable(u8 enable)
 
     target = rdx_ble_server_phase0a_idle_wrapper_get();
     if (!target) {
-        r_printf("[BLE_PHASE0A] no idle wrapper; advertising remains off\n");
+        r_printf("[RDX_BLE_LINK] no idle wrapper; advertising remains off\n");
         return 0;
     }
 
@@ -3597,7 +3596,7 @@ int rdx_ble_server_adv_enable(u8 enable)
             rdx_ble_server_adv_enable_on_hdl(hdl, 0);
         }
     }
-    r_printf("[BLE_PHASE0A] advertiser wrapper=%u hdl=%p\n",
+    r_printf("[RDX_BLE_LINK] advertiser wrapper=%u hdl=%p\n",
              rdx_ble_server_phase0a_wrapper_index(target), target);
     return rdx_ble_server_adv_enable_on_hdl(target, 1);
 #else
@@ -3737,7 +3736,7 @@ static int rdx_ble_server_send_internal(
         (snapshot.token.slot_index != expected_token->slot_index ||
          snapshot.token.slot_generation != expected_token->slot_generation ||
          snapshot.token.transport_epoch != expected_token->transport_epoch)) {
-        r_printf("[BLE_PHASE2B] drop stale token-bound RDX send\r");
+        r_printf("[RDX_BLE_TX] drop stale token-bound RDX send\r");
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
@@ -3842,7 +3841,7 @@ static int rdx_ble_server_ota_send_internal(
         (snapshot.token.slot_index != expected_token->slot_index ||
          snapshot.token.slot_generation != expected_token->slot_generation ||
          snapshot.token.transport_epoch != expected_token->transport_epoch)) {
-        r_printf("[BLE_PHASE2B] drop stale token-bound OTA send\r");
+        r_printf("[RDX_BLE_TX] drop stale token-bound OTA send\r");
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
@@ -4080,7 +4079,7 @@ static void rdx_ble_server_wrapper_register(void *hdl, u8 *ble_addr)
     app_ble_sm_event_callback_register(hdl,
                                        rdx_ble_server_sm_event_callback);
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
-    r_printf("[BLE_PHASE0A] wrapper=%u registered hdl=%p adv_handle=%d\n",
+    r_printf("[RDX_BLE_INIT] wrapper=%u registered hdl=%p adv_handle=%d\n",
              rdx_ble_server_phase0a_wrapper_index(hdl), hdl,
              app_ble_adv_handle_get(hdl));
 #endif
@@ -4122,7 +4121,7 @@ void rdx_ble_server_init(void)
         g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
         g_rdx_ble_secondary_hdl = app_ble_hdl_alloc();
         if (g_rdx_ble_secondary_hdl == NULL) {
-            log_error("[BLE_PHASE0A] secondary wrapper alloc failed\n");
+            log_error("[RDX_BLE_INIT] secondary wrapper alloc failed\n");
             app_ble_hdl_free(g_rdx_ble_server_info.rdx_ble_server_hdl);
             g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
             return;
@@ -4147,7 +4146,7 @@ void rdx_ble_server_init(void)
         rdx_ble_session_transport_init(
             g_rdx_ble_server_info.rdx_ble_server_hdl,
             g_rdx_ble_secondary_hdl);
-        r_printf("[BLE_PHASE1] wrappers registered primary=%p secondary=%p profile=%p\n",
+        r_printf("[RDX_BLE_INIT] wrappers registered primary=%p secondary=%p profile=%p\n",
                  g_rdx_ble_server_info.rdx_ble_server_hdl,
                  g_rdx_ble_secondary_hdl,
                  rdx_profile_data);

@@ -255,7 +255,7 @@ static void rdx_record_state_indicate_if_current(
 {
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_record_online_session_token_is_current(token)) {
-        r_printf("[BLE_PHASE2B] drop stale record state indication\r");
+        r_printf("[RDX_RECORD] drop stale state indication\r");
         return;
     }
 #else
@@ -710,7 +710,7 @@ static void rdx_record_mark_indicate_if_current(
 {
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_record_online_session_token_is_current(token)) {
-        r_printf("[BLE_PHASE2B] drop stale record mark indication\r");
+        r_printf("[RDX_RECORD] drop stale mark indication\r");
         return;
     }
 #else
@@ -795,7 +795,7 @@ int rdx_record_add_mark(u8 source)
     } else {
         /* Local/offline recording marks remain valid storage operations.  They
          * simply have no RDX response destination. */
-        r_printf("[BLE_PHASE2B] local record mark has no RDX uplink\r");
+        r_printf("[RDX_RECORD] local mark has no RDX uplink\r");
     }
 #endif
     return rdx_record_add_mark_internal(source, token_ptr);
@@ -932,7 +932,7 @@ static void rdx_record_cmd_delay_cb(void *priv)
 
     if (g_pending_record_token_valid &&
         !rdx_record_rdx_token_is_current(&g_pending_record_token)) {
-        r_printf("[BLE_PHASE2B] drop stale delayed record cmd\r");
+        r_printf("[RDX_RECORD] drop stale delayed command\r");
         g_record_cmd_retry_cnt = 0;
         rdx_record_pending_cmd_clear();
         return;
@@ -957,7 +957,7 @@ static void rdx_record_cmd_delay_cb(void *priv)
     g_record_cmd_retry_cnt = 0;
     if (g_pending_record_token_valid &&
         !rdx_record_rdx_token_is_current(&g_pending_record_token)) {
-        r_printf("[BLE_PHASE2B] drop stale ready record cmd\r");
+        r_printf("[RDX_RECORD] drop stale ready command\r");
         rdx_record_pending_cmd_clear();
         return;
     }
@@ -988,11 +988,11 @@ static void rdx_record_cmd_handle_internal(
         return;
     }
     if (token && !rdx_record_rdx_token_is_current(token)) {
-        r_printf("[BLE_PHASE2B] drop stale record cmd\r");
+        r_printf("[RDX_RECORD] drop stale command\r");
         return;
     }
     if (token && !rdx_record_online_session_accepts(token)) {
-        r_printf("[BLE_PHASE2B] drop record cmd for another session\r");
+        r_printf("[RDX_RECORD] drop command for another session\r");
         return;
     }
     info_type = r_info->type - 0x30;
@@ -1009,7 +1009,7 @@ static void rdx_record_cmd_handle_internal(
                     g_record_cmd_delay_timer = 0;
                     g_record_cmd_retry_cnt = 0;
                     rdx_record_pending_cmd_clear();
-                    r_printf("[BLE_PHASE2B] replace stale delayed record cmd\r");
+                    r_printf("[RDX_RECORD] replace stale delayed command\r");
                 } else {
                     r_printf("[REC_DELAY] Already waiting, ignore duplicate cmd\r");
                     return;
@@ -2108,7 +2108,7 @@ void rdx_record_stream_resume(void* priv)
         !rdx_record_token_equal(&g_stream_resume_token,
                                 &g_record_session_token) ||
         !rdx_record_online_session_is_current()) {
-        r_printf("[BLE_PHASE2B] drop stale record stream resume\r");
+        r_printf("[RDX_RECORD] drop stale stream resume\r");
         g_stream_resume_token_valid = 0;
         stream_resume_timer = 0;
         return;
