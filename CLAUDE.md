@@ -80,18 +80,27 @@ Run all host-side software validation tests through the unified entry point:
 .\tests\host\run_host_tests.ps1
 ```
 
-The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script. To run a single test directly:
+The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script. To run a single core contract directly:
 
 ```powershell
 .\tests\host\test_t2620_config_overlay.ps1
+.\tests\host\test_pc_mode_storage_contract.ps1
 .\tests\host\test_hogp_profile_contract.ps1
 .\tests\host\test_rdx_unified_adv_phase1.ps1
 .\tests\host\test_rdx_unified_session_phase2b.ps1
+.\tests\host\test_rdx_dual_link_phase3_keymap.ps1
+.\tests\host\test_rdx_dual_link_phase3_reconnect_lifecycle.ps1
+.\tests\host\test_rdx_local_playback_config.ps1
+.\tests\host\test_rdx_playback_navigation.ps1
 ```
 
 `test_t2620_config_overlay.ps1` verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
 
 `test_hogp_profile_contract.ps1` verifies that the frozen HOGP external contract has not regressed: HID handle macros in `rdx_hogp_profile.h`, Report Map length and byte sequence in `rdx_hogp_profile.c`, the 8-byte Input Report payload without a Report ID prefix in `rdx_hogp_keyboard.c`, and HID Service attribute order and byte-level values in `rdx_ble_server.c`. It reads the C source/header files and does not build or flash firmware.
+
+The runner intentionally contains only these core contracts. Historical
+Phase 0/1/2B split scripts were removed from the daily framework; the phase
+acceptance numbers in the design documents remain historical evidence.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 

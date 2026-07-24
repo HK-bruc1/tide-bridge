@@ -91,15 +91,20 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner currently covers:
+The host test runner keeps a small core suite covering:
 
 - `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
+- `test_pc_mode_storage_contract.ps1` - freezes USB Mass Storage ownership, DIP-switch power gating, and safe SD takeover/restore ordering.
 - `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
 - `test_rdx_unified_adv_phase1.ps1` - freezes the production unified advertising layout and verifies that no development compatibility switch or standalone HOGP advertising configuration remains.
 - `test_rdx_unified_session_phase2b.ps1` - freezes the owner-free single-link capability model, deferred advertising restart, RDX access policy, HID-ready boundary, and peer-scoped bonded CCC recovery.
-- `test_hogp_keymap_architecture.ps1` / `test_hogp_keymap_behavior.ps1` - verify keymap transaction boundaries and keyboard action behavior.
+- `test_rdx_dual_link_phase3_keymap.ps1` - freezes the online keymap transaction, same-link capability composition, and owner-bound responses.
+- `test_rdx_dual_link_phase3_reconnect_lifecycle.ps1` - freezes the immutable-runtime reconnect lifecycle, peer restriction, FIFO barrier, and fail-closed paths.
 - `test_rdx_local_playback_config.ps1` - verifies the RDX local playback compile-time boundary: master switch propagation, decoder/encoder separation, guarded application and key wiring, public Source_Dev0 APIs, and recording-side fix independence.
 - `test_rdx_playback_navigation.ps1` - verifies local playback navigation, wrap/skip behavior, pause/resume state, seeking, and invalid-selection recovery.
+
+The former Phase 0/1/2B and split HOGP keymap scripts were historical stage
+contracts and are no longer part of the daily host framework.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 

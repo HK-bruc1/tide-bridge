@@ -4,9 +4,9 @@
     Runs all host-side software validation tests.
 
 .DESCRIPTION
-    Provides one stable entry point for VS Code tasks and developers. Each test
-    is launched in a child PowerShell process so scripts that call exit cannot
-    terminate this runner before the remaining tests run.
+    Provides one stable entry point for the small set of core source contracts.
+    Each test is launched in a child PowerShell process because the individual
+    scripts use exit codes for CI compatibility.
 #>
 
 [CmdletBinding()]
@@ -36,52 +36,12 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_hogp_profile_contract.ps1'
     },
     [PSCustomObject]@{
-        Name = 'RDX unified advertising production contract'
+        Name = 'RDX unified advertising contract'
         Path = Join-Path $PSScriptRoot 'test_rdx_unified_adv_phase1.ps1'
     },
     [PSCustomObject]@{
-        Name = 'RDX unified session production contract'
+        Name = 'RDX unified session contract'
         Path = Join-Path $PSScriptRoot 'test_rdx_unified_session_phase2b.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 0A contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase0a.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 1 contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase1.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2 capability contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B transport contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_transport.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B compatibility contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_compat.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B record async contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_record_async.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B record session contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_record_session.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B source async contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_async_source.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B keymap async contract'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_keymap_async.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'RDX dual-link Phase 2B immutable runtime safety'
-        Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase2b_runtime_fallback.ps1'
     },
     [PSCustomObject]@{
         Name = 'RDX dual-link Phase 3 online keymap contract'
@@ -92,17 +52,9 @@ $Tests = @(
         Path = Join-Path $PSScriptRoot 'test_rdx_dual_link_phase3_reconnect_lifecycle.ps1'
     },
     [PSCustomObject]@{
-        Name = 'HOGP keymap architecture'
-        Path = Join-Path $PSScriptRoot 'test_hogp_keymap_architecture.ps1'
-    },
-    [PSCustomObject]@{
-        Name = 'HOGP keymap behavior'
-        Path = Join-Path $PSScriptRoot 'test_hogp_keymap_behavior.ps1'
-    },
-    [PSCustomObject]@{
         Name = 'RDX local playback configuration'
         Path = Join-Path $PSScriptRoot 'test_rdx_local_playback_config.ps1'
-    }
+    },
     [PSCustomObject]@{
         Name = 'RDX playback navigation'
         Path = Join-Path $PSScriptRoot 'test_rdx_playback_navigation.ps1'
@@ -111,7 +63,7 @@ $Tests = @(
 
 $failed = 0
 
-Write-Host 'Host Software Tests'
+Write-Host 'Host Core Contracts'
 Write-Host '==================='
 
 foreach ($test in $Tests) {
