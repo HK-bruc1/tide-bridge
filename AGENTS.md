@@ -6,7 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 This is a **JieLi (JL) AC701N / BR28 TWS earphone firmware** project. The application is built on top of JL's SDK (`SDK/`) with product-specific configuration in `src/` and output images in `output/`.
 
-The current branch adds an **RDX third-party BLE protocol stack** with a recent **HOGP keyboard extension** that reuses RDX's GATT server handle.
+The current branch adds an **RDX third-party BLE protocol stack** with a **HOGP keyboard extension**. Two `app_ble` wrappers expose the same composite RDX + HOGP GATT profile and carry up to two Peripheral ACLs.
 
 - Project descriptor: `project.jlproj` (JL Studio project file)
 - Target chip: AC701N, SDK type "TWS耳机", BR28 CPU
@@ -91,20 +91,17 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner keeps a small core suite covering:
+The host test runner keeps a five-contract core suite covering:
 
-- `test_t2620_config_overlay.ps1` - verifies T2620-specific config overlays (`t2620_project_config.h`) on top of tool-generated `sdk_config.h`/`sdk_config.c`, and verifies that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
-- `test_pc_mode_storage_contract.ps1` - freezes USB Mass Storage ownership, DIP-switch power gating, and safe SD takeover/restore ordering.
-- `test_hogp_profile_contract.ps1` - freezes the HOGP external contract: HID handle macros, Report Map length and bytes, 8-byte Input Report payload without a Report ID prefix, and HID Service attribute order / byte-level values.
-- `test_rdx_unified_adv_phase1.ps1` - freezes the production unified advertising layout and verifies that no development compatibility switch or standalone HOGP advertising configuration remains.
-- `test_rdx_unified_session_phase2b.ps1` - freezes the owner-free single-link capability model, deferred advertising restart, RDX access policy, HID-ready boundary, and peer-scoped bonded CCC recovery.
-- `test_rdx_dual_link_phase3_keymap.ps1` - freezes the online keymap transaction, same-link capability composition, and owner-bound responses.
-- `test_rdx_dual_link_phase3_reconnect_lifecycle.ps1` - freezes the immutable-runtime reconnect lifecycle, peer restriction, FIFO barrier, and fail-closed paths.
-- `test_rdx_local_playback_config.ps1` - verifies the RDX local playback compile-time boundary: master switch propagation, decoder/encoder separation, guarded application and key wiring, public Source_Dev0 APIs, and recording-side fix independence.
-- `test_rdx_playback_navigation.ps1` - verifies local playback navigation, wrap/skip behavior, pause/resume state, seeking, and invalid-selection recovery.
+- `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
+- `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
+- `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
+- `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, same-peer restriction, and fail-closed behavior.
+- `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
 
-The former Phase 0/1/2B and split HOGP keymap scripts were historical stage
-contracts and are no longer part of the daily host framework.
+The former phase-specific, playback, and split configuration scripts were
+historical evidence or inactive product checks and are no longer part of the
+daily host framework.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
@@ -146,15 +143,16 @@ The HOGP feature is implemented by extending the same RDX GATT server instead of
 - HID Service (`0x1812`) is appended to `rdx_profile_data[]` after the existing RDX services, using handles `0x0016–0x0022`; Device Information uses `0x0023–0x0027`, and the HID Output Report uses `0x0028–0x002a`
 - `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report, Output Report)
 - `rdx_ble_server_att_write_callback()` handles encrypted HID dynamic writes, including Protocol Mode, Input CCC, Control Point, and Output Report
-- HID reports are sent via `app_ble_att_send_data()` on the RDX wrapper handle
+- HID reports are sent via `app_ble_att_send_data()` on the current HID owner wrapper
 - Physical-key routing lives in `rdx_app_earphone_key_remap()`; `rdx_hogp_key_action.c` builds reports and `rdx_hogp_keyboard.c` owns ATT transport
 
 Key points:
 
-- `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
-- RDX and HOGP use one connectable advertising entry: primary ADV keeps `Flags + local name`, while Scan Response keeps RDX Manufacturer Data first and appends HID UUID `0x1812`
+- `config_le_hci_connection_num` is fixed at `2` for the RDX product and `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
+- Two wrappers expose the same address/profile, but only one idle wrapper advertises at a time. Primary ADV keeps `Flags + local name`, while Scan Response keeps RDX Manufacturer Data first and appends HID UUID `0x1812`.
 - There is no CONFIG/HOGP advertising mode, connection owner, or unified-entry compatibility switch
-- Any current BLE center may access RDX commands; online keyboard routing is independently gated by `Input CCC enabled && encrypted && !suspended`
+- One RDX owner and one HID owner are allowed globally. They may occupy separate links or the same link as a composite `RDX_HID` owner.
+- RDX access claims the current link; online keyboard routing is independently gated by `Input CCC enabled && encrypted && !suspended`
 - Bonded HID subscription intent is persisted per SM peer identity so a Windows reconnect can restore ready state without leaking CCC state to another peer
 
 ### T2620 project config overlay
@@ -192,9 +190,11 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 ## Important files to know
 
 - `tests/host/run_host_tests.ps1` - unified host-side software test entry point
+- `tests/host/test_t2620_product_contract.ps1` - product configuration and storage safety contract
 - `tests/host/test_hogp_profile_contract.ps1` - host-side HOGP profile contract validation
-- `tests/host/test_rdx_local_playback_config.ps1` - host-side RDX local playback modularity validation
-- `tests/host/test_rdx_playback_navigation.ps1` - host-side playback navigation validation
+- `tests/host/test_rdx_transport_contract.ps1` - dual-link transport and advertising contract
+- `tests/host/test_rdx_lifecycle_contract.ps1` - reconnect lifecycle contract
+- `tests/host/test_rdx_keymap_contract.ps1` - online keymap transaction contract
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
 - `SDK/.vscode/tasks.json` — source of truth for VS Code build/test commands
@@ -206,6 +206,6 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c` — RDX GATT server and HOGP extension
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` — RDX app logic and key remapping
 - `SDK/apps/earphone/board/iokey_config.c` — runtime IO key platform data builder
-- `tests/host/test_t2620_config_overlay.ps1` — host-side config overlay validation
+- `tests/host/test_t2620_product_contract.ps1` — product configuration and storage safety contract
 - `HOGP_MVP_实施方案.md` — detailed HOGP implementation notes
 - `HOGP键盘移植最终评估.md` — HOGP architecture assessment and handle layout

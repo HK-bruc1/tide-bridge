@@ -316,13 +316,11 @@ static void rdx_app_record_trigger_on_app_core(
     if (!request) {
         return;
     }
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale record trigger indication\r");
         free(request);
         return;
     }
-#endif
     rdx_protocol_record_trigger_indicate(&request->status, request->factor);
     free(request);
 }
@@ -1440,14 +1438,12 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
 
     rdx_app_record_state_upload_timer_stop();
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!token_valid ||
         !rdx_ble_session_rdx_token_resolve(&token, 1)) {
         record_state_upload_token_valid = 0;
         r_printf("[RDX_RECORD] drop stale record state timer\r");
         return;
     }
-#endif
     record_state_upload_token_valid = 0;
 
     if(RECORD_STATE_START == rp->run || RECORD_STATE_RESUME == rp->run){
@@ -1516,13 +1512,11 @@ void rdx_app_record_state_upload_timer_start(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_capture(&record_state_upload_token, 1)) {
         r_printf("[RDX_RECORD] skip state timer without RDX owner\r");
         return;
     }
     record_state_upload_token_valid = 1;
-#endif
     if(record_state_upload_timer == 0){
         record_state_upload_timer = sys_timeout_add(NULL, rdx_app_record_state_upload_timer_cb, 3000);
     }
@@ -1557,13 +1551,11 @@ void rdx_app_device_record_handle(u8 scene)
     }
 
     if(0xffff != con_hdl && 0 != con_hdl){
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
         if (!rdx_token_valid) {
             r_printf("[RDX_RECORD] ignore online trigger without RDX owner\r");
             return;
         }
-#endif
         //ota?
         if(get_ota_status()){
             return;
@@ -2697,11 +2689,7 @@ void rdx_app_record_switch(u8 orig_scene)
         return; 
     }
     //record mode switch.
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
-#else
-    rdx_token_valid = (con_hdl != 0 && con_hdl != 0xffff);
-#endif
     if(g_protocol_ops && rdx_token_valid){
         RecordStatus* rp_cur = rdx_record_get_status();
         u8 scene = (rp_cur->scene == RECORD_SCENE_CALL) ? 1 : 0;
@@ -3166,13 +3154,11 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
     }
     info = request->info;
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale app_core command\r");
         free(request);
         return;
     }
-#endif
 
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (info.cmd == (RECORD_STATE_START + 0x30) ||
@@ -3496,17 +3482,11 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 break;
             }
             memcpy(&request->info, info, sizeof(request->info));
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
             if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
                 r_printf("[RDX_RECORD] drop command without active RDX owner\r");
                 free(request);
                 break;
             }
-#else
-            request->token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
-            request->token.slot_generation = 0;
-            request->token.transport_epoch = 0;
-#endif
             int msg[3];
             msg[0] = (int)rdx_app_record_cmd_on_app_core;
             msg[1] = 1;

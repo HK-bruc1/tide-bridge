@@ -85,7 +85,6 @@
 #define RDX_LIFECYCLE_BARRIER_VALUE_SIZE             17
 #define RDX_LIFECYCLE_BARRIER_PACKET_SIZE            64
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 #define RDX_BLE_PHASE0A_WRAPPER_MAX                   2
 #define RDX_BLE_PHASE0A_INVALID_WRAPPER_INDEX        0xff
 #define RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR       0x0e
@@ -94,7 +93,6 @@
 #define RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION 0x0f
 #define RDX_BLE_PHASE0A_ATT_ERR_VALUE_NOT_ALLOWED     0x13
 #define RDX_BLE_PHASE0A_ADV_RESTART_DELAY_MS          10
-#endif
 
 // characteristics <--> handles
 #define ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE 0x0003
@@ -140,13 +138,11 @@ static void rdx_ble_server_disconnected_adv_restart_schedule(void);
 static void rdx_ble_server_disconnected_adv_restart_cancel(void);
 static void rdx_ble_server_disconnected_idle_policy_resume(void);
 static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable);
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 static void rdx_ble_server_phase0a_connect_adv_restart_cancel(void);
 static void rdx_ble_server_phase0a_connect_adv_restart_schedule(void);
 static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link);
 #if TCFG_RDX_HOGP_ENABLE
 static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link);
-#endif
 #endif
 static u8 rdx_ble_server_unified_link_connected(const u8 *packet,
                                                 u16 size,
@@ -196,7 +192,6 @@ static u8 g_rdx_lifecycle_barrier_armed;
 static char g_rdx_lifecycle_barrier_value[
     RDX_LIFECYCLE_BARRIER_VALUE_SIZE];
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 static void *g_rdx_ble_secondary_hdl = NULL;
 static void *g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
 static u16 g_rdx_ble_phase0a_connect_adv_timer = 0;
@@ -436,7 +431,6 @@ static void rdx_ble_server_phase0a_wrapper_connection_clear(void *hdl,
         app_ble_set_filter_con_handle(hdl, 0);
     }
 }
-#endif
 
 const char *const rdx_phy_result[] = {
     "None",
@@ -995,23 +989,15 @@ u16 rdx_ble_server_get_conn_handle(void)
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_rdx_transport_snapshot_t snapshot;
 
     return rdx_ble_server_rdx_transport_snapshot_capture(&snapshot) ?
            snapshot.con_handle : 0;
-#else
-    return g_rdx_ble_server_info.ble_con_handle;
-#endif
 }
 
 u8 rdx_ble_server_has_active_link(void)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return rdx_ble_session_active_count() ? TRUE : FALSE;
-#else
-    return g_rdx_ble_server_info.ble_conn ? TRUE : FALSE;
-#endif
 }
 
 /**************************************************************************
@@ -1443,7 +1429,6 @@ static void rdx_ble_server_disconnected_adv_restart(void)
  * the idle wrapper's legacy advertiser from inside the first wrapper callback
  * lets that new advertiser observe the still-in-flight event and bind the same
  * connection handle. Defer until the complete callback fan-out has returned. */
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 static void rdx_ble_server_phase0a_connect_adv_restart_deferred(void *priv)
 {
     (void)priv;
@@ -1490,7 +1475,6 @@ static void rdx_ble_server_phase0a_connect_adv_restart_cancel(void)
         g_rdx_ble_phase0a_connect_adv_timer = 0;
     }
 }
-#endif
 
 /* The protocol packet handler runs before app_ble clears its wrapper-side
  * connection handle. Advertising from HCI_EVENT_DISCONNECTION_COMPLETE would
@@ -1501,7 +1485,6 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
     (void)priv;
     g_disconnected_adv_restart_timer = 0;
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_phase0b_adv_token_is_current()) {
         r_printf("[RDX_BLE_LINK] stale disconnect ADV timer ignored\n");
         g_disconnected_adv_restart_retry = 0;
@@ -1539,7 +1522,6 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
         rdx_ble_server_adv_enable(1);
     }
     return;
-#endif
 
     if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
         g_rdx_ble_server_info.adv_refresh_pending = FALSE;
@@ -1604,9 +1586,7 @@ static void rdx_ble_server_disconnected_adv_restart_cancel(void)
     }
     g_disconnected_adv_restart_retry = 0;
     g_rdx_ble_server_info.adv_refresh_pending = FALSE;
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
-#endif
 }
 
 /* Resume the idle policy after link teardown and advertising recovery has
@@ -1860,14 +1840,10 @@ u16 rdx_ble_server_get_mtu(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_rdx_transport_snapshot_t snapshot;
 
     return rdx_ble_server_rdx_transport_snapshot_capture(&snapshot) ?
            snapshot.mtu_size : 0;
-#else
-    return g_rdx_ble_server_info.ble_mtu_size;
-#endif
 }
 
 /**************************************************************************
@@ -1893,7 +1869,6 @@ static void set_connection_data_phy(u16 con_handle, u8 tx_phy, u8 rx_phy)
     ble_op_set_ext_phy(con_handle, all_phys, tx_phy, rx_phy, phy_options);
 }
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 static void rdx_ble_server_phase0a_link_state_capture(
     rdx_ble_link_state_t *link,
     const u8 *packet,
@@ -2185,11 +2160,9 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
         break;
     }
 }
-#endif
 
 static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_link_state_t *link;
     u16 con_handle;
 
@@ -2236,143 +2209,12 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
                  hci_event_packet_get_type(packet), size);
         break;
     }
-#else
-    (void)hdl;
-    (void)channel;
-
-#if TCFG_RDX_HOGP_ENABLE
-    rdx_hogp_on_sm_event(packet_type, packet, size);
-#else
-    (void)packet_type;
-    (void)packet;
-    (void)size;
-#endif
-#endif
 }
 
 static void rdx_ble_server_cbk_packet_handler(void *hdl, uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_phase0a_packet_handler(hdl, packet_type, channel,
                                           packet, size);
-#else
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    u32 tmp = 0;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    // log_info("cbk packet_type:0x%x, packet[0]:0x%x, packet[2]:0x%x", packet_type, packet[0], packet[2]);
-    switch (packet_type) {
-    case HCI_EVENT_PACKET:
-        switch (hci_event_packet_get_type(packet)) {
-            case ATT_EVENT_CAN_SEND_NOW:
-                {
-                    BleBulkSendData* p_bulk_send_data = rdx_protocol_get_bulk_send_data();
-                    rdx_protocol_set_ble_sent(0);
-                    
-                    rdx_protocol_clear_send_confirm_flag();
-                    
-                    if(p_bulk_send_data->bulk_flag == true){
-                        p_bulk_send_data->bulk_flag = false;
-                    }
-                    
-                    BLE_SendData* p_ble_send_data = rdx_protocol_get_ble_send_data();
-                    os_sem_post(&p_ble_send_data->send_sem);
-                }
-                break;
-
-            case HCI_EVENT_LE_META:
-                switch (hci_event_le_meta_get_subevent_code(packet)) {
-                    case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
-                        r_printf("---------> HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE \n");
-                        rdx_ble_server_unified_link_connected(packet, size, 1);
-                        break;
-                    case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
-                        rdx_ble_server_unified_link_connected(packet, size, 0);
-                        break;
-                    case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
-                        if (size < 11 ||
-                            hci_subevent_le_connection_update_complete_get_status(packet) != 0 ||
-                            g_rdx_ble_server_info.ble_con_handle !=
-                            hci_subevent_le_connection_update_complete_get_connection_handle(packet)) {
-                            break;
-                        }
-                        rdx_ble_server_connection_update_complete_success(packet);
-                        break;
-
-                    case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
-                        log_info("APP HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE\n");
-                        /* set_connection_data_phy(CONN_SET_CODED_PHY, CONN_SET_CODED_PHY); */
-                        break;
-
-                    case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE:
-                        log_info("APP HCI_SUBEVENT_LE_PHY_UPDATE %s\n", hci_event_le_meta_get_phy_update_complete_status(packet) ? "Fail" : "Succ");
-                        log_info("Tx PHY: %s\n", rdx_phy_result[hci_event_le_meta_get_phy_update_complete_tx_phy(packet)]);
-                        log_info("Rx PHY: %s\n", rdx_phy_result[hci_event_le_meta_get_phy_update_complete_rx_phy(packet)]);
-                        break;
-
-                    default:
-                        break;
-                }
-                break;
-
-            case HCI_EVENT_DISCONNECTION_COMPLETE:
-                rdx_ble_server_unified_link_disconnected(packet, size);
-                break;
-            case HCI_EVENT_ENCRYPTION_CHANGE:
-                {
-                    u16 enc_handle = hci_event_encryption_change_get_connection_handle(packet);
-                    u8 enc_enabled = hci_event_encryption_change_get_encryption_enabled(packet);
-                    u8 enc_status = hci_event_encryption_change_get_status(packet);
-                    rdx_ble_session_set_encrypted(enc_handle,
-                                                  (enc_enabled && enc_status == 0));
-#if TCFG_RDX_HOGP_ENABLE
-                    if (rdx_hogp_keyboard_is_connected()) {
-                        rdx_hogp_on_encryption_change(enc_handle,
-                                                      enc_enabled, enc_status);
-                    } else if (enc_enabled && enc_status == 0 &&
-                               rdx_hogp_peer_has_persisted_subscription(
-                                   enc_handle)) {
-                        rdx_ble_server_hogp_attach(enc_handle);
-                    }
-#endif
-                }
-                break;
-
-            case ATT_EVENT_MTU_EXCHANGE_COMPLETE:
-                u16 mtu = att_event_mtu_exchange_complete_get_MTU(packet) - 3;
-                u16 mtu_handle = att_event_mtu_exchange_complete_get_handle(packet);
-                log_info("===== ATT MTU = %u\r", mtu);
-                ble_op_att_set_send_mtu(mtu);
-                g_rdx_ble_server_info.ble_mtu_size = mtu;
-                rdx_ble_session_set_mtu(mtu_handle, mtu);
-                /* set_connection_data_length(251, 2120); */
-                // rdx_ble_server_check_connetion_updata_deal();
-                break;
-
-            case L2CAP_EVENT_CONNECTION_PARAMETER_UPDATE_RESPONSE:
-                {
-                    tmp = little_endian_read_16(packet, 4);
-                    log_info("-update_rsp: %02x\r", tmp);
-                    if (tmp) {
-                        connection_update_cnt++;
-                        log_info("remoter reject!!!\n");
-                        rdx_ble_server_check_connetion_updata_deal();
-                    } else {
-                        connection_update_cnt = CONN_PARAM_TABLE_CNT;
-                    }
-                }
-                break;
-
-            default:
-                break;
-        }
-        break;
-    }
-    return;
-#endif
 }
 
 /**************************************************************************
@@ -2439,22 +2281,10 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_phase0a_event_matches(hdl, connection_handle,
                                                "att_read")) {
         return 0;
     }
-#else
-    if (!rdx_ble_session_is_current(connection_handle)) {
-        y_printf("[BLE_SESSION] read ignored: stale hdl=0x%04x att=0x%04x\n",
-                 connection_handle, handle);
-        return 0;
-    }
-    if (rdx_ble_server_is_rdx_capability_handle(handle) &&
-        !rdx_ble_server_rdx_attach(connection_handle)) {
-        return 0;
-    }
-#endif
     r_printf("<-------------read_callback, handle= 0x%04x,buffer= %08x \r", handle, (u32)buffer);
 
     switch (handle) {
@@ -2542,11 +2372,6 @@ static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t con
         case HID_OUTPUT_REPORT_VALUE_HANDLE:
         case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
 #if TCFG_RDX_HOGP_ENABLE
-#if !TCFG_RDX_HOGP_DUAL_LINK_ENABLE
-            if (!rdx_ble_server_hogp_attach(connection_handle)) {
-                break;
-            }
-#endif
             att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
             if (att_value_len) {
                 y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
@@ -3001,13 +2826,10 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     int result = 0;
     u16 tmp16;
     u16 handle = att_handle;
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_link_state_t *link;
-#endif
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     link = rdx_ble_server_phase0b_link_find(hdl, connection_handle);
 
     (void)tmp16;
@@ -3078,90 +2900,6 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
     }
     r_printf("[RDX_BLE_GATT] write rejected att=0x%04x\n", handle);
     return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
-#else
-    if (!rdx_ble_session_is_current(connection_handle)) {
-        y_printf("[BLE_SESSION] write ignored: stale hdl=0x%04x att=0x%04x\n",
-                 connection_handle, handle);
-        return 0;
-    }
-    if (rdx_ble_server_is_rdx_capability_handle(handle) &&
-        !rdx_ble_server_rdx_attach(connection_handle)) {
-        return 0;
-    }
-#if TCFG_RDX_HOGP_ENABLE
-    /* HID access attaches the HID capability to the current shared link. */
-    if (handle >= HID_SERVICE_START_HANDLE && handle <= HID_SERVICE_END_HANDLE) {
-        if (!rdx_ble_server_hogp_attach(connection_handle)) {
-            return 0;
-        }
-        return rdx_hogp_att_write(connection_handle, handle, transaction_mode, offset, buffer, buffer_size);
-    }
-
-#endif
-
-    switch (handle) {
-        case ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE:
-            break;
-
-        case ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE:
-            // log_info("rx(%d):\r", buffer_size);
-            // put_buf(buffer, buffer_size);
-            {
-                char temp[30];
-                memset(temp, 0, 30);
-                if(buffer_size < 30){
-                    strncpy(temp, (char*)buffer, buffer_size);
-                }else{
-                    strncpy(temp, (char*)buffer, 30);
-                }
-                g_printf("======> %s \r", temp);
-            }
-
-            //parse data.
-            rdx_ble_server_gatt_receive_data(buffer, buffer_size);
-            // os_taskq_post_msg(RDX_PROTOCOL_RECV_TASK_NAME, 2, buffer, buffer_size); 
-            break;
-
-        case ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE:
-            {
-                log_info("ota rx(%d):\r", buffer_size);
-                rdx_protocol_ota_handle(buffer, buffer_size);
-            }
-            break;
-
-        case ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE:
-            log_info("\nwrite ccc:%04x, %02x\n", handle, buffer[0]);
-            att_set_ccc_config(handle, buffer[0]);
-            g_rdx_ble_server_info.ccc_configured = (buffer[0] == 0x01) ? TRUE : FALSE;
-            rdx_ble_session_set_config_ccc(connection_handle,
-                                           g_rdx_ble_server_info.ccc_configured);
-            if (!g_rdx_ble_server_info.ccc_configured) {
-                g_rdx_ble_server_info.stream_tx_ready = FALSE;
-                rdx_ble_session_set_stream_tx_ready(connection_handle, FALSE);
-            }
-
-            if(g_syn_data_timer) {
-                sys_timeout_del(g_syn_data_timer);
-                g_syn_data_timer = 0;
-            }
-            if (g_rdx_ble_server_info.ccc_configured) {
-                g_syn_data_timer = sys_timeout_add(NULL, rdx_ble_server_syn_data_after_ble_write_ready, 1000);
-                y_printf("====== syn_data_timer created: %d \r", g_syn_data_timer);
-            }
-            break;
-
-        case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE:
-            // rdx_ble_server_check_connetion_updata_deal();
-            log_info("\n ota character write ccc:%04x, %02x\n", handle, buffer[0]);
-            att_set_ccc_config(handle, buffer[0]);
-            break;
-
-
-        default:
-            break;
-    }
-    return 0;
-#endif
 }
 
 static u8 rdx_ble_server_adv_append_data(u8 *adv_data,
@@ -3428,11 +3166,7 @@ void rdx_ble_server_fast_adv_restart(void)
     
     // 如果已连接，不需要重启广播
     if (
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_phase0a_connected_count() >= RDX_BLE_PHASE0A_WRAPPER_MAX
-#else
-        g_rdx_ble_server_info.ble_conn
-#endif
     ) {
         y_printf("=== %s --> BLE 已连接，无需重启广播 \r", __func__);
         return;
@@ -3551,11 +3285,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     //LED控制：BLE广播开启时，如果未连接则闪烁，但WiFi传输中不改变灯效
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
     if (enable &&
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_phase0a_connected_count() < RDX_BLE_PHASE0A_WRAPPER_MAX &&
-#else
-        !g_rdx_ble_server_info.ble_conn &&
-#endif
         wifi_info->onoff != TRANSFER_BY_WIFI_ON) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
@@ -3565,7 +3295,6 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
 
 int rdx_ble_server_adv_enable(u8 enable)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     u8 index;
     int ret = 0;
     void *target;
@@ -3599,10 +3328,6 @@ int rdx_ble_server_adv_enable(u8 enable)
     r_printf("[RDX_BLE_LINK] advertiser wrapper=%u hdl=%p\n",
              rdx_ble_server_phase0a_wrapper_index(target), target);
     return rdx_ble_server_adv_enable_on_hdl(target, 1);
-#else
-    return rdx_ble_server_adv_enable_on_hdl(
-        g_rdx_ble_server_info.rdx_ble_server_hdl, enable);
-#endif
 }
 
 /**************************************************************************
@@ -3636,12 +3361,7 @@ void rdx_ble_server_adv_data_changed(void)
         return;
     }
     if (
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_phase0a_connected_count() >= RDX_BLE_PHASE0A_WRAPPER_MAX
-#else
-        g_rdx_ble_server_info.ble_conn ||
-        app_ble_get_hdl_con_handle(g_rdx_ble_server_info.rdx_ble_server_hdl)
-#endif
     ) {
         g_rdx_ble_server_info.adv_refresh_pending = TRUE;
         r_printf("%s --> refresh deferred until disconnect \r", __func__);
@@ -3720,14 +3440,11 @@ static int rdx_ble_server_send_internal(
     /*----------------------------------------------------------------*/
     int ret = 0;
     void *send_hdl = NULL;
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_rdx_transport_snapshot_t snapshot;
-#endif
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
         y_printf("[RDX_SESSION] send skipped: runtime not active\n");
         return -1;
@@ -3740,20 +3457,6 @@ static int rdx_ble_server_send_internal(
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
-#else
-    //is connected?
-    if(!g_rdx_ble_server_info.ble_con_handle){
-        g_ble_send_fail_cnt++;
-        return -1;
-    }
-    if (!rdx_ble_session_is_rdx_active(
-            g_rdx_ble_server_info.ble_con_handle)) {
-        y_printf("[RDX_SESSION] send skipped: capability not active\n");
-        /* A HID-only link is a valid routing state, not a transport failure. */
-        return -1;
-    }
-    send_hdl = g_rdx_ble_server_info.rdx_ble_server_hdl;
-#endif
     //is data none?
     if(!data || len == 0){
         log_info("%s --> send data error! no data! \r", __func__);
@@ -3767,23 +3470,17 @@ static int rdx_ble_server_send_internal(
     }
 
     if (
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         !rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
-#endif
         !send_hdl) {
         return -1;
     }
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_rdx_send_pending_arm(&snapshot);
-#endif
     ret = app_ble_att_send_data(send_hdl,
                                ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_VALUE_HANDLE,
                                data, len, ATT_OP_AUTO_READ_CCC);
     if (ret) {
         g_ble_send_fail_cnt++;
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_rdx_send_pending_cancel(&snapshot);
-#endif
     } else {
         g_ble_send_fail_cnt = 0;
     }
@@ -3823,16 +3520,13 @@ static int rdx_ble_server_ota_send_internal(
     int ret = 0;
     int i;
     void *send_hdl = NULL;
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_rdx_transport_snapshot_t snapshot;
-#endif
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     // y_printf("---> rdx_ble_send len = %d \r", len);
     // put_buf(data, len);
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
         y_printf("[RDX_SESSION] OTA send skipped: runtime not active\n");
         return -1;
@@ -3845,15 +3539,6 @@ static int rdx_ble_server_ota_send_internal(
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
-#else
-    if (!g_rdx_ble_server_info.ble_con_handle ||
-        !rdx_ble_session_is_rdx_active(
-            g_rdx_ble_server_info.ble_con_handle)) {
-        y_printf("[RDX_SESSION] OTA send skipped: capability not active\n");
-        return -1;
-    }
-    send_hdl = g_rdx_ble_server_info.rdx_ble_server_hdl;
-#endif
     if(!data || len == 0){
         r_printf("%s --> buf is null \r", __FUNCTION__);
         return 0;
@@ -3863,21 +3548,15 @@ static int rdx_ble_server_ota_send_internal(
     }
 
     if (
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         !rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
-#endif
         !send_hdl) {
         return -1;
     }
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_rdx_send_pending_arm(&snapshot);
-#endif
     ret = app_ble_att_send_data(send_hdl, ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE, data, len, ATT_OP_AUTO_READ_CCC);
     if (ret) {
         log_info("ota data send fail\n");
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_rdx_send_pending_cancel(&snapshot);
-#endif
     }
     return ret;
 }
@@ -3990,7 +3669,6 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_rdx_transport_snapshot_t snapshot;
 
     /* librdxApp.a still imports this ABI and reads only ble_conn and
@@ -4024,7 +3702,6 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
             g_rdx_ble_server_info.ble_conn = TRUE;
         }
     }
-#endif
     return &g_rdx_ble_server_info;
 }
 /**************************************************************************
@@ -4061,9 +3738,7 @@ static void rdx_ble_server_wrapper_register(void *hdl, u8 *ble_addr)
     /* Match the SDK's dual-wrapper RCSP/Find My setup. This initializes the
      * wrapper's advertising address type before its shared public address and
      * profile are registered. */
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     app_ble_adv_address_type_set(hdl, 0);
-#endif
     app_ble_set_mac_addr(hdl, ble_addr);
     app_ble_profile_set(hdl, rdx_profile_data);
     app_ble_att_read_callback_register(hdl,
@@ -4078,11 +3753,9 @@ static void rdx_ble_server_wrapper_register(void *hdl, u8 *ble_addr)
                                           rdx_ble_server_cbk_packet_handler);
     app_ble_sm_event_callback_register(hdl,
                                        rdx_ble_server_sm_event_callback);
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     r_printf("[RDX_BLE_INIT] wrapper=%u registered hdl=%p adv_handle=%d\n",
              rdx_ble_server_phase0a_wrapper_index(hdl), hdl,
              app_ble_adv_handle_get(hdl));
-#endif
 }
 
 /**************************************************************************
@@ -4115,7 +3788,6 @@ void rdx_ble_server_init(void)
             log_info("g_rdx_ble_server_info.rdx_ble_server_hdl alloc err !\n");
             return;
         }
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_phase0a_connect_adv_restart_cancel();
         rdx_ble_server_rdx_send_pending_reset();
         g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
@@ -4126,7 +3798,6 @@ void rdx_ble_server_init(void)
             g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
             return;
         }
-#endif
         //get ble mac.
         memset(tmp_ble_addr, 0, RDX_MAC_LEN);
         int r = le_controller_get_mac(tmp_ble_addr);
@@ -4140,7 +3811,6 @@ void rdx_ble_server_init(void)
 
         rdx_ble_server_wrapper_register(
             g_rdx_ble_server_info.rdx_ble_server_hdl, tmp_ble_addr);
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
         rdx_ble_server_wrapper_register(g_rdx_ble_secondary_hdl,
                                         tmp_ble_addr);
         rdx_ble_session_transport_init(
@@ -4150,12 +3820,8 @@ void rdx_ble_server_init(void)
                  g_rdx_ble_server_info.rdx_ble_server_hdl,
                  g_rdx_ble_secondary_hdl,
                  rdx_profile_data);
-#endif
 
         // The dual-link registry is initialized after both wrappers exist.
-#if !TCFG_RDX_HOGP_DUAL_LINK_ENABLE
-        rdx_ble_session_reset();
-#endif
 
         //init HOGP submodule.
 #if TCFG_RDX_HOGP_ENABLE
@@ -4194,15 +3860,12 @@ void rdx_ble_server_exit(void)
 
     rdx_ble_server_disconnected_adv_restart_cancel();
     rdx_ble_server_syn_data_timers_cancel();
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     rdx_ble_server_rdx_send_pending_reset();
     rdx_ble_session_transport_deinit();
     g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
-#endif
 
     // BLE exit
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_server_adv_enable(0);
     if (g_rdx_ble_server_info.rdx_ble_server_hdl &&
         app_ble_get_hdl_con_handle(
@@ -4213,26 +3876,15 @@ void rdx_ble_server_exit(void)
         app_ble_get_hdl_con_handle(g_rdx_ble_secondary_hdl)) {
         app_ble_disconnect(g_rdx_ble_secondary_hdl);
     }
-#else
-    if (app_ble_get_hdl_con_handle(g_rdx_ble_server_info.rdx_ble_server_hdl)) {
-        app_ble_disconnect(g_rdx_ble_server_info.rdx_ble_server_hdl);
-    }
-
-    //do disconnect and stop adv.
-    rdx_ble_server_app_disconnect();
-    rdx_ble_server_adv_enable(0);
-#endif
     
     rdx_hogp_key_action_deinit();
     rdx_hogp_deinit();
     rdx_ble_session_reset();
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (g_rdx_ble_secondary_hdl) {
         app_ble_hdl_free(g_rdx_ble_secondary_hdl);
         g_rdx_ble_secondary_hdl = NULL;
     }
-#endif
     if (g_rdx_ble_server_info.rdx_ble_server_hdl) {
         app_ble_hdl_free(g_rdx_ble_server_info.rdx_ble_server_hdl);
     }
@@ -4242,7 +3894,6 @@ void rdx_ble_server_exit(void)
 
 u8 rdx_ble_server_is_stream_tx_ready(void)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     rdx_ble_async_token_t token;
     rdx_ble_link_state_t *link;
 
@@ -4252,9 +3903,6 @@ u8 rdx_ble_server_is_stream_tx_ready(void)
     link = rdx_ble_session_rdx_token_resolve(&token, 1);
     return (link && link->rdx_ccc_configured &&
             link->rdx_stream_tx_ready) ? 1 : 0;
-#else
-    return g_rdx_ble_server_info.stream_tx_ready;
-#endif
 }
 
 #endif

@@ -91,21 +91,12 @@ static void rdx_hogpkm_log_keymap(const char *tag, const u8 *payload)
 
 static u8 rdx_hogpkm_token_capture(rdx_ble_async_token_t *token)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return rdx_ble_session_rdx_token_capture(token, 1);
-#else
-    memset(token, 0, sizeof(*token));
-    return 1;
-#endif
 }
 
 static u8 rdx_hogpkm_token_is_current(const rdx_ble_async_token_t *token)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return rdx_ble_session_rdx_token_resolve(token, 1) ? 1 : 0;
-#else
-    return token ? 1 : 0;
-#endif
 }
 
 static u8 rdx_hogpkm_request_is_current(

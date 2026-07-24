@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a **JieLi (JL) AC701N / BR28 TWS earphone firmware** project. The application is built on top of JL's SDK (`SDK/`) with product-specific configuration in `src/` and output images in `output/`.
 
-The current branch adds an **RDX third-party BLE protocol stack** with a recent **HOGP keyboard extension** that reuses RDX's GATT server handle.
+The current branch adds an **RDX third-party BLE protocol stack** with a **HOGP keyboard extension**. Two `app_ble` wrappers expose the same composite RDX + HOGP GATT profile and carry up to two Peripheral ACLs.
 
 - Project descriptor: `project.jlproj` (JL Studio project file)
 - Target chip: AC701N, SDK type "TWS耳机", BR28 CPU
@@ -83,24 +83,24 @@ Run all host-side software validation tests through the unified entry point:
 The VS Code test task `test: host software` in `SDK/.vscode/tasks.json` calls the same script. To run a single core contract directly:
 
 ```powershell
-.\tests\host\test_t2620_config_overlay.ps1
-.\tests\host\test_pc_mode_storage_contract.ps1
+.\tests\host\test_t2620_product_contract.ps1
 .\tests\host\test_hogp_profile_contract.ps1
-.\tests\host\test_rdx_unified_adv_phase1.ps1
-.\tests\host\test_rdx_unified_session_phase2b.ps1
-.\tests\host\test_rdx_dual_link_phase3_keymap.ps1
-.\tests\host\test_rdx_dual_link_phase3_reconnect_lifecycle.ps1
-.\tests\host\test_rdx_local_playback_config.ps1
-.\tests\host\test_rdx_playback_navigation.ps1
+.\tests\host\test_rdx_transport_contract.ps1
+.\tests\host\test_rdx_lifecycle_contract.ps1
+.\tests\host\test_rdx_keymap_contract.ps1
 ```
 
-`test_t2620_config_overlay.ps1` verifies that T2620-specific config overlays (`t2620_project_config.h`) are applied correctly on top of tool-generated `sdk_config.h`/`sdk_config.c`, and that the DIP-switch GPIO (PB1) is excluded from `iokey_config.c`.
+The five contracts cover product configuration/storage safety, the HOGP external
+profile, fixed dual-link transport and advertising, immutable-runtime reconnect,
+and owner-bound online Keymap transactions. They are static PowerShell 5.1
+assertions over repository source files and require no Pester, Python, Node,
+host compiler, or downloaded tool.
 
 `test_hogp_profile_contract.ps1` verifies that the frozen HOGP external contract has not regressed: HID handle macros in `rdx_hogp_profile.h`, Report Map length and byte sequence in `rdx_hogp_profile.c`, the 8-byte Input Report payload without a Report ID prefix in `rdx_hogp_keyboard.c`, and HID Service attribute order and byte-level values in `rdx_ble_server.c`. It reads the C source/header files and does not build or flash firmware.
 
-The runner intentionally contains only these core contracts. Historical
-Phase 0/1/2B split scripts were removed from the daily framework; the phase
-acceptance numbers in the design documents remain historical evidence.
+The runner intentionally contains only these core contracts. Historical phase,
+playback, and split configuration scripts were removed from the daily framework;
+the phase acceptance numbers in the design documents remain historical evidence.
 
 There is no unit-test framework for the firmware itself; correctness is verified by build success, the PowerShell checks, and on-device testing.
 
@@ -137,7 +137,7 @@ The RDX stack lives in `SDK/apps/common/third_party_profile/rdx_protocol/` and i
 
 ### HOGP keyboard extension
 
-The HOGP feature is implemented by extending the same RDX GATT server instead of creating a separate one. All attributes live in `rdx_profile_data[]` and share the single `app_ble` wrapper handle allocated by RDX.
+The HOGP feature extends the RDX GATT server instead of creating a separate database. All attributes live in `rdx_profile_data[]`; two `app_ble` wrappers register that same profile and address.
 
 #### GATT handle layout
 
@@ -167,17 +167,18 @@ HID Service details:
 #### Data flow
 
 1. The device always exposes one connectable BLE entry: primary ADV contains Flags + the RDX local name; Scan Response contains RDX Manufacturer Data followed by HID UUID `0x1812`.
-2. A PC or phone establishes the only allowed BLE connection. Connection complete initializes link state only; it does not assign a CONFIG/HOGP owner or start either capability's business state.
+2. A PC or phone may occupy either of the two BLE slots. Connection complete initializes only that link; capability ownership is assigned later by ATT behavior.
 3. RDX ATT access lazily activates the RDX capability. Any current BLE center may call RDX commands subject to protocol, parameter, transaction, busy-state, and OTA-integrity checks.
 4. HID ATT access lazily attaches HOGP. Static Report Map/HID Information reads do not request pairing; a valid Input CCC enable on an unencrypted link requests Just Works pairing.
 5. HID becomes ready only when Input CCC is enabled, the link is encrypted, and Control Point is not suspended. Only then does `rdx_app_earphone_key_remap()` route physical keys to `rdx_hogp_key_action.c`.
-6. `rdx_hogp_key_action.c` builds the 8-byte keyboard report and `rdx_hogp_keyboard_report_send()` sends it through the shared RDX `app_ble` handle.
+6. `rdx_hogp_key_action.c` builds the 8-byte keyboard report and `rdx_hogp_keyboard_report_send()` sends it through the current HID owner wrapper.
 7. Valid encrypted CCC intent is persisted by SM peer identity. A bonded Windows reconnect can restore the subscription; phones and other peers cannot inherit it.
 
 #### Key implementation points
 
-- `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
-- RDX and HOGP share one advertising entry and one BLE connection; there is no mode toggle, connection owner, or compatibility switch
+- `config_le_hci_connection_num` is fixed at `2` for RDX while `config_le_gatt_server_num` stays `1`; `att_server_init()` is called once inside `btstack.a`
+- Two wrappers share one profile/address and one active advertising entry; there is no mode toggle, connection owner, or single-link compatibility switch
+- One RDX owner and one HID owner may live on separate links or the same link as a composite owner
 - The advertising name and GAP Device Name both come from `rdx_ble_server_get_local_name()`
 - The unified Scan Response preserves RDX Manufacturer Data first and appends HID UUID `0x1812`; Appearance is intentionally omitted to fit the 31-byte legacy budget
 - Input Reports are **8-byte payloads** (`modifier` + `reserved` + 6 key slots). The key code goes at `report[2]`.
@@ -242,7 +243,10 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` — RDX app logic and key remapping
 - `SDK/apps/earphone/board/iokey_config.c` — runtime IO key platform data builder
 - `tests/host/run_host_tests.ps1` — unified entry point for host-side validation
-- `tests/host/test_t2620_config_overlay.ps1` — host-side config overlay validation
+- `tests/host/test_t2620_product_contract.ps1` — product configuration and storage safety contract
 - `tests/host/test_hogp_profile_contract.ps1` — host-side HOGP contract regression test
+- `tests/host/test_rdx_transport_contract.ps1` — dual-link transport and advertising contract
+- `tests/host/test_rdx_lifecycle_contract.ps1` — reconnect lifecycle contract
+- `tests/host/test_rdx_keymap_contract.ps1` — online keymap transaction contract
 - `HOGP_MVP_实施方案.md` — detailed HOGP implementation notes
 - `HOGP键盘移植最终评估.md` — HOGP architecture assessment and handle layout

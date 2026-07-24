@@ -162,12 +162,7 @@ extern void rdx_protocol_record_state_indicate(void);
 static u8 rdx_record_rdx_token_is_current(
     const rdx_ble_async_token_t *token)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return rdx_ble_session_rdx_token_resolve(token, 1) ? 1 : 0;
-#else
-    (void)token;
-    return 1;
-#endif
 }
 
 static u8 rdx_record_token_equal(const rdx_ble_async_token_t *left,
@@ -200,13 +195,8 @@ static void rdx_record_online_session_bind(
 
 static u8 rdx_record_online_session_is_current(void)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return (g_record_session_token_valid &&
             rdx_record_rdx_token_is_current(&g_record_session_token)) ? 1 : 0;
-#else
-    u16 con_handle = rdx_ble_server_get_conn_handle();
-    return (con_handle != 0 && con_handle != 0xffff) ? 1 : 0;
-#endif
 }
 
 u8 rdx_record_online_session_token_capture(rdx_ble_async_token_t *token)
@@ -253,14 +243,10 @@ typedef struct {
 static void rdx_record_state_indicate_if_current(
     const rdx_ble_async_token_t *token)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_record_online_session_token_is_current(token)) {
         r_printf("[RDX_RECORD] drop stale state indication\r");
         return;
     }
-#else
-    (void)token;
-#endif
     rdx_protocol_record_state_indicate();
 }
 
@@ -708,14 +694,10 @@ static void rdx_record_mark_indicate_if_current(
     u32 offset_ms,
     u8 source)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_record_online_session_token_is_current(token)) {
         r_printf("[RDX_RECORD] drop stale mark indication\r");
         return;
     }
-#else
-    (void)token;
-#endif
     rdx_protocol_record_mark_indicate(result, sn, fname, index, offset_ms,
                                       source);
 }
@@ -789,7 +771,6 @@ int rdx_record_add_mark(u8 source)
     rdx_ble_async_token_t token;
     const rdx_ble_async_token_t *token_ptr = NULL;
 
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (rdx_record_online_session_token_capture(&token)) {
         token_ptr = &token;
     } else {
@@ -797,7 +778,6 @@ int rdx_record_add_mark(u8 source)
          * simply have no RDX response destination. */
         r_printf("[RDX_RECORD] local mark has no RDX uplink\r");
     }
-#endif
     return rdx_record_add_mark_internal(source, token_ptr);
 }
 

@@ -144,16 +144,10 @@ static void rdx_ota_session_clear(void)
 
 static u8 rdx_ota_session_bind_current(void)
 {
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     if (!rdx_ble_session_rdx_token_capture(&g_rdx_ota_session_token, 1)) {
         rdx_ota_session_clear();
         return 0;
     }
-#else
-    g_rdx_ota_session_token.slot_index = 0;
-    g_rdx_ota_session_token.slot_generation = 0;
-    g_rdx_ota_session_token.transport_epoch = 0;
-#endif
     g_rdx_ota_session_token_valid = 1;
     return 1;
 }
@@ -163,12 +157,8 @@ static u8 rdx_ota_session_is_current(void)
     if (!g_rdx_ota_session_token_valid) {
         return 0;
     }
-#if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
     return rdx_ble_session_rdx_token_resolve(
                &g_rdx_ota_session_token, 1) ? 1 : 0;
-#else
-    return 1;
-#endif
 }
 
 /**************************************************************************

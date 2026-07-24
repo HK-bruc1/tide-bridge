@@ -33,10 +33,6 @@ extern "C" {
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
 
-#ifndef TCFG_RDX_HOGP_DUAL_LINK_ENABLE
-#define TCFG_RDX_HOGP_DUAL_LINK_ENABLE        0
-#endif
-
 /******************************************************************************
 * Key Action
 ******************************************************************************/
