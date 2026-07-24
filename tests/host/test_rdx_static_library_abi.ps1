@@ -10,6 +10,8 @@ $libraryRel = 'SDK/apps/common/third_party_profile/rdx_protocol/librdxApp.a'
 $protocolRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_protocol.h'
 $recordHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.h'
 $recordSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
+$vmHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_vm.h'
+$bleSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c'
 $adcSourceRel = 'SDK/audio/framework/plugs/source/adc_file.c'
 $expectedLibrarySha256 = 'c540d70540dc4d61e15d1ca13579cd2342d4ea972ff0a74a1afccc04b1ef4aca'
 
@@ -98,6 +100,41 @@ $legacyGainPattern = 'void\s+rdx_record_mic_gain_check\s*\(void\)'
 Assert-Equal (Extract-One $recordSource $legacyGainPattern 'rdx_record_mic_gain_check') `
             (Extract-One $recordSourceBaseline $legacyGainPattern 'P8 baseline rdx_record_mic_gain_check') `
             'rdx_record_mic_gain_check keeps its historical return/argument ABI'
+
+foreach ($entry in @(
+    @{ Pattern = '(?:^|\n)\s*u8\s+rdx_record_err_reboot_flag_read_from_vm\s*\(void\)'; Label = 'rdx_record_err_reboot_flag_read_from_vm' },
+    @{ Pattern = '(?:^|\n)\s*int\s+rdx_record_err_reboot_flag_write_into_vm\s*\(u8\s+err_reboot_flag\)'; Label = 'rdx_record_err_reboot_flag_write_into_vm' }
+)) {
+    $working = Extract-One $recordSource $entry.Pattern $entry.Label
+    $baseline = Extract-One $recordSourceBaseline $entry.Pattern "P8 baseline $($entry.Label)"
+    Assert-Equal $working $baseline "$($entry.Label) keeps its P8 ABI"
+}
+
+$vmHeader = Read-Working $vmHeaderRel
+$vmHeaderBaseline = Read-Baseline $vmHeaderRel
+foreach ($entry in @(
+    @{ Pattern = 'u8\s+rdx_vm_get_bound_status\s*\(void\)\s*;'; Label = 'rdx_vm_get_bound_status' },
+    @{ Pattern = 'void\s+rdx_vm_set_bound_status\s*\(u8\s+d,\s*u8\s+show_en\)\s*;'; Label = 'rdx_vm_set_bound_status' },
+    @{ Pattern = 'int\s+rdx_vm_write_ep_info_intoVM\s*\(EarphoneInfo\s*\*\s*data\)\s*;'; Label = 'rdx_vm_write_ep_info_intoVM' },
+    @{ Pattern = 'void\s+rdx_vm_read_ep_info_fromVM\s*\(void\)\s*;'; Label = 'rdx_vm_read_ep_info_fromVM' }
+)) {
+    $working = Extract-One $vmHeader $entry.Pattern $entry.Label
+    $baseline = Extract-One $vmHeaderBaseline $entry.Pattern "P8 baseline $($entry.Label)"
+    Assert-Equal $working $baseline "$($entry.Label) keeps its P8 ABI"
+}
+
+$bleSource = Read-Working $bleSourceRel
+$bleSourceBaseline = Read-Baseline $bleSourceRel
+foreach ($entry in @(
+    @{ Pattern = '(?:^|\n)\s*int\s+rdx_ble_server_reset_local_name\s*\(void\)'; Label = 'rdx_ble_server_reset_local_name' },
+    @{ Pattern = '(?:^|\n)\s*char\s*\*\s*rdx_ble_server_get_local_name\s*\(void\)'; Label = 'rdx_ble_server_get_local_name' },
+    @{ Pattern = '(?:^|\n)\s*int\s+rdx_ble_server_set_local_name\s*\(char\s*\*\s*name,\s*u8\s+len\)'; Label = 'rdx_ble_server_set_local_name' },
+    @{ Pattern = '(?:^|\n)\s*int\s+rdx_ble_server_get_ble_mac\s*\(void\s*\*\s*addr\)'; Label = 'rdx_ble_server_get_ble_mac' }
+)) {
+    $working = Extract-One $bleSource $entry.Pattern $entry.Label
+    $baseline = Extract-One $bleSourceBaseline $entry.Pattern "P8 baseline $($entry.Label)"
+    Assert-Equal $working $baseline "$($entry.Label) keeps its P8 ABI"
+}
 
 $adcSource = Read-Working $adcSourceRel
 $adcSourceBaseline = Read-Baseline $adcSourceRel

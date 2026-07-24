@@ -16,7 +16,13 @@ The repository wrapper runs the same required matrix by default:
 tests\host\run_tests.bat all
 ```
 
-The six executable C mocks are retained as optional developer checks. Run them
+P10 adds a required zero-build storage boundary contract check:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/host/test_rdx_storage_contract.ps1
+```
+
+The seven executable C mocks are retained as optional developer checks. Run them
 only when a compatible native compiler is already available, and pass it
 explicitly so the repository never installs or silently selects an extra
 toolchain:
@@ -39,12 +45,14 @@ Clean optional host artifacts with `tests\host\run_tests.bat clean` on Windows.
 | Check | P9 level | Source | Coverage |
 |---|---|---|---|
 | `test_rdx_config_matrix.ps1` | Required | `rdx_app_config.h`, `config/product/*.h`, `SDK/Makefile` | 18 valid product/device combinations, 4 invalid C combinations, and 10 Make profile/compile-flag cases; every negative case must match its expected diagnostic |
+| `test_rdx_storage_contract.ps1` | Required | `rdx_jl_storage.h`, jl7018/shadow storage ports, RDX business sources | logical key mapping, exact fixed transfers, BLE legacy blob, factory config ownership, raw-ID and direct-syscfg boundaries |
 | `test_dispatch` | Optional | `service/rdx_command_dispatch.c` | register / dispatch / invalid event / unregistered event |
 | `test_event_bus` | Optional | `service/rdx_event_bus.c` | subscribe / publish / unsubscribe / async publish / multiple subscribers |
 | `test_time_ops` | Optional | `mock/rdx_time_ops_host.c` | vtable validation / leap year / days in month |
 | `test_board_config` | Optional | `board/t2616_cc/rdx_board_config.c` | config presence / board name / chip family / SPI parameters |
 | `test_util` | Optional | `rdx_util.c` | utility conversions and boundary cases |
 | `test_time_service` | Optional | `service/rdx_time_service.c` | time command dispatch and event publication |
+| `test_storage_port` | Optional | `port/jl/jl7018/rdx_jl_storage.c` | logical key mapping, exact transfer errors, BLE legacy blob, factory config accessors |
 
 ## Mock strategy
 

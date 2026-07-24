@@ -55,6 +55,7 @@
 #include "rdx_ble_service.h"
 #include "rdx_record_service.h"
 #include "rdx_storage_service.h"
+#include "rdx_jl_storage.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -361,7 +362,11 @@ int rdx_ble_server_reset_local_name(void)
     }
     snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
 
-    int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
+    rdx_err_t storage_result = rdx_storage_write_blob(
+        RDX_STORAGE_KEY_BLE_NAME,
+        (const u8 *)g_rdx_ble_server_info.ble_local_name,
+        BLE_LOCAL_NAME_MAX_LEN);
+    int ret = (storage_result == RDX_OK) ? BLE_LOCAL_NAME_MAX_LEN : -1;
     if (ret <= 0) {
         log_info("%s --> write local name failed \r", __func__);
     } else {
@@ -384,12 +389,15 @@ char* rdx_ble_server_get_local_name(void)
     /*----------------------------------------------------------------*/
     DevBaseInfo* p = rdx_app_get_dev_base_info();
     char tmp[BLE_LOCAL_NAME_MAX_LEN + 1];
+    u16 stored_name_len = 0;
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     memset(tmp, 0, BLE_LOCAL_NAME_MAX_LEN + 1);
-    int ret = syscfg_read(VM_RDX_BLE_NAME, tmp, BLE_LOCAL_NAME_MAX_LEN);
-    if (ret <= 0) {
+    rdx_err_t storage_result = rdx_storage_read_blob(
+        RDX_STORAGE_KEY_BLE_NAME, (u8 *)tmp,
+        BLE_LOCAL_NAME_MAX_LEN, &stored_name_len);
+    if (storage_result != RDX_OK) {
         log_info("===> %s --> local name set default! \r", __func__);
         int local_name_len = strlen(BLE_LOCAL_NAME);
         if (local_name_len > BLE_LOCAL_NAME_MAX_LEN) {
@@ -403,14 +411,18 @@ char* rdx_ble_server_get_local_name(void)
         }
         snprintf(g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN, "%s %s", BLE_LOCAL_NAME, buf);
 
-        ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, local_name_len);
-        if (ret <= 0) {
+        storage_result = rdx_storage_write_blob(
+            RDX_STORAGE_KEY_BLE_NAME,
+            (const u8 *)g_rdx_ble_server_info.ble_local_name,
+            (u16)local_name_len);
+        if (storage_result != RDX_OK) {
             log_info("%s --> write local name failed \r", __func__);
         } else {
             log_info("%s --> write local name success: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
         }
     }else{
-        log_info("===> %s --> read local name success, current name: %s \r", __func__, tmp);
+        log_info("===> %s --> read local name success, len=%u, current name: %s \r",
+                 __func__, stored_name_len, tmp);
         memset(g_rdx_ble_server_info.ble_local_name, 0, BLE_LOCAL_NAME_MAX_LEN);
         strncpy(g_rdx_ble_server_info.ble_local_name, tmp, strlen(tmp));
     }
@@ -445,7 +457,11 @@ int rdx_ble_server_set_local_name(char *name, u8 len)
     sprintf(g_rdx_ble_server_info.ble_local_name, "%s", name);
 
     g_printf("===> %s --> set local name: %s \r", __func__, g_rdx_ble_server_info.ble_local_name);
-    int ret = syscfg_write(VM_RDX_BLE_NAME, g_rdx_ble_server_info.ble_local_name, BLE_LOCAL_NAME_MAX_LEN);
+    rdx_err_t storage_result = rdx_storage_write_blob(
+        RDX_STORAGE_KEY_BLE_NAME,
+        (const u8 *)g_rdx_ble_server_info.ble_local_name,
+        BLE_LOCAL_NAME_MAX_LEN);
+    int ret = (storage_result == RDX_OK) ? BLE_LOCAL_NAME_MAX_LEN : -1;
     if (ret <= 0) {
         log_info("%s --> write local name failed \r", __func__);
     } else {
@@ -1750,7 +1766,7 @@ void rdx_ble_server_adv_data_changed(void)
     if(p->ai_mode == DEVICE_WORK_MODE_AI){
         u8 bt_mac[RDX_MAC_LEN];
         memset(bt_mac, 0, RDX_MAC_LEN);
-        syscfg_read(CFG_BT_MAC_ADDR, bt_mac, RDX_MAC_LEN);
+        rdx_storage_read_factory_bt_mac(bt_mac);
         bt_make_ble_address(ble_mac, (void *)bt_mac);
         bt_update_mac_addr(bt_mac);
         app_ble_set_mac_addr(rdx_ble_server_hdl, (void *)ble_mac);
@@ -1936,17 +1952,19 @@ int rdx_ble_server_get_ble_mac(void *addr)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    int ret = 0;
+    rdx_err_t ret;
     u8 mac_buf_tmp[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     u8 mac_buf_tmp2[6] = {0, 0, 0, 0, 0, 0};
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     memset(g_rdx_ble_server_info.ble_mac_addr, 0, 6);
-    ret = syscfg_read(VM_RDX_BLE_MAC, g_rdx_ble_server_info.ble_mac_addr, 6);
-    if ((ret != 6) || !memcmp(g_rdx_ble_server_info.ble_mac_addr, mac_buf_tmp, 6) || !memcmp(g_rdx_ble_server_info.ble_mac_addr, mac_buf_tmp2, 6)) {
+    ret = rdx_storage_read(RDX_STORAGE_KEY_BLE_MAC,
+                           g_rdx_ble_server_info.ble_mac_addr, 6);
+    if ((ret != RDX_OK) || !memcmp(g_rdx_ble_server_info.ble_mac_addr, mac_buf_tmp, 6) || !memcmp(g_rdx_ble_server_info.ble_mac_addr, mac_buf_tmp2, 6)) {
         le_controller_get_mac(g_rdx_ble_server_info.ble_mac_addr);
-        syscfg_write(VM_RDX_BLE_MAC, g_rdx_ble_server_info.ble_mac_addr, 6);
+        rdx_storage_write(RDX_STORAGE_KEY_BLE_MAC,
+                          g_rdx_ble_server_info.ble_mac_addr, 6);
     }
     memcpy(addr, g_rdx_ble_server_info.ble_mac_addr, 6);
     return 0;

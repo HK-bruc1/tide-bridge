@@ -17,5 +17,8 @@
 void CPU_CRITICAL_ENTER(void);
 void CPU_CRITICAL_EXIT(void);
 int os_taskq_post_type(const char *name, int type, int argc, int *argv);
+int syscfg_read(u16 item_id, void *buf, u16 len);
+int syscfg_write(u16 item_id, const void *buf, u16 len);
+int syscfg_read_string(u16 item_id, void *buf, u16 len, u8 ver);
 
 #endif

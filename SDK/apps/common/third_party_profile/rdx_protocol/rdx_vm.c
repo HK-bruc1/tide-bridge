@@ -23,7 +23,6 @@
 #include "system/includes.h"
 #include "user_cfg.h"
 #include "user_cfg_id.h"
-#include "syscfg_id.h"
 #include "btstack/avctp_user.h"
 #include "le_common.h"
 #include "bt_ble.h"
@@ -40,6 +39,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_util.h"
 #include "rdx_device_service.h"
+#include "rdx_jl_storage.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
 #pragma bss_seg(".rdx_vm.data.bss")
@@ -104,7 +104,6 @@ extern void sys_set_auto_off_time(u16 auto_off_time);
 extern u8 get_ota_status();
 extern RecordStatus* rdx_record_get_status();
 extern void rdx_record_mic_gain_set_default();
-extern int rdx_ble_server_reset_local_name();
 extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);
 extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 is_bound);
@@ -112,7 +111,6 @@ extern void rdx_protocol_bound_result_indicate(u8 result);
 extern int rdx_uxfile_sd_format(uxfile_format_cb formatCB);
 extern void rdx_app_earphone_pack_readchardata(void);
 extern void rdx_app_time_to_reset(void);
-extern void rdx_record_err_reboot_flag_write_into_vm(u8 flag);
 extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 #if (TCFG_USER_TWS_ENABLE)
 extern void bt_tws_remove_pairs(void);
@@ -169,7 +167,9 @@ u8 rdx_vm_get_bound_status(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    syscfg_read(VM_RDX_NOTTA_BOUND_STATUS, &rdx_bound_info.bound_state, 1);
+    rdx_storage_read(RDX_STORAGE_KEY_BOUND_STATUS,
+                     &rdx_bound_info.bound_state,
+                     sizeof(rdx_bound_info.bound_state));
     g_printf("rdx_vm_get_bound_status: %d\r", rdx_bound_info.bound_state);
 
     return rdx_bound_info.bound_state;
@@ -195,7 +195,9 @@ void rdx_vm_set_bound_status(u8 d, u8 show_en)
 
     //set value.
     rdx_bound_info.bound_state = d;
-    syscfg_write(VM_RDX_NOTTA_BOUND_STATUS, &rdx_bound_info.bound_state, 1);
+    rdx_storage_write(RDX_STORAGE_KEY_BOUND_STATUS,
+                      &rdx_bound_info.bound_state,
+                      sizeof(rdx_bound_info.bound_state));
 
     if(show_en){
         // OLED 功能已删除
@@ -495,7 +497,7 @@ rdx_auth_info_t* rdx_vm_get_auth_info(void)
 #if RDX_PRODUCT_IS_CHARGE_CASE
 /**************************************************************************
  * function: rdx_vm_write_ep_info_intoVM
- * description: Write earphone (charge case 配对) info into VM_RDX_CUSTOM_AUTH
+ * description: Write earphone (charge case 配对) info into persistent storage
  * param (EarphoneInfo*) data
  * return (int) TRUE = ok, FALSE = fail
  **************************************************************************/
@@ -508,7 +510,9 @@ int rdx_vm_write_ep_info_intoVM(EarphoneInfo* data)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    int vm_ep_result = syscfg_write(VM_RDX_CUSTOM_AUTH, data, sizeof(EarphoneInfo));
+    rdx_err_t storage_result = rdx_storage_write(
+        RDX_STORAGE_KEY_CUSTOM_AUTH, (const u8 *)data, sizeof(EarphoneInfo));
+    int vm_ep_result = (storage_result == RDX_OK) ? sizeof(EarphoneInfo) : -1;
     y_printf("=== write earphone info to vm, result: %d\r", vm_ep_result);
     if(vm_ep_result <= 0){
         r_printf("---------- write earphone info fail \r");
@@ -519,7 +523,7 @@ int rdx_vm_write_ep_info_intoVM(EarphoneInfo* data)
 
 /**************************************************************************
  * function: rdx_vm_read_ep_info_fromVM
- * description: Read earphone (charge case 配对) info from VM_RDX_CUSTOM_AUTH
+ * description: Read earphone (charge case 配对) info from persistent storage
  * param (*)
  * return (*)
  **************************************************************************/
@@ -532,7 +536,9 @@ void rdx_vm_read_ep_info_fromVM(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    int vm_case_result = syscfg_read(VM_RDX_CUSTOM_AUTH, &epInfo, sizeof(EarphoneInfo));
+    rdx_err_t storage_result = rdx_storage_read(
+        RDX_STORAGE_KEY_CUSTOM_AUTH, (u8 *)&epInfo, sizeof(EarphoneInfo));
+    int vm_case_result = (storage_result == RDX_OK) ? sizeof(EarphoneInfo) : -1;
     y_printf("=== read ep info from vm, result: %d\r", vm_case_result);
     if(vm_case_result <= 0){
         r_printf("---------- read ep info fail \r");

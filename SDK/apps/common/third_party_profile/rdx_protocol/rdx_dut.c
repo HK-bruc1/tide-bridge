@@ -52,7 +52,7 @@
 #include "rdx_board_config.h"
 #include "rdx_jl_osal.h"
 #include "rdx_board_hal.h"
-#include "syscfg_id.h"
+#include "rdx_jl_storage.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -198,11 +198,12 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
 void rdx_dut_init(void)
 {
     u8 vm_value = 0xFF;
-    int ret = syscfg_read(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+    rdx_err_t ret = rdx_storage_read(RDX_STORAGE_KEY_DUT_DISABLED,
+                                     &vm_value, sizeof(vm_value));
     
     DUT_LOG("Init: VM read ret=%d, vm_value=0x%02X\r", ret, vm_value);
     
-    if(ret > 0 && vm_value == KEY_DUT_DISABLED_FLAG){
+    if(ret == RDX_OK && vm_value == KEY_DUT_DISABLED_FLAG){
         rdx_dut_info.key_dut_disabled = true;
         DUT_LOG("Init: key_dut_disabled = 1 (disabled)\r");
     }else{
@@ -628,7 +629,8 @@ void rdx_dut_finalpack_end(void)
     
     {
         u8 vm_value = KEY_DUT_DISABLED_FLAG;
-        syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+        rdx_storage_write(RDX_STORAGE_KEY_DUT_DISABLED,
+                          &vm_value, sizeof(vm_value));
         DUT_LOG("Disable key entry DUT, flag=0x%02X saved to VM\r", vm_value);
     }
     
@@ -647,7 +649,8 @@ void rdx_dut_key_dut_enable(void)
     rdx_dut_info.key_dut_disabled = false;
     
     u8 vm_value = 0xff;
-    syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+    rdx_storage_write(RDX_STORAGE_KEY_DUT_DISABLED,
+                      &vm_value, sizeof(vm_value));
     DUT_LOG("Saved to VM: key_dut_disabled = 0 (cleared flag)\r");
 }
 

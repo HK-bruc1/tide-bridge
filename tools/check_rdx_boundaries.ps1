@@ -352,6 +352,35 @@ if ($productConfigCount -eq 17) {
     Add-Failure "P8 expected 17 product config headers, found $productConfigCount"
 }
 
+# P10: active RDX persistence must stay behind the JL storage port
+$p10BusinessSources = @($businessFiles | Where-Object { $_.Extension -eq ".c" })
+$p10DirectSyscfgHits = Find-Pattern -Files $p10BusinessSources `
+    -Pattern "\bsyscfg_(?:read|write|read_string)\s*\("
+Assert-NoHits "P10 business .c has no direct syscfg access" $p10DirectSyscfgHits
+
+$p10RawStorageIdHits = Find-Pattern -Files $p10BusinessSources `
+    -Pattern "\b(?:VM_RDX_[A-Z0-9_]*|CFG_BT_NAME|CFG_BT_MAC_ADDR)\b"
+Assert-NoHits "P10 business .c does not use raw JL storage ids" $p10RawStorageIdHits
+
+$storageHeaderFile = Join-Path $RdxRoot "port/jl/include/rdx_jl_storage.h"
+$p10StorageHeaderLeaks = @()
+if (Test-Path $storageHeaderFile) {
+    $p10StorageHeaderLeaks = Select-String -Path $storageHeaderFile `
+        -Pattern 'syscfg_id\.h|\b(?:VM_RDX_[A-Z0-9_]*|CFG_BT_NAME|CFG_BT_MAC_ADDR)\b'
+}
+Assert-NoHits "P10 storage public header does not expose JL storage ids" $p10StorageHeaderLeaks
+
+$storageServiceFiles = @()
+foreach ($name in @("rdx_storage_service.c", "rdx_storage_service.h")) {
+    $path = Join-Path $RdxRoot "service/$name"
+    if (Test-Path $path) {
+        $storageServiceFiles += Get-Item $path
+    }
+}
+$p10StorageServiceVmHits = Find-Pattern -Files $storageServiceFiles `
+    -Pattern '#\s*include\s*["<]rdx_jl_storage\.h[">]'
+Assert-NoHits "P10 file storage service does not own VM persistence" $p10StorageServiceVmHits
+
 if ($script:Warnings.Count -gt 0) {
     Write-Host ""
     Write-Host "Warnings: $($script:Warnings.Count)"

@@ -170,6 +170,8 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2);
 
 /* 历史 ABI：ADC 流启动后应用增益；失败只记录诊断，不阻断录音. */
 void rdx_record_mic_gain_check(void);
+u8 rdx_record_err_reboot_flag_read_from_vm(void);
+int rdx_record_err_reboot_flag_write_into_vm(u8 err_reboot_flag);
 
 /* V24: PAUSE + BLE 断开兜底超时 */
 #ifndef RDX_RECORD_PAUSE_TIMEOUT_MS

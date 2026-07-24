@@ -223,7 +223,6 @@ extern void power_set_soft_poweroff();
 extern void rdx_protocol_task_free(void);
 extern void rdx_uxfile_task_free(void);
 extern void sys_enter_soft_poweroff(enum poweroff_reason reason);
-extern int rdx_ble_server_reset_local_name(void);
 extern void xxp_uart_set_wifi_default_flag(bool flag);
 extern RecordStatus* rdx_record_get_status(void);
 extern int rdx_protocol_task_create(RdxProtocolCallbacks *cb);

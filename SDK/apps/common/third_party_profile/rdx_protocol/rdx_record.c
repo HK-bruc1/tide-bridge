@@ -1655,7 +1655,8 @@ MicGainPara* rdx_record_mic_gain_read_from_vm(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    ret = rdx_storage_read(RDX_VM_ID_MIC_GAIN, (u8 *)&mic_gain, sizeof(MicGainPara));
+    ret = rdx_storage_read(RDX_STORAGE_KEY_MIC_GAIN,
+                           (u8 *)&mic_gain, sizeof(MicGainPara));
     if (ret == RDX_OK && rdx_record_mic_gain_values_readable(&mic_gain)) {
         y_printf("===> current VM mic gain: chat=%d/%d call=%d/%d \r",
                  mic_gain.chat_mic0_gain, mic_gain.chat_mic1_gain,
@@ -1689,14 +1690,16 @@ int rdx_record_mic_gain_write_into_vm(MicGainPara* gain)
     }
 
     log_info("===> %s \r", __func__);
-    ret = rdx_storage_write(RDX_VM_ID_MIC_GAIN, (const u8 *)gain, sizeof(MicGainPara));
+    ret = rdx_storage_write(RDX_STORAGE_KEY_MIC_GAIN,
+                            (const u8 *)gain, sizeof(MicGainPara));
     if (ret != RDX_OK) {
         log_info("rdx_record_mic_gain_write_into_vm fail, err=%d\r", ret);
         return -1;
     }
 
     memset(&verify, 0, sizeof(verify));
-    read_ret = rdx_storage_read(RDX_VM_ID_MIC_GAIN, (u8 *)&verify, sizeof(verify));
+    read_ret = rdx_storage_read(RDX_STORAGE_KEY_MIC_GAIN,
+                                (u8 *)&verify, sizeof(verify));
     if(read_ret != RDX_OK || memcmp(&verify, gain, sizeof(verify)) != 0){
         log_info("rdx_record_mic_gain_write_into_vm verify fail, err=%d\r", read_ret);
         return -1;
@@ -2576,12 +2579,13 @@ u8 rdx_record_err_reboot_flag_read_from_vm(void)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     u8 err_reboot_flag = 0xff;
-    int ret = 0;
+    rdx_err_t ret;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    ret = syscfg_read(VM_RDX_REC_ERR_REBOOT, &err_reboot_flag, sizeof(u8));
-    if (ret > 0) {
+    ret = rdx_storage_read(RDX_STORAGE_KEY_REC_ERR_REBOOT,
+                           &err_reboot_flag, sizeof(err_reboot_flag));
+    if (ret == RDX_OK) {
         y_printf("===> read err reboot flag ok, err_reboot_flag: %d \r", err_reboot_flag);
     }
     return err_reboot_flag;
@@ -2598,18 +2602,20 @@ int rdx_record_err_reboot_flag_write_into_vm(u8 err_reboot_flag)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    int ret = 0;
+    rdx_err_t ret;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     log_info("===> %s --> err_reboot_flag: %d \r", __func__, err_reboot_flag);
-    ret = syscfg_write(VM_RDX_REC_ERR_REBOOT, &err_reboot_flag, sizeof(u8));
-    if (ret > 0) {
+    ret = rdx_storage_write(RDX_STORAGE_KEY_REC_ERR_REBOOT,
+                            &err_reboot_flag, sizeof(err_reboot_flag));
+    if (ret == RDX_OK) {
         log_info("rdx_record_err_reboot_flag_write_into_vm success \r");
+        return sizeof(err_reboot_flag);
     }else{
         log_info("rdx_record_err_reboot_flag_write_into_vm fail \r");
     }
-    return ret;
+    return -1;
 }
 
 #endif

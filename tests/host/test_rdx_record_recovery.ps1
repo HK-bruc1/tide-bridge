@@ -32,7 +32,9 @@ function Assert-NotMatch([string]$Text, [string]$Pattern, [string]$Message) {
 }
 
 # MIC gain persistence is successful only after exact-length write + readback.
-Assert-Match $record 'rdx_storage_write\(RDX_VM_ID_MIC_GAIN' 'MIC gain persistence stays behind the JL storage port'
+Assert-Match $record 'rdx_storage_write\(RDX_STORAGE_KEY_MIC_GAIN' 'MIC gain persistence stays behind the JL storage port'
+Assert-Match $record 'rdx_storage_write\(RDX_STORAGE_KEY_REC_ERR_REBOOT' 'Record recovery flag stays behind the JL storage port'
+Assert-NotMatch $record '\bsyscfg_(?:read|write)\s*\(' 'Record business code has no direct syscfg access'
 Assert-Match $storage 'return\s*\(ret\s*==\s*len\)\s*\?\s*RDX_OK\s*:\s*RDX_ERR_IO;' 'JL storage port requires exact-length transfer'
 Assert-Match $shadowStorage 'return\s*\(ret\s*==\s*len\)\s*\?\s*RDX_OK\s*:\s*RDX_ERR_IO;' 'Shadow storage port matches exact-length semantics'
 Assert-Match $storageHeader 'RDX_OK is returned only when[\s\S]*?exactly len bytes' 'Storage public contract documents exact-length semantics'

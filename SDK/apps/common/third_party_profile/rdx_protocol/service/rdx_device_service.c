@@ -33,7 +33,6 @@ extern void      rdx_app_earphone_pack_readchardata(void);
 extern void      xxp_uart_set_wifi_default_flag(bool f);
 extern void      sd_set_power(u8 enable);
 extern void      rdx_app_reset_delay_cb(void *priv);
-extern void      rdx_ble_server_reset_local_name(void);
 extern void      oled_task_free(void);
 
 /* librdxApp.a symbols */
@@ -47,7 +46,6 @@ extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 state);
 extern void rdx_app_time_to_reset(void);
 extern void rdx_app_reset_AI_mode_info(void);
 extern void rdx_record_mic_gain_set_default(void);
-extern void rdx_record_err_reboot_flag_write_into_vm(u8 v);
 extern void rdx_rtc_store_timestamp(void);
 extern void rdx_cpu_reset(void);
 extern void sys_set_auto_off_time(u16 t);
@@ -182,8 +180,8 @@ void rdx_device_service_unbound_cb(u8 result)
 		{
 			u8 name[LOCAL_NAME_LEN];
 			memset(name, 0x00, sizeof(name));
-			rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-			rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+			rdx_storage_read_factory_bt_name(name, sizeof(name));
+			rdx_storage_write_factory_bt_name(name, LOCAL_NAME_LEN);
 		}
 
 		rdx_ble_server_reset_local_name();
@@ -231,8 +229,8 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 		{
 			u8 name[LOCAL_NAME_LEN];
 			memset(name, 0x00, sizeof(name));
-			rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-			rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+			rdx_storage_read_factory_bt_name(name, sizeof(name));
+			rdx_storage_write_factory_bt_name(name, LOCAL_NAME_LEN);
 		}
 
 		rdx_ble_server_reset_local_name();
@@ -280,8 +278,8 @@ rdx_err_t rdx_device_service_factory_reset(void)
 	{
 		u8 name[LOCAL_NAME_LEN];
 		memset(name, 0x00, sizeof(name));
-		rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-		rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		rdx_storage_read_factory_bt_name(name, sizeof(name));
+		rdx_storage_write_factory_bt_name(name, LOCAL_NAME_LEN);
 	}
 
 	rdx_ble_server_reset_local_name();
@@ -323,8 +321,8 @@ void rdx_device_service_user_para_reset(void)
 	{
 		u8 name[LOCAL_NAME_LEN];
 		memset(name, 0x00, sizeof(name));
-		rdx_storage_cfg_read_string(CFG_BT_NAME, name, sizeof(name), 0);
-		rdx_storage_cfg_write(CFG_BT_NAME, name, LOCAL_NAME_LEN);
+		rdx_storage_read_factory_bt_name(name, sizeof(name));
+		rdx_storage_write_factory_bt_name(name, LOCAL_NAME_LEN);
 	}
 
 	rdx_ble_server_reset_local_name();

@@ -43,7 +43,8 @@ TESTS        := test_dispatch \
                 test_time_ops \
                 test_board_config \
                 test_util \
-                test_time_service
+                test_time_service \
+                test_storage_port
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
@@ -99,6 +100,9 @@ test_util$(EXE_EXT): test_util.c $(PROTO_DIR)/rdx_util.c mock/rdx_debug_mock.c |
 test_time_service$(EXE_EXT): test_time_service.c $(SERVICE_DIR)/rdx_time_service.c $(SERVICE_DIR)/rdx_command_dispatch.c $(SERVICE_DIR)/rdx_event_bus.c mock/rdx_jl_osal_mock.c | check_host_compiler
 	$(HOST_CC) $(INCS) $^ -o $@
 
+test_storage_port$(EXE_EXT): test_storage_port.c $(PROTO_DIR)/port/jl/jl7018/rdx_jl_storage.c | check_host_compiler
+	$(HOST_CC) $(INCS) $^ -o $@
+
 # Run a single test executable; this target depends on the .exe being up to date.
 $(addsuffix .run,$(TESTS)): %.run: %$(EXE_EXT)
 	@echo RUN: $*
@@ -116,4 +120,5 @@ test_time_ops: test_time_ops.run
 test_board_config: test_board_config.run
 test_util: test_util.run
 test_time_service: test_time_service.run
+test_storage_port: test_storage_port.run
 endif

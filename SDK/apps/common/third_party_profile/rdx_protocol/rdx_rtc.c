@@ -26,11 +26,11 @@
 #include "app_main.h"
 #include "rdx_app_config.h"
 #include "rdx_rtc.h"
-#include "syscfg_id.h"
 #include "rtc/rtc_dev.h"
 #include "system/generic/jiffies.h"
 #include "system/init.h"
 #include "rdx_jl_osal.h"
+#include "rdx_jl_storage.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -367,7 +367,8 @@ static time_t rdx_rtc_read_vm_timestamp(void)
 {
     time_t timestamp = 0;
 
-    syscfg_read(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+    rdx_storage_read(RDX_STORAGE_KEY_RTC_INIT_VALUE,
+                     (u8 *)&timestamp, sizeof(timestamp));
 
     if (!rdx_rtc_timestamp_in_valid_range(timestamp)) {
         g_printf("[RDX_RTC] vm timestamp out of valid range, ignore\r");
@@ -379,7 +380,8 @@ static time_t rdx_rtc_read_vm_timestamp(void)
 
 static void rdx_rtc_write_vm_timestamp(time_t timestamp)
 {
-    syscfg_write(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+    rdx_storage_write(RDX_STORAGE_KEY_RTC_INIT_VALUE,
+                      (const u8 *)&timestamp, sizeof(timestamp));
 }
 
 static void rdx_rtc_datetime_to_sys_time(const DateTime *datetime, struct sys_time *sys_time)
