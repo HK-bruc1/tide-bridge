@@ -82,6 +82,8 @@
 #define RDX_FORCE_DISCONNECT_TIMEOUT                (20 * 1000)
 #define RDX_DISCONNECT_ADV_RESTART_DELAY_MS         10
 #define RDX_DISCONNECT_ADV_RESTART_RETRY_MAX        20
+#define RDX_LIFECYCLE_BARRIER_VALUE_SIZE             17
+#define RDX_LIFECYCLE_BARRIER_PACKET_SIZE            64
 
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 #define RDX_BLE_PHASE0A_WRAPPER_MAX                   2
@@ -130,6 +132,9 @@
 static u8   rdx_ble_server_broadcast_suppressed(void);
 static void rdx_ble_server_link_disconnected_cleanup_internal(void);
 static void rdx_ble_server_rdx_disconnected_cleanup_internal(void);
+static void rdx_ble_server_rdx_session_abort(void);
+static void rdx_ble_server_rdx_session_reset_finalize(void);
+static u8 rdx_ble_server_rdx_runtime_try_rearm(void);
 static void rdx_ble_server_disconnected_adv_restart(void);
 static void rdx_ble_server_disconnected_adv_restart_schedule(void);
 static void rdx_ble_server_disconnected_adv_restart_cancel(void);
@@ -187,6 +192,9 @@ static u8 g_syn_data_token_valid;
 static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
+static u8 g_rdx_lifecycle_barrier_armed;
+static char g_rdx_lifecycle_barrier_value[
+    RDX_LIFECYCLE_BARRIER_VALUE_SIZE];
 
 #if TCFG_RDX_HOGP_DUAL_LINK_ENABLE
 static void *g_rdx_ble_secondary_hdl = NULL;
@@ -195,6 +203,7 @@ static u16 g_rdx_ble_phase0a_connect_adv_timer = 0;
 static rdx_ble_async_token_t g_rdx_ble_adv_token = {
     .slot_index = RDX_BLE_LINK_INVALID_INDEX,
 };
+
 static rdx_ble_async_token_t g_rdx_ble_send_pending_token = {
     .slot_index = RDX_BLE_LINK_INVALID_INDEX,
 };
@@ -1226,14 +1235,95 @@ void rdx_ble_server_disconnected_delay_handle(void* priv)
         return;
     }
 
-    rdx_protocol_uploadFileInfo_clean();
-	rdx_uxfile_recordFileData_sendBuf_free();
-	rdx_uxfile_datFileInfo_sendBuf_free();
-    rdx_protocol_file_sync_busy_timer_stop();
-
-    rdx_protocol_send_buffer_reinit();
-
+    rdx_ble_server_rdx_session_reset_finalize();
     rdx_app_emmc_poweroff_check();
+}
+
+static void rdx_ble_server_rdx_session_abort(void)
+{
+    rdx_protocol_bleFileUpload_cancel();
+    rdx_protocol_stop_loop_fileTransfer();
+    rdx_protocol_recordFileData_sendFail_pending_stop();
+    rdx_protocol_file_sync_busy_timer_stop();
+    rdx_protocol_bulk_send_timer_stop();
+    rdx_protocol_clear_send_confirm_flag();
+}
+
+static void rdx_ble_server_rdx_send_worker_quiesce(void)
+{
+    BLE_SendData *send_data = rdx_protocol_get_ble_send_data();
+    BleBulkSendData *bulk_data = rdx_protocol_get_bulk_send_data();
+
+    rdx_protocol_set_ble_sent(0);
+    rdx_protocol_clear_send_confirm_flag();
+    if (bulk_data) {
+        bulk_data->bulk_flag = false;
+    }
+    if (send_data) {
+        /* The immutable worker observes the cleared connection handle and
+         * drains its old queue/context instead of waiting for CAN_SEND_NOW. */
+        os_sem_post(&send_data->send_sem);
+    }
+}
+
+static void rdx_ble_server_rdx_session_reset_finalize(void)
+{
+    rdx_protocol_bulk_data_send_para_reset();
+    rdx_protocol_prepared_data_clean();
+    rdx_protocol_uploadFileInfo_clean();
+    rdx_uxfile_recordFileData_sendBuf_free();
+    rdx_uxfile_datFileInfo_sendBuf_free();
+    rdx_protocol_send_buffer_reinit();
+}
+
+static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
+{
+    if (rdx_ble_session_rdx_runtime_state_get() !=
+        RDX_BLE_RUNTIME_RESETTING) {
+        return rdx_ble_session_rdx_runtime_state_get() ==
+               RDX_BLE_RUNTIME_READY;
+    }
+    if (!rdx_app_rdx_rebind_is_idle()) {
+        r_printf("[BLE_PHASE3] RDX runtime RESETTING: old workers still busy\r");
+        return 0;
+    }
+
+    rdx_ble_server_rdx_session_reset_finalize();
+    rdx_app_emmc_poweroff_check();
+    if (!rdx_ble_session_rdx_runtime_rearm()) {
+        rdx_ble_session_rdx_runtime_fail_closed();
+        r_printf("[BLE_PHASE3] RDX runtime FAILED: peer identity unavailable\r");
+        return 0;
+    }
+    r_printf("[BLE_PHASE3] RDX runtime READY: FIFO drained and workers idle\r");
+    return 1;
+}
+
+u8 rdx_ble_server_rdx_lifecycle_barrier_match(const char *value)
+{
+    return (g_rdx_lifecycle_barrier_armed && value &&
+            strcmp(value, g_rdx_lifecycle_barrier_value) == 0) ? 1 : 0;
+}
+
+void rdx_ble_server_rdx_lifecycle_barrier_complete(void)
+{
+    if (!g_rdx_lifecycle_barrier_armed ||
+        !rdx_ble_session_rdx_runtime_barrier_arrive()) {
+        r_printf("[BLE_PHASE3] unexpected RDX lifecycle barrier ignored\r");
+        return;
+    }
+
+    g_rdx_lifecycle_barrier_armed = 0;
+    memset(g_rdx_lifecycle_barrier_value, 0,
+           sizeof(g_rdx_lifecycle_barrier_value));
+    g_rdx_ble_server_info.ble_conn = FALSE;
+    r_printf("[BLE_PHASE3] RDX receive FIFO drain barrier reached\r");
+
+    /* Old receive packets may have started new work after the synchronous
+     * disconnect cleanup. Abort once more on the FIFO consumer task before
+     * testing the worker-idle boundary. */
+    rdx_ble_server_rdx_session_abort();
+    rdx_ble_server_rdx_runtime_try_rearm();
 }
 static void rdx_ble_server_link_disconnected_cleanup_internal(void)
 {
@@ -1307,9 +1397,6 @@ static void rdx_ble_server_rdx_disconnected_cleanup_internal(void)
         rdx_ota_stop();
     }
     
-    //file free if needed.
-    sys_timeout_add(NULL, rdx_ble_server_disconnected_delay_handle, 500);
-
     /* HOGP owns ready-drop release/timer cleanup before its link state clears. */
     rdx_hogp_keymap_config_on_disconnect();
 }
@@ -2052,6 +2139,14 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 hci_event_encryption_change_get_encryption_enabled(packet);
             if (link) {
                 rdx_ble_session_link_set_encrypted(link, encrypted);
+                if (encrypted) {
+                    bd_addr_t peer_identity = {0};
+
+                    if (get_sm_peer_address(peer_identity)) {
+                        rdx_ble_session_link_set_peer_identity(
+                            link, peer_identity);
+                    }
+                }
                 if (encrypted || status != 0) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 0);
                 }
@@ -2582,6 +2677,10 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     if (!link) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
+    if (rdx_ble_session_rdx_runtime_state_get() ==
+        RDX_BLE_RUNTIME_RESETTING) {
+        rdx_ble_server_rdx_runtime_try_rearm();
+    }
     if (rdx_ble_session_link_is_rdx(link) && link->rdx_runtime_active) {
         return 0;
     }
@@ -2602,14 +2701,17 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
         r_printf("[BLE_PHASE3] composite owner slot=%u con=0x%04x order=HID+RDX\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
-    r_printf("[BLE_PHASE2B] RDX runtime ACTIVE con=0x%04x hdl=%p epoch=%u one-session-per-boot\n",
-             link->con_handle, link->ble_hdl,
-             rdx_ble_session_rdx_runtime_epoch_get());
+    r_printf("[BLE_PHASE3] RDX runtime ACTIVE con=0x%04x hdl=%p epoch=%u\n",
+              link->con_handle, link->ble_hdl,
+              rdx_ble_session_rdx_runtime_epoch_get());
     return 0;
 }
 
 static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
 {
+    char barrier_packet[RDX_LIFECYCLE_BARRIER_PACKET_SIZE];
+    int barrier_packet_len;
+
     if (!link || !rdx_ble_session_link_is_rdx(link)) {
         return;
     }
@@ -2626,8 +2728,26 @@ static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
         g_rdx_ble_server_info.ccc_configured = FALSE;
         g_rdx_ble_server_info.stream_tx_ready = FALSE;
     }
-    rdx_ble_session_rdx_runtime_fail_closed();
-    r_printf("[BLE_PHASE2B] RDX runtime FAILED con=0x%04x hdl=%p epoch=%u; HID remains available, RDX requires reboot\n",
+    rdx_ble_server_rdx_session_abort();
+    rdx_ble_server_rdx_send_worker_quiesce();
+
+    sprintf(g_rdx_lifecycle_barrier_value, "%08x%08x",
+            (unsigned int)rand32(), (unsigned int)rand32());
+    sprintf(barrier_packet, "*APP#custom#%s#%s#",
+            RDX_LIFECYCLE_CUSTOM_CMD,
+            g_rdx_lifecycle_barrier_value);
+    barrier_packet_len = strlen(barrier_packet) + 1;
+    g_rdx_lifecycle_barrier_armed = 1;
+    if (rdx_protocol_packet_recv(barrier_packet, barrier_packet_len) !=
+        barrier_packet_len) {
+        g_rdx_lifecycle_barrier_armed = 0;
+        memset(g_rdx_lifecycle_barrier_value, 0,
+               sizeof(g_rdx_lifecycle_barrier_value));
+        rdx_ble_session_rdx_runtime_fail_closed();
+        r_printf("[BLE_PHASE3] RDX runtime FAILED: drain barrier enqueue failed\r");
+        return;
+    }
+    r_printf("[BLE_PHASE3] RDX runtime QUIESCING con=0x%04x hdl=%p epoch=%u; drain barrier queued\n",
              link->con_handle, link->ble_hdl,
              rdx_ble_session_rdx_runtime_epoch_get());
 }
@@ -3894,6 +4014,16 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
         g_rdx_ble_server_info.ble_mtu_size = 0;
         g_rdx_ble_server_info.ccc_configured = FALSE;
         g_rdx_ble_server_info.stream_tx_ready = FALSE;
+
+        /* The immutable receive worker drops every queued packet while
+         * ble_conn is false, including our local FIFO drain marker. Admit
+         * receive parsing only until that authenticated marker arrives;
+         * the transport handle remains zero so every send path stays shut. */
+        if (g_rdx_lifecycle_barrier_armed &&
+            rdx_ble_session_rdx_runtime_state_get() ==
+                RDX_BLE_RUNTIME_QUIESCING) {
+            g_rdx_ble_server_info.ble_conn = TRUE;
+        }
     }
 #endif
     return &g_rdx_ble_server_info;

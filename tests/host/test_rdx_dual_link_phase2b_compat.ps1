@@ -6,6 +6,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ProtocolDir = Join-Path $RepoRoot 'SDK/apps/common/third_party_profile/rdx_protocol'
+$SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $HeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.h')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
 $RecordText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.c')
@@ -13,6 +14,8 @@ $LedText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_led_ctrl.c')
 $BusinessText = (Get-ChildItem $ProtocolDir -Filter '*.c' |
     Where-Object { $_.Name -ne 'rdx_ble_server.c' } |
     ForEach-Object { Get-Content -Raw $_.FullName }) -join "`n"
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $Failed = 0
 
 function Get-SourceSlice {
@@ -96,12 +99,12 @@ Test-Contract 'PHASE2B_OWNER_WRAPPER_CAPACITY_IS_AUTHORITATIVE' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(') `
     'the final enqueue path must recheck capacity and ownership on the selected RDX wrapper'
 
-Test-Contract 'PHASE2B_COMPAT_UNIT_USES_RUNTIME_GATE' `
+Test-Contract 'PHASE2B_COMPAT_UNIT_USES_RECONNECT_GATE' `
     ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
      $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
      $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
-     $ServerText -match 'one-session-per-boot') `
-    'the compatibility view may expose input only through the non-reusable runtime owner'
+     $RdxReconnectGate) `
+    'the compatibility view may expose input only after a READY, same-peer claim enters ACTIVE'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

@@ -9,9 +9,12 @@ $ProtocolDir = Join-Path $RepoRoot 'SDK/apps/common/third_party_profile/rdx_prot
 $ServiceText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_hogp_keymap_config.c')
 $InternalText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_hogp_keymap_internal.h')
 $AppText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_app.c')
+$SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
 $ArchivePath = Join-Path $ProtocolDir 'librdxApp.a'
 $ArchiveHash = (Get-FileHash -Algorithm SHA256 $ArchivePath).Hash
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $RdxWriteStart = $ServerText.IndexOf('static int rdx_ble_server_phase2_rdx_write(')
 $RdxWriteEnd = $ServerText.IndexOf('/* Phase 0A still exposes', $RdxWriteStart)
 $RdxWriteBody = if ($RdxWriteStart -ge 0 -and $RdxWriteEnd -gt $RdxWriteStart) {
@@ -67,11 +70,11 @@ Test-Contract 'KEYMAP_UPLINK_BYPASSES_TOKENLESS_PREBUILT_QUEUE' `
      $ServiceText -match 'rdx_ble_server_send_for_token\s*\(\s*packet\s*,\s*offset\s*,\s*token\s*\)') `
     'keymap responses must not enter the prebuilt queue that cannot retain a link token'
 
-Test-Contract 'KEYMAP_SOURCE_MIGRATION_USES_SINGLE_SESSION_GATE' `
+Test-Contract 'KEYMAP_SOURCE_MIGRATION_USES_RECONNECT_GATE' `
     ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
      $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $ServerText -match 'one-session-per-boot') `
-    'the tokenless prebuilt receive queue is safe only while owner replacement is forbidden'
+     $RdxReconnectGate) `
+    'keymap input must enter through the current READY, same-peer claim while queued responses retain their RDX token'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

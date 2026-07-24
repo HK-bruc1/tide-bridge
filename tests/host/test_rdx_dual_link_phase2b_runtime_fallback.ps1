@@ -83,18 +83,18 @@ Test-Contract 'RDX_RUNTIME_STATE_MODEL' `
      $SessionHeaderText -match 'RDX_BLE_RUNTIME_READY' -and
      $SessionHeaderText -match 'RDX_BLE_RUNTIME_ACTIVE' -and
      $SessionHeaderText -match 'RDX_BLE_RUNTIME_QUIESCING' -and
+     $SessionHeaderText -match 'RDX_BLE_RUNTIME_RESETTING' -and
      $SessionHeaderText -match 'RDX_BLE_RUNTIME_FAILED') `
-    'the immutable singleton must have an explicit fail-closed lifecycle'
+    'the immutable singleton must retain an explicit guarded lifecycle'
 
-Test-Contract 'RDX_ONE_SESSION_PER_BOOT' `
+Test-Contract 'RDX_BOOT_LIFETIME_FLAG_IS_NOT_REINITIALIZED' `
     ($SessionText -match 'static\s+u8\s+s_rdx_runtime_consumed_this_boot' -and
      $TransportInitBody -notmatch 's_rdx_runtime_consumed_this_boot\s*=\s*0' -and
-     $TransportInitBody -match 's_rdx_runtime_consumed_this_boot\s*\?' -and
-     $TransportInitBody -match 'RDX_BLE_RUNTIME_FAILED' -and
      $ClaimBody -match 's_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY' -and
+     $ClaimBody -match '(?s)s_rdx_runtime_consumed_this_boot\s*\).*?rdx_ble_session_rebind_peer_check' -and
      $ClaimBody -match 's_rdx_runtime_consumed_this_boot\s*=\s*1' -and
      $ClaimBody -match 's_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE') `
-    'server reinit must not create a second static-library session during the same boot'
+    'a local server reinit must not erase the immutable-runtime history'
 
 Test-Contract 'RDX_ACTIVATION_IS_ACCESS_DRIVEN' `
     ($AttachBody -match 'rdx_ble_session_claim_rdx\s*\(' -and
@@ -103,7 +103,7 @@ Test-Contract 'RDX_ACTIVATION_IS_ACCESS_DRIVEN' `
      $WriteBody -match '(?s)rdx_ble_server_phase2_rdx_attach\s*\(\s*link\s*\).*?rdx_protocol_ota_handle\s*\(') `
     'command and OTA input must activate the selected RDX owner before entering the library'
 
-Test-Contract 'RDX_DISCONNECT_FAILS_CLOSED' `
+Test-Contract 'RDX_DISCONNECT_FENCES_OLD_RUNTIME' `
     ($QuiesceBody -match 'RDX_BLE_RUNTIME_ACTIVE' -and
      $QuiesceBody -match 's_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_QUIESCING' -and
      $QuiesceBody -match 'link->rdx_runtime_active\s*=\s*0' -and
@@ -112,13 +112,14 @@ Test-Contract 'RDX_DISCONNECT_FAILS_CLOSED' `
      $DetachBody.IndexOf('rdx_ble_session_rdx_runtime_begin_quiesce(link)') -lt
         $DetachBody.IndexOf('rdx_ble_server_rdx_disconnected_cleanup_internal()') -and
      $DetachBody.IndexOf('rdx_ble_server_rdx_disconnected_cleanup_internal()') -lt
-        $DetachBody.IndexOf('rdx_ble_session_rdx_runtime_fail_closed()')) `
-    'disconnect must invalidate old tokens before cleanup and permanently reject replacement owners'
+        $DetachBody.IndexOf('rdx_protocol_packet_recv(barrier_packet')) `
+    'disconnect must invalidate old tokens before cleanup and before queuing the receive barrier'
 
 Test-Contract 'RDX_NO_UNSAFE_LIBRARY_REBUILD' `
     (($DetachBody + $DisconnectBody) -notmatch 'rdx_protocol_task_(free|create)|rdx_uxfile_task_free|rdx_uxfile_init' -and
-     $ServerText -notmatch 'RDX_BLE_RUNTIME_RESETTING\s*;') `
-    'the audited incomplete free/create APIs must not be used as a runtime barrier'
+     $DetachBody -notmatch 'sys_timeout_add' -and
+     $ServerText -notmatch 'sys_timeout_add\s*\(\s*NULL\s*,\s*rdx_ble_server_disconnected_delay_handle\s*,\s*500\s*\)') `
+    'incomplete free/create APIs and fixed-delay disconnect barriers must remain unused'
 
 Test-Contract 'HID_LIFECYCLE_REMAINS_INDEPENDENT' `
     ($DisconnectBody -match '(?s)rdx_ble_session_link_is_hid\s*\(\s*link\s*\).*?rdx_hogp_on_disconnected\s*\(' -and
@@ -136,9 +137,9 @@ Test-Contract 'RDX_SYNC_TIMERS_ARE_TOKEN_GATED' `
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {
-    Write-Host 'All RDX Phase 2B immutable-runtime fallback contracts passed.'
+    Write-Host 'All RDX Phase 2B immutable-runtime safety contracts passed.'
     exit 0
 }
 
-Write-Host "$Failed RDX Phase 2B immutable-runtime fallback contract check(s) failed."
+Write-Host "$Failed RDX Phase 2B immutable-runtime safety contract check(s) failed."
 exit 1

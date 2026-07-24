@@ -10,8 +10,11 @@ $AppText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_app.c')
 $RecordText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.c')
 $RecordHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.h')
 $OtaText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ota.c')
+$SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
 $ServerHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.h')
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $RdxWriteStart = $ServerText.IndexOf('static int rdx_ble_server_phase2_rdx_write(')
 $RdxWriteEnd = $ServerText.IndexOf('/* Phase 0A still exposes', $RdxWriteStart)
 $RdxWriteBody = if ($RdxWriteStart -ge 0 -and $RdxWriteEnd -gt $RdxWriteStart) {
@@ -65,11 +68,11 @@ Test-Contract 'PHASE2B_DELAYED_DISCONNECT_CLEANUP_CANNOT_CLEAR_NEW_OWNER' `
      $ServerText -match 'rdx_ble_session_get_rdx_link\s*\(\s*\)') `
     'delayed disconnect cleanup must not clear replacement-owner file/bulk state'
 
-Test-Contract 'PHASE2B_ASYNC_SOURCE_INPUT_RUNTIME_GATED' `
+Test-Contract 'PHASE2B_ASYNC_SOURCE_INPUT_RECONNECT_GATED' `
     ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
      $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
-     $ServerText -match 'one-session-per-boot') `
-    'source async input must be exposed only through the non-reusable runtime owner'
+     $RdxReconnectGate) `
+    'source async input must enter through the current READY, same-peer claim while async tokens reject stale work'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

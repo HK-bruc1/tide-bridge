@@ -10,6 +10,8 @@ $SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $SessionHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.h')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
 $KeyboardText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_hogp_keyboard.c')
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $ReadStart = $ServerText.IndexOf('static uint16_t rdx_ble_server_att_read_callback')
 $ReadEnd = $ServerText.IndexOf('void rdx_ble_server_gatt_receive_data', $ReadStart)
 $ReadCallback = if ($ReadStart -ge 0 -and $ReadEnd -gt $ReadStart) {
@@ -141,8 +143,8 @@ Test-Contract 'PHASE2_RDX_OWNER_WRAPPER_SEND' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*&snapshot\s*\)' -and
      $SendBody -match 'app_ble_att_vaild_len_get\s*\(\s*send_hdl\s*\)' -and
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl' -and
-     $ServerText -match 'one-session-per-boot') `
-    'RDX send transport must resolve the active owner wrapper under the single-session runtime policy'
+     $RdxReconnectGate) `
+    'RDX send transport must resolve the current ACTIVE runtime owner after a READY, same-peer claim'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

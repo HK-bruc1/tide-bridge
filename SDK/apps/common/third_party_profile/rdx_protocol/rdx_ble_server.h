@@ -124,6 +124,8 @@ int rdx_ble_server_send_for_token(u8 *data, u32 len,
                                   const rdx_ble_async_token_t *token);
 int rdx_ble_server_ota_send_for_token(u8 *data, u32 len,
                                       const rdx_ble_async_token_t *token);
+u8 rdx_ble_server_rdx_lifecycle_barrier_match(const char *value);
+void rdx_ble_server_rdx_lifecycle_barrier_complete(void);
 void rdx_ble_server_stop_force_disconnect_timer(void);
 void rdx_ble_server_fast_adv_restart(void);  // 按键唤醒时重新进入快速广播并点亮 LED
 

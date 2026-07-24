@@ -9,7 +9,10 @@ $ProtocolDir = Join-Path $RepoRoot 'SDK/apps/common/third_party_profile/rdx_prot
 $AppText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_app.c')
 $RecordText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.c')
 $RecordHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_record.h')
+$SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $Failed = 0
 
 function Get-SourceSlice {
@@ -101,12 +104,12 @@ Test-Contract 'PHASE2B_RECORD_DELAY_REPLACEMENT_IS_STALE_SAFE' `
         $RecordInternalBody.IndexOf('record_status.run = RECORD_STATE_START')) `
     'a reconnect may replace an obsolete delay, and every tokenized command is validated before record state changes'
 
-Test-Contract 'PHASE2B_RECORD_INPUT_RUNTIME_GATED' `
+Test-Contract 'PHASE2B_RECORD_INPUT_RECONNECT_GATED' `
     ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
      $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
      $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
-     $ServerText -match 'one-session-per-boot') `
-    'record input may run only in the first RDX runtime session of the boot'
+     $RdxReconnectGate) `
+    'record input may run after each READY, same-peer claim has entered the ACTIVE runtime'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {

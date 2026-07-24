@@ -396,8 +396,6 @@ u8 rdx_pc_storage_is_busy(void)
     }
 #endif
 
-    extern u8 rdx_is_file_transfer_active(void);
-    extern u8 rdx_is_file_sync_busy(void);
     extern u8 rdx_uxfile_is_datFileInfo_loading(void);
     extern u8 rdx_uxfile_is_scan_active(void);
     extern u8 rdx_uxfile_is_formatting(void);
@@ -431,6 +429,23 @@ u8 rdx_pc_storage_is_busy(void)
 #endif
 
     return false;
+}
+
+u8 rdx_app_rdx_rebind_is_idle(void)
+{
+    BLE_SendData *send_data = rdx_protocol_get_ble_send_data();
+    BleBulkSendData *bulk_data = rdx_protocol_get_bulk_send_data();
+
+    if (rdx_pc_storage_is_busy()) {
+        return 0;
+    }
+    if (!send_data || !bulk_data ||
+        send_data->send_pending || send_data->bulk_sending ||
+        bulk_data->busy || bulk_data->bulk_flag) {
+        r_printf("[BLE_PHASE3] busy: legacy send worker\r");
+        return 0;
+    }
+    return 1;
 }
 
 /**************************************************************************
@@ -1843,6 +1858,16 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
         r_printf("%s --> param error \n", __func__);
         return;
     }
+    if (strcmp(cmd, RDX_LIFECYCLE_CUSTOM_CMD) == 0 &&
+        rdx_ble_server_rdx_lifecycle_barrier_match(value)) {
+        rdx_ble_server_rdx_lifecycle_barrier_complete();
+        return;
+    }
+    if (rdx_ble_session_rdx_runtime_state_get() !=
+        RDX_BLE_RUNTIME_ACTIVE) {
+        r_printf("[BLE_PHASE3] stale custom command dropped: %s\r", cmd);
+        return;
+    }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);
 
     if(strcmp(cmd, RDX_HOGP_KEYMAP_CUSTOM_CMD) == 0){
@@ -3170,6 +3195,11 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
     if(!ops) return;
+    if (rdx_ble_session_rdx_runtime_state_get() !=
+        RDX_BLE_RUNTIME_ACTIVE) {
+        r_printf("[BLE_PHASE3] stale protocol event dropped: %u\r", event);
+        return;
+    }
 
     switch(event){
         /* ============== 主动查询/上报类: data == NULL ============== */

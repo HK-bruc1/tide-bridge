@@ -41,6 +41,8 @@ typedef struct {
     u8 encrypted;
     u8 peer_addr_type;
     u8 peer_addr[6];
+    u8 peer_identity_valid;
+    u8 peer_identity[6];
     u16 conn_interval;
     u16 conn_latency;
     u16 supervision_timeout;
@@ -103,6 +105,8 @@ rdx_ble_runtime_state_t rdx_ble_session_rdx_runtime_state_get(void);
 u32 rdx_ble_session_rdx_runtime_epoch_get(void);
 u8 rdx_ble_session_rdx_runtime_begin_quiesce(
     rdx_ble_link_state_t *link);
+u8 rdx_ble_session_rdx_runtime_barrier_arrive(void);
+u8 rdx_ble_session_rdx_runtime_rearm(void);
 void rdx_ble_session_rdx_runtime_fail_closed(void);
 void rdx_ble_session_link_set_mtu(rdx_ble_link_state_t *link, u16 mtu_size);
 void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
@@ -110,6 +114,8 @@ void rdx_ble_session_link_set_encrypted(rdx_ble_link_state_t *link,
 void rdx_ble_session_link_set_peer(rdx_ble_link_state_t *link,
                                    u8 peer_addr_type,
                                    const u8 peer_addr[6]);
+void rdx_ble_session_link_set_peer_identity(rdx_ble_link_state_t *link,
+                                            const u8 peer_identity[6]);
 void rdx_ble_session_link_set_conn_params(rdx_ble_link_state_t *link,
                                           u16 interval,
                                           u16 latency,

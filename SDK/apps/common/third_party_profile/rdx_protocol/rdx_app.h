@@ -78,6 +78,10 @@ extern "C" {
 #define TRANSFER_BY_WIFI_OFF                        (0)
 #define TRANSFER_BY_WIFI_ON                         (1)
 
+/* This command is injected locally through the immutable protocol receive
+ * FIFO. It is never part of the external RDX command surface. */
+#define RDX_LIFECYCLE_CUSTOM_CMD                    "__rdxlc"
+
 /******************************************************************************
 * Structure and Enum Section
 ******************************************************************************/
@@ -410,6 +414,7 @@ extern void rdx_led_hardware_init(void);
 extern void rdx_app_all_init(void);
 extern void rdx_app_all_exit(void);
 u8 rdx_pc_storage_is_busy(void);
+u8 rdx_app_rdx_rebind_is_idle(void);
 
 
 #ifdef __cplusplus

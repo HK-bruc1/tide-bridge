@@ -9,6 +9,8 @@ $ProtocolDir = Join-Path $RepoRoot 'SDK/apps/common/third_party_profile/rdx_prot
 $SessionText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.c')
 $SessionHeaderText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_session.h')
 $ServerText = Get-Content -Raw (Join-Path $ProtocolDir 'rdx_ble_server.c')
+$RdxReconnectGate = $SessionText -match `
+    '(?s)rdx_ble_claim_result_t\s+rdx_ble_session_claim_rdx\s*\(.*?s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(\s*link\s*\).*?s_rdx_runtime_state\s*=\s*RDX_BLE_RUNTIME_ACTIVE'
 $Failed = 0
 
 function Get-SourceSlice {
@@ -128,12 +130,12 @@ Test-Contract 'PHASE2B_PENDING_TOKEN_LIFECYCLE' `
      $ServerText -match 'rdx_ble_server_exit[\s\S]*?rdx_ble_server_rdx_send_pending_reset\s*\(\s*\)') `
     'pending completion state must be invalidated on owner detach and transport lifecycle changes'
 
-Test-Contract 'PHASE2B_PRODUCTION_INPUT_RUNTIME_GATED' `
+Test-Contract 'PHASE2B_PRODUCTION_INPUT_RECONNECT_GATED' `
     ($RdxWriteBody -match 'rdx_ble_server_phase2_rdx_attach\s*\(' -and
      $RdxWriteBody -match 'rdx_ble_server_gatt_receive_data\s*\(' -and
      $RdxWriteBody -match 'rdx_protocol_ota_handle\s*\(' -and
-     $ServerText -match 'one-session-per-boot') `
-    'production input must enter only the active, non-reusable RDX runtime'
+     $RdxReconnectGate) `
+    'production input must attach through a READY, same-peer claim before entering the ACTIVE runtime'
 
 Write-Host '---------------------------'
 if ($Failed -eq 0) {
