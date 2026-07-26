@@ -1,7 +1,7 @@
 # RDX P11.0 ABI 与 Ownership 静态基线
 
 > 日期：2026-07-26
-> 结论：P11.0 静态文本基线初版在 Mac 审核通过，但 P11.0 阶段验收未完成，暂不授权 P11.1；未修改生产业务行为。Windows/JL clean build、最终 CC map、firmware/hash、目标板证据和可执行 caller trace 不能由本文的 Mac PASS 替代。
+> 结论：P11.0 源码静态基线与门禁已收口；仅授权 P11.1 新增 query/domain adapter、零 caller 迁移的低风险垂直切片。调用点迁移与生产验收仍由 Windows/JL clean build、最终 CC map、firmware/hash、目标板证据和可执行 caller trace 阻断，不能由本文的 Mac PASS 替代。
 
 ## 1. 基线与范围
 
@@ -177,15 +177,16 @@ pwsh -NoProfile -File tools/validate_rdx_p11_static.ps1
 阶段 readiness 命令：
 
 ```powershell
-pwsh -NoProfile -File tools/validate_rdx_p11_readiness.ps1
+pwsh -NoProfile -File tools/validate_rdx_p11_readiness.ps1 -OwnershipMode Progress
 ```
 
-当前结果为预期的 **BLOCKED / exit 1**，同时报告三道未闭环门禁：Windows/JL ABI linkage/layout、P10 evidence linkage、caller-context/executable golden trace。只有补齐 manifest 后该命令整体 PASS，才允许重新评估 P11.1。
+当前结果为预期的 **BLOCKED / exit 1**，同时报告三道未闭环门禁：Windows/JL ABI linkage/layout、P10 evidence linkage、caller-context/executable golden trace。只有补齐 manifest 后该命令整体 PASS，才允许生产验收和后续调用点迁移。
 
 ## 9. P11.0 阶段判定
 
-- P11.0 静态文本基线初版：**PASS**。
-- P11.0 阶段验收：**未完成，暂不授权 P11.1**。
+- P11.0 源码静态基线与门禁：**收口完成**。
+- P11.1：**已授权仅新增 query/domain adapter、零 caller 迁移的低风险垂直切片**。
+- 调用点迁移与生产验收：**仍由 readiness 中的 Windows/JL linkage、P10 归档和 caller trace 缺口阻断**。
 - RDX 生产业务行为：**零迁移**。
 - `librdxApp.a` ABI：**blob/hash/header/signature 静态证据未漂移**。
 - Windows/JL ABI linkage/layout：**BLOCKED，map cross-reference 与实际 `sizeof/offsetof` 报告未关联**。
@@ -195,4 +196,4 @@ pwsh -NoProfile -File tools/validate_rdx_p11_readiness.ps1
 - readiness evidence 校验：**要求普通非空文件、SHA256、固定 JSON schema 及 build/commit/toolchain/scenario identity；当前缺证据时预期 BLOCKED**。
 - P10 生产证据链接：**BLOCKED，7 个必需路径未关联**。
 - caller context/golden trace：**BLOCKED，11 个场景的 context 与 baseline trace 未关联**。
-- 进入后续调用点迁移前：必须通过 `tools/validate_rdx_p11_readiness.ps1`；不得由实现者猜测或绕过 manifest。
+- 进入后续调用点迁移前：必须通过 `tools/validate_rdx_p11_readiness.ps1 -OwnershipMode Progress`；不得由实现者猜测或绕过 manifest。

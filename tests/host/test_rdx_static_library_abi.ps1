@@ -15,6 +15,7 @@ $appHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.h'
 $appSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c'
 $recordServiceHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.h'
 $recordServiceSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.c'
+$recordQuerySourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_record_query.c'
 $uxfileHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_uxfile.h'
 $vmHeaderRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_vm.h'
 $bleSourceRel = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c'
@@ -204,6 +205,7 @@ $recordServiceHeader = Read-Working $recordServiceHeaderRel
 $recordServiceHeaderBaseline = Read-Baseline $recordServiceHeaderRel
 $recordServiceSource = Read-Working $recordServiceSourceRel
 $recordServiceSourceBaseline = Read-Baseline $recordServiceSourceRel
+$recordQuerySource = Read-Working $recordQuerySourceRel
 $recordServicePublicSignatures = @(
     @{ Pattern = 'void\s+rdx_record_service_init\s*\(void\)'; Label = 'rdx_record_service_init' },
     @{ Pattern = 'void\s+rdx_record_service_exit\s*\(void\)'; Label = 'rdx_record_service_exit' },
@@ -232,7 +234,12 @@ foreach ($entry in $recordServicePublicSignatures) {
     Assert-Equal (Extract-One $recordServiceHeader $declarationPattern "$($entry.Label) declaration") `
                 (Extract-One $recordServiceHeaderBaseline $declarationPattern "P8 $($entry.Label) declaration") `
                 "$($entry.Label) public declaration matches the P8 baseline"
-    Assert-Equal (Extract-One $recordServiceSource $entry.Pattern "$($entry.Label) definition") `
+    $definitionSource = if (@(
+        'rdx_record_service_is_running',
+        'rdx_record_service_can_auto_shutdown',
+        'rdx_record_service_is_active'
+    ) -contains $entry.Label) { $recordQuerySource } else { $recordServiceSource }
+    Assert-Equal (Extract-One $definitionSource $entry.Pattern "$($entry.Label) definition") `
                 (Extract-One $recordServiceSourceBaseline $entry.Pattern "P8 $($entry.Label) definition") `
                 "$($entry.Label) definition signature matches the P8 baseline"
 }

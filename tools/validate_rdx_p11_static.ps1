@@ -68,4 +68,4 @@ Invoke-StaticCheck `
 
 Write-Host ''
 Write-Host 'All RDX P11 source-only static checks passed.'
-Write-Host 'This is not P11.0 stage acceptance. Run validate_rdx_p11_readiness.ps1 only after linking P10 production evidence and executable caller traces.'
+Write-Host "This is not production acceptance. Run validate_rdx_p11_readiness.ps1 -OwnershipMode $OwnershipMode only after linking P10 production evidence and executable caller traces."

@@ -106,5 +106,61 @@
             Count = 2
             Purpose = 'Record-owner active-file reset data plane'
         }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_activity'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads legacy state for semantic activity query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_activity'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable legacy owner object'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_scene'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads legacy scene for semantic query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_scene'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for scene query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_path'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads legacy mode for semantic path query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_path'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for path query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_is_offline_active'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads legacy mode and activity state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_is_offline_active'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for offline-active query'
+        }
     )
 }

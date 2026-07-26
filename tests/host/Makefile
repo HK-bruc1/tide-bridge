@@ -22,6 +22,7 @@ HOST_CC ?=
 # Source roots
 PROTO_DIR    := ../../SDK/apps/common/third_party_profile/rdx_protocol
 SERVICE_DIR  := $(PROTO_DIR)/service
+INTERNAL_DIR := $(PROTO_DIR)/internal
 PORT_DIR     := $(PROTO_DIR)/port/jl/include
 BOARD_DIR    := $(PROTO_DIR)/board/t2616_cc
 BOARD_COMMON_DIR := $(PROTO_DIR)/board/common
@@ -33,6 +34,7 @@ MOCK_INC     := -Imock/include
 INCS         := $(MOCK_INC) \
                 -I$(PROTO_DIR) \
                 -I$(SERVICE_DIR) \
+                -I$(INTERNAL_DIR) \
                 -I$(PORT_DIR) \
                 -I$(BOARD_COMMON_DIR) \
                 -I$(BOARD_DIR)
@@ -45,7 +47,8 @@ TESTS        := test_dispatch \
                 test_util \
                 test_time_service \
                 test_storage_port \
-                test_rdx_p11_golden_trace
+                test_rdx_p11_golden_trace \
+                test_rdx_record_service_query
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
@@ -107,6 +110,9 @@ test_storage_port$(EXE_EXT): test_storage_port.c $(PROTO_DIR)/port/jl/jl7018/rdx
 test_rdx_p11_golden_trace$(EXE_EXT): test_rdx_p11_golden_trace.c rdx_p11_trace_spy.c | check_host_compiler
 	$(HOST_CC) $(INCS) $^ -o $@
 
+test_rdx_record_service_query$(EXE_EXT): test_rdx_record_service_query.c $(SERVICE_DIR)/rdx_record_query.c $(INTERNAL_DIR)/rdx_record_domain.c | check_host_compiler
+	$(HOST_CC) $(INCS) $^ -o $@
+
 # Run a single test executable; this target depends on the .exe being up to date.
 $(addsuffix .run,$(TESTS)): %.run: %$(EXE_EXT)
 	@echo RUN: $*
@@ -126,4 +132,5 @@ test_util: test_util.run
 test_time_service: test_time_service.run
 test_storage_port: test_storage_port.run
 test_rdx_p11_golden_trace: test_rdx_p11_golden_trace.run
+test_rdx_record_service_query: test_rdx_record_service_query.run
 endif

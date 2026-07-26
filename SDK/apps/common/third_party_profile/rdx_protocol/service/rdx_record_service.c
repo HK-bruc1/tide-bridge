@@ -462,18 +462,6 @@ void rdx_record_service_set_mode_offline(void)
 	}
 }
 
-bool rdx_record_service_is_running(void)
-{
-	RecordStatus *rp = rdx_record_get_status();
-	return rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME);
-}
-
-bool rdx_record_service_can_auto_shutdown(void)
-{
-	RecordStatus *rp = rdx_record_get_status();
-	return rp && rp->run == RECORD_STATE_STOP;
-}
-
 rdx_err_t rdx_record_service_handle_ble_disconnected(void)
 {
 	RecordStatus *rp = rdx_record_get_status();
@@ -527,11 +515,6 @@ void rdx_record_service_stop(void)
 }
 
 u8 rdx_record_service_get_state(void)
-{
-	return 0;
-}
-
-u8 rdx_record_service_is_active(void)
 {
 	return 0;
 }

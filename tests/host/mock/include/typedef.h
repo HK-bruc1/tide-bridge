@@ -4,8 +4,9 @@
 /* Host mock replacement for SDK/interface/system/generic/typedef.h */
 
 #include <stdint.h>
+#include <stdbool.h>
 
-/* Provide stdbool keywords; tcc does not expose <stdbool.h> reliably */
+/* Fall back for host compilers that do not expose <stdbool.h>. */
 #ifndef __bool_true_false_are_defined
 #define bool  int
 #define true  1

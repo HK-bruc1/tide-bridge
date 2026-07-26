@@ -543,6 +543,8 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_info_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_record_query.c \
+	apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_time_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_clock_service.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \

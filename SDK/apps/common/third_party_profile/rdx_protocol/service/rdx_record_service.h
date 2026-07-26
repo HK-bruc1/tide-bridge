@@ -3,6 +3,7 @@
 
 #include "typedef.h"
 #include "rdx_err.h"
+#include "rdx_record_service_types.h"
 #include <stdbool.h>
 
 void rdx_record_service_init(void);
@@ -25,6 +26,10 @@ void rdx_record_service_set_mode_online(void);
 void rdx_record_service_set_mode_offline(void);
 bool rdx_record_service_is_running(void);
 bool rdx_record_service_can_auto_shutdown(void);
+rdx_err_t rdx_record_service_get_activity(rdx_record_activity_t *out);
+rdx_err_t rdx_record_service_get_scene(rdx_record_scene_t *out);
+rdx_err_t rdx_record_service_get_path(rdx_record_path_t *out);
+bool rdx_record_service_is_offline_active(void);
 rdx_err_t rdx_record_service_handle_ble_disconnected(void);
 rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void);
 

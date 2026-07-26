@@ -27,7 +27,7 @@ macOS because it does not invoke a compiler, the JL Make configuration matrix,
 linker-map tooling, firmware generation, or board tests:
 
 ```powershell
-pwsh -NoProfile -File tools/validate_rdx_p11_static.ps1
+pwsh -NoProfile -File tools/validate_rdx_p11_static.ps1 -OwnershipMode Progress
 ```
 
 The default `OwnershipMode=Baseline` requires all P11 ownership counts and
@@ -45,7 +45,7 @@ artifacts and caller traces are available, fill in `rdx_p11_linkage_evidence.psd
 `rdx_p10_evidence.psd1` and `rdx_p11_trace_evidence.psd1`, then run:
 
 ```powershell
-pwsh -NoProfile -File tools/validate_rdx_p11_readiness.ps1
+pwsh -NoProfile -File tools/validate_rdx_p11_readiness.ps1 -OwnershipMode Progress
 ```
 
 That command is expected to fail while any required P10 artifact, caller
@@ -54,7 +54,7 @@ entries require regular non-empty files, SHA256, fixed JSON schemas and matching
 build/commit/toolchain/scenario identity; arbitrary paths cannot satisfy the
 gate. Missing evidence must not be replaced with a Mac source-only PASS.
 
-The eight executable C mocks are retained as optional developer checks. Run them
+The nine executable C mocks are retained as optional developer checks. Run them
 only when a compatible native compiler is already available, and pass it
 explicitly so the repository never installs or silently selects an extra
 toolchain:
@@ -84,6 +84,7 @@ Clean optional host artifacts with `tests\host\run_tests.bat clean` on Windows.
 | `test_rdx_p11_boundaries.ps1` | Required for P11 | service public headers and `rdx_p11_allowlist.psd1` | forbidden legacy header/type exposure and exact file + function + symbol + purpose exceptions |
 | Caller-wired executable P10 trace | Required before caller migration | production caller spy plus `rdx_p11_trace_evidence.psd1` | proves context, operation, arguments, result and owner state against scenario-specific P10 evidence |
 | `test_rdx_p11_trace_scaffold.ps1` | Required source-only scaffold check | trace schema, spy, test and Makefile | verifies that the executable Host contract is structurally present without claiming it was compiled or run |
+| `test_rdx_record_service_query` | Required for P11.1 query slice | production service public API over private record-domain adapter | activity/scene/path mapping, null handling, read-only state, and production legacy `is_active` compatibility |
 | `test_rdx_p11_linkage_evidence.ps1` | P11.0 readiness gate | `rdx_p11_linkage_evidence.psd1` | requires Windows/JL map cross-reference and actual layout evidence |
 | `test_rdx_p10_evidence.ps1` | P11.0 readiness gate | `rdx_p10_evidence.psd1` | verifies required P10 production evidence paths and archive hashes |
 | `test_rdx_p11_trace_evidence.ps1` | P11.0 readiness gate | `rdx_p11_trace_evidence.psd1` | requires resolved caller contexts and linked executable P10 baseline traces |
