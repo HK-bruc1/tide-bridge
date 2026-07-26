@@ -213,7 +213,9 @@ This overlay is included by `SDK/apps/earphone/include/app_config.h` immediately
 Current overlay rules:
 
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
-- Because PB1 is reserved for the DIP power switch, `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` are forced to `0`
+- `TCFG_T2620_PC_STORAGE_ENABLE` owns the T2620 PC-storage configuration group: it requires tool-configured SD0 + USB MSC, enables PC mode, and disables the mutually exclusive USB HID/UAC classes
+- Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay
+- PC storage forces the soldered SD NAND always-online policy in `t2620_project_config.h`; mount-failure formatting remains in `board_ac701n_demo_cfg.h`, where the VM marker distinguishes first-time initialization from filesystem recovery and both paths format
 - Do **not** add `TCFG_DIP_SWITCH_POWER*` macros to `sdk_config.h`, `sdk_config.c`, or `iokey_config.c`
 
 ### GPIO / key configuration

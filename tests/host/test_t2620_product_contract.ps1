@@ -10,10 +10,12 @@ $RepoRoot = Get-HostTestRepoRoot
 $Config = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\t2620_project_config.h'
 $SdkConfigH = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\sdk_config.h'
 $SdkConfigC = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\sdk_config.c'
+$BoardConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\board_ac701n_demo_cfg.h'
 $AppConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_config.h'
 $IoKey = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\iokey_config.c'
 $Pc = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\pc\pc.c'
 $UsbTask = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_task.c'
+$UsbCommon = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_common_def.h'
 $DevManager = Read-RepoFile $RepoRoot 'SDK\apps\common\dev_manager\dev_manager.c'
 $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app.c'
 $Dip = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
@@ -26,14 +28,42 @@ $overlayOk = $Config -match '#define\s+TCFG_DIP_SWITCH_POWER_ENABLE\s+1' -and
 Assert-Contract 'PRODUCT_CONFIG_OVERLAY' $overlayOk `
     'DIP power ownership must stay in the project overlay and out of generated board files'
 
-$usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_APP_PC_EN\s+1\s*$' -and
-                $Config -match '(?m)^\s*#define\s+TCFG_CHARGE_POWERON_ENABLE\s+0\s*$' -and
-                $Config -match '(?m)^\s*#define\s+TCFG_USB_SLAVE_MSD_ENABLE\s+1\s*$' -and
-                $Config -match '(?m)^\s*#define\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s+1\s*$'
+$configOwnershipOk = $true
+foreach ($externallyOwnedMacro in @(
+    'TCFG_ADKEY_ENABLE',
+    'TCFG_LP_TOUCH_KEY_ENABLE',
+    'TCFG_CHARGE_POWERON_ENABLE',
+    'TCFG_USB_SLAVE_MSD_ENABLE',
+    'TCFG_USB_SLAVE_CDC_ENABLE',
+    'TCFG_USB_CUSTOM_HID_ENABLE',
+    'TCFG_USB_SLAVE_MTP_ENABLE',
+    'TCFG_USB_SLAVE_MIDI_ENABLE',
+    'TCFG_USB_SLAVE_PRINTER_ENABLE',
+    'TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE',
+    'TCFG_DEC_OGG_OPUS_ENABLE',
+    'RDX_HOGP_KEY_ACTION_TEST_ENABLE'
+)) {
+    $configOwnershipOk = $configOwnershipOk -and
+        $Config -notmatch "(?m)^\s*#\s*(?:define|undef)\s+$externallyOwnedMacro\b"
+}
+Assert-Contract 'PROJECT_CONFIG_DOES_NOT_REPEAT_EXISTING_DEFAULTS' $configOwnershipOk `
+    'tool-owned and subsystem-default settings must not be repeated in the T2620 project config'
+
+$usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s+1\s*$' -and
+                $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#if\s+!TCFG_SD0_ENABLE.*?#if\s+!TCFG_USB_SLAVE_MSD_ENABLE.*?#define\s+TCFG_APP_PC_EN\s+1' -and
+                $SdkConfigH -match '(?m)^\s*#define\s+TCFG_CHARGE_POWERON_ENABLE\s+0\b' -and
+                $SdkConfigH -match '(?m)^\s*#define\s+TCFG_USB_SLAVE_MSD_ENABLE\s+1\b' -and
+                $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#undef\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s*#define\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s+1' -and
+                $BoardConfig -notmatch '(?m)^\s*#\s*(?:define|undef)\s+TCFG_SD_ALWAY_ONLINE_ENABLE\b'
 foreach ($disabledClass in @(
     'TCFG_USB_SLAVE_HID_ENABLE',
     'TCFG_USB_SLAVE_AUDIO_SPK_ENABLE',
-    'TCFG_USB_SLAVE_AUDIO_MIC_ENABLE',
+    'TCFG_USB_SLAVE_AUDIO_MIC_ENABLE'
+)) {
+    $usbProfileOk = $usbProfileOk -and
+        $Config -match "(?m)^\s*#define\s+$disabledClass\s+0\s*$"
+}
+foreach ($defaultDisabledClass in @(
     'TCFG_USB_SLAVE_CDC_ENABLE',
     'TCFG_USB_CUSTOM_HID_ENABLE',
     'TCFG_USB_SLAVE_MTP_ENABLE',
@@ -41,15 +71,17 @@ foreach ($disabledClass in @(
     'TCFG_USB_SLAVE_PRINTER_ENABLE'
 )) {
     $usbProfileOk = $usbProfileOk -and
-        $Config -match "(?m)^\s*#define\s+$disabledClass\s+0\s*$"
+        $UsbCommon -match "(?m)^\s*#define\s+$defaultDisabledClass\s+0\s*$"
 }
 Assert-Contract 'USB_MSC_PRODUCT_PROFILE' $usbProfileOk `
     'the product USB profile must expose only MSC over the soldered always-online storage'
 
-$formatSafetyOk = $Config -match '(?m)^\s*#define\s+TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE\s+0\s*$' -and
-                  $DevManager -match '#if\s*\(TCFG_SD0_ENABLE\s*&&\s*TCFG_SD0_FORMAT_ON_BOOT\s*&&\s*TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE\)'
-Assert-Contract 'STORAGE_FORMAT_IS_FAIL_CLOSED' $formatSafetyOk `
-    'a mount failure must not format storage unless every explicit safety switch is enabled'
+$formatSafetyOk = $BoardConfig -match '(?m)^\s*#define\s+TCFG_SD0_FORMAT_ON_BOOT\s+ENABLE_THIS_MOUDLE\s*$' -and
+                  $BoardConfig -match '(?m)^\s*#define\s+TCFG_SD0_FORCE_FORMAT_ON_BOOT\s+DISABLE_THIS_MOUDLE\s*$' -and
+                  $DevManager -notmatch 'TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE' -and
+                  $DevManager -match '(?s)if \(dev->fmnt\).*?skip format on boot.*?else.*?if \(vm_formatted\).*?recover by format.*?else.*?first boot or vm cleared.*?f_format\('
+Assert-Contract 'STORAGE_FORMATS_ON_MOUNT_FAILURE' $formatSafetyOk `
+    'SD0 mount failure must format for either first-time initialization or filesystem recovery'
 
 $entryGatesOk = $Pc -match '(?s)static int pc_mode_try_enter.*?get_power_on_status\(\).*?rdx_pc_storage_is_busy\(\)' -and
                 $Dip -match '(?s)rdx_dip_switch_request_pc_if_usb_online.*?usb_otg_online\(0\).*?APP_MODE_PC' -and

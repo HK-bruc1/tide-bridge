@@ -23,10 +23,6 @@
 #define TCFG_SD0_FORMAT_DONE_MAGIC   0xA5
 #endif
 
-#ifndef TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
-#define TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE TCFG_SD0_FORMAT_ON_BOOT
-#endif
-
 #if TCFG_SD0_DIAG_ENABLE
 #include "device/device.h"
 #endif
@@ -472,7 +468,7 @@ int __dev_manager_add(char *logo, u8 need_mount)
 			}
 #endif
 
-#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT && TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE)
+#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
 			if (!strcmp(logo, "sd0")) {
 				static u8 _sd0_fmt_done = 0;
 				if (!_sd0_fmt_done) {
@@ -494,6 +490,7 @@ int __dev_manager_add(char *logo, u8 need_mount)
 						int rd = syscfg_read(CFG_SD0_FORMAT_DONE_FLAG, &fmt_flag, sizeof(fmt_flag));
 						u8 vm_formatted = (rd == sizeof(fmt_flag) && fmt_flag == TCFG_SD0_FORMAT_DONE_MAGIC);
 
+						/* VM 标志只区分首次初始化和恢复格式化；mount 失败都会执行格式化。 */
 						printf("[SD-FMT] sd0 mount fail, vm_flag=%s (rd=%d, val=0x%02X)\n",
 						       vm_formatted ? "valid" : "invalid", rd, fmt_flag);
 

@@ -2,21 +2,17 @@
 #define T2620_PROJECT_CONFIG_H
 
 /*
- * T2620 project-level overrides.
+ * T2620 项目级配置覆盖。
  *
- * Keep these definitions outside sdk_config.h/c because those files are owned
- * by the JL visual configuration tool.
+ * 本文件紧跟在杰理配置工具生成的 sdk_config.h 之后包含，只保留新增功能
+ * 开关及其必要的联合配置。工具已经管理且取值正确的配置不要在这里重复定义。
  */
 
-/* T2620 currently uses the T2616 feature set with a customer-neutral RDX app. */
-#ifndef RDX_AI_SEL_APP
-#define RDX_AI_SEL_APP                           APP_CUSTOM_TEST_EN
-#endif
+/* -------------------------------------------------------------------------- */
+/* 硬件资源归属                                                               */
+/* -------------------------------------------------------------------------- */
 
-#ifndef RDX_SEL_DEVICE
-#define RDX_SEL_DEVICE                           DEVICE_BEANSTALK_RKB_T2620
-#endif
-
+/* PB1 专用于拨码电源开关。 */
 #ifndef TCFG_DIP_SWITCH_POWER_ENABLE
 #define TCFG_DIP_SWITCH_POWER_ENABLE              1
 #endif
@@ -25,21 +21,38 @@
 #define TCFG_DIP_SWITCH_POWER_IO                  IO_PORTB_01
 #endif
 
-/* USB PC mode exposes SD0 as the product's only USB class.
- * USB insertion while the DIP switch is OFF remains charge-only. */
-#undef TCFG_CHARGE_POWERON_ENABLE
-#define TCFG_CHARGE_POWERON_ENABLE                 0
+/* -------------------------------------------------------------------------- */
+/* PC 存储接管                                                                */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * 开启后进入仅导出 SD0 的 USB MSC PC 模式。SD0 和 MSC 由杰理配置工具配置，
+ * 此处校验依赖，并联动 PC 模式、SD0 常在线及互斥的 USB Class。开机充电是
+ * 独立产品策略，不属于 PC 存储功能的依赖。
+ */
+#ifndef TCFG_T2620_PC_STORAGE_ENABLE
+#define TCFG_T2620_PC_STORAGE_ENABLE               1
+#endif
+
+#if TCFG_T2620_PC_STORAGE_ENABLE
+#if !TCFG_SD0_ENABLE
+#error "T2620 PC storage requires SD0"
+#endif
+
+#if !TCFG_USB_SLAVE_MSD_ENABLE
+#error "T2620 PC storage requires USB MSC"
+#endif
+
+/*
+ * PC 接管前要求板载 SD NAND 已注册；常在线可在启动时直接加入 SD0，并停止
+ * 插拔检测，避免 USB MSC 接管 FAT 期间产生伪插拔事件。该行为属于本项目的
+ * PC 存储约束，因此覆盖原生取值。
+ */
+#undef TCFG_SD_ALWAY_ONLINE_ENABLE
+#define TCFG_SD_ALWAY_ONLINE_ENABLE                1
 
 #undef TCFG_APP_PC_EN
 #define TCFG_APP_PC_EN                             1
-
-#undef TCFG_USB_SLAVE_MSD_ENABLE
-#define TCFG_USB_SLAVE_MSD_ENABLE                  1
-
-/* SD0 is soldered SD NAND, not removable media. Keep detect events stable
- * when the FAT owner changes between the device and USB MSC. */
-#undef TCFG_SD_ALWAY_ONLINE_ENABLE
-#define TCFG_SD_ALWAY_ONLINE_ENABLE                1
 
 #undef TCFG_USB_SLAVE_HID_ENABLE
 #define TCFG_USB_SLAVE_HID_ENABLE                  0
@@ -49,67 +62,34 @@
 
 #undef TCFG_USB_SLAVE_AUDIO_MIC_ENABLE
 #define TCFG_USB_SLAVE_AUDIO_MIC_ENABLE            0
-
-#undef TCFG_USB_SLAVE_CDC_ENABLE
-#define TCFG_USB_SLAVE_CDC_ENABLE                  0
-
-#undef TCFG_USB_CUSTOM_HID_ENABLE
-#define TCFG_USB_CUSTOM_HID_ENABLE                 0
-
-#undef TCFG_USB_SLAVE_MTP_ENABLE
-#define TCFG_USB_SLAVE_MTP_ENABLE                  0
-
-#undef TCFG_USB_SLAVE_MIDI_ENABLE
-#define TCFG_USB_SLAVE_MIDI_ENABLE                 0
-
-#undef TCFG_USB_SLAVE_PRINTER_ENABLE
-#define TCFG_USB_SLAVE_PRINTER_ENABLE              0
-
-/* Never format user storage merely because a mount attempt failed. */
-#undef TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
-#define TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE  0
-
-#if TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE
-#error "T2620 production firmware must not auto-format SD0 on mount failure"
 #endif
 
-#if TCFG_DIP_SWITCH_POWER_ENABLE
-/*
- * The current generated ADKEY and LP_TOUCH defaults use PB1. PB1 is reserved
- * for the DIP power switch on T2620, so keep those modules disabled here even
- * if the visual tool regenerates sdk_config.h.
- */
-#undef TCFG_ADKEY_ENABLE
-#define TCFG_ADKEY_ENABLE                         0
+/* -------------------------------------------------------------------------- */
+/* RDX 与 HOGP 功能                                                           */
+/* -------------------------------------------------------------------------- */
 
-#undef TCFG_LP_TOUCH_KEY_ENABLE
-#define TCFG_LP_TOUCH_KEY_ENABLE                  0
-#endif
-
+/* 在 RDX 复合 GATT Profile 中启用 HOGP 键盘。 */
 #ifndef TCFG_RDX_HOGP_ENABLE
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+/* -------------------------------------------------------------------------- */
+/* RDX 录音与本地播放                                                         */
+/* -------------------------------------------------------------------------- */
+
+/* 量产固件关闭本地播放，以避免 CODE0 空间超限。 */
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            0
 #endif
 
-/* RDX recordings are headerless, fixed-size standard Opus packets. */
-#ifndef TCFG_DEC_OGG_OPUS_ENABLE
-#define TCFG_DEC_OGG_OPUS_ENABLE                  0
-#endif
-
-/* RDX local recordings use JL stereo Opus packets: 16 kHz, 2 ch, 20 ms, 80 B. */
+/* 录音使用杰理双声道 Opus 包：16 kHz、双声道、20 ms、80 字节。 */
 #ifndef TCFG_STENC_OPUS_ENABLE
 #define TCFG_STENC_OPUS_ENABLE                    1
 #endif
 
+/* 仅在启用本地播放时加入对应的双声道 Opus 解码器。 */
 #ifndef TCFG_DEC_STENC_OPUS_ENABLE
 #define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-#endif
-
-#ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
-#define RDX_HOGP_KEY_ACTION_TEST_ENABLE                0
 #endif
 
 #endif /* T2620_PROJECT_CONFIG_H */
