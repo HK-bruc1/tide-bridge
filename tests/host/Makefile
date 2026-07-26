@@ -44,7 +44,8 @@ TESTS        := test_dispatch \
                 test_board_config \
                 test_util \
                 test_time_service \
-                test_storage_port
+                test_storage_port \
+                test_rdx_p11_golden_trace
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
@@ -103,6 +104,9 @@ test_time_service$(EXE_EXT): test_time_service.c $(SERVICE_DIR)/rdx_time_service
 test_storage_port$(EXE_EXT): test_storage_port.c $(PROTO_DIR)/port/jl/jl7018/rdx_jl_storage.c | check_host_compiler
 	$(HOST_CC) $(INCS) $^ -o $@
 
+test_rdx_p11_golden_trace$(EXE_EXT): test_rdx_p11_golden_trace.c rdx_p11_trace_spy.c | check_host_compiler
+	$(HOST_CC) $(INCS) $^ -o $@
+
 # Run a single test executable; this target depends on the .exe being up to date.
 $(addsuffix .run,$(TESTS)): %.run: %$(EXE_EXT)
 	@echo RUN: $*
@@ -121,4 +125,5 @@ test_board_config: test_board_config.run
 test_util: test_util.run
 test_time_service: test_time_service.run
 test_storage_port: test_storage_port.run
+test_rdx_p11_golden_trace: test_rdx_p11_golden_trace.run
 endif
