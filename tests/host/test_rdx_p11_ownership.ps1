@@ -260,6 +260,64 @@ foreach ($metric in $metrics) {
 }
 
 Write-Host ""
+Write-Host '=== P11.1 record query contract ==='
+$recordDomain = Read-Working "$rdxRel/internal/rdx_record_domain.c"
+$recordQuery = Read-Working "$rdxRel/service/rdx_record_query.c"
+$activityQuery = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_get_activity' `
+    'rdx_err_t rdx_record_domain_get_scene' `
+    'record-domain activity query'
+Assert-OrderedTokens $activityQuery `
+    @('case RECORD_STATE_STOP:', 'RDX_RECORD_ACTIVITY_IDLE',
+      'case RECORD_STATE_PAUSE:', 'RDX_RECORD_ACTIVITY_PAUSED',
+      'case RECORD_STATE_START:', 'case RECORD_STATE_RESUME:',
+      'RDX_RECORD_ACTIVITY_ACTIVE', 'default:', 'RDX_ERR_INVAL') `
+    'record-domain activity mapping'
+$sceneQuery = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_get_scene' `
+    'rdx_err_t rdx_record_domain_get_path' `
+    'record-domain scene query'
+Assert-OrderedTokens $sceneQuery `
+    @('case RECORD_SCENE_CHAT:', 'RDX_RECORD_SCENE_CHAT',
+      'case RECORD_SCENE_CALL:', 'RDX_RECORD_SCENE_CALL',
+      'default:', 'RDX_ERR_INVAL') `
+    'record-domain scene mapping'
+$pathQuery = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_get_path' `
+    'bool rdx_record_domain_is_offline_active' `
+    'record-domain path query'
+Assert-OrderedTokens $pathQuery `
+    @('case RECORD_MODE_OFFLINE:', 'RDX_RECORD_PATH_OFFLINE',
+      'case RECORD_MODE_ONLINE:', 'RDX_RECORD_PATH_ONLINE',
+      'default:', 'RDX_ERR_INVAL') `
+    'record-domain path mapping'
+$runningQuery = Get-FunctionSlice $recordQuery `
+    'bool rdx_record_service_is_running' `
+    'bool rdx_record_service_can_auto_shutdown' `
+    'record-service running query'
+Assert-OrderedTokens $runningQuery `
+    @('rdx_record_domain_get_activity(&activity) == RDX_OK',
+      'activity == RDX_RECORD_ACTIVITY_ACTIVE') `
+    'record-service running fail-closed query'
+$shutdownQuery = Get-FunctionSlice $recordQuery `
+    'bool rdx_record_service_can_auto_shutdown' `
+    'u8 rdx_record_service_is_active' `
+    'record-service auto-shutdown query'
+Assert-OrderedTokens $shutdownQuery `
+    @('rdx_record_domain_get_activity(&activity) == RDX_OK',
+      'activity == RDX_RECORD_ACTIVITY_IDLE') `
+    'record-service auto-shutdown fail-closed query'
+$legacyActive = Get-FunctionSlice $recordQuery `
+    'u8 rdx_record_service_is_active' `
+    'rdx_err_t rdx_record_service_get_activity' `
+    'legacy is-active compatibility query'
+if ((Count-Pattern $legacyActive '\breturn\s+0\s*;') -eq 1) {
+    Add-Pass 'legacy is-active compatibility query remains fixed at zero'
+} else {
+    Add-Failure 'legacy is-active compatibility query no longer returns exactly one fixed zero'
+}
+
+Write-Host ""
 Write-Host '=== P11.2a read-only caller migration ==='
 $ledControl = Read-Working "$rdxRel/rdx_led_ctrl.c"
 Assert-ReadOnlyRecordMigration $ledControl `
@@ -435,7 +493,17 @@ Assert-OrderedTokens $chargePrepare `
       'rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF)') `
     'charge OTA, record and WiFi shutdown order'
 
-$recordDomain = Read-Working "$rdxRel/internal/rdx_record_domain.c"
+$prepareStopDomain = Get-FunctionSlice $recordDomain `
+    'static rdx_err_t rdx_record_domain_prepare_stop_internal' `
+    'rdx_err_t rdx_record_domain_prepare_stop' `
+    'record-domain STOP transition'
+Assert-OrderedTokens $prepareStopDomain `
+    @('rdx_record_domain_stop_reason_valid(reason)',
+      'rdx_record_get_status()',
+      '*changed = rp->run != RECORD_STATE_STOP',
+      'if (rp->run != RECORD_STATE_STOP)',
+      'rp->run = RECORD_STATE_STOP') `
+    'record-domain exact STOP transition'
 $stopNowDomain = Get-FunctionSlice $recordDomain `
     'rdx_err_t rdx_record_domain_stop_now' `
     'rdx_err_t rdx_record_domain_stop_post' `
