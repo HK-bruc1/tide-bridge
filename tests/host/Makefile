@@ -48,7 +48,8 @@ TESTS        := test_dispatch \
                 test_time_service \
                 test_storage_port \
                 test_rdx_p11_golden_trace \
-                test_rdx_record_service_query
+                test_rdx_record_service_query \
+                test_rdx_record_service_command
 
 TEST_EXES    := $(addsuffix $(EXE_EXT),$(TESTS))
 
@@ -113,6 +114,9 @@ test_rdx_p11_golden_trace$(EXE_EXT): test_rdx_p11_golden_trace.c rdx_p11_trace_s
 test_rdx_record_service_query$(EXE_EXT): test_rdx_record_service_query.c $(SERVICE_DIR)/rdx_record_query.c $(INTERNAL_DIR)/rdx_record_domain.c | check_host_compiler
 	$(HOST_CC) $(INCS) $^ -o $@
 
+test_rdx_record_service_command$(EXE_EXT): test_rdx_record_service_command.c $(SERVICE_DIR)/rdx_record_command.c $(INTERNAL_DIR)/rdx_record_domain.c | check_host_compiler
+	$(HOST_CC) $(INCS) $^ -o $@
+
 # Run a single test executable; this target depends on the .exe being up to date.
 $(addsuffix .run,$(TESTS)): %.run: %$(EXE_EXT)
 	@echo RUN: $*
@@ -133,4 +137,5 @@ test_time_service: test_time_service.run
 test_storage_port: test_storage_port.run
 test_rdx_p11_golden_trace: test_rdx_p11_golden_trace.run
 test_rdx_record_service_query: test_rdx_record_service_query.run
+test_rdx_record_service_command: test_rdx_record_service_command.run
 endif

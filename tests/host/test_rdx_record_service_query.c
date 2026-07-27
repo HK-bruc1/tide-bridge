@@ -12,6 +12,18 @@ RecordStatus *rdx_record_get_status(void)
     return g_status_available ? &g_status : NULL;
 }
 
+void rdx_record_process(void)
+{
+}
+
+rdx_err_t rdx_os_task_post_callback0(const char *task_name,
+                                     void (*callback)(void))
+{
+    (void)task_name;
+    (void)callback;
+    return RDX_OK;
+}
+
 static int test_activity_mapping(void)
 {
     rdx_record_activity_t activity;

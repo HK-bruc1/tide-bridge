@@ -17,4 +17,14 @@ typedef enum {
     RDX_RECORD_PATH_ONLINE,
 } rdx_record_path_t;
 
+typedef enum {
+    RDX_RECORD_STOP_APP_REQUEST = 0,
+    RDX_RECORD_STOP_BLE_DISCONNECT,
+    RDX_RECORD_STOP_CHARGE_PREPARE,
+    RDX_RECORD_STOP_DUT,
+    RDX_RECORD_STOP_POWEROFF,
+    RDX_RECORD_STOP_IDLE,
+    RDX_RECORD_STOP_UPLOAD_FALLBACK,
+} rdx_record_stop_reason_t;
+
 #endif

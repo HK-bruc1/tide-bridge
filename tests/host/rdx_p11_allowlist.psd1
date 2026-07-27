@@ -162,5 +162,26 @@
             Count = 1
             Purpose = 'P11 private owner adapter obtains stable object for offline-active query'
         }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_stop_internal'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies the legacy STOP transition'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_stop_internal'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains the stable object for STOP transition'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_stop_now'
+            Symbol = 'rdx_record_process'
+            Count = 1
+            Purpose = 'P11 private owner adapter executes the synchronous STOP process'
+        }
     )
 }

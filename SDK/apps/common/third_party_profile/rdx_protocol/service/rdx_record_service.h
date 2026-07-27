@@ -33,6 +33,10 @@ bool rdx_record_service_is_offline_active(void);
 rdx_err_t rdx_record_service_handle_ble_disconnected(void);
 rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void);
 
+/* caller-selected execution context; commands never infer the current task */
+rdx_err_t rdx_record_service_stop_now(rdx_record_stop_reason_t reason);
+rdx_err_t rdx_record_service_stop_post(rdx_record_stop_reason_t reason);
+
 /* shell stubs — filled during extraction */
 void rdx_record_service_start(u8 mode);
 void rdx_record_service_stop(void);

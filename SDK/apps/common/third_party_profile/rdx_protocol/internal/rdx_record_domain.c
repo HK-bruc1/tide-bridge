@@ -1,5 +1,6 @@
 #include "rdx_record_domain.h"
 #include "rdx_record.h"
+#include "rdx_jl_osal.h"
 
 _Static_assert(RECORD_STATE_START == 0u, "legacy record start value changed");
 _Static_assert(RECORD_STATE_PAUSE == 1u, "legacy record pause value changed");
@@ -77,4 +78,68 @@ bool rdx_record_domain_is_offline_active(void)
     RecordStatus *rp = rdx_record_get_status();
     return rp && rp->orig_mode == RECORD_MODE_OFFLINE &&
            (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME);
+}
+
+static bool rdx_record_domain_stop_reason_valid(rdx_record_stop_reason_t reason)
+{
+    switch (reason) {
+    case RDX_RECORD_STOP_APP_REQUEST:
+    case RDX_RECORD_STOP_BLE_DISCONNECT:
+    case RDX_RECORD_STOP_CHARGE_PREPARE:
+    case RDX_RECORD_STOP_DUT:
+    case RDX_RECORD_STOP_POWEROFF:
+    case RDX_RECORD_STOP_IDLE:
+    case RDX_RECORD_STOP_UPLOAD_FALLBACK:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static rdx_err_t rdx_record_domain_prepare_stop_internal(
+    rdx_record_stop_reason_t reason, bool *changed)
+{
+    RecordStatus *rp;
+
+    if (!rdx_record_domain_stop_reason_valid(reason) ||
+        !(rp = rdx_record_get_status())) {
+        return RDX_ERR_INVAL;
+    }
+    if (changed) {
+        *changed = rp->run != RECORD_STATE_STOP;
+    }
+    if (rp->run != RECORD_STATE_STOP) {
+        rp->run = RECORD_STATE_STOP;
+    }
+    return RDX_OK;
+}
+
+rdx_err_t rdx_record_domain_prepare_stop(rdx_record_stop_reason_t reason)
+{
+    return rdx_record_domain_prepare_stop_internal(reason, NULL);
+}
+
+rdx_err_t rdx_record_domain_stop_now(rdx_record_stop_reason_t reason)
+{
+    bool changed;
+    rdx_err_t ret = rdx_record_domain_prepare_stop_internal(reason, &changed);
+
+    if (ret == RDX_OK && changed) {
+        rdx_record_process();
+    }
+    return ret;
+}
+
+rdx_err_t rdx_record_domain_stop_post(rdx_record_stop_reason_t reason)
+{
+    bool changed;
+    rdx_err_t ret = rdx_record_domain_prepare_stop_internal(reason, &changed);
+
+    if (ret != RDX_OK || !changed) {
+        return ret;
+    }
+    if (rdx_os_task_post_callback0("app_core", rdx_record_process) != RDX_OK) {
+        return RDX_ERR_IO;
+    }
+    return RDX_OK;
 }

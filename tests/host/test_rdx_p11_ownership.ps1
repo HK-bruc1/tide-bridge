@@ -143,6 +143,25 @@ function Assert-SemanticRecordMigration(
     }
 }
 
+function Assert-StopNowMigration(
+    [string]$Text,
+    [string]$StartToken,
+    [string]$EndToken,
+    [string]$Reason,
+    [string]$Label
+) {
+    $slice = Get-FunctionSlice $Text $StartToken $EndToken $Label
+    if ([regex]::IsMatch($slice, '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b')) {
+        Add-Failure "$Label still accesses the legacy record boundary"
+    } elseif ((Count-Pattern $slice '\brdx_record_service_stop_now\s*\(') -ne 1 -or
+              (Count-Pattern $slice ("\b{0}\b" -f [regex]::Escape($Reason))) -ne 1 -or
+              (Count-Pattern $slice '\brdx_record_service_stop_post\s*\(') -ne 0) {
+        Add-Failure "$Label does not use the exact synchronous stop reason contract"
+    } else {
+        Add-Pass "$Label uses the exact synchronous stop reason contract"
+    }
+}
+
 $baselineCommit = (& git -C $repo rev-parse --verify "${BaselineRef}^{commit}").Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baselineCommit)) {
     throw "Unable to resolve P11 ownership baseline: $BaselineRef"
@@ -384,21 +403,58 @@ if ([regex]::IsMatch($otaControl, '\b(?:RecordStatus|rdx_record_get_status)\b'))
     Add-Pass 'OTA module has zero legacy record reads'
 }
 
+Write-Host ""
+Write-Host '=== P11.3a DUT/charge synchronous stop migration ==='
+Assert-StopNowMigration $dutControl `
+    'void rdx_dut_rec_stop' `
+    'bool rdx_dut_rec_is_running' `
+    'RDX_RECORD_STOP_DUT' `
+    'DUT record stop'
 $dutStop = Get-FunctionSlice $dutControl `
     'void rdx_dut_rec_stop' `
     'bool rdx_dut_rec_is_running' `
-    'DUT record-stop compatibility path'
+    'DUT record-stop order'
 Assert-OrderedTokens $dutStop `
-    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
-    'DUT record-stop compatibility path'
+    @('rdx_record_service_stop_now(RDX_RECORD_STOP_DUT)',
+      'rdx_dut_info.current_func = DUT_FUNC_NONE',
+      'rdx_dut_show()') `
+    'DUT stop/process before local state and LED refresh'
 
+Assert-StopNowMigration $chargeControl `
+    'void rdx_app_charge_prepare' `
+    'int rdx_app_battery_msg_handler' `
+    'RDX_RECORD_STOP_CHARGE_PREPARE' `
+    'charge prepare record stop'
 $chargePrepare = Get-FunctionSlice $chargeControl `
     'void rdx_app_charge_prepare' `
     'int rdx_app_battery_msg_handler' `
-    'charge prepare stop compatibility path'
+    'charge prepare stop order'
 Assert-OrderedTokens $chargePrepare `
-    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
-    'charge prepare stop compatibility path'
+    @('rdx_ota_stop()',
+      'rdx_record_service_stop_now(RDX_RECORD_STOP_CHARGE_PREPARE)',
+      'rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF)') `
+    'charge OTA, record and WiFi shutdown order'
+
+$recordDomain = Read-Working "$rdxRel/internal/rdx_record_domain.c"
+$stopNowDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_stop_now' `
+    'rdx_err_t rdx_record_domain_stop_post' `
+    'record-domain synchronous stop command'
+Assert-OrderedTokens $stopNowDomain `
+    @('rdx_record_domain_prepare_stop_internal(reason, &changed)',
+      'if (ret == RDX_OK && changed)',
+      'rdx_record_process()') `
+    'record-domain synchronous stop transition/process'
+$stopPostDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_stop_post' `
+    "`n}" `
+    'record-domain posted stop command'
+Assert-OrderedTokens $stopPostDomain `
+    @('rdx_record_domain_prepare_stop_internal(reason, &changed)',
+      'if (ret != RDX_OK || !changed)',
+      'rdx_os_task_post_callback0("app_core", rdx_record_process)',
+      'return RDX_ERR_IO') `
+    'record-domain posted stop transition/failure retention'
 
 $softPoweroff = Get-FunctionSlice $deviceControl `
     'void rdx_device_service_soft_poweroff' `

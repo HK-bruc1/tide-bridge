@@ -436,12 +436,8 @@ void rdx_dut_rec_start(void)
 void rdx_dut_rec_stop(void)
 {
     DUT_LOG("Record test STOP\r");
-    
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
+
+    (void)rdx_record_service_stop_now(RDX_RECORD_STOP_DUT);
     
     if(rdx_dut_info.current_func == DUT_FUNC_REC){
         rdx_dut_info.current_func = DUT_FUNC_NONE;

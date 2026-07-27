@@ -85,6 +85,7 @@ Clean optional host artifacts with `tests\host\run_tests.bat clean` on Windows.
 | Caller-wired executable P10 trace | Required before caller migration | production caller spy plus `rdx_p11_trace_evidence.psd1` | proves context, operation, arguments, result and owner state against scenario-specific P10 evidence |
 | `test_rdx_p11_trace_scaffold.ps1` | Required source-only scaffold check | trace schema, spy, test and Makefile | verifies that the executable Host contract is structurally present without claiming it was compiled or run |
 | `test_rdx_record_service_query` | Required for P11.1 query slice | production service public API over private record-domain adapter | activity/scene/path mapping, null handling, read-only state, and production legacy `is_active` compatibility |
+| `test_rdx_record_service_command` | Required for P11.3 stop slices | production stop command facade over private record-domain adapter | sync/post execution, exact STOP idempotence, post-failure state retention, and invalid input handling |
 | `test_rdx_p11_linkage_evidence.ps1` | P11.0 readiness gate | `rdx_p11_linkage_evidence.psd1` | requires Windows/JL map cross-reference and actual layout evidence |
 | `test_rdx_p10_evidence.ps1` | P11.0 readiness gate | `rdx_p10_evidence.psd1` | verifies required P10 production evidence paths and archive hashes |
 | `test_rdx_p11_trace_evidence.ps1` | P11.0 readiness gate | `rdx_p11_trace_evidence.psd1` | requires resolved caller contexts and linked executable P10 baseline traces |

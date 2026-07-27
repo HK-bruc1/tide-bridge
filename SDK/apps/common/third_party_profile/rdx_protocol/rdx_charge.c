@@ -53,7 +53,6 @@
 #include "gpio_config.h"
 
 #include "rdx_app_config.h"
-#include "rdx_record.h"
 #include "rdx_record_service.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
@@ -615,13 +614,9 @@ void rdx_app_charge_prepare(void)
     if (get_ota_status()){
         rdx_ota_stop();
     }
-    RecordStatus* rp = rdx_record_get_status();
     RdxWifiInfo* pw = rdx_app_get_wifi_info();
     //close record.
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
+    (void)rdx_record_service_stop_now(RDX_RECORD_STOP_CHARGE_PREPARE);
     //close wifi.
     if(pw->onoff == TRANSFER_BY_WIFI_ON){
         rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
