@@ -37,6 +37,7 @@
 
 #include "rdx_dut.h"
 #include "rdx_record.h"
+#include "service/rdx_record_service.h"
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
 #include "rdx_uxfile.h"
@@ -418,11 +419,14 @@ void rdx_dut_rec_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_REC;
     
-    RecordStatus* rp = rdx_record_get_status();
-    DUT_LOG("RecordStatus: run = %d, scene = %d\r", rp->run, rp->scene);
-    if(rp->run == RECORD_STATE_STOP){
-        u8 scene = (rp->scene == RECORD_SCENE_CALL) ? RECORD_SCENE_CALL : RECORD_SCENE_CHAT;
-        rdx_app_device_record_handle(scene);
+    rdx_record_activity_t activity = RDX_RECORD_ACTIVITY_PAUSED;
+    rdx_record_scene_t scene = RDX_RECORD_SCENE_CHAT;
+    (void)rdx_record_service_get_activity(&activity);
+    (void)rdx_record_service_get_scene(&scene);
+    DUT_LOG("Record activity = %d, scene = %d\r", activity, scene);
+    if(activity == RDX_RECORD_ACTIVITY_IDLE){
+        u8 legacy_scene = (scene == RDX_RECORD_SCENE_CALL) ? RECORD_SCENE_CALL : RECORD_SCENE_CHAT;
+        rdx_app_device_record_handle(legacy_scene);
     }
 }
 
@@ -901,13 +905,13 @@ void rdx_dut_key_handle(int key_msg)
  **************************************************************************/
 void rdx_dut_msg_handle(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
-    
+    bool record_running = rdx_record_service_is_running();
+
     if(rdx_dut_info.dut_mode == FALSE){
         /*--- 进入DUT模式 ---*/
         DUT_LOG("=== Enter DUT mode request ===\r");
         
-        if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+        if(record_running) {
             DUT_LOG("Recording in progress, blocked!\r");
             return;
         }

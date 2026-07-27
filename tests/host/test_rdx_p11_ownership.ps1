@@ -111,6 +111,38 @@ function Assert-ReadOnlyRecordMigration(
     }
 }
 
+function Assert-SemanticRecordMigration(
+    [string]$Text,
+    [string]$StartToken,
+    [string]$EndToken,
+    [string]$Label,
+    [hashtable]$ExpectedQueries
+) {
+    $slice = Get-FunctionSlice $Text $StartToken $EndToken $Label
+    $legacyPattern = '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b'
+    if ([regex]::IsMatch($slice, $legacyPattern)) {
+        Add-Failure "$Label still accesses the legacy record boundary"
+        return
+    }
+
+    $actualTotal = Count-Pattern $slice '\brdx_record_service_(?:is_running|get_activity|get_scene|get_path)\s*\('
+    $expectedTotal = 0
+    foreach ($query in $ExpectedQueries.Keys) {
+        $expected = [int]$ExpectedQueries[$query]
+        $actual = Count-Pattern $slice ("\b{0}\s*\(" -f [regex]::Escape([string]$query))
+        $expectedTotal += $expected
+        if ($actual -ne $expected) {
+            Add-Failure "$Label query count drifted for ${query}: expected=$expected actual=$actual"
+            return
+        }
+    }
+    if ($actualTotal -ne $expectedTotal) {
+        Add-Failure "$Label has an unexpected semantic record query: expected=$expectedTotal actual=$actualTotal"
+    } else {
+        Add-Pass "$Label uses the exact semantic record query contract"
+    }
+}
+
 $baselineCommit = (& git -C $repo rev-parse --verify "${BaselineRef}^{commit}").Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baselineCommit)) {
     throw "Unable to resolve P11 ownership baseline: $BaselineRef"
@@ -253,6 +285,112 @@ Assert-ReadOnlyRecordMigration $deviceControl `
     "static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)`n{" `
     "static void rdx_cmd_handle_device_pair(ProtocolEvents event, void *data, u32 len)`n{" `
     'device APP unbound busy gate'
+
+Write-Host ""
+Write-Host '=== P11.2b app/DUT read-only caller migration ==='
+$appControl = Read-Working "$rdxRel/rdx_app.c"
+Assert-SemanticRecordMigration $appControl `
+    "void rdx_app_earphone_key_remap(int *value, int *msg)`n{" `
+    "int rdx_app_earphone_state_set_page_scan_enable()`n{" `
+    'app key-remap recording gate' `
+    @{ rdx_record_service_is_running = 1 }
+Assert-SemanticRecordMigration $appControl `
+    "void rdx_app_single_click_handle(void)`n{" `
+    "void rdx_app_double_click_handle(void)`n{" `
+    'app single-click recording gate' `
+    @{ rdx_record_service_is_running = 1 }
+Assert-SemanticRecordMigration $appControl `
+    "void rdx_app_triple_click_handle(void)`n{" `
+    "void rdx_app_quadruple_click_handle(void)`n{" `
+    'app triple-click recording gate' `
+    @{ rdx_record_service_is_running = 1 }
+Assert-SemanticRecordMigration $appControl `
+    "void rdx_app_quadruple_click_handle(void)`n{" `
+    "void rdx_app_quintuple_click_handle(void)`n{" `
+    'app quadruple-click dead record read removal' `
+    @{}
+Assert-SemanticRecordMigration $appControl `
+    'case APP_MSG_LONG_PRESS_HOLDUP:' `
+    'case APP_MSG_RECORD_SWITCH:' `
+    'app long-press release scene query' `
+    @{ rdx_record_service_get_scene = 1 }
+$longPressRelease = Get-FunctionSlice $appControl `
+    'case APP_MSG_LONG_PRESS_HOLDUP:' `
+    'case APP_MSG_RECORD_SWITCH:' `
+    'app long-press release scene fallback'
+Assert-OrderedTokens $longPressRelease `
+    @(
+        'scene = RDX_RECORD_SCENE_CALL',
+        'rdx_record_service_get_scene(&scene)',
+        'if(scene == RDX_RECORD_SCENE_CHAT)'
+    ) `
+    'app long-press release CALL fallback'
+Assert-SemanticRecordMigration $appControl `
+    'case APP_MSG_DUT:' `
+    'case APP_MSG_PC_MODE_ON:' `
+    'app DUT-entry recording gate' `
+    @{ rdx_record_service_is_running = 1 }
+Assert-SemanticRecordMigration $appControl `
+    'u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();' `
+    'rdx_record_err_reboot_flag_write_into_vm(0);' `
+    'app abnormal-reboot scene query' `
+    @{ rdx_record_service_get_scene = 1 }
+$abnormalReboot = Get-FunctionSlice $appControl `
+    'u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();' `
+    'rdx_record_err_reboot_flag_write_into_vm(0);' `
+    'app abnormal-reboot scene fallback'
+Assert-OrderedTokens $abnormalReboot `
+    @(
+        'scene = RDX_RECORD_SCENE_CALL',
+        'rdx_record_service_get_scene(&scene)',
+        'if(scene == RDX_RECORD_SCENE_CHAT)'
+    ) `
+    'app abnormal-reboot CALL fallback'
+
+$dutControl = Read-Working "$rdxRel/rdx_dut.c"
+Assert-SemanticRecordMigration $dutControl `
+    "void rdx_dut_rec_start(void)`n{" `
+    "void rdx_dut_rec_stop(void)`n{" `
+    'DUT record-start activity and scene query' `
+    @{ rdx_record_service_get_activity = 1; rdx_record_service_get_scene = 1 }
+$dutStart = Get-FunctionSlice $dutControl `
+    "void rdx_dut_rec_start(void)`n{" `
+    "void rdx_dut_rec_stop(void)`n{" `
+    'DUT record-start fallback contract'
+Assert-OrderedTokens $dutStart `
+    @(
+        'activity = RDX_RECORD_ACTIVITY_PAUSED',
+        'scene = RDX_RECORD_SCENE_CHAT',
+        'rdx_record_service_get_activity(&activity)',
+        'rdx_record_service_get_scene(&scene)',
+        'if(activity == RDX_RECORD_ACTIVITY_IDLE)'
+    ) `
+    'DUT record-start fail-closed activity and CHAT fallback'
+Assert-SemanticRecordMigration $dutControl `
+    "void rdx_dut_msg_handle(void)`n{" `
+    'void rdx_dut_show_refresh(void)' `
+    'DUT mode-entry recording gate' `
+    @{ rdx_record_service_is_running = 1 }
+
+$otaControl = Read-Working "$rdxRel/rdx_ota.c"
+Assert-SemanticRecordMigration $otaControl `
+    "void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)`n{" `
+    "void rdx_ota_stop(void)`n{" `
+    'OTA process dead record read removal' `
+    @{}
+if ([regex]::IsMatch($otaControl, '\b(?:RecordStatus|rdx_record_get_status)\b')) {
+    Add-Failure 'OTA module still accesses the legacy record boundary'
+} else {
+    Add-Pass 'OTA module has zero legacy record reads'
+}
+
+$dutStop = Get-FunctionSlice $dutControl `
+    'void rdx_dut_rec_stop' `
+    'bool rdx_dut_rec_is_running' `
+    'DUT record-stop compatibility path'
+Assert-OrderedTokens $dutStop `
+    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
+    'DUT record-stop compatibility path'
 
 $chargePrepare = Get-FunctionSlice $chargeControl `
     'void rdx_app_charge_prepare' `

@@ -519,7 +519,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
     int index = key->event;     
     u8 *pk_l = NULL;
     u8 *pk_r = NULL;
-    RecordStatus* rp = rdx_record_get_status();
+    bool record_running = rdx_record_service_is_running();
     RdxWifiInfo* p = rdx_app_get_wifi_info();
     bool format_state = rdx_uxfile_sd_format_status_check();
     // g_printf("key_remap: 0x%x, 0x%x, 0x%x, 0x%x \r", index, msg[0], msg[1], key->value);
@@ -555,7 +555,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
                 pk_r = key_table_dut_r;
             }else{
                 //scene.
-                if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+                if(record_running){
                     // y_printf("=== %s -->recording scene", __FUNCTION__);
                     //normal mode.
                     pk_r = key_table_recording_r;  
@@ -1174,12 +1174,12 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
  **************************************************************************/
 void rdx_app_single_click_handle(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
+    bool record_running = rdx_record_service_is_running();
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_SINGLE_CLICK);
     }else{
     #if TDX_HAS_RECMARK_ABILITY
-        if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+        if(record_running){
             if(!get_ota_status() && rdx_app_get_wifi_info()->onoff != TRANSFER_BY_WIFI_ON){
                 rdx_record_add_mark(RDX_MARK_SOURCE_KEY);
                 return;
@@ -1188,8 +1188,7 @@ void rdx_app_single_click_handle(void)
     #endif
         // 非 DUT 模式下，按键单击重新唤醒快速广播
         if(rdx_app_get_wifi_info()->onoff != TRANSFER_BY_WIFI_ON
-            && rp->run != RECORD_STATE_START
-            && rp->run != RECORD_STATE_RESUME
+            && !record_running
             && !get_ota_status()){
             rdx_ble_server_fast_adv_restart();
         }
@@ -1226,11 +1225,11 @@ void rdx_app_double_click_handle(void)
  **************************************************************************/
 void rdx_app_triple_click_handle(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
+    bool record_running = rdx_record_service_is_running();
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_TRIPLE_CLICK);
     }else{
-        if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+        if(record_running){
             log_info("====== %s --> 非DUT模式下录音中,三击功能无效 \r", __func__);
             return;
         }
@@ -1249,8 +1248,6 @@ void rdx_app_triple_click_handle(void)
  **************************************************************************/
 void rdx_app_quadruple_click_handle(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
-
     if(rdx_dut_mode){
         rdx_dut_key_handle(APP_MSG_QUADRUPLE_CLICK);
     }else{
@@ -1491,8 +1488,9 @@ int rdx_app_msg_handler(int *msg)
 
                 log_info("=== %s ---> APP_MSG_LONG_PRESS_HOLDUP: key_press_record_ready_flag = %d \r", __FUNCTION__, key_press_record_ready_flag);
                 if(key_press_record_ready_flag == 1){
-                    RecordStatus* rp = rdx_record_get_status();
-                    if(rp->scene == RECORD_SCENE_CHAT){
+                    rdx_record_scene_t scene = RDX_RECORD_SCENE_CALL;
+                    (void)rdx_record_service_get_scene(&scene);
+                    if(scene == RDX_RECORD_SCENE_CHAT){
                         app_send_message(APP_MSG_RECORD_CHAT_MODE, 0);
                     }else{
                         app_send_message(APP_MSG_RECORD_CALL_MODE, 0);
@@ -1579,8 +1577,7 @@ int rdx_app_msg_handler(int *msg)
                     r_printf("====== %s --> busy on ota! \r", __func__);
                     break;
                 }
-                RecordStatus* rp = rdx_record_get_status();
-                if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+                if(rdx_record_service_is_running()){
                     r_printf("%s --> busy on recording! \r", __func__);
                     break;
                 }
@@ -2052,12 +2049,13 @@ void rdx_app_all_init(void)
     u8 err_boot = rdx_record_err_reboot_flag_read_from_vm();
     if(err_boot == 1){
         //unnormal.
-        RecordStatus *rp = rdx_record_get_status();
+        rdx_record_scene_t scene = RDX_RECORD_SCENE_CALL;
+        (void)rdx_record_service_get_scene(&scene);
 
         rdx_app_tasks_init();
 
         //restart record.
-        if(rp->scene == RECORD_SCENE_CHAT){
+        if(scene == RDX_RECORD_SCENE_CHAT){
             app_send_message(APP_MSG_RECORD_CHAT_MODE, 0);
         }else{
             app_send_message(APP_MSG_RECORD_CALL_MODE, 0);

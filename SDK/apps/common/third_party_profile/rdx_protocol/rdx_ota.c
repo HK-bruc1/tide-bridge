@@ -50,7 +50,6 @@
 #include "btstack/avctp_user.h"
 
 #include "rdx_app_config.h"
-#include "rdx_record.h"
 #include "rdx_commonDef.h"
 #include "rdx_util.h"
 #include "rdx_protocol.h"
@@ -126,7 +125,6 @@ extern int tws_ota_data_send_pend(void);
 extern int rdx_get_ble_mtu_size(void);
 // extern u8 dual_bank_update_verify_without_crc_new(int (*verify_result_hdl)(int calc_crc));
 extern u8 dual_bank_update_verify_without_crc(int (*verify_result_hdl)(int calc_crc));
-extern RecordStatus* rdx_record_get_status(void);
 extern u32 webusb_tx_data(const usb_dev usb_id, const u8 *buffer, u32 len);
 extern const usb_dev rdx_webusb_get_usb_id(void);
 extern u16 rdx_ble_server_get_conn_handle(void);
@@ -835,7 +833,6 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
     /*----------------------------------------------------------------*/
 	/* Local Variables                                                */
 	/*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
     ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
 	/*----------------------------------------------------------------*/
 	/* Code Body                                                      */
