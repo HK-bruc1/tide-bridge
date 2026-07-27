@@ -94,6 +94,23 @@ function Get-FunctionSlice(
     return $Text.Substring($start, $end - $start)
 }
 
+function Assert-ReadOnlyRecordMigration(
+    [string]$Text,
+    [string]$StartToken,
+    [string]$EndToken,
+    [string]$Label
+) {
+    $slice = Get-FunctionSlice $Text $StartToken $EndToken $Label
+    $legacyPattern = '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b'
+    if ([regex]::IsMatch($slice, $legacyPattern)) {
+        Add-Failure "$Label still accesses the legacy record boundary"
+    } elseif ((Count-Pattern $slice '\brdx_record_service_is_running\s*\(') -ne 1) {
+        Add-Failure "$Label does not use exactly one semantic running query"
+    } else {
+        Add-Pass "$Label uses only the semantic running query"
+    }
+}
+
 $baselineCommit = (& git -C $repo rev-parse --verify "${BaselineRef}^{commit}").Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($baselineCommit)) {
     throw "Unable to resolve P11 ownership baseline: $BaselineRef"
@@ -191,7 +208,69 @@ foreach ($metric in $metrics) {
     Write-Host ("TOTAL: baseline={0}, working={1}" -f $baselineTotal, $workingTotal)
 }
 
-$deviceService = Read-Working "$rdxRel/service/rdx_device_service.c"
+Write-Host ""
+Write-Host '=== P11.2a read-only caller migration ==='
+$ledControl = Read-Working "$rdxRel/rdx_led_ctrl.c"
+Assert-ReadOnlyRecordMigration $ledControl `
+    "static bool _rdx_led_can_show_transfer_effect(void)`n{" `
+    "static bool _rdx_led_refresh_transfer_scene(void)`n{" `
+    'LED transfer-effect gate'
+Assert-ReadOnlyRecordMigration $ledControl `
+    "static void _rdx_led_restore_system_state(void)`n{" `
+    "static void _rdx_led_engine_solid_timeout(const rdx_led_effect_cfg_t *cfg)`n{" `
+    'LED system-state restore'
+
+$chargeControl = Read-Working "$rdxRel/rdx_charge.c"
+Assert-ReadOnlyRecordMigration $chargeControl `
+    "void rdx_app_incharge_batPercent_show_cb(void* priv)`n{" `
+    "void rdx_app_incharge_batPercent_show_stop(void)`n{" `
+    'charge OLED battery display gate'
+Assert-ReadOnlyRecordMigration $chargeControl `
+    "void rdx_app_charge_stop(void)`n{" `
+    "void rdx_app_charge_start(void)`n{" `
+    'charge-stop OLED restore gate'
+
+$storageControl = Read-Working "$rdxRel/service/rdx_storage_service.c"
+Assert-ReadOnlyRecordMigration $storageControl `
+    "static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)`n{" `
+    "static void rdx_storage_on_format_done(rdx_event_id_t event, void *payload, u32 len, void *ctx)`n{" `
+    'storage format busy gate'
+
+$deviceControl = Read-Working "$rdxRel/service/rdx_device_service.c"
+Assert-ReadOnlyRecordMigration $deviceControl `
+    "rdx_err_t rdx_device_service_factory_reset(void)`n{" `
+    "void rdx_device_service_user_para_reset(void)`n{" `
+    'device factory-reset busy gate'
+Assert-ReadOnlyRecordMigration $deviceControl `
+    "void rdx_device_service_user_para_reset(void)`n{" `
+    "static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)`n{" `
+    'device user-parameter-reset busy gate'
+Assert-ReadOnlyRecordMigration $deviceControl `
+    "static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)`n{" `
+    "static void rdx_cmd_handle_bound(ProtocolEvents event, void *data, u32 len)`n{" `
+    'device APP reset busy gate'
+Assert-ReadOnlyRecordMigration $deviceControl `
+    "static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)`n{" `
+    "static void rdx_cmd_handle_device_pair(ProtocolEvents event, void *data, u32 len)`n{" `
+    'device APP unbound busy gate'
+
+$chargePrepare = Get-FunctionSlice $chargeControl `
+    'void rdx_app_charge_prepare' `
+    'int rdx_app_battery_msg_handler' `
+    'charge prepare stop compatibility path'
+Assert-OrderedTokens $chargePrepare `
+    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
+    'charge prepare stop compatibility path'
+
+$softPoweroff = Get-FunctionSlice $deviceControl `
+    'void rdx_device_service_soft_poweroff' `
+    'void rdx_device_service_reboot' `
+    'soft-poweroff stop compatibility path'
+Assert-OrderedTokens $softPoweroff `
+    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
+    'soft-poweroff stop compatibility path'
+
+$deviceService = $deviceControl
 $emmcDisabledPattern = 'void\s+rdx_device_service_emmc_poweroff_check\s*\(void\)\s*\{\s*return\s*;\s*\}'
 if ([regex]::IsMatch($deviceService, $emmcDisabledPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
     Add-Pass 'eMMC auto-poweroff check remains an immediate-return disabled policy'

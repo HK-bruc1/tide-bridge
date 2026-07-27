@@ -78,11 +78,22 @@ function Get-ContainingFunction([object[]]$Ranges, [int]$Index) {
 }
 
 function Read-Baseline([string]$RelativePath) {
-    $lines = @(& git -C $repo show "${BaselineRef}:$RelativePath" 2>$null)
-    if ($LASTEXITCODE -ne 0) {
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = 'git'
+    $startInfo.Arguments = "-C `"$repo`" show `"${BaselineRef}:$RelativePath`""
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $content = $process.StandardOutput.ReadToEnd()
+    $process.StandardError.ReadToEnd() | Out-Null
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
         return ''
     }
-    return $lines -join "`n"
+    return $content.Replace("`r`n", "`n").Replace("`r", "`n")
 }
 
 function Get-ScopedHits([string]$RelativePath, [string]$Text) {

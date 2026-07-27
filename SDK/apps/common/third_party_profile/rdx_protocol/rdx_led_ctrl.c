@@ -34,7 +34,7 @@
 #include "rdx_led_cfg.h"
 #include "system/includes.h"
 #include "rdx_ble_server.h"
-#include "rdx_record.h"
+#include "rdx_record_service.h"
 #include "rdx_app.h"
 #include "rdx_charge.h"
 #include "rdx_uxfile.h"
@@ -144,8 +144,7 @@ static bool _rdx_led_can_show_transfer_effect(void)
         return false;
     }
 
-    RecordStatus* rp = rdx_record_get_status();
-    if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+    if (rdx_record_service_is_running()) {
         return false;
     }
 
@@ -243,9 +242,7 @@ static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
 
 static void _rdx_led_restore_system_state(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
-
-    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+    if (rdx_record_service_is_running()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
         return;
     }

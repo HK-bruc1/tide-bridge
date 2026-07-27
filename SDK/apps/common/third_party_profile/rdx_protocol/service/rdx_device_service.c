@@ -4,6 +4,7 @@
 #include "rdx_log.h"
 #include "rdx_err.h"
 #include "rdx_record.h"
+#include "rdx_record_service.h"
 #include "rdx_vm.h"
 #include "rdx_app.h"
 #include "rdx_uxfile.h"
@@ -254,11 +255,9 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 
 rdx_err_t rdx_device_service_factory_reset(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-
 	if (get_ota_status())
 		return RDX_ERR_BUSY;
-	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
+	if (rdx_record_service_is_running())
 		return RDX_ERR_BUSY;
 	if (rdx_wifi_service_is_file_send_busy())
 		return RDX_ERR_BUSY;
@@ -297,11 +296,9 @@ rdx_err_t rdx_device_service_factory_reset(void)
 
 void rdx_device_service_user_para_reset(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-
 	if (get_ota_status())
 		return;
-	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)
+	if (rdx_record_service_is_running())
 		return;
 	if (rdx_wifi_service_is_file_send_busy())
 		return;
@@ -340,9 +337,8 @@ static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
 	(void)event; (void)data; (void)len;
 	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
 	if (!ops) return;
-	RecordStatus* rp = rdx_record_get_status();
 	if(get_ota_status() ||
-	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   rdx_record_service_is_running() ||
 	   rdx_wifi_service_is_file_send_busy()){
 	    y_printf("[APP CMD] sys_reset rejected: busy\r");
 	    ops->sys_set_default_ack_indicate(1);
@@ -381,9 +377,8 @@ static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)
 	if (!ops) return;
 	if(!data || len < sizeof(ProtocolUnboundParams)) return;
 	ProtocolUnboundParams* p = (ProtocolUnboundParams*)data;
-	RecordStatus* rp = rdx_record_get_status();
 	if(get_ota_status() ||
-	   rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+	   rdx_record_service_is_running() ||
 	   rdx_wifi_service_is_file_send_busy()){
 	    y_printf("[APP CMD] unbound rejected: busy\r");
 	    ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());

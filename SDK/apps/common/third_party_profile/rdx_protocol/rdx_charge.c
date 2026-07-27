@@ -54,6 +54,7 @@
 
 #include "rdx_app_config.h"
 #include "rdx_record.h"
+#include "rdx_record_service.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
@@ -184,13 +185,12 @@ void rdx_app_incharge_batPercent_show_cb(void* priv)
 
 #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
     if(is_in_dut == TRUE){
-        RecordStatus* rp = rdx_record_get_status();
         y_printf("APP_MSG_OLED_BAT_SHOW --> in DUT mode now! \r");
         if(is_in_motor_test == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_MOTOR_TEST);
         }else if(is_in_oled_test == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_OLED_TEST);
-        }else if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+        }else if(rdx_record_service_is_running()){
             // OLED 功能已删除
         }else{
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT);
@@ -520,13 +520,12 @@ void rdx_app_charge_stop(void)
 
     //oled show task free.
     if(rdx_app_get_dut_status() == TRUE){
-        RecordStatus* rp = rdx_record_get_status();
         y_printf("APP_MSG_OLED_BAT_SHOW --> in DUT mode now! \r");
         if(rdx_app_get_dut_motor_flag() == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_MOTOR_TEST);
         }else if(rdx_app_get_dut_oled_flag() == TRUE){
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT_OLED_TEST);
-        }else if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
+        }else if(rdx_record_service_is_running()){
             // OLED 功能已删除
         }else{
             // OLED 功能已删除 // os_taskq_post_msg("oled_show_task", 1, OLED_SHOW_DUT);
