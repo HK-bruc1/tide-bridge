@@ -524,13 +524,305 @@ Assert-OrderedTokens $stopPostDomain `
       'return RDX_ERR_IO') `
     'record-domain posted stop transition/failure retention'
 
+Write-Host ""
+Write-Host '=== P11.3b poweroff/idle/APP-message stop migration ==='
+Assert-StopNowMigration $deviceControl `
+    'void rdx_device_service_soft_poweroff' `
+    'void rdx_device_service_reboot' `
+    'RDX_RECORD_STOP_POWEROFF' `
+    'soft-poweroff record stop'
 $softPoweroff = Get-FunctionSlice $deviceControl `
     'void rdx_device_service_soft_poweroff' `
     'void rdx_device_service_reboot' `
-    'soft-poweroff stop compatibility path'
+    'soft-poweroff stop order'
 Assert-OrderedTokens $softPoweroff `
-    @('rdx_record_get_status()', 'rp->run = RECORD_STATE_STOP', 'rdx_record_process()') `
-    'soft-poweroff stop compatibility path'
+    @('rdx_record_service_stop_now(RDX_RECORD_STOP_POWEROFF)',
+      'rdx_wifi_power_off()',
+      'rdx_ble_server_app_disconnect()',
+      'rdx_ble_server_exit()',
+      'rdx_os_timer_add(rdx_device_service_poweroff_cb, NULL, 500)') `
+    'soft-poweroff record, WiFi, BLE and delayed poweroff order'
+
+Assert-StopNowMigration $appControl `
+    "void rdx_app_enter_idle(void)`n{" `
+    "void rdx_app_auto_shutdown(void)`n{" `
+    'RDX_RECORD_STOP_IDLE' `
+    'idle record stop'
+$enterIdle = Get-FunctionSlice $appControl `
+    "void rdx_app_enter_idle(void)`n{" `
+    "void rdx_app_auto_shutdown(void)`n{" `
+    'idle stop order'
+Assert-OrderedTokens $enterIdle `
+    @('if(app_is_idle == TRUE)',
+      'app_is_idle = TRUE',
+      'rdx_record_service_stop_now(RDX_RECORD_STOP_IDLE)',
+      'rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP)',
+      'rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF)',
+      'rdx_app_idle_handle(0)') `
+    'idle guard, record, file, WiFi and peripheral cleanup order'
+
+$appMessageHandler = Get-FunctionSlice $appControl `
+    'int rdx_app_msg_handler' `
+    'int rdx_app_key_msg_handler' `
+    'APP message handler'
+$recordOffStart = $appMessageHandler.IndexOf('case APP_MSG_RECORD_OFF:', [System.StringComparison]::Ordinal)
+$recordOffEnd = $appMessageHandler.IndexOf('case APP_MSG_RECORD_CHAT_MODE:', $recordOffStart, [System.StringComparison]::Ordinal)
+if ($recordOffStart -lt 0 -or $recordOffEnd -lt 0) {
+    Add-Failure 'APP_MSG_RECORD_OFF case cannot be isolated'
+} else {
+    $recordOff = $appMessageHandler.Substring($recordOffStart, $recordOffEnd - $recordOffStart)
+    if ([regex]::IsMatch($recordOff, '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b')) {
+        Add-Failure 'APP_MSG_RECORD_OFF still accesses the legacy record boundary'
+    } elseif ((Count-Pattern $recordOff '\brdx_record_service_stop_post\s*\(') -ne 1 -or
+              (Count-Pattern $recordOff '\bRDX_RECORD_STOP_APP_REQUEST\b') -ne 1 -or
+              (Count-Pattern $recordOff '\brdx_record_service_stop_now\s*\(') -ne 0) {
+        Add-Failure 'APP_MSG_RECORD_OFF does not use the exact posted stop reason contract'
+    } else {
+        Add-Pass 'APP_MSG_RECORD_OFF uses the exact posted stop reason contract'
+    }
+    Assert-OrderedTokens $recordOff `
+        @('APP_MSG_RECORD_OFF, con_hdl',
+          'rdx_record_service_stop_post(RDX_RECORD_STOP_APP_REQUEST)',
+          'record taskq post err',
+          'ret = TRUE') `
+        'APP_MSG_RECORD_OFF log, post failure log and handled-result order'
+}
+
+Write-Host ""
+Write-Host '=== P11.3c key/switch/BLE/recovery command migration ==='
+$recordServiceHeader = Read-Working "$rdxRel/service/rdx_record_service.h"
+$cleanCommandSignatures = @(
+    'rdx_err_t\s+rdx_record_service_device_toggle\s*\(rdx_record_scene_t\s+scene\s*\)',
+    'rdx_err_t\s+rdx_record_service_switch_scene\s*\(rdx_record_scene_t\s+original_scene\s*\)',
+    'rdx_err_t\s+rdx_record_service_set_path\s*\(rdx_record_path_t\s+path\s*\)',
+    'rdx_err_t\s+rdx_record_service_mark_key_triggered\s*\(void\s*\)',
+    'rdx_err_t\s+rdx_record_service_complete_switch\s*\(bool\s*\*\s*restart\s*,\s*rdx_record_scene_t\s*\*\s*scene\s*\)'
+)
+foreach ($signature in $cleanCommandSignatures) {
+    if ((Count-Pattern $recordServiceHeader $signature) -ne 1) {
+        Add-Failure "P11.3c clean command signature missing or duplicated: $signature"
+    }
+}
+if (-not ($script:Errors | Where-Object { $_ -like 'P11.3c clean command signature*' })) {
+    Add-Pass 'P11.3c clean command signatures are exact and unique'
+}
+$recordCommand = Read-Working "$rdxRel/service/rdx_record_command.c"
+$keyCommandFacade = Get-FunctionSlice $recordCommand `
+    'rdx_err_t rdx_record_service_mark_key_triggered' `
+    'rdx_err_t rdx_record_service_complete_switch' `
+    'key-trigger command facade'
+Assert-OrderedTokens $keyCommandFacade `
+    @('rdx_record_domain_mark_key_triggered()') `
+    'key-trigger command facade'
+$switchCompletionFacade = Get-FunctionSlice $recordCommand `
+    'rdx_err_t rdx_record_service_complete_switch' `
+    "`n}" `
+    'switch-completion command facade'
+Assert-OrderedTokens $switchCompletionFacade `
+    @('rdx_record_domain_complete_switch(restart, scene)') `
+    'switch-completion command facade'
+
+$keyDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_mark_key_triggered' `
+    'rdx_err_t rdx_record_domain_complete_switch' `
+    'key-trigger domain command'
+Assert-OrderedTokens $keyDomain `
+    @('rdx_record_get_status()',
+      'if (rp->run != RECORD_STATE_STOP)',
+      'return RDX_ERR_BUSY',
+      'rp->key_trigger = true') `
+    'key-trigger exact-idle transition'
+$switchCompletionDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_complete_switch' `
+    'rdx_err_t rdx_record_domain_handle_ble_disconnected' `
+    'switch-completion domain command'
+Assert-OrderedTokens $switchCompletionDomain `
+    @('*restart = false',
+      '*scene = RDX_RECORD_SCENE_CALL',
+      'rp->is_switch = false',
+      'if (rp->run == RECORD_STATE_STOP)',
+      '*restart = true',
+      'if (rp->scene == RECORD_SCENE_CHAT)',
+      '*scene = RDX_RECORD_SCENE_CHAT') `
+    'switch-completion clear, exact-idle and CALL-fallback order'
+
+$switchTimer = Get-FunctionSlice $appControl `
+    "void rdx_app_switch_keep_timer_cb(void *priv)`n{" `
+    "void rdx_app_switch_keep_timer_restart(void)`n{" `
+    'app switch timer callback'
+if ([regex]::IsMatch($switchTimer, '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b')) {
+    Add-Failure 'app switch timer callback still accesses the legacy record boundary'
+} elseif ((Count-Pattern $switchTimer '\brdx_record_service_complete_switch\s*\(') -ne 1) {
+    Add-Failure 'app switch timer callback does not complete exactly one semantic switch'
+} else {
+    Add-Pass 'app switch timer callback uses one semantic switch completion'
+}
+Assert-OrderedTokens $switchTimer `
+    @('rdx_app_switch_keep_timer_stop()',
+      'rdx_record_service_complete_switch(&restart, &scene)',
+      'if(scene == RDX_RECORD_SCENE_CHAT)',
+      'app_send_message(APP_MSG_RECORD_CHAT_MODE, 0)',
+      'app_send_message(APP_MSG_RECORD_CALL_MODE, 0)') `
+    'switch timer stop, owner completion and restart-message order'
+
+$recordSwitchStart = $appMessageHandler.IndexOf('case APP_MSG_RECORD_SWITCH:', [System.StringComparison]::Ordinal)
+$recordSwitchEnd = $appMessageHandler.IndexOf('case APP_MSG_TWS_START_PAIR:', $recordSwitchStart, [System.StringComparison]::Ordinal)
+if ($recordSwitchStart -lt 0 -or $recordSwitchEnd -lt 0) {
+    Add-Failure 'APP_MSG_RECORD_SWITCH case cannot be isolated'
+} else {
+    $recordSwitch = $appMessageHandler.Substring($recordSwitchStart, $recordSwitchEnd - $recordSwitchStart)
+    if ([regex]::IsMatch($recordSwitch, '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b')) {
+        Add-Failure 'APP_MSG_RECORD_SWITCH still accesses the legacy record boundary'
+    } elseif ((Count-Pattern $recordSwitch '\brdx_record_service_mark_key_triggered\s*\(') -ne 1 -or
+              (Count-Pattern $recordSwitch '\brdx_record_service_get_scene\s*\(') -ne 1) {
+        Add-Failure 'APP_MSG_RECORD_SWITCH semantic command/query count drifted'
+    } else {
+        Add-Pass 'APP_MSG_RECORD_SWITCH uses the exact semantic command/query contract'
+    }
+    Assert-OrderedTokens $recordSwitch `
+        @('rdx_app_emmc_poweron(0)',
+          'rdx_record_service_mark_key_triggered()',
+          'rdx_hook_motor_start(200)',
+          'scene = RDX_RECORD_SCENE_CALL',
+          'rdx_record_service_get_scene(&scene)',
+          'app_send_message(APP_MSG_RECORD_CHAT_MODE, 0)',
+          'app_send_message(APP_MSG_RECORD_CALL_MODE, 0)',
+          'key_press_record_ready_flag = 1') `
+        'key-trigger mark/motor or fallback-message decision order'
+}
+
+$chatToggle = Get-FunctionSlice $appMessageHandler `
+    'case APP_MSG_RECORD_CHAT_MODE:' `
+    'case APP_MSG_RECORD_CALL_MODE:' `
+    'APP chat toggle'
+$callToggle = Get-FunctionSlice $appMessageHandler `
+    'case APP_MSG_RECORD_CALL_MODE:' `
+    'case APP_MSG_LONG_PRESS_HOLDUP:' `
+    'APP call toggle'
+if ((Count-Pattern $chatToggle '\brdx_record_service_device_toggle\s*\(') -eq 1 -and
+    $chatToggle.Contains('RDX_RECORD_SCENE_CHAT') -and
+    (Count-Pattern $callToggle '\brdx_record_service_device_toggle\s*\(') -eq 1 -and
+    $callToggle.Contains('RDX_RECORD_SCENE_CALL')) {
+    Add-Pass 'APP chat/call messages use typed device-toggle scenes'
+} else {
+    Add-Failure 'APP chat/call typed device-toggle mapping drifted'
+}
+$dutStartCommand = Get-FunctionSlice $dutControl `
+    "void rdx_dut_rec_start(void)`n{" `
+    "void rdx_dut_rec_stop(void)`n{" `
+    'DUT typed record start'
+Assert-OrderedTokens $dutStartCommand `
+    @('rdx_record_service_get_activity(&activity)',
+      'rdx_record_service_get_scene(&scene)',
+      'if(activity == RDX_RECORD_ACTIVITY_IDLE)',
+      'rdx_record_service_device_toggle(scene)') `
+    'DUT query and typed device-toggle order'
+if ($dutControl.Contains('rdx_app_device_record_handle')) {
+    Add-Failure 'DUT still depends on the legacy app record-toggle wrapper'
+} else {
+    Add-Pass 'DUT no longer depends on the legacy app record-toggle wrapper'
+}
+
+$recordService = Read-Working "$rdxRel/service/rdx_record_service.c"
+$typedDeviceToggle = Get-FunctionSlice $recordService `
+    'rdx_err_t rdx_record_service_device_toggle' `
+    '/* ---- record mode ---- */' `
+    'typed device-toggle facade'
+Assert-OrderedTokens $typedDeviceToggle `
+    @('case RDX_RECORD_SCENE_CHAT:', 'legacy_scene = RECORD_SCENE_CHAT',
+      'case RDX_RECORD_SCENE_CALL:', 'legacy_scene = RECORD_SCENE_CALL',
+      'default:', 'return RDX_ERR_INVAL',
+      'get_ota_status()', 'return RDX_ERR_BUSY',
+      'rdx_record_service_device_record_handle(legacy_scene)') `
+    'typed device-toggle validation, gate and legacy mapping'
+$typedSwitch = Get-FunctionSlice $recordService `
+    'rdx_err_t rdx_record_service_switch_scene' `
+    '/* ---- BLE mode helpers ---- */' `
+    'typed switch facade'
+Assert-OrderedTokens $typedSwitch `
+    @('case RDX_RECORD_SCENE_CHAT:', 'legacy_scene = RECORD_SCENE_CHAT',
+      'case RDX_RECORD_SCENE_CALL:', 'legacy_scene = RECORD_SCENE_CALL',
+      'default:', 'return RDX_ERR_INVAL',
+      'rdx_dut_is_in_mode() || get_ota_status()', 'return RDX_ERR_BUSY',
+      'rdx_record_service_switch(legacy_scene)') `
+    'typed switch validation, gate and legacy mapping'
+
+$pathDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_set_path' `
+    'rdx_err_t rdx_record_domain_mark_key_triggered' `
+    'record-path domain command'
+Assert-OrderedTokens $pathDomain `
+    @('case RDX_RECORD_PATH_ONLINE:',
+      'rp->mode = RECORD_MODE_ONLINE',
+      'if (rp->run == RECORD_STATE_STOP)',
+      'rp->orig_mode = RECORD_MODE_ONLINE',
+      'case RDX_RECORD_PATH_OFFLINE:',
+      'if (rp->orig_mode != RECORD_MODE_OFFLINE)',
+      'rp->mode = RECORD_MODE_OFFLINE',
+      'rp->orig_mode = RECORD_MODE_OFFLINE') `
+    'online/offline legacy path transition order'
+$bleDisconnectDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_handle_ble_disconnected' `
+    "`n}" `
+    'BLE-disconnect domain command'
+Assert-OrderedTokens $bleDisconnectDomain `
+    @('if (switch_to_offline)',
+      'if (rp->orig_mode != RECORD_MODE_OFFLINE)',
+      'rp->mode = RECORD_MODE_OFFLINE',
+      'rp->orig_mode = RECORD_MODE_OFFLINE',
+      'if (rp->orig_mode != RECORD_MODE_OFFLINE',
+      'rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME',
+      'if (rerun)', 'rp->rerun = true',
+      'rp->run = RECORD_STATE_STOP',
+      'rdx_record_process()') `
+    'BLE disconnect offline-or-rerun-stop transition order'
+$bleDisconnectService = Get-FunctionSlice $recordService `
+    'rdx_err_t rdx_record_service_handle_ble_disconnected' `
+    'rdx_err_t rdx_record_service_sync_state_after_ble_write_ready' `
+    'BLE-disconnect service command'
+Assert-OrderedTokens $bleDisconnectService `
+    @('rdx_record_domain_handle_ble_disconnected(',
+      'RDX_RECORD_DISCONNECT_TO_OFFLINE != 0',
+      'RDX_RECORD_DISCONNECT_RERUN != 0') `
+    'BLE-disconnect product-policy forwarding'
+$bleSyncService = Get-FunctionSlice $recordService `
+    'rdx_err_t rdx_record_service_sync_state_after_ble_write_ready' `
+    'void rdx_record_service_start' `
+    'BLE write-ready record sync'
+Assert-OrderedTokens $bleSyncService `
+    @('rdx_record_domain_get_running(&running)',
+      'if (ret != RDX_OK)',
+      'if (running)',
+      'rdx_protocol_record_state_indicate()',
+      'rdx_record_service_mode_active_check(false)') `
+    'BLE write-ready query, indicate and mode-sync order'
+$bleStopService = Get-FunctionSlice $recordService `
+    'rdx_err_t rdx_record_service_stop_from_ble' `
+    "`n}" `
+    'legacy BLE stop wrapper'
+Assert-OrderedTokens $bleStopService `
+    @('rdx_record_domain_stop_running_now(',
+      'RDX_RECORD_STOP_BLE_DISCONNECT',
+      'return ret == RDX_ERR_INVAL ? RDX_OK : ret') `
+    'legacy BLE active-only synchronous stop mapping'
+$runningStopDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_stop_running_now' `
+    'rdx_err_t rdx_record_domain_set_path' `
+    'active-only synchronous stop domain command'
+Assert-OrderedTokens $runningStopDomain `
+    @('rdx_record_domain_stop_reason_valid(reason)',
+      'rdx_record_get_status()',
+      'rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME',
+      'rp->run = RECORD_STATE_STOP',
+      'rdx_record_process()',
+      'return RDX_OK') `
+    'active-only stop single-observation transition/process'
+
+if ([regex]::IsMatch($appControl, '\brdx_record_get_status\s*\(|\brdx_record_process\s*\(')) {
+    Add-Failure 'app module still calls the legacy record owner/process boundary'
+} else {
+    Add-Pass 'app module has zero legacy record owner/process calls'
+}
 
 $deviceService = $deviceControl
 $emmcDisabledPattern = 'void\s+rdx_device_service_emmc_poweroff_check\s*\(void\)\s*\{\s*return\s*;\s*\}'

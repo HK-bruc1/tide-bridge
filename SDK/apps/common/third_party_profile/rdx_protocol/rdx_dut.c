@@ -67,7 +67,6 @@ extern void rdx_app_bt_open(void);
 extern void rdx_app_bt_shutdown(void);
 extern void rdx_app_motor_run_once(void);
 extern void rdx_app_wifi_handle(u8 cmd);
-extern void rdx_app_device_record_handle(u8 scene);
 extern void rdx_app_emmc_poweron(u8 check_en);
 extern void rdx_app_emmc_poweroff_check_timer_stop(void);
 extern void rdx_app_emmc_poweroff_check(void);
@@ -425,8 +424,7 @@ void rdx_dut_rec_start(void)
     (void)rdx_record_service_get_scene(&scene);
     DUT_LOG("Record activity = %d, scene = %d\r", activity, scene);
     if(activity == RDX_RECORD_ACTIVITY_IDLE){
-        u8 legacy_scene = (scene == RDX_RECORD_SCENE_CALL) ? RECORD_SCENE_CALL : RECORD_SCENE_CHAT;
-        rdx_app_device_record_handle(legacy_scene);
+        (void)rdx_record_service_device_toggle(scene);
     }
 }
 

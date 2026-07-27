@@ -183,5 +183,103 @@
             Count = 1
             Purpose = 'P11 private owner adapter executes the synchronous STOP process'
         }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_running'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads exact legacy running state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_running'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for running query'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_set_path'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies legacy online/offline path fields'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_set_path'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for path command'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_mark_key_triggered'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter marks an idle key-trigger transaction'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_mark_key_triggered'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for key-trigger command'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_complete_switch'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter completes switch state and snapshots restart scene'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_complete_switch'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for switch completion'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_handle_ble_disconnected'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies product-specific BLE disconnect state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_handle_ble_disconnected'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable object for BLE disconnect command'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_handle_ble_disconnected'
+            Symbol = 'rdx_record_process'
+            Count = 1
+            Purpose = 'P11 private owner adapter synchronously processes online BLE disconnect stop'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_stop_running_now'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies active-only BLE compatibility stop'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_stop_running_now'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains one stable object for active-only stop'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_stop_running_now'
+            Symbol = 'rdx_record_process'
+            Count = 1
+            Purpose = 'P11 private owner adapter synchronously processes active-only stop'
+        }
     )
 }

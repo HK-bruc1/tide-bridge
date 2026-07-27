@@ -224,7 +224,6 @@ extern void rdx_protocol_task_free(void);
 extern void rdx_uxfile_task_free(void);
 extern void sys_enter_soft_poweroff(enum poweroff_reason reason);
 extern void xxp_uart_set_wifi_default_flag(bool flag);
-extern RecordStatus* rdx_record_get_status(void);
 extern int rdx_protocol_task_create(RdxProtocolCallbacks *cb);
 extern int rdx_record_task_create(void);
 extern void motor_init(void);
@@ -232,7 +231,6 @@ extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);
 extern void rdx_ble_server_adv_data_changed(void);
 extern u16 rdx_ble_server_get_conn_handle(void);
-extern void rdx_record_process(void);
 extern void rdx_record_motor_state_clear(void);
 extern void dual_conn_close();
 extern u8 get_ota_status();
@@ -1073,17 +1071,16 @@ void rdx_app_switch_keep_timer_stop()
  **************************************************************************/
 void rdx_app_switch_keep_timer_cb(void *priv)
 {
-    RecordStatus* rp = rdx_record_get_status();
+    bool restart = false;
+    rdx_record_scene_t scene = RDX_RECORD_SCENE_CALL;
+
     y_printf("\n------ rdx_app_switch_keep_timer_cb \r");
     rdx_app_switch_keep_timer_stop();
 
     //check the last mode.
-
-    rp->is_switch = false;
-
-    if(rp->run == RECORD_STATE_STOP){
+    if (rdx_record_service_complete_switch(&restart, &scene) == RDX_OK && restart) {
         //switch to next mode.
-        if(rp->scene == RECORD_SCENE_CHAT){
+        if(scene == RDX_RECORD_SCENE_CHAT){
             app_send_message(APP_MSG_RECORD_CHAT_MODE, 0);
         }else{
             app_send_message(APP_MSG_RECORD_CALL_MODE, 0);
@@ -1442,14 +1439,7 @@ int rdx_app_msg_handler(int *msg)
         case APP_MSG_RECORD_OFF:
             {
                 printf("====== %s ------> APP_MSG_RECORD_OFF, con_hdl = %04X \n", __FUNCTION__, con_hdl);
-                RecordStatus* rp = rdx_record_get_status();
-                if(rp->run == RECORD_STATE_STOP){
-                    ret = TRUE;
-                    break;
-                }
-                rp->run = RECORD_STATE_STOP;
-                //send job.
-                if (rdx_os_task_post_callback0("app_core", rdx_record_process) != RDX_OK) {
+                if (rdx_record_service_stop_post(RDX_RECORD_STOP_APP_REQUEST) != RDX_OK) {
                     r_printf("%s record taskq post err \n", __func__);
                 }
             }
@@ -1463,7 +1453,7 @@ int rdx_app_msg_handler(int *msg)
                     break; 
                 }
                 //do chat record job.
-                rdx_app_device_record_handle(RECORD_SCENE_CHAT);
+                (void)rdx_record_service_device_toggle(RDX_RECORD_SCENE_CHAT);
             }
             ret = TRUE;
             break;
@@ -1475,7 +1465,7 @@ int rdx_app_msg_handler(int *msg)
                     break; 
                 }
                 //do call record job.
-                rdx_app_device_record_handle(RECORD_SCENE_CALL);
+                (void)rdx_record_service_device_toggle(RDX_RECORD_SCENE_CALL);
             }
             ret = TRUE;
             break; 
@@ -1523,14 +1513,13 @@ int rdx_app_msg_handler(int *msg)
             rdx_app_emmc_poweron(0);
 
             //record switch.
-            RecordStatus* rp = rdx_record_get_status();
-            if(rp->run == RECORD_STATE_STOP){
-                rp->key_trigger = true;
+            if(rdx_record_service_mark_key_triggered() == RDX_OK){
                 //when offline, let user knonw that they can release the key to start recording.
-            rdx_hook_motor_start(200);
+                rdx_hook_motor_start(200);
             }else{
-                RecordStatus* rp = rdx_record_get_status();
-                if(rp->scene == RECORD_SCENE_CHAT){
+                rdx_record_scene_t scene = RDX_RECORD_SCENE_CALL;
+                (void)rdx_record_service_get_scene(&scene);
+                if(scene == RDX_RECORD_SCENE_CHAT){
                     app_send_message(APP_MSG_RECORD_CHAT_MODE, 0);
                 }else{
                     app_send_message(APP_MSG_RECORD_CALL_MODE, 0);
@@ -2142,7 +2131,6 @@ static void rdx_app_idle_handle(void* priv)
  **************************************************************************/
 void rdx_app_enter_idle(void)
 {
-    RecordStatus* rp = rdx_record_get_status();
     RdxWifiInfo* pw = rdx_app_get_wifi_info();
     if(app_is_idle == TRUE){
         y_printf("rdx_app_enter_idle: app is idle now! \r");
@@ -2151,10 +2139,7 @@ void rdx_app_enter_idle(void)
     app_is_idle = TRUE;
 
         //close record.
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
+    (void)rdx_record_service_stop_now(RDX_RECORD_STOP_IDLE);
 
     rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
 

@@ -74,12 +74,7 @@ void rdx_device_service_poweroff_cb(void *priv)
 
 void rdx_device_service_soft_poweroff(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-
-	if (rp->run != RECORD_STATE_STOP) {
-		rp->run = RECORD_STATE_STOP;
-		rdx_record_process();
-	}
+	(void)rdx_record_service_stop_now(RDX_RECORD_STOP_POWEROFF);
 
 	{
 		rdx_wifi_power_off();

@@ -12,6 +12,7 @@
 #include "rdx_jl_osal.h"
 #include "rdx_uxfile.h"
 #include "rdx_time_service.h"
+#include "../internal/rdx_record_domain.h"
 
 /* BLE event business logic — Stage 4 cutover from rdx_ble_service.c */
 extern void rdx_record_stream_interrupt(void);
@@ -355,6 +356,28 @@ void rdx_record_service_device_record_handle(u8 scene)
 	}
 }
 
+rdx_err_t rdx_record_service_device_toggle(rdx_record_scene_t scene)
+{
+	u8 legacy_scene;
+	u16 con_hdl = rdx_ble_server_get_conn_handle();
+
+	switch (scene) {
+	case RDX_RECORD_SCENE_CHAT:
+		legacy_scene = RECORD_SCENE_CHAT;
+		break;
+	case RDX_RECORD_SCENE_CALL:
+		legacy_scene = RECORD_SCENE_CALL;
+		break;
+	default:
+		return RDX_ERR_INVAL;
+	}
+	if (0xffff != con_hdl && 0 != con_hdl && get_ota_status()) {
+		return RDX_ERR_BUSY;
+	}
+	rdx_record_service_device_record_handle(legacy_scene);
+	return RDX_OK;
+}
+
 /* ---- record mode ---- */
 
 u8 rdx_record_service_get_mode(void)
@@ -442,59 +465,56 @@ void rdx_record_service_switch(u8 orig_scene)
 	}
 }
 
+rdx_err_t rdx_record_service_switch_scene(rdx_record_scene_t original_scene)
+{
+	u8 legacy_scene;
+
+	switch (original_scene) {
+	case RDX_RECORD_SCENE_CHAT:
+		legacy_scene = RECORD_SCENE_CHAT;
+		break;
+	case RDX_RECORD_SCENE_CALL:
+		legacy_scene = RECORD_SCENE_CALL;
+		break;
+	default:
+		return RDX_ERR_INVAL;
+	}
+	if (rdx_dut_is_in_mode() || get_ota_status()) {
+		return RDX_ERR_BUSY;
+	}
+	rdx_record_service_switch(legacy_scene);
+	return RDX_OK;
+}
+
 /* ---- BLE mode helpers ---- */
 
 void rdx_record_service_set_mode_online(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-	rp->mode = RECORD_MODE_ONLINE;
-	if (rp->run == RECORD_STATE_STOP) {
-		rp->orig_mode = RECORD_MODE_ONLINE;
-	}
+	(void)rdx_record_service_set_path(RDX_RECORD_PATH_ONLINE);
 }
 
 void rdx_record_service_set_mode_offline(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-	if (rp->orig_mode != RECORD_MODE_OFFLINE) {
-		rp->mode      = RECORD_MODE_OFFLINE;
-		rp->orig_mode = RECORD_MODE_OFFLINE;
-	}
+	(void)rdx_record_service_set_path(RDX_RECORD_PATH_OFFLINE);
 }
 
 rdx_err_t rdx_record_service_handle_ble_disconnected(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-
-	if (!rp) {
-		return RDX_ERR_INVAL;
-	}
-
-#if RDX_RECORD_DISCONNECT_TO_OFFLINE
-	rdx_record_service_set_mode_offline();
-#else
-	if (rp->orig_mode != RECORD_MODE_OFFLINE) {
-		if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
-#if RDX_RECORD_DISCONNECT_RERUN
-			rp->rerun = true;
-#endif
-			return rdx_record_service_stop_from_ble();
-		}
-	}
-#endif
-
-	return RDX_OK;
+	return rdx_record_domain_handle_ble_disconnected(
+		RDX_RECORD_DISCONNECT_TO_OFFLINE != 0,
+		RDX_RECORD_DISCONNECT_RERUN != 0);
 }
 
 rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
+	bool running;
+	rdx_err_t ret = rdx_record_domain_get_running(&running);
 
-	if (!rp) {
-		return RDX_ERR_INVAL;
+	if (ret != RDX_OK) {
+		return ret;
 	}
 
-	if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+	if (running) {
 		y_printf("====== %s --> sync record state to app \r", __func__);
 		rdx_protocol_record_state_indicate();
 	} else {
@@ -521,10 +541,8 @@ u8 rdx_record_service_get_state(void)
 
 rdx_err_t rdx_record_service_stop_from_ble(void)
 {
-	RecordStatus *rp = rdx_record_get_status();
-	if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
-		rp->run = RECORD_STATE_STOP;
-		rdx_record_process();
-	}
-	return RDX_OK;
+	rdx_err_t ret = rdx_record_domain_stop_running_now(
+		RDX_RECORD_STOP_BLE_DISCONNECT);
+
+	return ret == RDX_ERR_INVAL ? RDX_OK : ret;
 }

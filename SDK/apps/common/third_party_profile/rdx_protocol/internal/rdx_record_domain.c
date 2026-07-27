@@ -73,6 +73,17 @@ rdx_err_t rdx_record_domain_get_path(rdx_record_path_t *out)
     }
 }
 
+rdx_err_t rdx_record_domain_get_running(bool *out)
+{
+    RecordStatus *rp;
+
+    if (!out || !(rp = rdx_record_get_status())) {
+        return RDX_ERR_INVAL;
+    }
+    *out = rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME;
+    return RDX_OK;
+}
+
 bool rdx_record_domain_is_offline_active(void)
 {
     RecordStatus *rp = rdx_record_get_status();
@@ -140,6 +151,106 @@ rdx_err_t rdx_record_domain_stop_post(rdx_record_stop_reason_t reason)
     }
     if (rdx_os_task_post_callback0("app_core", rdx_record_process) != RDX_OK) {
         return RDX_ERR_IO;
+    }
+    return RDX_OK;
+}
+
+rdx_err_t rdx_record_domain_stop_running_now(rdx_record_stop_reason_t reason)
+{
+    RecordStatus *rp;
+
+    if (!rdx_record_domain_stop_reason_valid(reason) ||
+        !(rp = rdx_record_get_status())) {
+        return RDX_ERR_INVAL;
+    }
+    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+        rp->run = RECORD_STATE_STOP;
+        rdx_record_process();
+    }
+    return RDX_OK;
+}
+
+rdx_err_t rdx_record_domain_set_path(rdx_record_path_t path)
+{
+    RecordStatus *rp = rdx_record_get_status();
+
+    if (!rp) {
+        return RDX_ERR_INVAL;
+    }
+    switch (path) {
+    case RDX_RECORD_PATH_ONLINE:
+        rp->mode = RECORD_MODE_ONLINE;
+        if (rp->run == RECORD_STATE_STOP) {
+            rp->orig_mode = RECORD_MODE_ONLINE;
+        }
+        return RDX_OK;
+    case RDX_RECORD_PATH_OFFLINE:
+        if (rp->orig_mode != RECORD_MODE_OFFLINE) {
+            rp->mode = RECORD_MODE_OFFLINE;
+            rp->orig_mode = RECORD_MODE_OFFLINE;
+        }
+        return RDX_OK;
+    default:
+        return RDX_ERR_INVAL;
+    }
+}
+
+rdx_err_t rdx_record_domain_mark_key_triggered(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+
+    if (!rp) {
+        return RDX_ERR_INVAL;
+    }
+    if (rp->run != RECORD_STATE_STOP) {
+        return RDX_ERR_BUSY;
+    }
+    rp->key_trigger = true;
+    return RDX_OK;
+}
+
+rdx_err_t rdx_record_domain_complete_switch(bool *restart,
+                                            rdx_record_scene_t *scene)
+{
+    RecordStatus *rp;
+
+    if (!restart || !scene || !(rp = rdx_record_get_status())) {
+        return RDX_ERR_INVAL;
+    }
+    *restart = false;
+    *scene = RDX_RECORD_SCENE_CALL;
+    rp->is_switch = false;
+    if (rp->run == RECORD_STATE_STOP) {
+        *restart = true;
+        if (rp->scene == RECORD_SCENE_CHAT) {
+            *scene = RDX_RECORD_SCENE_CHAT;
+        }
+    }
+    return RDX_OK;
+}
+
+rdx_err_t rdx_record_domain_handle_ble_disconnected(bool switch_to_offline,
+                                                    bool rerun)
+{
+    RecordStatus *rp = rdx_record_get_status();
+
+    if (!rp) {
+        return RDX_ERR_INVAL;
+    }
+    if (switch_to_offline) {
+        if (rp->orig_mode != RECORD_MODE_OFFLINE) {
+            rp->mode = RECORD_MODE_OFFLINE;
+            rp->orig_mode = RECORD_MODE_OFFLINE;
+        }
+        return RDX_OK;
+    }
+    if (rp->orig_mode != RECORD_MODE_OFFLINE &&
+        (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+        if (rerun) {
+            rp->rerun = true;
+        }
+        rp->run = RECORD_STATE_STOP;
+        rdx_record_process();
     }
     return RDX_OK;
 }

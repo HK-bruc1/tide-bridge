@@ -12,6 +12,8 @@ void rdx_record_service_exit(void);
 /* recording orchestration (moved from rdx_app.c) */
 void rdx_record_service_device_record_handle(u8 scene);
 void rdx_record_service_switch(u8 orig_scene);
+rdx_err_t rdx_record_service_device_toggle(rdx_record_scene_t scene);
+rdx_err_t rdx_record_service_switch_scene(rdx_record_scene_t original_scene);
 void rdx_record_service_upload_timer_cb(void *priv);
 void rdx_record_service_upload_timer_stop(void);
 void rdx_record_service_upload_timer_start(void);
@@ -36,6 +38,10 @@ rdx_err_t rdx_record_service_sync_state_after_ble_write_ready(void);
 /* caller-selected execution context; commands never infer the current task */
 rdx_err_t rdx_record_service_stop_now(rdx_record_stop_reason_t reason);
 rdx_err_t rdx_record_service_stop_post(rdx_record_stop_reason_t reason);
+rdx_err_t rdx_record_service_set_path(rdx_record_path_t path);
+rdx_err_t rdx_record_service_mark_key_triggered(void);
+rdx_err_t rdx_record_service_complete_switch(bool *restart,
+                                             rdx_record_scene_t *scene);
 
 /* shell stubs — filled during extraction */
 void rdx_record_service_start(u8 mode);
@@ -43,7 +49,7 @@ void rdx_record_service_stop(void);
 u8   rdx_record_service_get_state(void);
 u8   rdx_record_service_is_active(void);
 
-/* BLE cutover API — Stage 5 */
+/* legacy BLE compatibility entry: active-only synchronous stop */
 rdx_err_t rdx_record_service_stop_from_ble(void);
 
 #endif
