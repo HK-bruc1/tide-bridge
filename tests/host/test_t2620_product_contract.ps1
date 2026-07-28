@@ -40,7 +40,6 @@ foreach ($externallyOwnedMacro in @(
     'TCFG_USB_SLAVE_MIDI_ENABLE',
     'TCFG_USB_SLAVE_PRINTER_ENABLE',
     'TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE',
-    'TCFG_DEC_OGG_OPUS_ENABLE',
     'RDX_HOGP_KEY_ACTION_TEST_ENABLE'
 )) {
     $configOwnershipOk = $configOwnershipOk -and
@@ -48,6 +47,13 @@ foreach ($externallyOwnedMacro in @(
 }
 Assert-Contract 'PROJECT_CONFIG_DOES_NOT_REPEAT_EXISTING_DEFAULTS' $configOwnershipOk `
     'tool-owned and subsystem-default settings must not be repeated in the T2620 project config'
+
+$localPlaybackDependenciesOk = $Config -match '(?m)^\s*#define\s+TCFG_RDX_LOCAL_PLAYBACK_ENABLE\s+[01]\s*$' -and
+                               $Config -match '(?m)^\s*#define\s+TCFG_DEC_STENC_OPUS_ENABLE\s+TCFG_RDX_LOCAL_PLAYBACK_ENABLE\s*$' -and
+                               $Config -match '(?m)^\s*#define\s+TCFG_DEC_OGG_OPUS_ENABLE\s+TCFG_RDX_LOCAL_PLAYBACK_ENABLE\s*$' -and
+                               $Config -match '(?s)#if\s+TCFG_RDX_LOCAL_PLAYBACK_ENABLE\s*&&\s*\\\s*\(!TCFG_DEC_STENC_OPUS_ENABLE\s*\|\|\s*!TCFG_DEC_OGG_OPUS_ENABLE\).*?#error\s+"RDX local playback requires stereo and raw/CBR Opus decoding"'
+Assert-Contract 'RDX_LOCAL_PLAYBACK_DEPENDENCIES' $localPlaybackDependenciesOk `
+    'the local playback switch must own both stereo and raw/CBR Opus decoder dependencies'
 
 $usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s+1\s*$' -and
                 $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#if\s+!TCFG_SD0_ENABLE.*?#if\s+!TCFG_USB_SLAVE_MSD_ENABLE.*?#define\s+TCFG_APP_PC_EN\s+1' -and

@@ -77,19 +77,36 @@
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */
 
-/* 量产固件关闭本地播放，以避免 CODE0 空间超限。 */
-#ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            0
-#endif
-
-/* 录音使用杰理双声道 Opus 包：16 kHz、双声道、20 ms、80 字节。 */
+/*
+ * 历史编码插件保留项。RDX 录音当前由 effect_dev2 直接调用
+ * get_opus_stenc_ops()，不依赖 opus_stenc_plug；换芯片完成录音回归前
+ * 暂不删除该定义，确认录音链路无回归后再移除。
+ */
 #ifndef TCFG_STENC_OPUS_ENABLE
 #define TCFG_STENC_OPUS_ENABLE                    1
 #endif
 
-/* 仅在启用本地播放时加入对应的双声道 Opus 解码器。 */
+/* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */
+#ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            0
+#endif
+
+/* 本地播放需要杰理双声道 Opus 解码器。 */
 #ifndef TCFG_DEC_STENC_OPUS_ENABLE
 #define TCFG_DEC_STENC_OPUS_ENABLE                TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#endif
+
+/*
+ * 录音文件是无头、固定 80 字节的 CBR Opus 帧。杰理解码库使用该开关启用
+ * raw/CBR 输入配置；虽然宏名包含 OGG，本地播放仍必须与总开关联动。
+ */
+#ifndef TCFG_DEC_OGG_OPUS_ENABLE
+#define TCFG_DEC_OGG_OPUS_ENABLE                  TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+#endif
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE && \
+    (!TCFG_DEC_STENC_OPUS_ENABLE || !TCFG_DEC_OGG_OPUS_ENABLE)
+#error "RDX local playback requires stereo and raw/CBR Opus decoding"
 #endif
 
 #endif /* T2620_PROJECT_CONFIG_H */
