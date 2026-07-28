@@ -75,6 +75,7 @@
 #include "xxpUart.h"
 #include "rdx_key.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_codex_micro.h"
 #include "rdx_charge.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
@@ -756,6 +757,16 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         //   HID not ready -> dispatch through the legacy offline key table.
         // Ready-but-unsupported actions must never leak into offline product behavior.
 #if TCFG_RDX_HOGP_ENABLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+        if (num_idx == 0 && rdx_hogp_codex_route_is_active()) {
+            if (index == KEY_ACTION_CLICK &&
+                rdx_codex_micro_agent_key_click()) {
+                y_printf("[CODEX_MICRO] AG00 click failed\n");
+            }
+            *value = APP_MSG_NULL;
+            return;
+        }
+#endif
         if (rdx_hogp_keyboard_is_ready()) {
             if (index == KEY_ACTION_CLICK) {
                 int action_ret = rdx_hogp_key_action_click((u8)num_idx);

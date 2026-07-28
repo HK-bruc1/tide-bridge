@@ -103,14 +103,33 @@ extern "C" {
 #define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0024
 #define HID_OUTPUT_REPORT_REFERENCE_HANDLE                              0x0025
 
+/* Codex Micro Report ID 6 attributes. These are present only in V1/C1. */
+#define HID_CODEX_INPUT_REPORT_CHARACTERISTIC_HANDLE                    0x0026
+#define HID_CODEX_INPUT_REPORT_VALUE_HANDLE                             0x0027
+#define HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE              0x0028
+#define HID_CODEX_INPUT_REPORT_REFERENCE_HANDLE                         0x0029
+#define HID_CODEX_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                   0x002a
+#define HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE                            0x002b
+#define HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE                        0x002c
+
 /* Handle-range helpers */
 #define HID_SERVICE_START_HANDLE                                        HID_SERVICE_HANDLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+#define HID_SERVICE_END_HANDLE                                          HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE
+#else
 #define HID_SERVICE_END_HANDLE                                          HID_OUTPUT_REPORT_REFERENCE_HANDLE
+#endif
 
 /******************************************************************************
 * Report Map (Standard 70-byte boot keyboard report descriptor)
 ******************************************************************************/
+#if TCFG_RDX_CODEX_MICRO_MODE == RDX_CODEX_MICRO_MODE_VENDOR_ONLY
+#define RDX_HOGP_REPORT_MAP_LEN  (29)
+#elif TCFG_RDX_CODEX_MICRO_MODE == RDX_CODEX_MICRO_MODE_COMPOSITE
+#define RDX_HOGP_REPORT_MAP_LEN  (99)
+#else
 #define RDX_HOGP_REPORT_MAP_LEN  (70)
+#endif
 
 extern const u8 rdx_hogp_report_map[];
 
@@ -128,6 +147,11 @@ extern const u8 rdx_hogp_hid_information[];
 #define RDX_HOGP_INPUT_REPORT_TYPE        0x01   /* Input */
 #define RDX_HOGP_OUTPUT_REPORT_ID         0x01
 #define RDX_HOGP_OUTPUT_REPORT_TYPE       0x02   /* Output */
+#define RDX_CODEX_MICRO_REPORT_ID          0x06
+#define RDX_CODEX_MICRO_INPUT_REPORT_TYPE  0x01
+#define RDX_CODEX_MICRO_OUTPUT_REPORT_TYPE 0x02
+#define RDX_CODEX_MICRO_REPORT_BODY_LEN    63
+#define RDX_CODEX_MICRO_REPORT_DATA_LEN    61
 
 /******************************************************************************
 * ATT table byte helpers

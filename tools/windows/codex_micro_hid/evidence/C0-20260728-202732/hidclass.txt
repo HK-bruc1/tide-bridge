@@ -1,0 +1,692 @@
+﻿
+
+Class                       : HIDClass
+FriendlyName                : Intel(R) HID Event Filter
+InstanceId                  : ACPI\INTC1070\2&DABA3FF&0
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : Intel(R) HID Event Filter
+Description                 : Intel(R) HID Event Filter
+InstallDate                 : 
+Name                        : Intel(R) HID Event Filter
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : ACPI\INTC1070\2&DABA3FF&0
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : ACPI\INTC1070\2&DABA3FF&0
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {ACPI\VEN_INTC&DEV_1070, ACPI\INTC1070, *INTC1070}
+Manufacturer                : Intel(R) Corporation
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : HidEventFilter
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的供应商定义设备
+InstanceId                  : HID\VID_046D&PID_C52B&MI_01&COL04\8&25C2E7&0&0003
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的供应商定义设备
+Description                 : 符合 HID 标准的供应商定义设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的供应商定义设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_01&COL04\8&25C2E7&0&0003
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_01&COL04\8&25C2E7&0&0003
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_01&Col04, HID\VID_046D&PID_C52B&MI_01&Col04, HID\VID_046D&UP:FFBC_U:0088, HID_DEVICE_UP:FFBC_U:0088...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : USB 输入设备
+InstanceId                  : USB\VID_046D&PID_C077\5&312B2D7E&0&4
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : USB 输入设备
+Description                 : USB 输入设备
+InstallDate                 : 
+Name                        : USB 输入设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : USB\VID_046D&PID_C077\5&312B2D7E&0&4
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : USB\VID_046D&PID_C077\5&312B2D7E&0&4
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : {USB\COMPAT_VID_046D&Class_03&SubClass_01&Prot_02, USB\COMPAT_VID_046D&Class_03&SubClass_01, USB\COMPAT_VID_046D&Class_03, USB\Class_03&SubClass_01&Prot_02
+                              ...}
+HardwareID                  : {USB\VID_046D&PID_C077&REV_7200, USB\VID_046D&PID_C077}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : HidUsb
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的供应商定义设备
+InstanceId                  : HID\VID_046D&PID_C52B&MI_02&COL01\8&130A5957&0&0000
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的供应商定义设备
+Description                 : 符合 HID 标准的供应商定义设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的供应商定义设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_02&COL01\8&130A5957&0&0000
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_02&COL01\8&130A5957&0&0000
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_02&Col01, HID\VID_046D&PID_C52B&MI_02&Col01, HID\VID_046D&UP:FF00_U:0001, HID_DEVICE_UP:FF00_U:0001...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的用户控制设备
+InstanceId                  : HID\VID_046D&PID_C52B&MI_01&COL02\8&25C2E7&0&0001
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的用户控制设备
+Description                 : 符合 HID 标准的用户控制设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的用户控制设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_01&COL02\8&25C2E7&0&0001
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_01&COL02\8&25C2E7&0&0001
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_01&Col02, HID\VID_046D&PID_C52B&MI_01&Col02, HID\VID_046D&UP:000C_U:0001, HID_DEVICE_SYSTEM_CONSUMER...}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的供应商定义设备
+InstanceId                  : HID\GXTP5100&COL04\5&6C73A7E&0&0003
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的供应商定义设备
+Description                 : 符合 HID 标准的供应商定义设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的供应商定义设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\GXTP5100&COL04\5&6C73A7E&0&0003
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\GXTP5100&COL04\5&6C73A7E&0&0003
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VEN_GXTP&DEV_5100&Col04, HID\GXTP5100&Col04, HID\*GXTP5100&Col04, HID\VID_27C6&UP:FF00_U:0001...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : Microsoft Input Configuration Device
+InstanceId                  : HID\GXTP5100&COL03\5&6C73A7E&0&0002
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : Microsoft Input Configuration Device
+Description                 : Microsoft Input Configuration Device
+InstallDate                 : 
+Name                        : Microsoft Input Configuration Device
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\GXTP5100&COL03\5&6C73A7E&0&0002
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\GXTP5100&COL03\5&6C73A7E&0&0002
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VEN_GXTP&DEV_5100&Col03, HID\GXTP5100&Col03, HID\*GXTP5100&Col03, HID\VID_27C6&UP:000D_U:000E...}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : MTConfig
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的触摸板
+InstanceId                  : HID\GXTP5100&COL02\5&6C73A7E&0&0001
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的触摸板
+Description                 : 符合 HID 标准的触摸板
+InstallDate                 : 
+Name                        : 符合 HID 标准的触摸板
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\GXTP5100&COL02\5&6C73A7E&0&0001
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\GXTP5100&COL02\5&6C73A7E&0&0001
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VEN_GXTP&DEV_5100&Col02, HID\GXTP5100&Col02, HID\*GXTP5100&Col02, HID\VID_27C6&UP:000D_U:0005...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 已转换便携式设备控制装置
+InstanceId                  : BUTTONCONVERTER\CONVERTEDDEVICE\4&1D1D331F&0&0
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 已转换便携式设备控制装置
+Description                 : 已转换便携式设备控制装置
+InstallDate                 : 
+Name                        : 已转换便携式设备控制装置
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : BUTTONCONVERTER\CONVERTEDDEVICE\4&1D1D331F&0&0
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : BUTTONCONVERTER\CONVERTEDDEVICE\4&1D1D331F&0&0
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {ButtonConverter\ConvertedDevice}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : mshidkmdf
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的供应商定义设备
+InstanceId                  : HID\VID_046D&PID_C52B&MI_02&COL02\8&130A5957&0&0001
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的供应商定义设备
+Description                 : 符合 HID 标准的供应商定义设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的供应商定义设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_02&COL02\8&130A5957&0&0001
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_02&COL02\8&130A5957&0&0001
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_02&Col02, HID\VID_046D&PID_C52B&MI_02&Col02, HID\VID_046D&UP:FF00_U:0002, HID_DEVICE_UP:FF00_U:0002...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 便携式设备控制装置
+InstanceId                  : HID\INTC816\3&10839A5C&0&0000
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 便携式设备控制装置
+Description                 : 便携式设备控制装置
+InstallDate                 : 
+Name                        : 便携式设备控制装置
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\INTC816\3&10839A5C&0&0000
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\INTC816\3&10839A5C&0&0000
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\INTC816, HID\VID_8087&UP:0001_U:000D, HID_DEVICE_UP:0001_U:000D, HID_DEVICE}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : buttonconverter
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的用户控制设备
+InstanceId                  : HID\CONVERTEDDEVICE&COL02\5&353EC129&0&0001
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的用户控制设备
+Description                 : 符合 HID 标准的用户控制设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的用户控制设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\CONVERTEDDEVICE&COL02\5&353EC129&0&0001
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\CONVERTEDDEVICE&COL02\5&353EC129&0&0001
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\ConvertedDevice&Col02, HID\VID_045E&UP:000C_U:0001, HID_DEVICE_SYSTEM_CONSUMER, HID_DEVICE_UP:000C_U:0001...}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的系统控制器
+InstanceId                  : HID\VID_046D&PID_C52B&MI_01&COL03\8&25C2E7&0&0002
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的系统控制器
+Description                 : 符合 HID 标准的系统控制器
+InstallDate                 : 
+Name                        : 符合 HID 标准的系统控制器
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_01&COL03\8&25C2E7&0&0002
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_01&COL03\8&25C2E7&0&0002
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_01&Col03, HID\VID_046D&PID_C52B&MI_01&Col03, HID\VID_046D&UP:0001_U:0080, HID_DEVICE_SYSTEM_CONTROL...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : USB 输入设备
+InstanceId                  : USB\VID_046D&PID_C52B&MI_02\7&389F58D&0&0002
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : USB 输入设备
+Description                 : USB 输入设备
+InstallDate                 : 
+Name                        : USB 输入设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : USB\VID_046D&PID_C52B&MI_02\7&389F58D&0&0002
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : USB\VID_046D&PID_C52B&MI_02\7&389F58D&0&0002
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : {USB\COMPAT_VID_046d&Class_03&SubClass_00&Prot_00, USB\COMPAT_VID_046d&Class_03&SubClass_00, USB\COMPAT_VID_046d&Class_03, USB\Class_03&SubClass_00&Prot_00
+                              ...}
+HardwareID                  : {USB\VID_046D&PID_C52B&REV_1211&MI_02, USB\VID_046D&PID_C52B&MI_02}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : HidUsb
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的供应商定义设备
+InstanceId                  : HID\VID_046D&PID_C52B&MI_02&COL03\8&130A5957&0&0002
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的供应商定义设备
+Description                 : 符合 HID 标准的供应商定义设备
+InstallDate                 : 
+Name                        : 符合 HID 标准的供应商定义设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\VID_046D&PID_C52B&MI_02&COL03\8&130A5957&0&0002
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\VID_046D&PID_C52B&MI_02&COL03\8&130A5957&0&0002
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\VID_046D&PID_C52B&REV_1211&MI_02&Col03, HID\VID_046D&PID_C52B&MI_02&Col03, HID\VID_046D&UP:FF00_U:0004, HID_DEVICE_UP:FF00_U:0004...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : USB 输入设备
+InstanceId                  : USB\VID_046D&PID_C52B&MI_01\7&389F58D&0&0001
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : USB 输入设备
+Description                 : USB 输入设备
+InstallDate                 : 
+Name                        : USB 输入设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : USB\VID_046D&PID_C52B&MI_01\7&389F58D&0&0001
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : USB\VID_046D&PID_C52B&MI_01\7&389F58D&0&0001
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : {USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_02, USB\COMPAT_VID_046d&Class_03&SubClass_01, USB\COMPAT_VID_046d&Class_03, USB\Class_03&SubClass_01&Prot_02
+                              ...}
+HardwareID                  : {USB\VID_046D&PID_C52B&REV_1211&MI_01, USB\VID_046D&PID_C52B&MI_01}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : HidUsb
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : Logitech USB Input Device
+InstanceId                  : USB\VID_046D&PID_C52B&MI_00\7&389F58D&0&0000
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : Logitech USB Input Device
+Description                 : Logitech USB Input Device
+InstallDate                 : 
+Name                        : Logitech USB Input Device
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : USB\VID_046D&PID_C52B&MI_00\7&389F58D&0&0000
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : USB\VID_046D&PID_C52B&MI_00\7&389F58D&0&0000
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : {USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_01, USB\COMPAT_VID_046d&Class_03&SubClass_01, USB\COMPAT_VID_046d&Class_03, USB\Class_03&SubClass_01&Prot_01
+                              ...}
+HardwareID                  : {USB\VID_046D&PID_C52B&REV_1211&MI_00, USB\VID_046D&PID_C52B&MI_00}
+Manufacturer                : Logitech (x64)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : HidUsb
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : I2C HID 设备
+InstanceId                  : ACPI\GXTP5100\4&336594BF&0
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : I2C HID 设备
+Description                 : I2C HID 设备
+InstallDate                 : 
+Name                        : I2C HID 设备
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : ACPI\GXTP5100\4&336594BF&0
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : ACPI\GXTP5100\4&336594BF&0
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : {ACPI\PNP0C50, PNP0C50}
+HardwareID                  : {ACPI\VEN_GXTP&DEV_5100, ACPI\GXTP5100, *GXTP5100}
+Manufacturer                : Microsoft
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : hidi2c
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+Class                       : HIDClass
+FriendlyName                : 符合 HID 标准的系统控制器
+InstanceId                  : HID\CONVERTEDDEVICE&COL03\5&353EC129&0&0002
+Problem                     : CM_PROB_NONE
+ConfigManagerErrorCode      : CM_PROB_NONE
+ProblemDescription          : This device is working properly.
+Caption                     : 符合 HID 标准的系统控制器
+Description                 : 符合 HID 标准的系统控制器
+InstallDate                 : 
+Name                        : 符合 HID 标准的系统控制器
+Status                      : OK
+Availability                : 
+ConfigManagerUserConfig     : False
+CreationClassName           : Win32_PnPEntity
+DeviceID                    : HID\CONVERTEDDEVICE&COL03\5&353EC129&0&0002
+ErrorCleared                : 
+ErrorDescription            : 
+LastErrorCode               : 
+PNPDeviceID                 : HID\CONVERTEDDEVICE&COL03\5&353EC129&0&0002
+PowerManagementCapabilities : 
+PowerManagementSupported    : 
+StatusInfo                  : 
+SystemCreationClassName     : Win32_ComputerSystem
+SystemName                  : LAPTOP-3GEH7FDP
+ClassGuid                   : {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+CompatibleID                : 
+HardwareID                  : {HID\ConvertedDevice&Col03, HID\VID_045E&UP:0001_U:0080, HID_DEVICE_SYSTEM_CONTROL, HID_DEVICE_UP:0001_U:0080...}
+Manufacturer                : (标准系统设备)
+PNPClass                    : HIDClass
+Present                     : True
+Service                     : 
+PSComputerName              : 
+CimClass                    : ROOT/cimv2:Win32_PnPEntity
+CimInstanceProperties       : {Caption, Description, InstallDate, Name...}
+CimSystemProperties         : Microsoft.Management.Infrastructure.CimSystemProperties
+
+
+

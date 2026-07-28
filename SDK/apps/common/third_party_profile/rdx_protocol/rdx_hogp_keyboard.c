@@ -31,6 +31,7 @@
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_codex_micro.h"
 #include "rdx_hogp_subscription_store.h"
 #include "ble_user.h"
 #include "btstack/le/sm.h"
@@ -75,6 +76,7 @@
 static void *s_hogp_app_ble_hdl = NULL;
 static volatile u8 s_hogp_connected = 0;
 static volatile u8 s_hid_notify_enabled = 0;
+static volatile u8 s_codex_notify_enabled = 0;
 static volatile u8 s_hogp_encrypted = 0;
 static u16 s_hid_con_handle = 0;
 static rdx_hogp_keyboard_report_t s_hid_input_report = {0};
@@ -133,6 +135,7 @@ static void hogp_runtime_state_reset(void)
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
+    s_codex_notify_enabled = 0;
     s_hogp_encrypted = 0;
     s_hogp_suspended = 0;
     s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
@@ -241,6 +244,9 @@ static int rdx_hogp_subscription_update_flush(void)
 
 static void rdx_hogp_subscription_restore_if_available(void)
 {
+#if TCFG_RDX_CODEX_MICRO_MODE == RDX_CODEX_MICRO_MODE_VENDOR_ONLY
+    return;
+#else
     u8 peer_addr[RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN];
 
     if (!s_hogp_connected || !s_hogp_encrypted || s_hid_notify_enabled ||
@@ -256,6 +262,7 @@ static void rdx_hogp_subscription_restore_if_available(void)
     s_hid_notify_enabled = 1;
     RDX_HOGP_LOG("subscription restored hdl=0x%04x", s_hid_con_handle);
     rdx_hogp_dump_state();
+#endif
 }
 
 u8 rdx_hogp_peer_has_persisted_subscription(u16 con_handle)
@@ -344,6 +351,13 @@ u16 rdx_hogp_att_read(hci_con_handle_t connection_handle,
             RDX_HOGP_VERBOSE("CCC read hdl=0x%04x cfg=0x%02x%02x", att_handle, buffer[0], buffer[1]);
         }
         return 2;
+#if TCFG_RDX_CODEX_MICRO_MODE
+    case HID_CODEX_INPUT_REPORT_VALUE_HANDLE:
+    case HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE:
+    case HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+        return rdx_codex_micro_att_read(connection_handle, att_handle,
+                                        offset, buffer, buffer_size);
+#endif
     default:
         return 0;
     }
@@ -368,7 +382,11 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
      * defense in depth for JL stack variants that still dispatch a dynamic
      * write before enforcing the attribute permission bits. */
     if (!s_hogp_encrypted) {
-        if (att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE) {
+        if (att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+            || att_handle == HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#endif
+            ) {
             sm_api_request_pairing(connection_handle);
         }
         RDX_HOGP_ERROR("write rejected: encryption required hdl=0x%04x", att_handle);
@@ -406,6 +424,7 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
         }
         if (buffer[0] == RDX_HOGP_CONTROL_POINT_SUSPEND) {
             rdx_hogp_ready_drop_cleanup();
+            rdx_codex_micro_ready_drop_cleanup();
             s_hogp_suspended = 1;
             RDX_HOGP_LOG("control point: suspend");
             rdx_hogp_dump_state();
@@ -470,6 +489,30 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
         s_hid_output_report = buffer[0];
         RDX_HOGP_LOG("output report LED=0x%02x", s_hid_output_report);
         return 0;
+#if TCFG_RDX_CODEX_MICRO_MODE
+    case HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
+        if (offset != 0) {
+            return RDX_HOGP_ATT_ERR_INVALID_OFFSET;
+        }
+        if (buffer_size != 2) {
+            return RDX_HOGP_ATT_ERR_INVALID_ATTRIBUTE_VALUE_LEN;
+        }
+        {
+            u16 cfg = buffer[0] | (buffer[1] << 8);
+            if (cfg != 0x0000 && cfg != 0x0001) {
+                return RDX_HOGP_ATT_ERR_VALUE_NOT_ALLOWED;
+            }
+            if (s_codex_notify_enabled && cfg == 0x0000) {
+                rdx_codex_micro_ready_drop_cleanup();
+            }
+            s_codex_notify_enabled = cfg == 0x0001 ? 1 : 0;
+            multi_att_set_ccc_config(connection_handle, att_handle, cfg);
+            return 0;
+        }
+    case HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE:
+        return rdx_codex_micro_output_write(connection_handle, offset,
+                                            buffer, buffer_size);
+#endif
     default:
         RDX_HOGP_VERBOSE("write default hdl=0x%04x len=%d data[0]=0x%02x",
                  att_handle, buffer_size, buffer_size ? buffer[0] : 0);
@@ -505,6 +548,33 @@ u8 rdx_hogp_keyboard_is_ready(void)
     }
 #endif
     return 1;
+}
+
+u8 rdx_hogp_codex_is_ready(void)
+{
+#if TCFG_RDX_CODEX_MICRO_MODE
+    if (!s_hogp_connected || !s_hogp_app_ble_hdl ||
+        !s_codex_notify_enabled || s_hogp_suspended) {
+        return 0;
+    }
+#if RDX_HOGP_ENCRYPTION_REQUIRED
+    if (!s_hogp_encrypted) {
+        return 0;
+    }
+#endif
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+u8 rdx_hogp_codex_route_is_active(void)
+{
+#if TCFG_RDX_CODEX_MICRO_MODE
+    return (s_hogp_connected && s_hogp_app_ble_hdl && s_hogp_encrypted) ? 1 : 0;
+#else
+    return 0;
+#endif
 }
 
 int rdx_hogp_keyboard_report_send(
@@ -586,12 +656,22 @@ void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl,
     s_hogp_app_ble_hdl = app_ble_hdl;
     s_hogp_connected = 1;
     s_hid_con_handle = con_handle;
+#if TCFG_RDX_CODEX_MICRO_MODE != RDX_CODEX_MICRO_MODE_VENDOR_ONLY
     ccc_config = multi_att_get_ccc_config(
         con_handle, HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE);
     s_hid_notify_enabled = (ccc_config & 0x0001) ? 1 : 0;
+#else
+    s_hid_notify_enabled = 0;
+#endif
+#if TCFG_RDX_CODEX_MICRO_MODE
+    ccc_config = multi_att_get_ccc_config(
+        con_handle, HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE);
+    s_codex_notify_enabled = (ccc_config & 0x0001) ? 1 : 0;
+#endif
     s_hogp_encrypted = encrypted ? 1 : 0;
     s_hogp_suspended = 0;
     s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
+#if TCFG_RDX_CODEX_MICRO_MODE != RDX_CODEX_MICRO_MODE_VENDOR_ONLY
     if (s_hid_notify_enabled) {
         s_subscription_update_pending = RDX_HOGP_SUB_UPDATE_ENABLE;
         rdx_hogp_subscription_update_flush();
@@ -600,6 +680,10 @@ void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl,
     }
     ccc_config = multi_att_get_ccc_config(
         con_handle, HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE);
+#else
+    ccc_config = multi_att_get_ccc_config(
+        con_handle, HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE);
+#endif
     RDX_HOGP_LOG("conn complete hdl=0x%04x restored_ccc=0x%04x",
                  con_handle, ccc_config);
     rdx_hogp_dump_state();
@@ -625,6 +709,8 @@ void rdx_hogp_on_disconnected(u16 con_handle)
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
+    s_codex_notify_enabled = 0;
+    rdx_codex_micro_runtime_reset();
     s_hogp_encrypted = 0;
     s_hogp_suspended = 0;
     if (s_peer_identity_con_handle == con_handle) {
@@ -648,6 +734,7 @@ void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status)
     u8 encrypted = (enabled && status == 0) ? 1 : 0;
     if (s_hogp_encrypted && !encrypted) {
         rdx_hogp_ready_drop_cleanup();
+        rdx_codex_micro_ready_drop_cleanup();
     }
     s_hogp_encrypted = encrypted;
     if (!s_hogp_encrypted) {
@@ -729,5 +816,8 @@ u8 rdx_hogp_keyboard_is_ready(void)
 {
     return 0;
 }
+
+u8 rdx_hogp_codex_is_ready(void) { return 0; }
+u8 rdx_hogp_codex_route_is_active(void) { return 0; }
 
 #endif /* TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */

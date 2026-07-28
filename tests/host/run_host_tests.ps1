@@ -10,7 +10,8 @@ $Tests = @(
     'test_hogp_profile_contract.ps1',
     'test_rdx_transport_contract.ps1',
     'test_rdx_lifecycle_contract.ps1',
-    'test_rdx_keymap_contract.ps1'
+    'test_rdx_keymap_contract.ps1',
+    'test_codex_micro_contract.ps1'
 )
 
 $Failed = 0

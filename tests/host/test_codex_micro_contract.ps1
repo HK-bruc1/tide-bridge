@@ -1,0 +1,190 @@
+#Requires -Version 5.1
+
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'host_test_lib.ps1')
+
+$RepoRoot = Get-HostTestRepoRoot
+$ProtocolRoot = 'SDK\apps\common\third_party_profile\rdx_protocol'
+$Overlay = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\t2620_project_config.h'
+$Config = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
+$Header = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.h"
+$Profile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.c"
+$Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
+$Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
+$App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
+$Codex = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.c"
+$CodexHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.h"
+$Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
+$Runner = Read-RepoFile $RepoRoot 'tests\host\run_host_tests.ps1'
+$Tool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\codex_micro_hid.cpp'
+$BuildTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\build_hid_tool.ps1'
+$CaptureTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\capture_ble_advertisements.ps1'
+$EvidenceTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\new_evidence_session.ps1'
+$NormalizedHeader = (($Header -replace '\\', '') -replace '\s+', '')
+$NormalizedServer = (($Server -replace '\\', '') -replace '\s+', '')
+
+Assert-Contract 'EXPERIMENT_DEFAULTS_OFF' `
+    ($Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_MODE\s+0' -and
+     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE\s+0' -and
+     $Overlay -match 'Codex Micro V1/C1 requires the explicit test-identity guard' -and
+     $Config -match '#define\s+RDX_CODEX_MICRO_MODE_VENDOR_ONLY\s+1' -and
+     $Config -match '#define\s+RDX_CODEX_MICRO_MODE_COMPOSITE\s+2') `
+    'Codex modes and the borrowed reference identity must be independently guarded and disabled by default'
+
+$VendorBytes = @(
+    0x06,0x00,0xFF,0x09,0x01,0xA1,0x01,0x85,0x06,0x15,
+    0x00,0x26,0xFF,0x00,0x75,0x08,0x95,0x3F,0x09,0x01,
+    0x81,0x02,0x95,0x3F,0x09,0x02,0x91,0x02,0xC0
+)
+$VendorBlock = [regex]::Match(
+    $Profile,
+    '(?s)#if\s+TCFG_RDX_CODEX_MICRO_MODE\s*!=\s*RDX_CODEX_MICRO_MODE_DISABLED(.*?)#endif'
+)
+$ActualVendor = if ($VendorBlock.Success) {
+    $VendorSource = [regex]::Replace(
+        $VendorBlock.Groups[1].Value, '(?m)//.*$', '')
+    @([regex]::Matches($VendorSource, '0x([0-9A-Fa-f]{2})') |
+        ForEach-Object { [convert]::ToInt32($_.Groups[1].Value, 16) })
+} else { @() }
+$vendorOk = $ActualVendor.Count -eq $VendorBytes.Count
+for ($i = 0; $vendorOk -and $i -lt $VendorBytes.Count; $i++) {
+    $vendorOk = $ActualVendor[$i] -eq $VendorBytes[$i]
+}
+Assert-Contract 'REPORT_MAP_VARIANTS' `
+    ($vendorOk -and
+     $Header -match '(?s)VENDOR_ONLY.*?RDX_HOGP_REPORT_MAP_LEN\s+\(29\).*?COMPOSITE.*?RDX_HOGP_REPORT_MAP_LEN\s+\(99\).*?RDX_HOGP_REPORT_MAP_LEN\s+\(70\)') `
+    'V1 must be the exact 29-byte ID 6 map and C1 must append it to the frozen 70-byte keyboard map'
+
+$Handles = [ordered]@{
+    HID_CODEX_INPUT_REPORT_CHARACTERISTIC_HANDLE = 0x0026
+    HID_CODEX_INPUT_REPORT_VALUE_HANDLE = 0x0027
+    HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE = 0x0028
+    HID_CODEX_INPUT_REPORT_REFERENCE_HANDLE = 0x0029
+    HID_CODEX_OUTPUT_REPORT_CHARACTERISTIC_HANDLE = 0x002a
+    HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE = 0x002b
+    HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE = 0x002c
+}
+$handlesOk = $true
+foreach ($entry in $Handles.GetEnumerator()) {
+    $match = [regex]::Match($Header,
+        '#define\s+' + [regex]::Escape($entry.Key) + '\s+(0x[0-9A-Fa-f]+)')
+    $handlesOk = $handlesOk -and $match.Success -and
+        ([convert]::ToInt32($match.Groups[1].Value, 16) -eq $entry.Value)
+}
+$CodexTokens = @(
+    'RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CODEX_INPUT_REPORT_CHARACTERISTIC_HANDLE,RDX_HOGP_CHAR_PROP_INPUT_REPORT,HID_CODEX_INPUT_REPORT_VALUE_HANDLE,RDX_HOGP_UUID_REPORT)',
+    'RDX_HOGP_ATT_VALUE_16(HID_CODEX_INPUT_REPORT_VALUE_HANDLE,RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,RDX_HOGP_UUID_REPORT)',
+    'RDX_HOGP_ATT_CCC(HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE,RDX_HOGP_CCC_DEFAULT_VALUE)',
+    'RDX_HOGP_ATT_REPORT_REFERENCE(HID_CODEX_INPUT_REPORT_REFERENCE_HANDLE,RDX_CODEX_MICRO_REPORT_ID,RDX_CODEX_MICRO_INPUT_REPORT_TYPE)',
+    'RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CODEX_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE,RDX_HOGP_UUID_REPORT)',
+    'RDX_HOGP_ATT_VALUE_16(HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE,RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,RDX_HOGP_UUID_REPORT)',
+    'RDX_HOGP_ATT_REPORT_REFERENCE(HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE,RDX_CODEX_MICRO_REPORT_ID,RDX_CODEX_MICRO_OUTPUT_REPORT_TYPE)'
+)
+Assert-Contract 'CODEX_ATTRIBUTE_LAYOUT' `
+    ($handlesOk -and (Test-TokensInOrder $NormalizedServer $CodexTokens) -and
+     $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_ID0x06') -and
+     $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_BODY_LEN63') -and
+     $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_DATA_LEN61')) `
+    'ID 6 Input/CCC/Output attributes and Report References must retain the MVP handle layout'
+
+Assert-Contract 'DIS_AND_TEST_IDENTITY' `
+    ($Server -match '(?s)#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?DIS_SERVICE_HANDLE\s+0x002d.*?DIS_MANUFACTURER_NAME_VALUE_HANDLE\s+0x0031' -and
+     $Server -match '0x02,\s*0x3a,\s*0x30,\s*0x60,\s*0x83,\s*0x01,\s*0x01' -and
+     $Server -match "'W',\s*'o',\s*'r',\s*'k',\s*' ',\s*'L',\s*'o',\s*'u',\s*'d',\s*'e',\s*'r'" -and
+     $Server -match '"Codex Micro"' -and
+     $Server -match 'BLE_APPEARANCE_GENERIC_HID' -and
+     $Server -match 'HCI_EIR_DATATYPE_APPEARANCE_DATA') `
+    'V1/C1 must shift DIS and use the exact gated name, manufacturer, PnP bytes and Generic HID appearance'
+
+$WriteBody = Get-SourceSlice $Codex `
+    'int rdx_codex_micro_output_write(' `
+    'static u8 rdx_codex_id_copy('
+$TxBody = Get-SourceSlice $Codex `
+    'static void rdx_codex_tx_pump(' `
+    'static int rdx_codex_tx_enqueue('
+Assert-Contract 'FRAMING_AND_BOUNDS' `
+    ($Codex -match '#define\s+RDX_CODEX_RX_MAX\s+1024' -and
+     $Codex -match '#define\s+RDX_CODEX_TX_DEPTH\s+4' -and
+     $Codex -match '#define\s+RDX_CODEX_TX_ITEM_MAX\s+512' -and
+     $WriteBody -match 'buffer_size\s*!=\s*RDX_CODEX_MICRO_REPORT_BODY_LEN' -and
+     $WriteBody -match 'buffer\[0\]\s*!=\s*0x02' -and
+     $WriteBody -match 'buffer\[1\]\s*>\s*RDX_CODEX_MICRO_REPORT_DATA_LEN' -and
+     $WriteBody -match 'rdx_codex_json_feed' -and
+     $Codex -match '#define\s+RDX_CODEX_JSON_DEPTH_MAX\s+8' -and
+     $Codex -match 's_codex_rx.depth\s*>\s*RDX_CODEX_JSON_DEPTH_MAX' -and
+     $Codex -match 'rdx_codex_rx_timeout,\s*2000' -and
+     $Codex -match "item->data\[len\+\+\]\s*=\s*'\\n'" -and
+     $TxBody -match 'report\[0\]\s*=\s*0x02' -and
+     $TxBody -match 'report\[1\]\s*=\s*chunk') `
+    'ATT bodies must use [02][N], bounded complete-JSON reassembly, LF TX and 63-byte chunks'
+
+Assert-Contract 'OWNER_GENERATION_AND_BACKPRESSURE' `
+    ($Codex -match 'rdx_ble_session_get_hid_link' -and
+     $Codex -match 'rdx_ble_session_token_capture' -and
+     $Codex -match 'rdx_ble_session_link_token_resolve' -and
+     $Codex -match 'rdx_ble_session_link_is_hid' -and
+     $WriteBody -match 'link->con_handle\s*!=\s*connection_handle' -and
+     $TxBody -match 'APP_BLE_BUFF_FULL' -and
+     $TxBody -match 'att_server_request_can_send_now_event' -and
+     $Server -match '(?s)case\s+ATT_EVENT_CAN_SEND_NOW:.*?rdx_codex_micro_on_can_send_now' -and
+     $Codex -notmatch 'delay\s*\(') `
+    'wrong-owner/stale work must fail closed and buffer-full must retry asynchronously without blocking delay'
+
+Assert-Contract 'RPC_ALLOWLIST' `
+    ($Codex -match '"device.status"' -and
+     $Codex -match '"sys.version"' -and
+     $Codex -match '"v.oai.thstatus"' -and
+     $Codex -match '"v.oai.rgbcfg"' -and
+     $Codex -match '"lights.preview"' -and
+     $Codex -match '"host.focused_app"' -and
+     $Codex -match '"layer_index",\s*1' -and
+     $Codex -match '-32601,\s*"Method not found"' -and
+     $Codex -match 'cJSON_IsNumber\(brightness\)' -and
+     $Codex -match 'color->valuedouble\s*!=\s*color->valueint' -and
+     $Codex -match 'cJSON_IsString\(effect\)' -and
+     $Codex -match 'cJSON_IsNumber\(speed\)' -and
+     $Codex -notmatch '"fs\.') `
+    'only the MVP RPC methods and typed lighting fields may be accepted'
+
+Assert-Contract 'AG00_EXCLUSIVE_ROUTING' `
+    ($App -match '(?s)num_idx\s*==\s*0\s*&&\s*rdx_hogp_codex_route_is_active\(\).*?rdx_codex_micro_agent_key_click\(\).*?\*value\s*=\s*APP_MSG_NULL.*?return;' -and
+     $Codex -match '\\"k\\":\\"AG00\\"' -and
+     $Codex -match 'rdx_codex_micro_send_agent_key\(1\)' -and
+     $Codex -match 'rdx_codex_micro_send_agent_key\(0\)') `
+    'KEY_IO_NUM0 must emit AG00 down/up and return before the Report ID 1 keyboard executor'
+
+Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
+    ($Makefile.Contains('rdx_codex_micro.c') -and
+     $Server -match 'rdx_codex_micro_init\s*\(' -and
+     $Server -match 'rdx_codex_micro_deinit\s*\(' -and
+     $Keyboard -match 'rdx_codex_micro_runtime_reset\s*\(' -and
+     $Keyboard -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
+     $CodexHeader -match 'rdx_codex_micro_output_write' -and
+     $Runner.Contains('test_codex_micro_contract.ps1') -and
+     $Makefile -match '(?m)^codex-v1:' -and
+     $Makefile -match '(?m)^codex-c1:') `
+    'the module must be built, initialized, reset on lifecycle changes and registered in the host runner'
+
+Assert-Contract 'WINDOWS_HID_TOOL' `
+    ($Tool -match 'SetupDiGetClassDevsW' -and
+     $Tool -match 'HidD_GetPreparsedData' -and
+     $Tool -match 'HidP_GetCaps' -and
+     $Tool -match 'InputReportByteLength' -and
+     $Tool -match 'OutputReportByteLength' -and
+     $Tool -match 'WriteFile\(' -and
+     $Tool -match 'FILE_FLAG_OVERLAPPED' -and
+     $Tool -match 'ReadFile\(' -and
+     $Tool -match 'HidD_SetOutputReport' -and
+     $Tool -notmatch 'HidD_GetInputReport' -and
+     $Tool -match '\\"method\\":\\"device.status\\",\\"id\\":1' -and
+     $BuildTool -match 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' -and
+     $CaptureTool -match 'BluetoothLEAdvertisementWatcher' -and
+     $CaptureTool -match 'DataSections' -and
+     $EvidenceTool -match 'Get-PnpDevice\s+-Class\s+HIDClass' -and
+     $EvidenceTool -match 'pnputil\s+/enum-devices\s+/class\s+HIDClass\s+/properties') `
+    'Windows evidence must use native HID caps, WriteFile/overlapped ReadFile and active BLE advertisement capture'
+
+Write-Host 'Codex Micro contracts passed.'

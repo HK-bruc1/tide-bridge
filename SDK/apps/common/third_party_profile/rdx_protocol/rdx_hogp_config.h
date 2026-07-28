@@ -33,6 +33,22 @@ extern "C" {
 #define TCFG_RDX_HOGP_ENABLE                  0
 #endif
 
+#ifndef TCFG_RDX_CODEX_MICRO_MODE
+#define TCFG_RDX_CODEX_MICRO_MODE              0
+#endif
+
+#ifndef TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
+#define TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE 0
+#endif
+
+#define RDX_CODEX_MICRO_MODE_DISABLED          0
+#define RDX_CODEX_MICRO_MODE_VENDOR_ONLY       1
+#define RDX_CODEX_MICRO_MODE_COMPOSITE         2
+
+#if TCFG_RDX_CODEX_MICRO_MODE && !TCFG_RDX_HOGP_ENABLE
+#error "Codex Micro requires the RDX HOGP service"
+#endif
+
 /******************************************************************************
 * Key Action
 ******************************************************************************/

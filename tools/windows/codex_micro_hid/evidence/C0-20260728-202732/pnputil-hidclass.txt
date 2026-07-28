@@ -1,0 +1,3659 @@
+﻿Microsoft PnP Utility
+
+Instance ID:                ACPI\INTC1070\2&daba3ff&0
+Device Description:         Intel(R) HID Event Filter
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Intel(R) Corporation
+Status:                     Started
+Driver Name:                oem154.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        Intel(R) HID Event Filter
+    DEVPKEY_Device_HardwareIds [String List]:
+        ACPI\VEN_INTC&DEV_1070
+        ACPI\INTC1070
+        *INTC1070
+    DEVPKEY_Device_Service [String]:
+        HidEventFilter
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0000
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Intel(R) Corporation
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0000003b
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000020 (32)
+    DEVPKEY_Device_UpperFilters [String List]:
+        mshidkmdf
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {d7b46895-001a-4942-891f-a7d46610a843}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x00000011 (17)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        ACPI
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 00 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        Intel(R) HID Event Filter
+    DEVPKEY_Device_InstanceId [String]:
+        ACPI\INTC1070\2&daba3ff&0
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180000A (25165834)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\INTC816\3&10839a5c&0&0000
+    DEVPKEY_Device_Parent [String]:
+        ACPI_HAL\PNP0C08\0
+    DEVPKEY_Device_Children [String List]:
+        HID\INTC816\3&10839a5c&0&0000
+    DEVPKEY_Device_Siblings [String List]:
+        ACPI\PNP0A08\0
+        ACPI\ACPI000E\2&daba3ff&0
+        ACPI\PNP0C14\LWMI
+        ACPI\PNP0C14\LBAD
+        ACPI\PNP0C02\IoTraps
+        ACPI\PNP0C02\5
+        ACPI\INTC1055\2&daba3ff&0
+        ACPI\PNP0C02\ISCLK
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\0
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\1
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\2
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\3
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\4
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\5
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\6
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\7
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\8
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\9
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\a
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\b
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\c
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\d
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\e
+        ACPI\GenuineIntel_-_Intel64_Family_6_Model_186_-_Intel(R)_Core(TM)_5_220H\f
+        ACPI\ACPI000C\2&daba3ff&0
+        ACPI\PNP0C14\DSarDev
+        ACPI\PNP0C14\TestDev
+        ACPI\INT33A1\1
+        ACPI\PNP0C0B\2&daba3ff&0
+        ACPI\PNP0C14\GMZN
+        ACPI\PNP0C14\LSR
+        ACPI\PNP0C14\LSK20
+        ACPI\LHK2019\0
+        ACPI\PNP0C0B\0
+        ACPI\ThermalZone\TZS0
+        ACPI\ThermalZone\TZS1
+        ACPI\PNP0C0D\2&daba3ff&0
+        ACPI\PNP0C14\0
+        ACPI\INTC10A0\IETM
+        ACPI\INTC6001\2&daba3ff&0
+        ACPI\INT340E\2&daba3ff&0
+        ACPI\USBC000\0
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x9BE98636 (2615772726)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+        \Driver\HidEventFilter
+        \Driver\ACPI
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[22] [String List]:
+        mshidkmdf
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        oem154.inf:ACPI\INTC1070,HidEventFilter.NTamd64
+    DEVPKEY_Device_BiosDeviceName [String]:
+        \_SB.HIDD
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        oem154.inf:5f63e5343e851031:HidEventFilter.NTamd64:2.2.2.10:ACPI\INTC1070
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ACPI_HAL\PNP0C08\0
+    {83da6326-97a6-4088-9453-a1923f573b29}[25] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[26] [Binary]:
+        00
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:33:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:42:52
+    DEVPKEY_Device_LocationPaths [String List]:
+        ACPI(_SB_)#ACPI(HIDD)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2024/4/25 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        2.2.2.10
+    DEVPKEY_Device_DriverDesc [String]:
+        Intel(R) HID Event Filter
+    DEVPKEY_Device_DriverInfPath [String]:
+        oem154.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HidEventFilter.NTamd64
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        ACPI\INTC1070
+    DEVPKEY_Device_DriverProvider [String]:
+        Intel(R) Corporation
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0001 (16711681)
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col04
+        HID\VID_046D&PID_C52B&MI_01&Col04
+        HID\VID_046D&UP:FFBC_U:0088
+        HID_DEVICE_UP:FFBC_U:0088
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0025
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0004264c
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007B (123)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_01&Col01\8&25c2e7&0&0000
+        HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+        HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+        SWD\DRIVERENUM\{cbfe3ef1-4946-11f1-aa97-0ed72144c585}#logi_download_assistant_component&8&25c2e7&0
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x4BC971AC (1271493036)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C077\5&312b2d7e&0&4
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C077&REV_7200
+        USB\VID_046D&PID_C077
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046D&Class_03&SubClass_01&Prot_02
+        USB\COMPAT_VID_046D&Class_03&SubClass_01
+        USB\COMPAT_VID_046D&Class_03
+        USB\Class_03&SubClass_01&Prot_02
+        USB\Class_03&SubClass_01
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0018
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        Port_#0004.Hub_#0001
+    DEVPKEY_Device_PDOName [String]:
+        \Device\USBPDO-4
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000084 (132)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {9d7debbc-c85d-11d1-9eb4-006008c3a19a}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {ad0ecb46-2c2a-11f1-9d73-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C077\5&312b2d7e&0&4
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180600A (25190410)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\VID_046D&PID_C077\6&18d08fb7&0&0000
+    DEVPKEY_Device_Parent [String]:
+        USB\ROOT_HUB30\4&16ffc970&0&0
+    DEVPKEY_Device_Children [String List]:
+        HID\VID_046D&PID_C077\6&18d08fb7&0&0000
+    DEVPKEY_Device_Siblings [String List]:
+        USB\VID_5986&PID_2174\01.00.00
+        USB\VID_8087&PID_0026\5&312b2d7e&0&10
+        USB\VID_2109&PID_0817\MSFT30000000000
+        USB\VID_2109&PID_2817\MSFT20000000000
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {ad0ecb46-2c2a-11f1-9d73-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xAE12C4F4 (2920465652)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+        \Driver\ACPI
+        \Driver\USBHUB3
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Optical Mouse
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03&SubClass_01,HID_Inst.NT
+    DEVPKEY_Device_PhysicalDeviceLocation [Binary]:
+        82 00 00 00 00 00 00 00 01 00 00 02 00 00 00 00 
+        FF FF FF FF
+    DEVPKEY_Device_BiosDeviceName [String]:
+        \_SB.PC00.XHCI.RHUB.HS04
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03&SubClass_01
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\ROOT_HUB30\4&16ffc970&0&0
+    {83da6326-97a6-4088-9453-a1923f573b29}[25] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[26] [Binary]:
+        00
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/3/30 12:14:40
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/3/30 12:14:40
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:05
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[2] [String]:
+        {00000000-0000-0000-ffff-ffffffffffff}\0000\1
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[3] [UINT32]:
+        0x00000000 (0)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[4] [UINT32]:
+        0x00000001 (1)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[5] [UINT32]:
+        0x00000000 (0)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[6] [UINT32]:
+        0x00000000 (0)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[13] [UINT32]:
+        0x00000000 (0)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[15] [UINT32]:
+        0x00000002 (2)
+    {8dbc9c86-97a9-4bff-9bc6-bfe95d3e6dad}[16] [Boolean]:
+        TRUE
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(4)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS04)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03&SubClass_01
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3104 (16724228)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+    {b5a825b8-3907-40b5-abca-8451e2453d5f}[3] [UINT32]:
+        0x00000001 (1)
+
+Instance ID:                HID\VID_3654&PID_4A55&MI_03\8&9130b6&0&0000
+Device Description:         ���� HID ��׼���û������豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Disconnected
+Driver Name:                hidserv.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_3654&PID_4A55&REV_0100&MI_03
+        HID\VID_3654&PID_4A55&MI_03
+        HID\VID_3654&UP:000C_U:0001
+        HID_DEVICE_SYSTEM_CONSUMER
+        HID_DEVICE_UP:000C_U:0001
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0029
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {3d96bd03-49b6-52fd-90b8-962f2e7534bc}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_3654&PID_4A55&MI_03\8&9130b6&0&0000
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_3654&PID_4A55&MI_03\7&2ec03fb4&0&0003
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {3d96bd03-49b6-52fd-90b8-962f2e7534bc}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        hidserv.inf:HID_DEVICE_UP:000C_U:0001,HIDSystemConsumerDevice
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        hidserv.inf:6506b95c4a739727:HIDSystemConsumerDevice:10.0.26100.1:HID_DEVICE_UP:000C_U:0001
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_3654&PID_4A55&MI_03\7&2ec03fb4&0&0003
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/7/28 11:46:55
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.1
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant consumer control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        hidserv.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HIDSystemConsumerDevice
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000C_U:0001
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0004 (16711684)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_02
+        USB\VID_046D&PID_C52B&MI_02
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_00&Prot_00
+        USB\COMPAT_VID_046d&Class_03&SubClass_00
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_00&Prot_00
+        USB\Class_03&SubClass_00
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0011
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.000.000.000.000.000
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000005 (5)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03,HID_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USBMI(2)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USBMI(2)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3205 (16724485)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_01
+        USB\VID_046D&PID_C52B&MI_01
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_02
+        USB\COMPAT_VID_046d&Class_03&SubClass_01
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_01&Prot_02
+        USB\Class_03&SubClass_01
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0010
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000020 (32)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.000.000.000.000.000
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03&SubClass_01,HID_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03&SubClass_01
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USBMI(1)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USBMI(1)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03&SubClass_01
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3104 (16724228)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_00\6&364b50a&0&0000
+Device Description:         Logitech USB Input Device
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Logitech (x64)
+Status:                     Disconnected
+Driver Name:                oem190.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_00
+        USB\VID_046D&PID_C52B&MI_00
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_01
+        USB\COMPAT_VID_046d&Class_03&SubClass_01
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_01&Prot_01
+        USB\Class_03&SubClass_01
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0019
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Logitech (x64)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.000.000.000.000.000
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_00\6&364b50a&0&0000
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        oem190.inf:f621a0b1cc35a5b6:LogiLDA:1.10.80.0:usb\vid_046d&pid_c52b&mi_00
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\5&312b2d7e&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:30
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:30
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USBMI(0)
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(3)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USBMI(0)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(3)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2021/8/24 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        1.10.80.0
+    DEVPKEY_Device_DriverDesc [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        oem190.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        LogiLDA
+    DEVPKEY_Device_DriverInfSectionExt [String]:
+        .NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        usb\vid_046d&pid_c52b&mi_00
+    DEVPKEY_Device_DriverProvider [String]:
+        Logitech
+    DEVPKEY_Device_DriverCoInstallers [String List]:
+        LogiLDA.DLL,CoDeviceInstall
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0001 (16711681)
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[16] [String List]:
+        input.inf
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col04\7&6a58a93&0&0003
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col04
+        HID\VID_046D&PID_C52B&MI_01&Col04
+        HID\VID_046D&UP:FFBC_U:0088
+        HID_DEVICE_UP:FFBC_U:0088
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0014
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col04\7&6a58a93&0&0003
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col03\7&6a58a93&0&0002
+Device Description:         ���� HID ��׼��ϵͳ������
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col03
+        HID\VID_046D&PID_C52B&MI_01&Col03
+        HID\VID_046D&UP:0001_U:0080
+        HID_DEVICE_SYSTEM_CONTROL
+        HID_DEVICE_UP:0001_U:0080
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0013
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col03\7&6a58a93&0&0002
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UP:0001_U:0080,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5428795d0:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UP:0001_U:0080
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant system controller
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:0001_U:0080
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col02\7&6a58a93&0&0001
+Device Description:         ���� HID ��׼���û������豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Disconnected
+Driver Name:                hidserv.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col02
+        HID\VID_046D&PID_C52B&MI_01&Col02
+        HID\VID_046D&UP:000C_U:0001
+        HID_DEVICE_SYSTEM_CONSUMER
+        HID_DEVICE_UP:000C_U:0001
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0012
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col02\7&6a58a93&0&0001
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        hidserv.inf:HID_DEVICE_UP:000C_U:0001,HIDSystemConsumerDevice
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        hidserv.inf:6506b95c4a739727:HIDSystemConsumerDevice:10.0.26100.1:HID_DEVICE_UP:000C_U:0001
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\6&364b50a&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.1
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant consumer control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        hidserv.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HIDSystemConsumerDevice
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000C_U:0001
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0004 (16711684)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col01
+        HID\VID_046D&PID_C52B&MI_02&Col01
+        HID\VID_046D&UP:FF00_U:0001
+        HID_DEVICE_UP:FF00_U:0001
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0026
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0004264e
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007C (124)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+        HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x13D0302C (332410924)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+Device Description:         ���� HID ��׼���û������豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                hidserv.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col02
+        HID\VID_046D&PID_C52B&MI_01&Col02
+        HID\VID_046D&UP:000C_U:0001
+        HID_DEVICE_SYSTEM_CONSUMER
+        HID_DEVICE_UP:000C_U:0001
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0023
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0004264a
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007B (123)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_01&Col01\8&25c2e7&0&0000
+        HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+        HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+        SWD\DRIVERENUM\{cbfe3ef1-4946-11f1-aa97-0ed72144c585}#logi_download_assistant_component&8&25c2e7&0
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x73759362 (1937085282)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        hidserv.inf:HID_DEVICE_UP:000C_U:0001,HIDSystemConsumerDevice
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        hidserv.inf:6506b95c4a739727:HIDSystemConsumerDevice:10.0.26100.1:HID_DEVICE_UP:000C_U:0001
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.1
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant consumer control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        hidserv.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HIDSystemConsumerDevice
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000C_U:0001
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0004 (16711684)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+
+Instance ID:                HID\GXTP5100&Col04\5&6c73a7e&0&0003
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VEN_GXTP&DEV_5100&Col04
+        HID\GXTP5100&Col04
+        HID\*GXTP5100&Col04
+        HID\VID_27C6&UP:FF00_U:0001
+        HID_DEVICE_UP:FF00_U:0001
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0008
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000074
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 99 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 01 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\GXTP5100&Col04\5&6c73a7e&0&0003
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_Siblings [String List]:
+        HID\GXTP5100&Col01\5&6c73a7e&0&0000
+        HID\GXTP5100&Col02\5&6c73a7e&0&0001
+        HID\GXTP5100&Col03\5&6c73a7e&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x017FB50B (25146635)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:02
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1005 (16715781)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col01\7&19d5a6d1&0&0000
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col01
+        HID\VID_046D&PID_C52B&MI_02&Col01
+        HID\VID_046D&UP:FF00_U:0001
+        HID_DEVICE_UP:FF00_U:0001
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0015
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\7&19d5a6d1&0&0000
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\GXTP5100&Col03\5&6c73a7e&0&0002
+Device Description:         Microsoft Input Configuration Device
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                mtconfig.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        Microsoft Input Configuration Device
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VEN_GXTP&DEV_5100&Col03
+        HID\GXTP5100&Col03
+        HID\*GXTP5100&Col03
+        HID\VID_27C6&UP:000D_U:000E
+        HID_DEVICE_UP:000D_U:000E
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Service [String]:
+        MTConfig
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0007
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000073
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 99 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 01 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        Microsoft Input Configuration Device
+    DEVPKEY_Device_InstanceId [String]:
+        HID\GXTP5100&Col03\5&6c73a7e&0&0002
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_Siblings [String List]:
+        HID\GXTP5100&Col01\5&6c73a7e&0&0000
+        HID\GXTP5100&Col02\5&6c73a7e&0&0001
+        HID\GXTP5100&Col04\5&6c73a7e&0&0003
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xA4FE700B (2768138251)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\MTConfig
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        mtconfig.inf:HID_DEVICE_UP:000D_U:000E,MTConfigInst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        mtconfig.inf:dfb9e9fa1d5380ae:MTConfigInst.NT:10.0.26100.1150:HID_DEVICE_UP:000D_U:000E
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:02
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.1150
+    DEVPKEY_Device_DriverDesc [String]:
+        Microsoft Input Configuration Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        mtconfig.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        MTConfigInst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000D_U:000E
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0004 (16711684)
+
+Instance ID:                HID\GXTP5100&Col02\5&6c73a7e&0&0001
+Device Description:         ���� HID ��׼�Ĵ�����
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĵ�����
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VEN_GXTP&DEV_5100&Col02
+        HID\GXTP5100&Col02
+        HID\*GXTP5100&Col02
+        HID\VID_27C6&UP:000D_U:0005
+        HID_DEVICE_UP:000D_U:0005
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0006
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000072
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 99 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 01 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĵ�����
+    DEVPKEY_Device_InstanceId [String]:
+        HID\GXTP5100&Col02\5&6c73a7e&0&0001
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_Siblings [String List]:
+        HID\GXTP5100&Col01\5&6c73a7e&0&0000
+        HID\GXTP5100&Col03\5&6c73a7e&0&0002
+        HID\GXTP5100&Col04\5&6c73a7e&0&0003
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xA4FE6FE8 (2768138216)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UP:000D_U:0005,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5b24037ba:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UP:000D_U:0005
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:02
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant touch pad
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000D_U:0005
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+Device Description:         ��ת����Яʽ�豸����װ��
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                buttonconverter.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ��ת����Яʽ�豸����װ��
+    DEVPKEY_Device_HardwareIds [String List]:
+        ButtonConverter\ConvertedDevice
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Service [String]:
+        mshidkmdf
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0002
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000064
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        ButtonConverter
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 00 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ��ת����Яʽ�豸����װ��
+    DEVPKEY_Device_InstanceId [String]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180000A (25165834)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\ConvertedDevice&Col01\5&353ec129&0&0000
+        HID\ConvertedDevice&Col02\5&353ec129&0&0001
+        HID\ConvertedDevice&Col03\5&353ec129&0&0002
+    DEVPKEY_Device_Parent [String]:
+        HID\INTC816\3&10839a5c&0&0000
+    DEVPKEY_Device_Children [String List]:
+        HID\ConvertedDevice&Col01\5&353ec129&0&0000
+        HID\ConvertedDevice&Col02\5&353ec129&0&0001
+        HID\ConvertedDevice&Col03\5&353ec129&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x5EE849FA (1592281594)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+        \Driver\buttonconverter
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        buttonconverter.inf:ButtonConverter\ConvertedDevice,btnconv_converted.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        buttonconverter.inf:db04a16ccc346580:btnconv_converted.NT:10.0.26100.4484:ButtonConverter\ConvertedDevice
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        HID\INTC816\3&10839a5c&0&0000
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:01
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.4484
+    DEVPKEY_Device_DriverDesc [String]:
+        Converted Portable Device Control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        buttonconverter.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        btnconv_converted.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        ButtonConverter\ConvertedDevice
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0000 (16711680)
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[16] [String List]:
+        MsHidKmdf.inf
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col02
+        HID\VID_046D&PID_C52B&MI_02&Col02
+        HID\VID_046D&UP:FF00_U:0002
+        HID_DEVICE_UP:FF00_U:0002
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0027
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0004264f
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007C (124)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+        HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x13D03030 (332410928)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col02\7&19d5a6d1&0&0001
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col02
+        HID\VID_046D&PID_C52B&MI_02&Col02
+        HID\VID_046D&UP:FF00_U:0002
+        HID_DEVICE_UP:FF00_U:0002
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0016
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col02\7&19d5a6d1&0&0001
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_3654&PID_4A55&MI_03\7&2ec03fb4&0&0003
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_3654&PID_4A55&REV_0100&MI_03
+        USB\VID_3654&PID_4A55&MI_03
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_3654&Class_03&SubClass_00&Prot_00
+        USB\COMPAT_VID_3654&Class_03&SubClass_00
+        USB\COMPAT_VID_3654&Class_03
+        USB\Class_03&SubClass_00&Prot_00
+        USB\Class_03&SubClass_00
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0009
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.002.000.000.000.000
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000005 (5)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {3d96bd03-49b6-52fd-90b8-962f2e7534bc}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_3654&PID_4A55&MI_03\7&2ec03fb4&0&0003
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_3654&PID_4A55\415034593834300E
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {3d96bd03-49b6-52fd-90b8-962f2e7534bc}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Composite Device
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03,HID_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_3654&PID_4A55\415034593834300E
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/28 11:46:41
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/7/28 11:46:55
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(2)#USBMI(3)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(2)#USBMI(3)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3205 (16724485)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\INTC816\3&10839a5c&0&0000
+Device Description:         ��Яʽ�豸����װ��
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                buttonconverter.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ��Яʽ�豸����װ��
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\INTC816
+        HID\VID_8087&UP:0001_U:000D
+        HID_DEVICE_UP:0001_U:000D
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Service [String]:
+        buttonconverter
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0001
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000063
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 00 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ��Яʽ�豸����װ��
+    DEVPKEY_Device_InstanceId [String]:
+        HID\INTC816\3&10839a5c&0&0000
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180000A (25165834)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_Parent [String]:
+        ACPI\INTC1070\2&daba3ff&0
+    DEVPKEY_Device_Children [String List]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xE8F86E07 (3908595207)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\buttonconverter
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        buttonconverter.inf:HID_DEVICE_UP:0001_U:000D,btnconv.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        buttonconverter.inf:db04a16c9bdf826c:btnconv.NT:10.0.26100.4484:HID_DEVICE_UP:0001_U:000D
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ACPI\INTC1070\2&daba3ff&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:00
+    {a327eec4-808e-4e7b-8613-98580e3f406a}[2] [Boolean]:
+        FALSE
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.4484
+    DEVPKEY_Device_DriverDesc [String]:
+        Portable Device Control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        buttonconverter.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        btnconv.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:0001_U:000D
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0002 (16711682)
+
+Instance ID:                HID\ConvertedDevice&Col02\5&353ec129&0&0001
+Device Description:         ���� HID ��׼���û������豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                hidserv.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\ConvertedDevice&Col02
+        HID\VID_045E&UP:000C_U:0001
+        HID_DEVICE_SYSTEM_CONSUMER
+        HID_DEVICE_UP:000C_U:0001
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0003
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000076
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 00 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼���û������豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\ConvertedDevice&Col02\5&353ec129&0&0001
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_Siblings [String List]:
+        HID\ConvertedDevice&Col01\5&353ec129&0&0000
+        HID\ConvertedDevice&Col03\5&353ec129&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xA4087DF4 (2752019956)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        hidserv.inf:HID_DEVICE_UP:000C_U:0001,HIDSystemConsumerDevice
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        hidserv.inf:6506b95c4a739727:HIDSystemConsumerDevice:10.0.26100.1:HID_DEVICE_UP:000C_U:0001
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:02
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.1
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant consumer control device
+    DEVPKEY_Device_DriverInfPath [String]:
+        hidserv.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HIDSystemConsumerDevice
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:000C_U:0001
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0003 (16711683)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+Device Description:         ���� HID ��׼��ϵͳ������
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_01&Col03
+        HID\VID_046D&PID_C52B&MI_01&Col03
+        HID\VID_046D&UP:0001_U:0080
+        HID_DEVICE_SYSTEM_CONTROL
+        HID_DEVICE_UP:0001_U:0080
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0024
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0004264b
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007B (123)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_01&Col01\8&25c2e7&0&0000
+        HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+        HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+        SWD\DRIVERENUM\{cbfe3ef1-4946-11f1-aa97-0ed72144c585}#logi_download_assistant_component&8&25c2e7&0
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x4931D817 (1228003351)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UP:0001_U:0080,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5428795d0:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UP:0001_U:0080
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant system controller
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:0001_U:0080
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_02
+        USB\VID_046D&PID_C52B&MI_02
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_00&Prot_00
+        USB\COMPAT_VID_046d&Class_03&SubClass_00
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_00&Prot_00
+        USB\Class_03&SubClass_00
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0022
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.003.000.000.000.000
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00042647
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {9d7debbc-c85d-11d1-9eb4-006008c3a19a}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000005 (5)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+        HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+        HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_Children [String List]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+        HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+        HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+    DEVPKEY_Device_Siblings [String List]:
+        USB\VID_046D&PID_C52B&MI_00\7&389f58d&0&0000
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x7839EB70 (2017061744)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+        \Driver\usbccgp
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03,HID_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(3)#USBMI(2)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(3)#USBMI(2)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3205 (16724485)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col03
+        HID\VID_046D&PID_C52B&MI_02&Col03
+        HID\VID_046D&UP:FF00_U:0004
+        HID_DEVICE_UP:FF00_U:0004
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0028
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00042650
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x0000007C (124)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col03\8&130a5957&0&0002
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_Siblings [String List]:
+        HID\VID_046D&PID_C52B&MI_02&Col01\8&130a5957&0&0000
+        HID\VID_046D&PID_C52B&MI_02&Col02\8&130a5957&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x13D03036 (332410934)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+Device Description:         USB �����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Extension Driver Names:     oem3.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        USB �����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_01
+        USB\VID_046D&PID_C52B&MI_01
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_02
+        USB\COMPAT_VID_046d&Class_03&SubClass_01
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_01&Prot_02
+        USB\Class_03&SubClass_01
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0021
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.003.000.000.000.000
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00042646
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {9d7debbc-c85d-11d1-9eb4-006008c3a19a}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000004 (4)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        USB �����豸
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\VID_046D&PID_C52B&MI_01&Col01\8&25c2e7&0&0000
+        HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+        HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+        HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+        SWD\DRIVERENUM\{cbfe3ef1-4946-11f1-aa97-0ed72144c585}#logi_download_assistant_component&8&25c2e7&0
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_Children [String List]:
+        HID\VID_046D&PID_C52B&MI_01&Col01\8&25c2e7&0&0000
+        HID\VID_046D&PID_C52B&MI_01&Col02\8&25c2e7&0&0001
+        HID\VID_046D&PID_C52B&MI_01&Col03\8&25c2e7&0&0002
+        HID\VID_046D&PID_C52B&MI_01&Col04\8&25c2e7&0&0003
+        SWD\DRIVERENUM\{cbfe3ef1-4946-11f1-aa97-0ed72144c585}#logi_download_assistant_component&8&25c2e7&0
+    DEVPKEY_Device_Siblings [String List]:
+        USB\VID_046D&PID_C52B&MI_00\7&389f58d&0&0000
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x1E6D6776 (510486390)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+        \Driver\usbccgp
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:USB\Class_03&SubClass_01,HID_Inst.NT
+    DEVPKEY_Device_ExtendedConfigurationIds [String List]:
+        oem3.inf:USB\VID_046D&PID_C52B&MI_01,LogiDownloadAssistantExtension_Install.NT,05/06/2026,2.0.998.0
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8875:USB\Class_03&SubClass_01
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/30 4:03:32
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(3)#USBMI(1)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(3)#USBMI(1)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        USB\Class_03&SubClass_01
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF3104 (16724228)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[20] [String List]:
+        oem3.inf
+
+Instance ID:                HID\VID_046D&PID_C52B&MI_02&Col03\7&19d5a6d1&0&0002
+Device Description:         ���� HID ��׼�Ĺ�Ӧ�̶����豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Disconnected
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\VID_046D&PID_C52B&REV_1211&MI_02&Col03
+        HID\VID_046D&PID_C52B&MI_02&Col03
+        HID\VID_046D&UP:FF00_U:0004
+        HID_DEVICE_UP:FF00_U:0004
+        HID_DEVICE_UPR:FF00-FFFF
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0017
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼�Ĺ�Ӧ�̶����豸
+    DEVPKEY_Device_InstanceId [String]:
+        HID\VID_046D&PID_C52B&MI_02&Col03\7&19d5a6d1&0&0002
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {62e6431e-6adb-11f1-9d85-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        FALSE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        FALSE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UPR:FF00-FFFF,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5ea19c7ad:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UPR:FF00-FFFF
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B&MI_02\6&364b50a&0&0002
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/6/18 7:00:29
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/6/18 7:03:11
+    DEVPKEY_Device_LastRemovalDate [FILETIME]:
+        2026/6/18 8:59:46
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant vendor-defined device
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UPR:FF00-FFFF
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1004 (16715780)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+
+Instance ID:                USB\VID_046D&PID_C52B&MI_00\7&389f58d&0&0000
+Device Description:         Logitech USB Input Device
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Logitech (x64)
+Status:                     Started
+Driver Name:                oem190.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_HardwareIds [String List]:
+        USB\VID_046D&PID_C52B&REV_1211&MI_00
+        USB\VID_046D&PID_C52B&MI_00
+    DEVPKEY_Device_CompatibleIds [String List]:
+        USB\COMPAT_VID_046d&Class_03&SubClass_01&Prot_01
+        USB\COMPAT_VID_046d&Class_03&SubClass_01
+        USB\COMPAT_VID_046d&Class_03
+        USB\Class_03&SubClass_01&Prot_01
+        USB\Class_03&SubClass_01
+        USB\Class_03
+    DEVPKEY_Device_Service [String]:
+        HidUsb
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0020
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Logitech (x64)
+    DEVPKEY_Device_LocationInfo [String]:
+        0000.0014.0000.003.003.000.000.000.000
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00042645
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000080 (128)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {9d7debbc-c85d-11d1-9eb4-006008c3a19a}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        USB
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 7F 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        03 00 00 00 03 00 00 00 03 00 00 00 03 00 00 00 
+        04 00 00 00 05 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_NAME [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_InstanceId [String]:
+        USB\VID_046D&PID_C52B&MI_00\7&389f58d&0&0000
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180000A (25165834)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\VID_046D&PID_C52B&MI_00\8&1355df25&0&0000
+    DEVPKEY_Device_Parent [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_Children [String List]:
+        HID\VID_046D&PID_C52B&MI_00\8&1355df25&0&0000
+    DEVPKEY_Device_Siblings [String List]:
+        USB\VID_046D&PID_C52B&MI_01\7&389f58d&0&0001
+        USB\VID_046D&PID_C52B&MI_02\7&389f58d&0&0002
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {cadd52cb-4478-11f1-9d77-bcd22c263af3}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x1E6D6772 (510486386)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        FALSE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\HidUsb
+        \Driver\usbccgp
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_BusReportedDeviceDesc [String]:
+        USB Receiver
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        oem190.inf:f621a0b1cc35a5b6:LogiLDA:1.10.80.0:usb\vid_046d&pid_c52b&mi_00
+    {83da6326-97a6-4088-9453-a1923f573b29}[4] [String]:
+        input.inf:741f41b5c3b20c6e:HID_Inst.NT:10.0.26100.8115:USB\Class_03&SubClass_01
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        USB\VID_046D&PID_C52B\6&3a944ce5&0&3
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/5/6 1:14:24
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/5/6 1:11:12
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/27 1:33:39
+    DEVPKEY_Device_LocationPaths [String List]:
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(3)#USBMI(0)
+        PCIROOT(0)#PCI(1400)#USBROOT(0)#USB(3)#USB(3)#USB(3)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(3)#USBMI(0)
+        ACPI(_SB_)#ACPI(PC00)#ACPI(XHCI)#ACPI(RHUB)#ACPI(HS03)#USB(3)#USB(3)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2021/8/24 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        1.10.80.0
+    DEVPKEY_Device_DriverDesc [String]:
+        Logitech USB Input Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        oem190.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        LogiLDA
+    DEVPKEY_Device_DriverInfSectionExt [String]:
+        .NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        usb\vid_046d&pid_c52b&mi_00
+    DEVPKEY_Device_DriverProvider [String]:
+        Logitech
+    DEVPKEY_Device_DriverCoInstallers [String List]:
+        LogiLDA.DLL,CoDeviceInstall
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF0001 (16711681)
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[16] [String List]:
+        input.inf
+
+Instance ID:                ACPI\GXTP5100\4&336594bf&0
+Device Description:         I2C HID �豸
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          Microsoft
+Status:                     Started
+Driver Name:                hidi2c.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        I2C HID �豸
+    DEVPKEY_Device_HardwareIds [String List]:
+        ACPI\VEN_GXTP&DEV_5100
+        ACPI\GXTP5100
+        *GXTP5100
+    DEVPKEY_Device_CompatibleIds [String List]:
+        ACPI\PNP0C50
+        PNP0C50
+    DEVPKEY_Device_Service [String]:
+        hidi2c
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0005
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        Microsoft
+    DEVPKEY_Device_PDOName [String]:
+        \Device\0000006c
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x00000020 (32)
+    DEVPKEY_Device_UpperFilters [String List]:
+        mshidkmdf
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {d7b46895-001a-4942-891f-a7d46610a843}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x00000011 (17)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_EnumeratorName [String]:
+        ACPI
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 99 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 01 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        I2C HID �豸
+    DEVPKEY_Device_InstanceId [String]:
+        ACPI\GXTP5100\4&336594bf&0
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BusRelations [String List]:
+        HID\GXTP5100&Col01\5&6c73a7e&0&0000
+        HID\GXTP5100&Col02\5&6c73a7e&0&0001
+        HID\GXTP5100&Col03\5&6c73a7e&0&0002
+        HID\GXTP5100&Col04\5&6c73a7e&0&0003
+    DEVPKEY_Device_Parent [String]:
+        PCI\VEN_8086&DEV_51E8&SUBSYS_386217AA&REV_01\3&11583659&0&A8
+    DEVPKEY_Device_Children [String List]:
+        HID\GXTP5100&Col01\5&6c73a7e&0&0000
+        HID\GXTP5100&Col02\5&6c73a7e&0&0001
+        HID\GXTP5100&Col03\5&6c73a7e&0&0002
+        HID\GXTP5100&Col04\5&6c73a7e&0&0003
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0xB87F597A (3095353722)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+        \Driver\hidi2c
+        \Driver\ACPI
+    DEVPKEY_Device_DependencyProviders [String List]:
+        PCI\VEN_8086&DEV_51E8&SUBSYS_386217AA&REV_01\3&11583659&0&A8
+        ACPI\INTC1055\2&daba3ff&0
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[22] [String List]:
+        mshidkmdf
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        hidi2c.inf:ACPI\PNP0C50,hidi2c_Device.NT
+    DEVPKEY_Device_BiosDeviceName [String]:
+        \_SB.PC00.I2C0.TPD0
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        hidi2c.inf:db04a16cb5172d0c:hidi2c_Device.NT:10.0.26100.8521:ACPI\PNP0C50
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        PCI\VEN_8086&DEV_51E8&SUBSYS_386217AA&REV_01\3&11583659&0&A8
+    {83da6326-97a6-4088-9453-a1923f573b29}[25] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[26] [Binary]:
+        00
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:53
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:01
+    DEVPKEY_Device_LocationPaths [String List]:
+        ACPI(_SB_)#ACPI(PC00)#ACPI(I2C0)#ACPI(TPD0)
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8521
+    DEVPKEY_Device_DriverDesc [String]:
+        I2C HID Device
+    DEVPKEY_Device_DriverInfPath [String]:
+        hidi2c.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        hidi2c_Device.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        ACPI\PNP0C50
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF2000 (16719872)
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[16] [String List]:
+        pci.inf
+    {f0e20f09-d97a-49a9-8046-bb6e22e6bb2e}[2] [Binary]:
+        01 00 00 00 00 00 00 00 00 00 00 00 B0 01 00 00 
+        0A 00 00 00 02 00 00 00 00 00 00 00 00 00 00 00 
+        01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+        00 04 00 00 01 00 00 00 00 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+
+Instance ID:                HID\ConvertedDevice&Col03\5&353ec129&0&0002
+Device Description:         ���� HID ��׼��ϵͳ������
+Class Name:                 HIDClass
+Class GUID:                 {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Manufacturer Name:          (��׼ϵͳ�豸)
+Status:                     Started
+Driver Name:                input.inf
+Properties:
+    DEVPKEY_Device_DeviceDesc [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_HardwareIds [String List]:
+        HID\ConvertedDevice&Col03
+        HID\VID_045E&UP:0001_U:0080
+        HID_DEVICE_SYSTEM_CONTROL
+        HID_DEVICE_UP:0001_U:0080
+        HID_DEVICE
+    DEVPKEY_Device_CompatibleIds [String List]:
+    DEVPKEY_Device_Class [String]:
+        HIDClass
+    DEVPKEY_Device_ClassGuid [GUID]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+    DEVPKEY_Device_Driver [String]:
+        {745a17a0-74d3-11d0-b6fe-00a0c90f57da}\0004
+    DEVPKEY_Device_ConfigFlags [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Manufacturer [String]:
+        (��׼ϵͳ�豸)
+    DEVPKEY_Device_PDOName [String]:
+        \Device\00000077
+    DEVPKEY_Device_Capabilities [UINT32]:
+        0x000000E0 (224)
+    DEVPKEY_Device_BusTypeGuid [GUID]:
+        {eeaf37d0-1963-47c4-aa48-72476db7cf49}
+    DEVPKEY_Device_LegacyBusType [UINT32]:
+        0x0000000F (15)
+    DEVPKEY_Device_BusNumber [UINT32]:
+        0x00000002 (2)
+    DEVPKEY_Device_EnumeratorName [String]:
+        HID
+    DEVPKEY_Device_Address [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_PowerData [Binary]:
+        38 00 00 00 01 00 00 00 09 00 00 00 00 00 00 00 
+        00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 
+        00 00 00 00 00 00 00 00 04 00 00 00 04 00 00 00 
+        04 00 00 00 00 00 00 00
+    DEVPKEY_Device_RemovalPolicy [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_RemovalPolicyDefault [UINT32]:
+        0x00000001 (1)
+    DEVPKEY_Device_InstallState [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_BaseContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_NAME [String]:
+        ���� HID ��׼��ϵͳ������
+    DEVPKEY_Device_InstanceId [String]:
+        HID\ConvertedDevice&Col03\5&353ec129&0&0002
+    DEVPKEY_Device_DevNodeStatus [UINT32]:
+        0x0180200A (25174026)
+    DEVPKEY_Device_ProblemCode [UINT32]:
+        0x00000000 (0)
+    DEVPKEY_Device_Parent [String]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_Siblings [String List]:
+        HID\ConvertedDevice&Col01\5&353ec129&0&0000
+        HID\ConvertedDevice&Col02\5&353ec129&0&0001
+    DEVPKEY_Device_SafeRemovalRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ContainerId [GUID]:
+        {00000000-0000-0000-ffff-ffffffffffff}
+    DEVPKEY_Device_IsPresent [Boolean]:
+        TRUE
+    DEVPKEY_Device_HasProblem [Boolean]:
+        FALSE
+    {83da6326-97a6-4088-9453-a1923f573b29}[15] [Boolean]:
+        TRUE
+    DEVPKEY_Device_IsRebootRequired [Boolean]:
+        FALSE
+    DEVPKEY_Device_ReportedDeviceIdsHash [UINT32]:
+        0x79C4C2A8 (2042938024)
+    DEVPKEY_Device_InLocalMachineContainer [Boolean]:
+        TRUE
+    DEVPKEY_Device_Stack [String List]:
+        \Driver\mshidkmdf
+    {a8b865dd-2e3d-4094-ad97-e593a70c75d6}[26] [Boolean]:
+        FALSE
+    {3464f7a4-2444-40b1-980a-e0903cb6d912}[10] [UINT32]:
+        0x00000003 (3)
+    DEVPKEY_Device_ConfigurationId [String]:
+        input.inf:HID_DEVICE_UP:0001_U:0080,HID_Raw_Inst.NT
+    {80497100-8c73-48b9-aad9-ce387e19c56e}[6] [UINT32]:
+        0x00000000 (0)
+    {83da6326-97a6-4088-9453-a1923f573b29}[3] [String]:
+        input.inf:741f41b5428795d0:HID_Raw_Inst.NT:10.0.26100.8875:HID_DEVICE_UP:0001_U:0080
+    {83da6326-97a6-4088-9453-a1923f573b29}[10] [String]:
+        ButtonConverter\ConvertedDevice\4&1d1d331f&0&0
+    DEVPKEY_Device_InstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_FirstInstallDate [FILETIME]:
+        2026/1/13 4:51:52
+    DEVPKEY_Device_LastArrivalDate [FILETIME]:
+        2026/7/15 19:43:02
+    DEVPKEY_Device_DriverDate [FILETIME]:
+        2006/6/21 0:00:00
+    DEVPKEY_Device_DriverVersion [String]:
+        10.0.26100.8875
+    DEVPKEY_Device_DriverDesc [String]:
+        HID-compliant system controller
+    DEVPKEY_Device_DriverInfPath [String]:
+        input.inf
+    DEVPKEY_Device_DriverInfSection [String]:
+        HID_Raw_Inst.NT
+    DEVPKEY_Device_MatchingDeviceId [String]:
+        HID_DEVICE_UP:0001_U:0080
+    DEVPKEY_Device_DriverProvider [String]:
+        Microsoft
+    DEVPKEY_Device_DriverRank [UINT32]:
+        0x00FF1003 (16715779)
+    DEVPKEY_Device_GenericDriverInstalled [Boolean]:
+        TRUE
+    DEVPKEY_Device_AdditionalSoftwareRequested [Boolean]:
+        TRUE
+

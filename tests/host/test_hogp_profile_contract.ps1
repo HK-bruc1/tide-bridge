@@ -63,7 +63,7 @@ $ExpectedMap = @(
 )
 $mapMatch = [regex]::Match(
     $Profile,
-    '(?s)const\s+u8\s+rdx_hogp_report_map\[\]\s*=\s*\{(.*?)\};'
+    '(?s)const\s+u8\s+rdx_hogp_report_map\[\]\s*=\s*\{\s*#if\s+TCFG_RDX_CODEX_MICRO_MODE\s*!=\s*RDX_CODEX_MICRO_MODE_VENDOR_ONLY(.*?)#endif'
 )
 $ActualMap = if ($mapMatch.Success) {
     @([regex]::Matches($mapMatch.Groups[1].Value, '0x([0-9A-Fa-f]{2})') |
