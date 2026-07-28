@@ -281,5 +281,166 @@
             Count = 1
             Purpose = 'P11 private owner adapter synchronously processes active-only stop'
         }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_copy_state'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter copies the narrow legacy decision state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_state'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter reads the narrow decision state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_get_state'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains the stable object for decision state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_upload_fallback'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter prepares active upload fallback STOP payload state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_upload_fallback'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable state for upload fallback'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_connected_toggle'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter prepares connected device toggle state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_connected_toggle'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable state for connected device toggle'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_toggle_post'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies offline device toggle state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_toggle_post'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable state for offline device toggle'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_mode_active_check'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter applies idle mode activation fields'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_mode_active_check'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable state for mode activation'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_switch_internal'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 private owner adapter prepares switch fields and payload state'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_switch_internal'
+            Symbol = 'rdx_record_get_status'
+            Count = 1
+            Purpose = 'P11 private owner adapter obtains stable state for scene switch'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_record_domain.c'
+            Function = 'rdx_record_domain_prepare_switch_internal'
+            Symbol = 'rdx_record_process'
+            Count = 1
+            Purpose = 'P11 private owner adapter preserves disconnected synchronous switch stop'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = '<file-scope>'
+            Symbol = 'RecordStatus'
+            Count = 2
+            Purpose = 'P11 protocol adapter owns the four-slot legacy payload pool and callback declaration'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_pool_alloc'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 protocol adapter allocates one legacy payload slot'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_pool_release'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 protocol adapter releases one legacy payload slot'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_pool_callback'
+            Symbol = 'RecordStatus'
+            Count = 2
+            Purpose = 'P11 protocol adapter preserves callback payload type and lifetime'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_reserve'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 protocol adapter reserves and conditionally clears a legacy slot'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_fill_reserved'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 protocol adapter writes kind-specific legacy payload fields'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.c'
+            Function = 'rdx_record_protocol_post_reserved'
+            Symbol = 'RecordStatus'
+            Count = 1
+            Purpose = 'P11 protocol adapter posts a reserved legacy payload slot'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_service_cleanup_ble_immediate'
+            Symbol = 'rdx_uxfile_recordFileData_sendBuf_free'
+            Count = 1
+            Purpose = 'P11 immediate BLE cleanup preserves transfer-buffer-only release'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_service_adjust_active_record_time'
+            Symbol = 'rdx_uxfile_get_operateFile_info'
+            Count = 1
+            Purpose = 'P11 storage owner adjusts active-file time after record running gate'
+        }
     )
 }

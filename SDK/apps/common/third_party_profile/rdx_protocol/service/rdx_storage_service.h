@@ -18,7 +18,9 @@ u8        rdx_storage_is_syncing(void);
 u8        rdx_storage_is_formatting(void);
 
 /* BLE cutover API — Stage 5 */
+rdx_err_t rdx_storage_service_cleanup_ble_immediate(void);
 rdx_err_t rdx_storage_service_cleanup_ble_buffers(void);
+rdx_err_t rdx_storage_service_adjust_active_record_time(int delta_seconds);
 
 /* board power control — Stage 5 D-class */
 rdx_err_t rdx_storage_service_sdmmc_set_power(u8 enable);

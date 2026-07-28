@@ -724,17 +724,68 @@ if ($dutControl.Contains('rdx_app_device_record_handle')) {
 }
 
 $recordService = Read-Working "$rdxRel/service/rdx_record_service.c"
+$deviceToggleCore = Get-FunctionSlice $recordService `
+    'static rdx_err_t rdx_record_service_device_toggle_core' `
+    'void rdx_record_service_device_record_handle' `
+    'device-toggle compatibility core'
+Assert-OrderedTokens $deviceToggleCore `
+    @('rdx_ble_server_get_conn_handle()',
+      'scene == RECORD_SCENE_CHAT',
+      'scene == RECORD_SCENE_CALL',
+      'return RDX_ERR_INVAL',
+      'get_ota_status()', 'return RDX_ERR_BUSY',
+      'rdx_record_protocol_reserve(',
+      'RDX_RECORD_TRIGGER_PAYLOAD_DEVICE',
+      'rdx_record_domain_prepare_connected_toggle(typed_scene, &result)',
+      'rdx_record_protocol_fill_reserved(&reservation, &payload)',
+      'rdx_record_service_upload_timer_start()',
+      'rdx_record_protocol_post_reserved(&reservation)',
+      'return result.process_post_result',
+      'return rdx_record_domain_toggle_post(typed_scene)') `
+    'device-toggle second observation, gate and physical adapter flow'
+$legacyDeviceToggle = Get-FunctionSlice $recordService `
+    'void rdx_record_service_device_record_handle' `
+    'rdx_err_t rdx_record_service_device_toggle' `
+    'legacy device-toggle wrapper'
+Assert-OrderedTokens $legacyDeviceToggle `
+    @('rdx_record_service_device_toggle_core(scene)') `
+    'legacy device-toggle direct compatibility forwarding'
 $typedDeviceToggle = Get-FunctionSlice $recordService `
     'rdx_err_t rdx_record_service_device_toggle' `
     '/* ---- record mode ---- */' `
     'typed device-toggle facade'
 Assert-OrderedTokens $typedDeviceToggle `
-    @('case RDX_RECORD_SCENE_CHAT:', 'legacy_scene = RECORD_SCENE_CHAT',
+    @('rdx_ble_server_get_conn_handle()',
+      'case RDX_RECORD_SCENE_CHAT:', 'legacy_scene = RECORD_SCENE_CHAT',
       'case RDX_RECORD_SCENE_CALL:', 'legacy_scene = RECORD_SCENE_CALL',
       'default:', 'return RDX_ERR_INVAL',
       'get_ota_status()', 'return RDX_ERR_BUSY',
-      'rdx_record_service_device_record_handle(legacy_scene)') `
-    'typed device-toggle validation, gate and legacy mapping'
+      'return rdx_record_service_device_toggle_core(legacy_scene)') `
+    'typed device-toggle first observation, validation and gate'
+$switchCore = Get-FunctionSlice $recordService `
+    'static rdx_err_t rdx_record_service_switch_core' `
+    'void rdx_record_service_switch' `
+    'switch compatibility core'
+Assert-OrderedTokens $switchCore `
+    @('rdx_ble_server_get_conn_handle()',
+      'rdx_dut_is_in_mode() || get_ota_status()', 'return RDX_ERR_BUSY',
+      'rdx_record_domain_get_state(&current)',
+      'ops->record_mode_indicate(scene, current.run)',
+      'rdx_app_switch_keep_timer_restart()',
+      'rdx_record_domain_prepare_switch_compat(',
+      'original_scene',
+      'rdx_record_protocol_post_trigger(&payload)',
+      'if (trigger_ret == RDX_ERR_NOMEM)',
+      'return trigger_ret',
+      'rdx_app_switch_keep_timer_start') `
+    'switch second observation, gate and physical adapter flow'
+$legacySwitch = Get-FunctionSlice $recordService `
+    'void rdx_record_service_switch' `
+    'rdx_err_t rdx_record_service_switch_scene' `
+    'legacy switch wrapper'
+Assert-OrderedTokens $legacySwitch `
+    @('rdx_record_service_switch_core(orig_scene)') `
+    'legacy switch raw-scene forwarding'
 $typedSwitch = Get-FunctionSlice $recordService `
     'rdx_err_t rdx_record_service_switch_scene' `
     '/* ---- BLE mode helpers ---- */' `
@@ -744,8 +795,8 @@ Assert-OrderedTokens $typedSwitch `
       'case RDX_RECORD_SCENE_CALL:', 'legacy_scene = RECORD_SCENE_CALL',
       'default:', 'return RDX_ERR_INVAL',
       'rdx_dut_is_in_mode() || get_ota_status()', 'return RDX_ERR_BUSY',
-      'rdx_record_service_switch(legacy_scene)') `
-    'typed switch validation, gate and legacy mapping'
+      'return rdx_record_service_switch_core(legacy_scene)') `
+    'typed switch validation and first gate'
 
 $pathDomain = Get-FunctionSlice $recordDomain `
     'rdx_err_t rdx_record_domain_set_path' `
@@ -787,7 +838,7 @@ Assert-OrderedTokens $bleDisconnectService `
     'BLE-disconnect product-policy forwarding'
 $bleSyncService = Get-FunctionSlice $recordService `
     'rdx_err_t rdx_record_service_sync_state_after_ble_write_ready' `
-    'void rdx_record_service_start' `
+    'rdx_err_t rdx_record_service_stop_from_ble' `
     'BLE write-ready record sync'
 Assert-OrderedTokens $bleSyncService `
     @('rdx_record_domain_get_running(&running)',
@@ -824,6 +875,165 @@ if ([regex]::IsMatch($appControl, '\brdx_record_get_status\s*\(|\brdx_record_pro
     Add-Pass 'app module has zero legacy record owner/process calls'
 }
 
+Write-Host ""
+Write-Host '=== P11.4 record domain/protocol physical adapters ==='
+
+$legacyServicePattern = '\b(?:RecordStatus|rdx_record_get_status|rdx_record_process)\b|\brdx_uxfile_[A-Za-z0-9_]+\s*\('
+if ([regex]::IsMatch($recordService, $legacyServicePattern)) {
+    Add-Failure 'record service still accesses legacy record or uxfile ownership boundaries'
+} else {
+    Add-Pass 'record service has zero legacy record and uxfile ownership accesses'
+}
+
+$protocolAdapter = Read-Working "$rdxRel/compat/rdx_record_protocol_adapter.c"
+$protocolAdapterHeader = Read-Working "$rdxRel/compat/rdx_record_protocol_adapter.h"
+if ([regex]::IsMatch($protocolAdapterHeader, '\bRecordStatus\b')) {
+    Add-Failure 'protocol adapter clean header exposes RecordStatus'
+} else {
+    Add-Pass 'protocol adapter clean header excludes RecordStatus'
+}
+if ((Count-Pattern $protocolAdapter '#define\s+RDX_RECORD_PROTOCOL_POOL_SIZE\s+4\b') -eq 1) {
+    Add-Pass 'protocol adapter pool remains exactly four slots'
+} else {
+    Add-Failure 'protocol adapter pool size drifted from four slots'
+}
+$protocolReserve = Get-FunctionSlice $protocolAdapter `
+    'rdx_err_t rdx_record_protocol_reserve' `
+    'rdx_err_t rdx_record_protocol_fill_reserved' `
+    'protocol payload reservation'
+Assert-OrderedTokens $protocolReserve `
+    @('rdx_record_protocol_pool_alloc(&index)',
+      'if (!slot)', 'return RDX_ERR_NOMEM',
+      'if (kind == RDX_RECORD_TRIGGER_PAYLOAD_DEVICE)',
+      'memset(slot, 0, sizeof(*slot))',
+      'reservation->active = true') `
+    'protocol reservation and DEVICE-only clear'
+$protocolFill = Get-FunctionSlice $protocolAdapter `
+    'rdx_err_t rdx_record_protocol_fill_reserved' `
+    'rdx_err_t rdx_record_protocol_post_reserved' `
+    'protocol payload fill'
+Assert-OrderedTokens $protocolFill `
+    @('slot->run = payload->run',
+      'slot->formate = payload->format',
+      'slot->scene = payload->scene',
+      'if (payload->kind == RDX_RECORD_TRIGGER_PAYLOAD_DEVICE)',
+      'slot->mode = payload->mode') `
+    'UPLOAD/SWITCH narrow fill and DEVICE mode fill'
+$protocolPost = Get-FunctionSlice $protocolAdapter `
+    'rdx_err_t rdx_record_protocol_post_reserved' `
+    'void rdx_record_protocol_cancel_reserved' `
+    'protocol reserved post'
+Assert-OrderedTokens $protocolPost `
+    @('rdx_os_task_post_callback2(',
+      'rdx_record_protocol_pool_callback',
+      '(void *)(uintptr_t)reservation->factor',
+      'if (ret != RDX_OK)',
+      'rdx_record_protocol_pool_release(slot)',
+      'return RDX_ERR_IO') `
+    'protocol callback factor and post-failure release'
+$protocolCallback = Get-FunctionSlice $protocolAdapter `
+    'static void rdx_record_protocol_pool_callback' `
+    'void rdx_record_protocol_adapter_init' `
+    'protocol payload callback'
+Assert-OrderedTokens $protocolCallback `
+    @('rdx_protocol_record_trigger_indicate(slot, factor)',
+      'rdx_record_protocol_pool_release(slot)') `
+    'protocol callback lifetime'
+
+$connectedToggleDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_prepare_connected_toggle' `
+    'rdx_err_t rdx_record_domain_toggle_post' `
+    'connected device-toggle domain command'
+Assert-OrderedTokens $connectedToggleDomain `
+    @('if (rp->run == RECORD_STATE_STOP)',
+      'out->trigger.run = RECORD_STATE_START',
+      'out->start_upload_timer = true',
+      'else if (rp->orig_mode == RECORD_MODE_OFFLINE)',
+      'rp->run = RECORD_STATE_STOP',
+      'rdx_record_domain_post_process()',
+      'out->trigger.run = RECORD_STATE_STOP',
+      'else {',
+      'rdx_record_domain_copy_state(rp, &out->trigger)',
+      'out->trigger.run = RECORD_STATE_STOP') `
+    'connected device-toggle decision table'
+$uploadFallback = Get-FunctionSlice $recordService `
+    'void rdx_record_service_upload_timer_cb' `
+    '/* ---- device record handle' `
+    'upload fallback orchestration'
+Assert-OrderedTokens $uploadFallback `
+    @('rdx_record_service_upload_timer_stop()',
+      'rdx_record_domain_prepare_upload_fallback(',
+      'RDX_RECORD_STOP_UPLOAD_FALLBACK',
+      'rdx_ble_server_get_conn_handle,',
+      'RDX_RECORD_TRIGGER_PAYLOAD_UPLOAD',
+      'rdx_record_protocol_post_trigger(&payload)',
+      'rdx_record_domain_post_process()') `
+    'upload active-check callback, connected trigger or disconnected callback1 post order'
+$uploadFallbackDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_prepare_upload_fallback' `
+    'rdx_err_t rdx_record_domain_prepare_connected_toggle' `
+    'upload fallback domain command'
+Assert-OrderedTokens $uploadFallbackDomain `
+    @('rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME',
+      '*connection_handle = connection_query()',
+      'rp->run = RECORD_STATE_STOP',
+      'rdx_record_domain_copy_state(rp, trigger)') `
+    'upload active check, connection observation and STOP transition'
+$compatProcessPost = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_post_process' `
+    'rdx_err_t rdx_record_domain_stop_running_now' `
+    'legacy callback1 process post'
+Assert-OrderedTokens $compatProcessPost `
+    @('rdx_os_task_post_callback(',
+      '"app_core"',
+      '(void (*)(void *))rdx_record_process',
+      'NULL') `
+    'upload/device callback1 process post shape'
+$switchDomain = Get-FunctionSlice $recordDomain `
+    'static rdx_err_t rdx_record_domain_prepare_switch_internal' `
+    'rdx_err_t rdx_record_domain_prepare_switch' `
+    'switch domain command'
+Assert-OrderedTokens $switchDomain `
+    @('if (rp->run == RECORD_STATE_STOP)',
+      'rp->noshow = 1',
+      'if (!ble_connected)',
+      'rp->run = RECORD_STATE_STOP',
+      'rdx_record_process()',
+      'rp->is_switch = 1',
+      'rp->switch_orig_scene = legacy_scene',
+      '*trigger_required = true') `
+    'switch owner transition order'
+$compatSwitchDomain = Get-FunctionSlice $recordDomain `
+    'rdx_err_t rdx_record_domain_prepare_switch_compat' `
+    "`n}" `
+    'legacy raw-scene switch domain command'
+Assert-OrderedTokens $compatSwitchDomain `
+    @('u8 original_scene',
+      'rdx_record_domain_prepare_switch_internal(',
+      'original_scene, ble_connected') `
+    'legacy raw scene passthrough'
+
+$timeEventHandler = Get-FunctionSlice $recordService `
+    'static void rdx_record_on_time_event' `
+    '/* ---- migrated handlers' `
+    'record time event handler'
+Assert-OrderedTokens $timeEventHandler `
+    @('event != RDX_EVENT_TIME_SYNCED',
+      '!rdx_record_service_is_running()',
+      'rdx_storage_service_adjust_active_record_time(sync->delta)') `
+    'time event validation, record gate and storage correction order'
+$modeActive = Get-FunctionSlice $recordService `
+    'void rdx_record_service_mode_active_check' `
+    '/* ---- record switch ---- */' `
+    'record mode activation'
+Assert-OrderedTokens $modeActive `
+    @('rdx_ble_server_get_conn_handle()',
+      'rdx_record_domain_mode_active_check(&mode_changed, &state)',
+      'if (mode_changed)',
+      'g_record_mode  = RDX_RECORD_CHANNAL_DUAL',
+      'record_mode_indicate(scene, state.run)') `
+    'mode owner transition and connected indicate order'
+
 $deviceService = $deviceControl
 $emmcDisabledPattern = 'void\s+rdx_device_service_emmc_poweroff_check\s*\(void\)\s*\{\s*return\s*;\s*\}'
 if ([regex]::IsMatch($deviceService, $emmcDisabledPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
@@ -851,17 +1061,32 @@ $bleEventHandler = Get-FunctionSlice `
     'record BLE event handler'
 Assert-OrderedTokens `
     $bleEventHandler `
-    @(
-        'rdx_protocol_uploadFileInfo_clean()',
-        'rdx_uxfile_recordFileData_sendBuf_free()',
-        'rdx_protocol_file_sync_busy_timer_stop()',
-        'rdx_protocol_send_buffer_reinit()'
-    ) `
-    'Immediate record-disconnect cleanup'
+    @('rdx_record_stream_interrupt()',
+      'rdx_record_on_ble_conn_changed(0)',
+      'rdx_storage_service_cleanup_ble_immediate()') `
+    'Immediate record-disconnect cleanup delegation'
 if ($bleEventHandler.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
     Add-Failure 'Immediate record-disconnect cleanup unexpectedly frees the DAT list buffer'
 } else {
     Add-Pass 'Immediate record-disconnect cleanup does not free the DAT list buffer'
+}
+
+$immediateCleanup = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_cleanup_ble_immediate' `
+    'rdx_err_t rdx_storage_service_cleanup_ble_buffers' `
+    'immediate BLE cleanup owner'
+Assert-OrderedTokens `
+    $immediateCleanup `
+    @('rdx_protocol_uploadFileInfo_clean()',
+      'rdx_uxfile_recordFileData_sendBuf_free()',
+      'rdx_protocol_file_sync_busy_timer_stop()',
+      'rdx_protocol_send_buffer_reinit()') `
+    'Immediate BLE cleanup owner order'
+if ($immediateCleanup.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
+    Add-Failure 'Immediate BLE cleanup owner unexpectedly frees the DAT list buffer'
+} else {
+    Add-Pass 'Immediate BLE cleanup owner does not free the DAT list buffer'
 }
 if ($bleEventHandler -match '\brdx_record_process\s*\(') {
     Add-Failure 'BLE event cleanup bypasses the record service and drives the state machine directly'
@@ -907,12 +1132,23 @@ if ((Count-Pattern $bleServer $delayedCleanupTimerPattern) -eq 1) {
     Add-Failure 'Delayed BLE cleanup scheduling no longer matches the single 500 ms baseline'
 }
 
-$triggerPostPattern = 'rdx_os_task_post_callback2\s*\(\s*"app_core"\s*,\s*rpx_pool_cb\s*,\s*rp_slot\s*,\s*NULL\s*\)'
-$triggerPostCount = Count-Pattern $recordService $triggerPostPattern
-if ($triggerPostCount -eq 3) {
-    Add-Pass 'UPLOAD/DEVICE/SWITCH trigger factor baseline remains NULL/0 at all three posts'
+$triggerKinds = @{
+    RDX_RECORD_TRIGGER_PAYLOAD_UPLOAD = 1
+    RDX_RECORD_TRIGGER_PAYLOAD_DEVICE = 2
+    RDX_RECORD_TRIGGER_PAYLOAD_SWITCH = 1
+}
+$triggerKindsValid = $true
+foreach ($kind in $triggerKinds.Keys) {
+    if ((Count-Pattern $recordService ("\b{0}\b" -f $kind)) -ne
+        [int]$triggerKinds[$kind]) {
+        $triggerKindsValid = $false
+    }
+}
+if ($triggerKindsValid -and
+    (Count-Pattern $recordService '\bpayload\.factor\s*=\s*0\s*;') -eq 1) {
+    Add-Pass 'UPLOAD/DEVICE/SWITCH use one clean payload kind and preserve factor zero'
 } else {
-    Add-Failure "Expected 3 NULL-factor trigger posts, found $triggerPostCount"
+    Add-Failure 'Trigger payload kind or factor-zero contract drifted'
 }
 
 Write-Host ""

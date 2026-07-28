@@ -10,18 +10,16 @@
 #include "rdx_dut.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_jl_osal.h"
-#include "rdx_uxfile.h"
 #include "rdx_time_service.h"
+#include "rdx_storage_service.h"
 #include "../internal/rdx_record_domain.h"
+#include "../compat/rdx_record_protocol_adapter.h"
 
 /* BLE event business logic — Stage 4 cutover from rdx_ble_service.c */
 extern void rdx_record_stream_interrupt(void);
 extern void rdx_record_stream_resume_delayed(void);
-extern void rdx_protocol_uploadFileInfo_clean(void);
-extern void rdx_protocol_file_sync_busy_timer_stop(void);
 
 /* symbols from librdxApp.a */
-extern void rdx_protocol_record_trigger_indicate(RecordStatus *rp, u8 factor);
 extern void rdx_protocol_record_state_indicate(void);
 extern void rdx_util_str_hexstr2hexarray(u8 *str, u32 len, u8 *out);
 
@@ -33,45 +31,19 @@ extern void rdx_app_switch_keep_timer_start(void);
 static u16           g_upload_timer = 0;
 static u8            g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
 
-/*
- * 4-slot busy pool for protocol trigger indicate payload.
- * Slots are marked busy in alloc and released in the callback wrapper
- * (rpx_pool_cb) after rdx_protocol_record_trigger_indicate returns,
- * or on post failure.
- */
-#define RP_POOL_SIZE 4
-static RecordStatus  g_rp_pool[RP_POOL_SIZE];
-static u8            g_rp_busy[RP_POOL_SIZE];
-
-static RecordStatus *rp_pool_alloc(void)
+static rdx_record_trigger_payload_t rdx_record_service_trigger_payload(
+	rdx_record_trigger_payload_kind_t kind,
+	const rdx_record_domain_state_t *state)
 {
-	u8 i;
-	CPU_CRITICAL_ENTER();
-	for (i = 0; i < RP_POOL_SIZE; i++) {
-		if (!g_rp_busy[i]) {
-			g_rp_busy[i] = 1;
-			CPU_CRITICAL_EXIT();
-			return &g_rp_pool[i];
-		}
-	}
-	CPU_CRITICAL_EXIT();
-	return NULL;
-}
+	rdx_record_trigger_payload_t payload;
 
-static void rp_pool_release(RecordStatus *slot)
-{
-	u8 idx = (u8)(slot - g_rp_pool);
-	CPU_CRITICAL_ENTER();
-	g_rp_busy[idx] = 0;
-	CPU_CRITICAL_EXIT();
-}
-
-static void rpx_pool_cb(void *p1, void *p2)
-{
-	RecordStatus *rp_slot = (RecordStatus *)p1;
-	u8 factor = (u8)(u32)p2;
-	rdx_protocol_record_trigger_indicate(rp_slot, factor);
-	rp_pool_release(rp_slot);
+	payload.kind = kind;
+	payload.run = state->run;
+	payload.format = state->format;
+	payload.scene = state->scene;
+	payload.mode = state->mode;
+	payload.factor = 0;
+	return payload;
 }
 
 static void rdx_cmd_handle_mic_gain_query(ProtocolEvents event, void *data, u32 len)
@@ -138,10 +110,7 @@ static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len
     } else if (event == RDX_EVENT_BLE_DISCONNECTED) {
         rdx_record_stream_interrupt();
         rdx_record_on_ble_conn_changed(0);
-        rdx_protocol_uploadFileInfo_clean();
-        rdx_uxfile_recordFileData_sendBuf_free();
-        rdx_protocol_file_sync_busy_timer_stop();
-        rdx_protocol_send_buffer_reinit();
+        (void)rdx_storage_service_cleanup_ble_immediate();
     }
 }
 
@@ -153,18 +122,10 @@ static void rdx_record_on_time_event(rdx_event_id_t event, void *payload, u32 le
 	}
 
 	const rdx_time_sync_event_t *sync = (const rdx_time_sync_event_t *)payload;
-	RecordStatus *rp = rdx_record_get_status();
-	if (!rp || (rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME)) {
+	if (!rdx_record_service_is_running()) {
 		return;
 	}
-
-	uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
-	if (op && op->start_time > 0) {
-		u32 corrected = (u32)((int)op->start_time + sync->delta);
-		y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
-		         op->start_time, corrected, sync->delta);
-		op->start_time = corrected;
-	}
+	(void)rdx_storage_service_adjust_active_record_time(sync->delta);
 }
 
 /* ---- migrated handlers (Stage 4 from rdx_app.c) ---- */
@@ -173,11 +134,14 @@ static void rdx_cmd_handle_record_mode_query(ProtocolEvents event, void *data, u
 {
 	(void)event; (void)data; (void)len;
 	const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
+	rdx_record_domain_state_t state;
+	u8 scene;
+
 	if (!ops) return;
-	RecordStatus *rp_sw = rdx_record_get_status();
-	u8 scene = (rp_sw->scene == RECORD_SCENE_CALL) ? 1 : 0;
-	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, rp_sw->run);
-	ops->record_mode_indicate(scene, rp_sw->run);
+	if (rdx_record_domain_get_state(&state) != RDX_OK) return;
+	scene = (state.scene == RECORD_SCENE_CALL) ? 1 : 0;
+	g_printf("[APP CMD] record_mode (scene=%d, run=%d)\r", scene, state.run);
+	ops->record_mode_indicate(scene, state.run);
 }
 
 static void rdx_cmd_handle_audio_stream(ProtocolEvents event, void *data, u32 len)
@@ -221,8 +185,7 @@ void rdx_record_service_init(void)
 
 	g_upload_timer = 0;
 	g_record_mode  = RDX_RECORD_CHANNAL_SINGLE;
-	memset(g_rp_busy, 0, sizeof(g_rp_busy));
-	memset(g_rp_pool, 0, sizeof(g_rp_pool));
+	rdx_record_protocol_adapter_init();
 	RDX_LOGI("record_service init done");
 }
 
@@ -250,115 +213,99 @@ void rdx_record_service_upload_timer_start(void)
 
 void rdx_record_service_upload_timer_cb(void *priv)
 {
-	RecordStatus *rp = rdx_record_get_status();
+	rdx_record_domain_state_t trigger;
+	rdx_record_trigger_payload_t payload;
+	rdx_err_t ret;
+	u16 con_hdl;
 
 	(void)priv;
 	rdx_record_service_upload_timer_stop();
 
-	if (RECORD_STATE_START == rp->run || RECORD_STATE_RESUME == rp->run) {
-		u16 con_hdl = rdx_ble_server_get_conn_handle();
-		rp->run = RECORD_STATE_STOP;
-		if (0xffff != con_hdl && 0 != con_hdl) {
-			RecordStatus *rp_slot = rp_pool_alloc();
-			if (rp_slot == NULL) {
-				RDX_LOGW("record_svc rp pool full (upload)");
-				return;
-			}
-			rp_slot->run    = rp->run;
-			rp_slot->formate = rp->formate;
-			rp_slot->scene  = rp->scene;
-			if (rdx_os_task_post_callback2("app_core",
-			     rpx_pool_cb, rp_slot, NULL) != RDX_OK) {
-				rp_pool_release(rp_slot);
-				RDX_LOGW("record_svc upload indicate post fail");
-			}
-		} else {
-			rdx_os_task_post_callback("app_core",
-			     (void (*)(void *))rdx_record_process, NULL);
+	if (rdx_record_domain_prepare_upload_fallback(
+		RDX_RECORD_STOP_UPLOAD_FALLBACK,
+		rdx_ble_server_get_conn_handle,
+		&con_hdl,
+		&trigger) != RDX_OK) {
+		return;
+	}
+	if (0xffff != con_hdl && 0 != con_hdl) {
+		payload = rdx_record_service_trigger_payload(
+			RDX_RECORD_TRIGGER_PAYLOAD_UPLOAD, &trigger);
+		ret = rdx_record_protocol_post_trigger(&payload);
+		if (ret == RDX_ERR_NOMEM) {
+			RDX_LOGW("record_svc rp pool full (upload)");
+		} else if (ret != RDX_OK) {
+			RDX_LOGW("record_svc upload indicate post fail");
 		}
+	} else {
+		(void)rdx_record_domain_post_process();
 	}
 }
 
 /* ---- device record handle (was rdx_app_device_record_handle) ---- */
 
-void rdx_record_service_device_record_handle(u8 scene)
+static rdx_err_t rdx_record_service_device_toggle_core(u8 scene)
 {
-	u8  formate = 0;
+	rdx_record_scene_t typed_scene;
 	u16 con_hdl = rdx_ble_server_get_conn_handle();
-	RecordStatus *rp = rdx_record_get_status();
+	rdx_record_protocol_reservation_t reservation;
+	rdx_record_domain_toggle_result_t result;
+	rdx_record_trigger_payload_t payload;
+	rdx_err_t ret;
 
 	if (scene == RECORD_SCENE_CHAT) {
-		formate = RECORD_FORMATE_OPUS_16K_STERO;
+		typed_scene = RDX_RECORD_SCENE_CHAT;
 	} else if (scene == RECORD_SCENE_CALL) {
-		formate = RECORD_FORMATE_OPUS_16K_STERO;
+		typed_scene = RDX_RECORD_SCENE_CALL;
 	} else {
-		return;
+		return RDX_ERR_INVAL;
 	}
-
 	if (0xffff != con_hdl && 0 != con_hdl) {
 		if (get_ota_status()) {
-			return;
+			return RDX_ERR_BUSY;
 		}
 
-		RecordStatus *rp_slot = rp_pool_alloc();
-		if (rp_slot == NULL) {
+		ret = rdx_record_protocol_reserve(
+			RDX_RECORD_TRIGGER_PAYLOAD_DEVICE, &reservation);
+		if (ret != RDX_OK) {
 			RDX_LOGW("record_svc rp pool full (dev_rec)");
-			return;
+			return ret;
 		}
-		memset(rp_slot, 0, sizeof(RecordStatus));
-		if (rp->run == RECORD_STATE_STOP) {
-			rp_slot->run    = RECORD_STATE_START;
-			rp_slot->formate = formate;
-			rp_slot->scene  = scene;
-			rp_slot->mode   = rp->mode;
-
+		ret = rdx_record_domain_prepare_connected_toggle(typed_scene, &result);
+		if (ret != RDX_OK) {
+			rdx_record_protocol_cancel_reserved(&reservation);
+			return ret;
+		}
+		payload = rdx_record_service_trigger_payload(
+			RDX_RECORD_TRIGGER_PAYLOAD_DEVICE, &result.trigger);
+		ret = rdx_record_protocol_fill_reserved(&reservation, &payload);
+		if (ret != RDX_OK) {
+			rdx_record_protocol_cancel_reserved(&reservation);
+			return ret;
+		}
+		if (result.start_upload_timer) {
 			rdx_record_service_upload_timer_start();
-		} else {
-			if (rp->orig_mode == RECORD_MODE_OFFLINE) {
-				rp->run = RECORD_STATE_STOP;
-				{
-					rdx_os_task_post_callback("app_core",
-					     (void (*)(void *))rdx_record_process, NULL);
-				}
-				rp_slot->run    = RECORD_STATE_STOP;
-				rp_slot->formate = formate;
-				rp_slot->scene  = scene;
-				rp_slot->mode   = rp->mode;
-			} else {
-				rp_slot->run    = RECORD_STATE_STOP;
-				rp_slot->formate = rp->formate;
-				rp_slot->scene  = rp->scene;
-				rp_slot->mode   = rp->mode;
-			}
 		}
-		if (rdx_os_task_post_callback2("app_core",
-		     rpx_pool_cb, rp_slot, NULL) != RDX_OK) {
-			rp_pool_release(rp_slot);
+		ret = rdx_record_protocol_post_reserved(&reservation);
+		if (ret != RDX_OK) {
 			RDX_LOGW("record_svc trigger_indicate post fail");
+			return ret;
 		}
-	} else {
-		if (rp->run == RECORD_STATE_STOP) {
-			rp->run    = RECORD_STATE_START;
-			rp->formate = formate;
-			rp->scene  = scene;
-			{
-				rdx_os_task_post_callback("app_core",
-				     (void (*)(void *))rdx_record_process, NULL);
-			}
-		} else {
-			rp->run = RECORD_STATE_STOP;
-			{
-				rdx_os_task_post_callback("app_core",
-				     (void (*)(void *))rdx_record_process, NULL);
-			}
-		}
+		return result.process_post_result;
 	}
+
+	return rdx_record_domain_toggle_post(typed_scene);
+}
+
+void rdx_record_service_device_record_handle(u8 scene)
+{
+	(void)rdx_record_service_device_toggle_core(scene);
 }
 
 rdx_err_t rdx_record_service_device_toggle(rdx_record_scene_t scene)
 {
-	u8 legacy_scene;
 	u16 con_hdl = rdx_ble_server_get_conn_handle();
+	u8 legacy_scene;
 
 	switch (scene) {
 	case RDX_RECORD_SCENE_CHAT:
@@ -373,8 +320,7 @@ rdx_err_t rdx_record_service_device_toggle(rdx_record_scene_t scene)
 	if (0xffff != con_hdl && 0 != con_hdl && get_ota_status()) {
 		return RDX_ERR_BUSY;
 	}
-	rdx_record_service_device_record_handle(legacy_scene);
-	return RDX_OK;
+	return rdx_record_service_device_toggle_core(legacy_scene);
 }
 
 /* ---- record mode ---- */
@@ -391,77 +337,78 @@ void rdx_record_service_set_mode(u8 d)
 
 void rdx_record_service_mode_active_check(bool show)
 {
-	RecordStatus *rp = rdx_record_get_status();
+	rdx_record_domain_state_t state;
+	bool mode_changed;
 	u16 con_hdl = rdx_ble_server_get_conn_handle();
 
 	(void)show;
-	if (rp->run == RECORD_STATE_STOP) {
-		rp->scene      = RECORD_SCENE_CALL;
+	if (rdx_record_domain_mode_active_check(&mode_changed, &state) != RDX_OK) {
+		return;
+	}
+	if (mode_changed) {
 		g_record_mode  = RDX_RECORD_CHANNAL_DUAL;
-		rp->orig_scene = rp->scene;
 	}
 	if (0xffff != con_hdl && 0 != con_hdl && rdx_protocol_get_indicate_ops()) {
-		u8 scene = (rp->scene == RECORD_SCENE_CALL) ? 1 : 0;
-		rdx_protocol_get_indicate_ops()->record_mode_indicate(scene, rp->run);
+		u8 scene = (state.scene == RECORD_SCENE_CALL) ? 1 : 0;
+		rdx_protocol_get_indicate_ops()->record_mode_indicate(scene, state.run);
 	}
 }
 
 /* ---- record switch ---- */
 
-void rdx_record_service_switch(u8 orig_scene)
+static rdx_err_t rdx_record_service_switch_core(u8 original_scene)
 {
 	u16 con_hdl = rdx_ble_server_get_conn_handle();
+	bool trigger_required;
+	rdx_record_domain_state_t current;
+	rdx_record_domain_state_t trigger;
+	rdx_record_trigger_payload_t payload;
+	rdx_err_t trigger_ret = RDX_OK;
+	rdx_err_t timer_ret;
+	const RdxProtocolIndicateOps *ops;
 
 	if (rdx_dut_is_in_mode() || get_ota_status()) {
-		return;
+		return RDX_ERR_BUSY;
 	}
 
-	/* indicate current mode */
-	{
-		const RdxProtocolIndicateOps *ops = rdx_protocol_get_indicate_ops();
-		if (ops) {
-			RecordStatus *rp_cur = rdx_record_get_status();
-			u8 scene = (rp_cur->scene == RECORD_SCENE_CALL) ? 1 : 0;
-			ops->record_mode_indicate(scene, rp_cur->run);
-		}
+	ops = rdx_protocol_get_indicate_ops();
+	if (ops && rdx_record_domain_get_state(&current) == RDX_OK) {
+		u8 scene = (current.scene == RECORD_SCENE_CALL) ? 1 : 0;
+		ops->record_mode_indicate(scene, current.run);
 	}
 
 	rdx_app_switch_keep_timer_restart();
-
-	{
-		RecordStatus *rp = rdx_record_get_status();
-		if (rp->run != RECORD_STATE_STOP) {
-			rp->noshow = 1;
-			if (0xffff == con_hdl || 0 == con_hdl) {
-				rp->run = RECORD_STATE_STOP;
-				rdx_record_process();
-			}
-
-			rp->is_switch         = 1;
-			rp->switch_orig_scene = orig_scene;
-
-			{
-				RecordStatus *rp_slot = rp_pool_alloc();
-				if (rp_slot == NULL) {
-					RDX_LOGW("record_svc rp pool full (switch)");
-					return;
-				}
-				rp_slot->run    = RECORD_STATE_STOP;
-				rp_slot->formate = rp->formate;
-				rp_slot->scene  = orig_scene;
-
-				if (rdx_os_task_post_callback2("app_core",
-				     rpx_pool_cb, rp_slot, NULL) != RDX_OK) {
-					rp_pool_release(rp_slot);
-					RDX_LOGW("record_svc switch indicate post fail");
-				}
-			}
-			{
-				rdx_os_task_post_callback("app_core",
-				     (void (*)(void *))rdx_app_switch_keep_timer_start, NULL);
-			}
-		}
+	if (rdx_record_domain_prepare_switch_compat(
+		original_scene,
+		0xffff != con_hdl && 0 != con_hdl,
+		&trigger_required,
+		&trigger) != RDX_OK) {
+		return RDX_ERR_INVAL;
 	}
+	if (!trigger_required) {
+		return RDX_OK;
+	}
+
+	payload = rdx_record_service_trigger_payload(
+		RDX_RECORD_TRIGGER_PAYLOAD_SWITCH, &trigger);
+	trigger_ret = rdx_record_protocol_post_trigger(&payload);
+	if (trigger_ret == RDX_ERR_NOMEM) {
+		RDX_LOGW("record_svc rp pool full (switch)");
+		return trigger_ret;
+	}
+	if (trigger_ret != RDX_OK) {
+		RDX_LOGW("record_svc switch indicate post fail");
+	}
+	timer_ret = rdx_os_task_post_callback(
+		"app_core",
+		(void (*)(void *))rdx_app_switch_keep_timer_start,
+		NULL);
+	return trigger_ret != RDX_OK ? trigger_ret : timer_ret;
+}
+
+void rdx_record_service_switch(u8 orig_scene)
+{
+	(void)rdx_record_service_switch_core(orig_scene);
 }
 
 rdx_err_t rdx_record_service_switch_scene(rdx_record_scene_t original_scene)
@@ -481,8 +428,7 @@ rdx_err_t rdx_record_service_switch_scene(rdx_record_scene_t original_scene)
 	if (rdx_dut_is_in_mode() || get_ota_status()) {
 		return RDX_ERR_BUSY;
 	}
-	rdx_record_service_switch(legacy_scene);
-	return RDX_OK;
+	return rdx_record_service_switch_core(legacy_scene);
 }
 
 /* ---- BLE mode helpers ---- */

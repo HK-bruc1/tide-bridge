@@ -43,7 +43,7 @@ rdx_err_t rdx_record_service_mark_key_triggered(void);
 rdx_err_t rdx_record_service_complete_switch(bool *restart,
                                              rdx_record_scene_t *scene);
 
-/* shell stubs — filled during extraction */
+/* Frozen compatibility shells; active callers use the typed APIs above. */
 void rdx_record_service_start(u8 mode);
 void rdx_record_service_stop(void);
 u8   rdx_record_service_get_state(void);

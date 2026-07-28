@@ -111,6 +111,15 @@ extern void rdx_protocol_uploadFileInfo_clean(void);
 extern void rdx_protocol_file_sync_busy_timer_stop(void);
 extern void rdx_protocol_send_buffer_reinit(void);
 
+rdx_err_t rdx_storage_service_cleanup_ble_immediate(void)
+{
+	rdx_protocol_uploadFileInfo_clean();
+	rdx_uxfile_recordFileData_sendBuf_free();
+	rdx_protocol_file_sync_busy_timer_stop();
+	rdx_protocol_send_buffer_reinit();
+	return RDX_OK;
+}
+
 rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
 {
 	rdx_protocol_uploadFileInfo_clean();
@@ -118,6 +127,19 @@ rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
 	rdx_uxfile_datFileInfo_sendBuf_free();
 	rdx_protocol_file_sync_busy_timer_stop();
 	rdx_protocol_send_buffer_reinit();
+	return RDX_OK;
+}
+
+rdx_err_t rdx_storage_service_adjust_active_record_time(int delta_seconds)
+{
+	uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
+
+	if (op && op->start_time > 0) {
+		u32 corrected = (u32)((int)op->start_time + delta_seconds);
+		y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
+		         op->start_time, corrected, delta_seconds);
+		op->start_time = corrected;
+	}
 	return RDX_OK;
 }
 
