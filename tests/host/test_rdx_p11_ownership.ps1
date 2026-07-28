@@ -863,6 +863,11 @@ if ($bleEventHandler.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
 } else {
     Add-Pass 'Immediate record-disconnect cleanup does not free the DAT list buffer'
 }
+if ($bleEventHandler -match '\brdx_record_process\s*\(') {
+    Add-Failure 'BLE event cleanup bypasses the record service and drives the state machine directly'
+} else {
+    Add-Pass 'BLE event cleanup leaves record state transitions to the record service'
+}
 
 $delayedCleanup = Get-FunctionSlice `
     $storageService `

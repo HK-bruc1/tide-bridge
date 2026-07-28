@@ -138,7 +138,6 @@ static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len
     } else if (event == RDX_EVENT_BLE_DISCONNECTED) {
         rdx_record_stream_interrupt();
         rdx_record_on_ble_conn_changed(0);
-        rdx_record_process();
         rdx_protocol_uploadFileInfo_clean();
         rdx_uxfile_recordFileData_sendBuf_free();
         rdx_protocol_file_sync_busy_timer_stop();
