@@ -1,6 +1,30 @@
 #ifndef T2620_PROJECT_CONFIG_H
 #define T2620_PROJECT_CONFIG_H
 
+/* -------------------------------------------------------------------------- */
+/* 片内 Flash 布局                                                            */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * 新主控的片内 Flash 容量为 32 Mbit，即 4 MiB（0x400000 字节）。
+ * sdk_config.h 由杰理配置工具生成，目前只能生成 16 Mbit（0x200000）的配置；app_config.h
+ * 会在 sdk_config.h 之后包含本文件，因此在此覆盖容量可以同时作用于链接脚本和打包配置，
+ * 并且不会在配置工具重新生成 sdk_config.h 时丢失。
+ *
+ * 工程已开启双备份，4 MiB 配置下打包工具给出的单个代码区分界线为 0x1FF000；
+ * 当前 CODE0 为 0x102000，剩余 0xFD000，满足双备份固件的空间要求。
+ */
+#undef CONFIG_FLASH_SIZE
+#define CONFIG_FLASH_SIZE                         0x400000
+
+/*
+ * 原 2 MiB 布局的 VM 起始地址为 0x1FC000，即位于 Flash 末尾前 0x4000 处。
+ * Flash 扩大到 4 MiB 后保持相同的尾部布局，所以 VM 起始地址相应改为 0x3FC000。
+ * 当前 TCFG_VM_SIZE 为 8 KiB，打包结果中 VM 占用 0x3FC000~0x3FE000，随后
+ * 0x3FE000~0x3FF000 为 BTIF 保留区。
+ */
+#define CONFIG_VM_ADDR                            0x3FC000
+
 /*
  * T2620 项目级配置覆盖。
  *
@@ -77,18 +101,9 @@
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */
 
-/*
- * 历史编码插件保留项。RDX 录音当前由 effect_dev2 直接调用
- * get_opus_stenc_ops()，不依赖 opus_stenc_plug；换芯片完成录音回归前
- * 暂不删除该定义，确认录音链路无回归后再移除。
- */
-#ifndef TCFG_STENC_OPUS_ENABLE
-#define TCFG_STENC_OPUS_ENABLE                    1
-#endif
-
 /* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            0
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1
 #endif
 
 /* 本地播放需要杰理双声道 Opus 解码器。 */

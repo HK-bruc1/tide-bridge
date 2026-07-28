@@ -37,7 +37,7 @@ if not %RCSP_EN%A==A (
 )
 
 @echo on
-..\..\isd_download.exe ..\..\isd_config.ini -tonorflash -dev br28 -boot 0x120000 -div8 -wait 300 -uboot ..\..\uboot.boot -app ..\..\app.bin  -tone %TONE_FILES% -res ALIGN_DIR cfg_tool.bin ..\..\p11_code.bin stream.bin %CONFIG_DATA% %KEY_FILE% -uboot_compress %FORMAT% -output-fw jl_isd.fw -output-ufw update.ufw -key AC690X-9388.key
+..\..\isd_download.exe ..\..\isd_config.ini -tonorflash -dev br28 -boot 0x120000 -div8 -wait 300 -uboot ..\..\uboot.boot -app ..\..\app.bin  -tone %TONE_FILES% -res ALIGN_DIR cfg_tool.bin ..\..\p11_code.bin stream.bin %CONFIG_DATA% %KEY_FILE% -uboot_compress %FORMAT% -output-fw jl_isd.fw -output-ufw update.ufw -key 023AC690X-6451.key
 @echo off
 
 
