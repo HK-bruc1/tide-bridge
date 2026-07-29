@@ -111,12 +111,22 @@
 #define TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE  0
 #endif
 
+#ifndef TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE
+#define TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE 0
+#endif
+
 #if TCFG_RDX_CODEX_MICRO_MODE < 0 || TCFG_RDX_CODEX_MICRO_MODE > 2
 #error "TCFG_RDX_CODEX_MICRO_MODE must be 0 (C0), 1 (V1), or 2 (C1)"
 #endif
 
 #if TCFG_RDX_CODEX_MICRO_MODE && !TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
 #error "Codex Micro V1/C1 requires the explicit test-identity guard"
+#endif
+
+#if (TCFG_RDX_CODEX_MICRO_MODE || \
+     TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE) && \
+    !TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE
+#error "Codex Micro reference personas require an explicit experimental build"
 #endif
 
 /* -------------------------------------------------------------------------- */

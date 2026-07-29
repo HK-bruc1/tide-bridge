@@ -50,7 +50,7 @@
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_profile.h"
-#include "rdx_hogp_key_action.h"
+#include "rdx_input_router.h"
 #include "rdx_codex_micro.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
@@ -4003,7 +4003,7 @@ void rdx_ble_server_exit(void)
         app_ble_disconnect(g_rdx_ble_secondary_hdl);
     }
     
-    rdx_hogp_key_action_deinit();
+    rdx_input_router_deinit();
     rdx_codex_micro_deinit();
     rdx_hogp_deinit();
     rdx_ble_session_reset();

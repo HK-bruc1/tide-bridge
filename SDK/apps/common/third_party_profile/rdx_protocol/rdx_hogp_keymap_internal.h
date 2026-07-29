@@ -23,6 +23,8 @@
 #define RDX_HOGPKM_STATUS_BUSY                     0x0A
 #define RDX_HOGPKM_STATUS_INTERNAL_ERROR           0x0B
 #define RDX_HOGPKM_STATUS_REQUEST_ID_CONFLICT      0x0C
+#define RDX_HOGPKM_STATUS_MAP_NOT_REPRESENTABLE    0x0D
+#define RDX_HOGPKM_STATUS_TEST_MODE_ACTIVE         0x0E
 
 #define RDX_HOGPKM_HEADER_LEN                      10
 #define RDX_HOGPKM_CRC_LEN                         4

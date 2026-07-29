@@ -17,5 +17,6 @@ int rdx_codex_micro_output_write(hci_con_handle_t connection_handle,
 void rdx_codex_micro_on_can_send_now(void);
 int rdx_codex_micro_send_agent_key(u8 action);
 int rdx_codex_micro_agent_key_click(void);
+void rdx_codex_micro_agent_key_release_all(void);
 
 #endif

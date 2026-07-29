@@ -133,10 +133,15 @@
 #define RDX_RTC_PATH_SEL								RDX_RTC_PATH_HARDWARE
 #endif
 
-/* Phase 6 C5: gate for the built-in HOGP test keymap. Defaults to 0;
- * T2620 enables it in t2620_project_config.h. */
+/* Gate for the built-in HOGP test keymap. It defaults to 0 and is enabled
+ * only by the reproducible codex-c1-keytest experimental build target. */
 #ifndef RDX_HOGP_KEY_ACTION_TEST_ENABLE
 #define RDX_HOGP_KEY_ACTION_TEST_ENABLE             0
+#endif
+
+#if RDX_HOGP_KEY_ACTION_TEST_ENABLE && \
+    !TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE
+#error "The built-in HOGP key map requires an explicit experimental build"
 #endif
 
 #if (RDX_RTC_PATH_SEL != RDX_RTC_PATH_SOFTWARE) && (RDX_RTC_PATH_SEL != RDX_RTC_PATH_HARDWARE)

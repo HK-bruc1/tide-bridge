@@ -473,6 +473,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keyboard.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_profile.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_codex_micro.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_input_router.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_led_ctrl.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spp.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_util.c \
@@ -481,7 +482,6 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_md5.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_rtc.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_key.c \
-	apps/common/third_party_profile/rdx_protocol/rdx_hogp_key_action.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_config.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_protocol.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_store.c \
@@ -1257,7 +1257,7 @@ LINK_AT ?= 1
 # 表示下面的不是一个文件的名字，无论是否存在 all, clean, pre_build 这样的文件
 # 还是要执行命令
 # see: https://www.gnu.org/software/make/manual/html_node/Phony-Targets.html
-.PHONY: all clean pre_build codex-v1 codex-c1
+.PHONY: all clean pre_build codex-v1 codex-c1 codex-c1-keytest
 
 # 不要使用 make 预设置的规则
 # see: https://www.gnu.org/software/make/manual/html_node/Suffix-Rules.html
@@ -1282,11 +1282,15 @@ clean:
 
 codex-v1:
 	$(MAKE) clean
-	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=1 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1"
+	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=1 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1"
 
 codex-c1:
 	$(MAKE) clean
-	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=2 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1"
+	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=2 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1"
+
+codex-c1-keytest:
+	$(MAKE) clean
+	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=2 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1 -DRDX_HOGP_KEY_ACTION_TEST_ENABLE=1"
 
 
 

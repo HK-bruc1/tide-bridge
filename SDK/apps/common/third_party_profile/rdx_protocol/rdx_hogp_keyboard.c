@@ -30,7 +30,7 @@
 #include "system/includes.h"
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_config.h"
-#include "rdx_hogp_key_action.h"
+#include "rdx_input_router.h"
 #include "rdx_codex_micro.h"
 #include "rdx_hogp_subscription_store.h"
 #include "ble_user.h"
@@ -123,9 +123,7 @@ static void rdx_hogp_current_report_set(const u8 *payload, u8 len)
  * converge local state even when the transport send fails. */
 static void rdx_hogp_ready_drop_cleanup(void)
 {
-    if (rdx_hogp_keyboard_is_ready()) {
-        rdx_hogp_key_action_reset();
-    }
+    rdx_input_router_keyboard_ready_drop_cleanup();
     rdx_hogp_current_report_clear();
 }
 
@@ -278,6 +276,7 @@ u8 rdx_hogp_peer_has_persisted_subscription(u16 con_handle)
 static void hogp_runtime_cleanup(void)
 {
     rdx_hogp_ready_drop_cleanup();
+    rdx_codex_micro_ready_drop_cleanup();
     hogp_runtime_state_reset();
 }
 
@@ -568,13 +567,9 @@ u8 rdx_hogp_codex_is_ready(void)
 #endif
 }
 
-u8 rdx_hogp_codex_route_is_active(void)
+u8 rdx_hogp_route_is_active(void)
 {
-#if TCFG_RDX_CODEX_MICRO_MODE
-    return (s_hogp_connected && s_hogp_app_ble_hdl && s_hogp_encrypted) ? 1 : 0;
-#else
-    return 0;
-#endif
+    return (s_hogp_connected && s_hogp_app_ble_hdl) ? 1 : 0;
 }
 
 int rdx_hogp_keyboard_report_send(
@@ -706,6 +701,7 @@ void rdx_hogp_on_disconnected(u16 con_handle)
         rdx_hogp_subscription_update_flush();
     }
     rdx_hogp_ready_drop_cleanup();
+    rdx_codex_micro_ready_drop_cleanup();
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
     s_hid_notify_enabled = 0;
@@ -818,6 +814,6 @@ u8 rdx_hogp_keyboard_is_ready(void)
 }
 
 u8 rdx_hogp_codex_is_ready(void) { return 0; }
-u8 rdx_hogp_codex_route_is_active(void) { return 0; }
+u8 rdx_hogp_route_is_active(void) { return 0; }
 
 #endif /* TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN) */

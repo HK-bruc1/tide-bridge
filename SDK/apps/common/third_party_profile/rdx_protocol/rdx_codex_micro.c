@@ -22,7 +22,6 @@
 #define RDX_CODEX_TX_DEPTH           4
 #define RDX_CODEX_TX_ITEM_MAX        512
 #define RDX_CODEX_METHOD_MAX         48
-#define RDX_CODEX_LIGHT_ITEMS_MAX    6
 #define RDX_CODEX_JSON_DEPTH_MAX     8
 #define RDX_CODEX_ATT_ERR_OFFSET     0x07
 #define RDX_CODEX_ATT_ERR_LENGTH     0x0d
@@ -123,11 +122,7 @@ void rdx_codex_micro_runtime_reset(void)
 
 void rdx_codex_micro_ready_drop_cleanup(void)
 {
-    if (s_codex_agent_release_timer && rdx_hogp_codex_is_ready()) {
-        sys_timeout_del(s_codex_agent_release_timer);
-        s_codex_agent_release_timer = 0;
-        (void)rdx_codex_micro_send_agent_key(0);
-    }
+    rdx_codex_micro_agent_key_release_all();
     rdx_codex_micro_runtime_reset();
 }
 
@@ -311,54 +306,14 @@ static u8 rdx_codex_id_copy(cJSON *response, const cJSON *id)
     return copy && cJSON_AddItemToObject(response, "id", copy);
 }
 
-static u8 rdx_codex_light_valid(const cJSON *item, u8 require_id)
-{
-    const cJSON *id = cJSON_GetObjectItemCaseSensitive(item, "id");
-    const cJSON *color = cJSON_GetObjectItemCaseSensitive(item, "c");
-    const cJSON *brightness = cJSON_GetObjectItemCaseSensitive(item, "b");
-    const cJSON *effect = cJSON_GetObjectItemCaseSensitive(item, "e");
-    const cJSON *speed = cJSON_GetObjectItemCaseSensitive(item, "s");
-    if (!cJSON_IsObject(item) ||
-        (require_id && (!cJSON_IsNumber(id) || id->valuedouble != id->valueint)) ||
-        !cJSON_IsNumber(color) || color->valuedouble < 0 ||
-        color->valuedouble > 16777215 ||
-        color->valuedouble != color->valueint || !cJSON_IsNumber(brightness) ||
-        !cJSON_IsString(effect) || !effect->valuestring ||
-        strlen(effect->valuestring) > 16 || !cJSON_IsNumber(speed)) {
-        return 0;
-    }
-    return 1;
-}
-
 static u8 rdx_codex_params_valid(const char *method, const cJSON *params)
 {
+    /* Lighting fields are optional and may evolve; match the reference firmware's top-level checks. */
     if (!strcmp(method, "v.oai.thstatus")) {
-        int count;
-        int i;
-        if (!cJSON_IsArray(params)) {
-            return 0;
-        }
-        count = cJSON_GetArraySize(params);
-        if (count > RDX_CODEX_LIGHT_ITEMS_MAX) {
-            return 0;
-        }
-        for (i = 0; i < count; i++) {
-            if (!rdx_codex_light_valid(cJSON_GetArrayItem(params, i), 1)) {
-                return 0;
-            }
-        }
-        return 1;
+        return cJSON_IsArray(params);
     }
     if (!strcmp(method, "v.oai.rgbcfg")) {
-        const cJSON *ambient;
-        const cJSON *keys;
-        if (!cJSON_IsObject(params)) {
-            return 0;
-        }
-        ambient = cJSON_GetObjectItemCaseSensitive(params, "ambient");
-        keys = cJSON_GetObjectItemCaseSensitive(params, "keys");
-        return rdx_codex_light_valid(ambient, 0) &&
-               rdx_codex_light_valid(keys, 0);
+        return cJSON_IsObject(params);
     }
     return 1;
 }
@@ -598,6 +553,18 @@ int rdx_codex_micro_agent_key_click(void)
     return 0;
 }
 
+void rdx_codex_micro_agent_key_release_all(void)
+{
+    if (!s_codex_agent_release_timer) {
+        return;
+    }
+    sys_timeout_del(s_codex_agent_release_timer);
+    s_codex_agent_release_timer = 0;
+    if (rdx_hogp_codex_is_ready()) {
+        (void)rdx_codex_micro_send_agent_key(0);
+    }
+}
+
 #else
 
 void rdx_codex_micro_init(void) {}
@@ -611,5 +578,6 @@ int rdx_codex_micro_output_write(hci_con_handle_t c, u16 o, const u8 *b, u16 s)
 void rdx_codex_micro_on_can_send_now(void) {}
 int rdx_codex_micro_send_agent_key(u8 action) { (void)action; return -1; }
 int rdx_codex_micro_agent_key_click(void) { return -1; }
+void rdx_codex_micro_agent_key_release_all(void) {}
 
 #endif

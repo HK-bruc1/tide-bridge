@@ -80,7 +80,7 @@ int rdx_hogp_keyboard_release_all(void);
 u8  rdx_hogp_keyboard_is_connected(void);
 u8  rdx_hogp_keyboard_is_ready(void);
 u8  rdx_hogp_codex_is_ready(void);
-u8  rdx_hogp_codex_route_is_active(void);
+u8  rdx_hogp_route_is_active(void);
 
 #ifdef __cplusplus
 }

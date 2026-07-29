@@ -17,7 +17,11 @@ $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $Codex = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.c"
 $CodexHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.h"
+$Router = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_input_router.c"
+$RouterHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_input_router.h"
+$AppConfig = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app_config.h"
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
+$Tasks = Read-RepoFile $RepoRoot 'SDK\.vscode\tasks.json'
 $Runner = Read-RepoFile $RepoRoot 'tests\host\run_host_tests.ps1'
 $Tool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\codex_micro_hid.cpp'
 $BuildTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\build_hid_tool.ps1'
@@ -29,6 +33,8 @@ $NormalizedServer = (($Server -replace '\\', '') -replace '\s+', '')
 Assert-Contract 'EXPERIMENT_DEFAULTS_OFF' `
     ($Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_MODE\s+0' -and
      $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE\s+0' -and
+     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE\s+0' -and
+     $AppConfig -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+0' -and
      $Overlay -match 'Codex Micro V1/C1 requires the explicit test-identity guard' -and
      $Config -match '#define\s+RDX_CODEX_MICRO_MODE_VENDOR_ONLY\s+1' -and
      $Config -match '#define\s+RDX_CODEX_MICRO_MODE_COMPOSITE\s+2') `
@@ -142,31 +148,59 @@ Assert-Contract 'RPC_ALLOWLIST' `
      $Codex -match '"host.focused_app"' -and
      $Codex -match '"layer_index",\s*1' -and
      $Codex -match '-32601,\s*"Method not found"' -and
-     $Codex -match 'cJSON_IsNumber\(brightness\)' -and
-     $Codex -match 'color->valuedouble\s*!=\s*color->valueint' -and
-     $Codex -match 'cJSON_IsString\(effect\)' -and
-     $Codex -match 'cJSON_IsNumber\(speed\)' -and
+     $Codex -match '(?s)!strcmp\(method,\s*"v\.oai\.thstatus"\).*?return\s+cJSON_IsArray\(params\)' -and
+     $Codex -match '(?s)!strcmp\(method,\s*"v\.oai\.rgbcfg"\).*?return\s+cJSON_IsObject\(params\)' -and
+     $Codex -match '-32602,\s*"Invalid params"' -and
+     $Codex -notmatch 'rdx_codex_light_valid' -and
      $Codex -notmatch '"fs\.') `
-    'only the MVP RPC methods and typed lighting fields may be accepted'
+    'only the MVP RPC methods are accepted, with reference-compatible lighting payload shapes'
 
+$routeBody = Get-SourceSlice $App `
+    '// User-visible keys 1..5 map directly to physical_key_id 0..4.' `
+    'pk_r = rdx_key_get_io_num_table'
+$routerClick = Get-SourceSlice $Router `
+    'int rdx_input_router_click(' `
+    'u8 rdx_input_router_test_mode_active('
+$testMapOk = Test-TokensInOrder $Router @(
+    'HID_KEYBOARD_USAGE_C',
+    'HID_KEYBOARD_USAGE_V',
+    'HID_KEYBOARD_USAGE_BACKSPACE',
+    'HID_KEYBOARD_USAGE_ENTER',
+    '{ RDX_INPUT_ACTION_CODEX_AGENT'
+)
 Assert-Contract 'AG00_EXCLUSIVE_ROUTING' `
-    ($App -match '(?s)num_idx\s*==\s*0\s*&&\s*rdx_hogp_codex_route_is_active\(\).*?rdx_codex_micro_agent_key_click\(\).*?\*value\s*=\s*APP_MSG_NULL.*?return;' -and
+    ($routeBody -match 'rdx_hogp_route_is_active\s*\(\s*\)' -and
+     $routeBody -match 'rdx_input_router_click\s*\(\s*\(u8\)num_idx\s*\)' -and
+     $routeBody -notmatch 'rdx_codex_micro|rdx_hogp_keyboard_report_send' -and
+     $App -notmatch 'num_idx\s*==\s*0' -and
+     $routerClick -match 'switch\s*\(\s*entry->kind\s*\)' -and
+     $routerClick -match '(?s)case\s+RDX_INPUT_ACTION_KEYBOARD:.*?rdx_input_router_keyboard_click\s*\(\s*entry\s*\).*?case\s+RDX_INPUT_ACTION_CODEX_AGENT:.*?rdx_hogp_codex_is_ready\s*\(\s*\).*?rdx_codex_micro_agent_key_click\s*\(\s*\)' -and
+     $testMapOk -and
+     $RouterHeader -match '#define\s+RDX_INPUT_ROUTER_PHYSICAL_KEY_COUNT\s+5' -and
      $Codex -match '\\"k\\":\\"AG00\\"' -and
      $Codex -match 'rdx_codex_micro_send_agent_key\(1\)' -and
      $Codex -match 'rdx_codex_micro_send_agent_key\(0\)') `
-    'KEY_IO_NUM0 must emit AG00 down/up and return before the Report ID 1 keyboard executor'
+    'keys 1..5 must enter one typed router, with key_id 4 exclusively emitting AG00 down/up'
 
 Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
     ($Makefile.Contains('rdx_codex_micro.c') -and
+     $Makefile.Contains('rdx_input_router.c') -and
      $Server -match 'rdx_codex_micro_init\s*\(' -and
      $Server -match 'rdx_codex_micro_deinit\s*\(' -and
+     $App -match 'rdx_input_router_init\s*\(' -and
+     $Server -match 'rdx_input_router_deinit\s*\(' -and
      $Keyboard -match 'rdx_codex_micro_runtime_reset\s*\(' -and
      $Keyboard -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
+     $CodexHeader -match 'rdx_codex_micro_agent_key_release_all' -and
      $CodexHeader -match 'rdx_codex_micro_output_write' -and
      $Runner.Contains('test_codex_micro_contract.ps1') -and
      $Makefile -match '(?m)^codex-v1:' -and
-     $Makefile -match '(?m)^codex-c1:') `
-    'the module must be built, initialized, reset on lifecycle changes and registered in the host runner'
+     $Makefile -match '(?m)^codex-c1:' -and
+     $Makefile -match '(?m)^codex-c1-keytest:' -and
+     $Makefile -match '(?s)codex-c1-keytest:.*?\$\(MAKE\) clean.*?TCFG_RDX_CODEX_MICRO_MODE=2.*?TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1.*?TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1.*?RDX_HOGP_KEY_ACTION_TEST_ENABLE=1' -and
+     $Tasks -match '"label"\s*:\s*"codex-c1-keytest"' -and
+     $Tasks -match 'winmk\.bat codex-c1-keytest') `
+    'the router and Codex module must be lifecycle-wired and the Gate must have one reproducible build entry'
 
 Assert-Contract 'WINDOWS_HID_TOOL' `
     ($Tool -match 'SetupDiGetClassDevsW' -and

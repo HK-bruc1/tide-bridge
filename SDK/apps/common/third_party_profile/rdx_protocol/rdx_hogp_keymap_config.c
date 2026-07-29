@@ -15,7 +15,7 @@
 #include "rdx_ble_session.h"
 #include "rdx_dut.h"
 #include "rdx_hogp_config.h"
-#include "rdx_hogp_key_action.h"
+#include "rdx_input_router.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_keymap_internal.h"
 #include "rdx_protocol.h"
@@ -264,28 +264,31 @@ static void rdx_hogpkm_clear_pending_if_match(const rdx_hogpkm_request_t *reques
 }
 
 static void rdx_hogpkm_payload_to_executor(const u8 *payload,
-                                           rdx_hogp_key_action_keymap_t *keymap)
+                                           rdx_input_action_map_t *action_map)
 {
     u8 key;
 
-    memset(keymap, 0, sizeof(*keymap));
-    keymap->version = RDX_HOGPKM_VERSION;
-    keymap->key_count = RDX_HOGPKM_KEY_COUNT;
+    memset(action_map, 0, sizeof(*action_map));
+    action_map->version = RDX_INPUT_ACTION_MAP_VERSION;
+    action_map->key_count = RDX_HOGPKM_KEY_COUNT;
     for (key = 0; key < RDX_HOGPKM_KEY_COUNT; key++) {
         const u8 *entry = &payload[key * RDX_HOGPKM_ENTRY_LEN];
-        keymap->keys[key].modifiers = entry[0];
-        memcpy(keymap->keys[key].usages,
-               &entry[1],
-               sizeof(keymap->keys[key].usages));
+        rdx_input_action_entry_t *action = &action_map->entries[key];
+
+        action->kind = memcmp(entry,
+                              s_rdx_hogpkm_default_keymap,
+                              RDX_HOGPKM_ENTRY_LEN) == 0 ?
+                       RDX_INPUT_ACTION_NONE : RDX_INPUT_ACTION_KEYBOARD;
+        memcpy(action->data, entry, RDX_HOGPKM_ENTRY_LEN);
     }
 }
 
 static int rdx_hogpkm_apply_payload(const u8 *payload)
 {
-    static rdx_hogp_key_action_keymap_t keymap;
+    static rdx_input_action_map_t action_map;
 
-    rdx_hogpkm_payload_to_executor(payload, &keymap);
-    return rdx_hogp_key_action_keymap_apply(&keymap);
+    rdx_hogpkm_payload_to_executor(payload, &action_map);
+    return rdx_input_router_action_map_apply(&action_map);
 }
 
 static int rdx_hogpkm_commit(const rdx_hogpkm_request_t *request,
@@ -635,6 +638,21 @@ static void rdx_hogpkm_process_pending(void)
         return;
     }
 
+#if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+    if (request->opcode == RDX_HOGPKM_OP_SET_KEYMAP ||
+        request->opcode == RDX_HOGPKM_OP_RESET_KEYMAP) {
+        HOGPKM_TRACE("[HOGPKM] test mode rejects write op=%02X rid=%u\n",
+                     request->opcode, request->request_id);
+        rdx_hogpkm_send_status(request->opcode,
+                               request->request_id,
+                               RDX_HOGPKM_STATUS_TEST_MODE_ACTIVE,
+                               request->generation,
+                               &owned_request.rdx_token);
+        rdx_hogpkm_clear_pending_if_match(request);
+        return;
+    }
+#endif
+
     HOGPKM_TRACE("[HOGPKM] process op=%02X rid=%u base_rev=%u payload_len=%u\n",
              request->opcode, request->request_id, request->base_revision,
              request->payload_len);
@@ -686,9 +704,13 @@ void rdx_hogp_keymap_config_init(void)
         s_rdx_hogpkm_active_slot = RDX_HOGPKM_VM_SLOT_NONE;
     }
 
+#if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
+    HOGPKM_TRACE("[HOGPKM] action_map_source=TEST; persisted V1 map not applied\n");
+#else
     if (rdx_hogpkm_apply_payload(s_rdx_hogpkm_current_keymap)) {
         HOGPKM_TRACE("[HOGPKM] executor apply failed during init\n");
     }
+#endif
     HOGPKM_TRACE("[HOGPKM] init revision=%u slot=%u keymap_crc=%08X\n",
               s_rdx_hogpkm_current_revision,
               s_rdx_hogpkm_active_slot,

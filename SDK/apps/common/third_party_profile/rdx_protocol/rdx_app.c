@@ -74,8 +74,7 @@
 #include "rdx_protocol.h"
 #include "xxpUart.h"
 #include "rdx_key.h"
-#include "rdx_hogp_key_action.h"
-#include "rdx_codex_micro.h"
+#include "rdx_input_router.h"
 #include "rdx_charge.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
@@ -700,8 +699,8 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
-/* HOGP key action execution lives in rdx_hogp_key_action.c.  Online/offline
- * routing is capability based: only HID ready consumes product key events. */
+/* A claimed HID link owns all five physical keys. The typed router decides
+ * which report provider, if any, receives each click. */
 
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
@@ -752,26 +751,15 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        // HOGP key action routing boundary:
-        //   HID ready     -> consume every action; CLICK executes the HID keymap.
-        //   HID not ready -> dispatch through the legacy offline key table.
-        // Ready-but-unsupported actions must never leak into offline product behavior.
+        // User-visible keys 1..5 map directly to physical_key_id 0..4.
+        // A claimed HID link consumes the action even when its mapped report
+        // is not ready; the router never falls back to another provider.
 #if TCFG_RDX_HOGP_ENABLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-        if (num_idx == 0 && rdx_hogp_codex_route_is_active()) {
-            if (index == KEY_ACTION_CLICK &&
-                rdx_codex_micro_agent_key_click()) {
-                y_printf("[CODEX_MICRO] AG00 click failed\n");
-            }
-            *value = APP_MSG_NULL;
-            return;
-        }
-#endif
-        if (rdx_hogp_keyboard_is_ready()) {
+        if (rdx_hogp_route_is_active()) {
             if (index == KEY_ACTION_CLICK) {
-                int action_ret = rdx_hogp_key_action_click((u8)num_idx);
+                int action_ret = rdx_input_router_click((u8)num_idx);
                 if (action_ret != 0) {
-                    y_printf("[HOGP_KEY_ACTION] connected key %d execute failed: %d\n",
+                    y_printf("[RDX_INPUT_ROUTER] key %d not sent: %d\n",
                              num_idx, action_ret);
                 }
             }
@@ -3556,8 +3544,8 @@ void rdx_app_tasks_init(void)
     //rdx ble server initial.
     rdx_ble_server_init();
 
-    //key action executor initial (after BLE server / HOGP submodule).
-    rdx_hogp_key_action_init();
+    //typed input router initial (after BLE server / HOGP submodule).
+    rdx_input_router_init();
 
     //formal APP keymap protocol and persisted active keymap.
     rdx_hogp_keymap_config_init();
