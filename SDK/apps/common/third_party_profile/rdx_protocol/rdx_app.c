@@ -254,8 +254,6 @@ extern void motor_on(void);
 extern void rdx_record_motor_run(void);
 extern bool motor_get_run_status(void);
 #endif
-extern bool rdx_uxfile_sd_format_status_check(void);
-
 extern void rdx_app_emmc_poweron(u8 check_en);
 extern void rdx_ble_server_adv_interval_change_timer_stop(void);
 extern void rdx_record_set_default(void);  // 用于在按键事件处理之前初始化 record_status
@@ -519,7 +517,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
     u8 *pk_r = NULL;
     bool record_running = rdx_record_service_is_running();
     RdxWifiInfo* p = rdx_app_get_wifi_info();
-    bool format_state = rdx_uxfile_sd_format_status_check();
+    bool format_state = rdx_storage_is_formatting();
     // g_printf("key_remap: 0x%x, 0x%x, 0x%x, 0x%x \r", index, msg[0], msg[1], key->value);
     if(key->value != 0){
         return;

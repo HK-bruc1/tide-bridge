@@ -87,7 +87,11 @@ function Get-FunctionSlice(
     if ($start -lt 0) {
         throw "Unable to locate $Label start token: $StartToken"
     }
-    $end = $Text.IndexOf($EndToken, $start + $StartToken.Length, [System.StringComparison]::Ordinal)
+    $end = if ([string]::IsNullOrEmpty($EndToken)) {
+        $Text.Length
+    } else {
+        $Text.IndexOf($EndToken, $start + $StartToken.Length, [System.StringComparison]::Ordinal)
+    }
     if ($end -lt 0) {
         throw "Unable to locate $Label end token: $EndToken"
     }
@@ -193,6 +197,7 @@ $recordAdapterAllow = @(
 $uxfileFinalAllow = @(
     "$rdxRel/rdx_record.c",
     "$rdxRel/service/rdx_storage_service.c",
+    "$rdxRel/internal/rdx_storage_domain.c",
     "$rdxRel/compat/rdx_storage_format_compat.c",
     "$rdxRel/compat/rdx_file_transfer_cleanup_compat.c"
 )
@@ -371,6 +376,24 @@ Assert-SemanticRecordMigration $appControl `
     "int rdx_app_earphone_state_set_page_scan_enable()`n{" `
     'app key-remap recording gate' `
     @{ rdx_record_service_is_running = 1 }
+$keyRemap = Get-FunctionSlice $appControl `
+    "void rdx_app_earphone_key_remap(int *value, int *msg)`n{" `
+    "int rdx_app_earphone_state_set_page_scan_enable()`n{" `
+    'app key-remap storage formatting gate'
+if ((Count-Pattern $keyRemap '\brdx_storage_is_formatting\s*\(') -ne 1 -or
+    (Count-Pattern $keyRemap '\brdx_uxfile_sd_format_status_check\s*\(') -ne 0) {
+    Add-Failure 'app key-remap does not use exactly one storage formatting query with zero raw queries'
+} else {
+    Add-Pass 'app key-remap uses exactly one storage formatting query with zero raw queries'
+}
+Assert-OrderedTokens $keyRemap `
+    @('rdx_record_service_is_running()',
+      'rdx_app_get_wifi_info()',
+      'rdx_storage_is_formatting()',
+      'if(key->value != 0)',
+      'if(format_state)',
+      'if (true == app_in_mode(APP_MODE_PC))') `
+    'app key-remap observation and gate order'
 Assert-SemanticRecordMigration $appControl `
     "void rdx_app_single_click_handle(void)`n{" `
     "void rdx_app_double_click_handle(void)`n{" `
@@ -1043,6 +1066,14 @@ if ([regex]::IsMatch($deviceService, $emmcDisabledPattern, [System.Text.RegularE
 }
 
 $storageService = Read-Working "$rdxRel/service/rdx_storage_service.c"
+$storageServiceHeader = Read-Working "$rdxRel/service/rdx_storage_service.h"
+$immediateCleanupSignature = `
+    'rdx_err_t\s+rdx_storage_service_cleanup_ble_immediate\s*\(void\s*\)\s*;'
+if ((Count-Pattern $storageServiceHeader $immediateCleanupSignature) -ne 1) {
+    Add-Failure 'legacy immediate BLE cleanup public signature is missing or duplicated'
+} else {
+    Add-Pass 'legacy immediate BLE cleanup public signature remains exact and unique'
+}
 $formatHandler = Get-FunctionSlice `
     $storageService `
     'static void rdx_cmd_handle_sd_format' `
@@ -1063,7 +1094,7 @@ Assert-OrderedTokens `
     $bleEventHandler `
     @('rdx_record_stream_interrupt()',
       'rdx_record_on_ble_conn_changed(0)',
-      'rdx_storage_service_cleanup_ble_immediate()') `
+      'rdx_file_transfer_compat_cleanup_record_disconnect()') `
     'Immediate record-disconnect cleanup delegation'
 if ($bleEventHandler.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
     Add-Failure 'Immediate record-disconnect cleanup unexpectedly frees the DAT list buffer'
@@ -1071,22 +1102,23 @@ if ($bleEventHandler.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
     Add-Pass 'Immediate record-disconnect cleanup does not free the DAT list buffer'
 }
 
+$fileTransferCleanup = Read-Working "$rdxRel/compat/rdx_file_transfer_cleanup_compat.c"
 $immediateCleanup = Get-FunctionSlice `
-    $storageService `
-    'rdx_err_t rdx_storage_service_cleanup_ble_immediate' `
-    'rdx_err_t rdx_storage_service_cleanup_ble_buffers' `
-    'immediate BLE cleanup owner'
+    $fileTransferCleanup `
+    'rdx_err_t rdx_file_transfer_compat_cleanup_record_disconnect' `
+    'rdx_err_t rdx_file_transfer_compat_cleanup_ble_delayed' `
+    'immediate BLE cleanup compatibility profile'
 Assert-OrderedTokens `
     $immediateCleanup `
     @('rdx_protocol_uploadFileInfo_clean()',
       'rdx_uxfile_recordFileData_sendBuf_free()',
       'rdx_protocol_file_sync_busy_timer_stop()',
       'rdx_protocol_send_buffer_reinit()') `
-    'Immediate BLE cleanup owner order'
+    'Immediate BLE cleanup compatibility profile order'
 if ($immediateCleanup.Contains('rdx_uxfile_datFileInfo_sendBuf_free()')) {
-    Add-Failure 'Immediate BLE cleanup owner unexpectedly frees the DAT list buffer'
+    Add-Failure 'Immediate BLE cleanup compatibility profile unexpectedly frees the DAT list buffer'
 } else {
-    Add-Pass 'Immediate BLE cleanup owner does not free the DAT list buffer'
+    Add-Pass 'Immediate BLE cleanup compatibility profile does not free the DAT list buffer'
 }
 if ($bleEventHandler -match '\brdx_record_process\s*\(') {
     Add-Failure 'BLE event cleanup bypasses the record service and drives the state machine directly'
@@ -1095,10 +1127,10 @@ if ($bleEventHandler -match '\brdx_record_process\s*\(') {
 }
 
 $delayedCleanup = Get-FunctionSlice `
-    $storageService `
-    'rdx_err_t rdx_storage_service_cleanup_ble_buffers' `
-    'rdx_err_t rdx_storage_service_sdmmc_set_power' `
-    'delayed BLE cleanup compatibility wrapper'
+    $fileTransferCleanup `
+    'rdx_err_t rdx_file_transfer_compat_cleanup_ble_delayed' `
+    '' `
+    'delayed BLE cleanup compatibility profile'
 Assert-OrderedTokens `
     $delayedCleanup `
     @(
@@ -1108,7 +1140,66 @@ Assert-OrderedTokens `
         'rdx_protocol_file_sync_busy_timer_stop()',
         'rdx_protocol_send_buffer_reinit()'
     ) `
-    'Delayed BLE cleanup'
+    'Delayed BLE cleanup compatibility profile'
+
+$delayedCleanupWrapper = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_cleanup_ble_buffers' `
+    'rdx_err_t rdx_storage_service_cleanup_ble_immediate' `
+    'legacy delayed BLE cleanup facade'
+Assert-OrderedTokens `
+    $delayedCleanupWrapper `
+    @('return rdx_file_transfer_compat_cleanup_ble_delayed()') `
+    'Legacy storage cleanup facade delegates only to delayed profile'
+if ($delayedCleanupWrapper -match '\brdx_(?:uxfile|protocol)_[A-Za-z0-9_]+\s*\(') {
+    Add-Failure 'Legacy storage cleanup facade still owns raw file-transfer cleanup steps'
+} else {
+    Add-Pass 'Legacy storage cleanup facade has no raw file-transfer cleanup steps'
+}
+
+$immediateCleanupWrapper = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_cleanup_ble_immediate' `
+    'rdx_err_t rdx_storage_service_adjust_active_record_time' `
+    'legacy immediate BLE cleanup facade'
+Assert-OrderedTokens `
+    $immediateCleanupWrapper `
+    @('return rdx_file_transfer_compat_cleanup_record_disconnect()') `
+    'Legacy immediate storage cleanup facade'
+if ($immediateCleanupWrapper -match '\brdx_(?:uxfile|protocol)_[A-Za-z0-9_]+\s*\(') {
+    Add-Failure 'Legacy immediate storage cleanup facade still owns raw cleanup steps'
+} else {
+    Add-Pass 'Legacy immediate storage cleanup facade has no raw cleanup steps'
+}
+
+$storageTimeWrapper = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_adjust_active_record_time' `
+    'rdx_err_t rdx_storage_service_sdmmc_set_power' `
+    'storage time-correction service facade'
+Assert-OrderedTokens $storageTimeWrapper `
+    @('return rdx_storage_domain_adjust_active_record_time(delta_seconds)') `
+    'Storage time-correction service facade'
+if ($storageTimeWrapper -match '\b(?:uxfile_data_t|rdx_uxfile_get_operateFile_info)\b') {
+    Add-Failure 'Storage time-correction service facade still exposes raw uxfile state'
+} else {
+    Add-Pass 'Storage time-correction service facade has no raw uxfile state access'
+}
+
+$storageDomain = Read-Working "$rdxRel/internal/rdx_storage_domain.c"
+$storageTimeDomain = Get-FunctionSlice `
+    $storageDomain `
+    'rdx_err_t rdx_storage_domain_adjust_active_record_time' `
+    '' `
+    'storage time-correction domain adapter'
+Assert-OrderedTokens $storageTimeDomain `
+    @('rdx_uxfile_get_operateFile_info()',
+      'if (op && op->start_time > 0)',
+      'u32 corrected',
+      'y_printf(',
+      'op->start_time = corrected',
+      'return RDX_OK') `
+    'Storage time-correction query, gate, log and update order'
 
 $bleServer = Read-Working "$rdxRel/rdx_ble_server.c"
 $delayedBleHandler = Get-FunctionSlice `

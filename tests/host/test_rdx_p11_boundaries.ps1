@@ -190,17 +190,19 @@ if (-not ($script:Errors | Where-Object { $_ -like 'service public header*' })) 
 
 foreach ($privateHeaderRel in @(
     "$rdxRel/internal/rdx_record_domain.h",
-    "$rdxRel/compat/rdx_record_protocol_adapter.h"
+    "$rdxRel/internal/rdx_storage_domain.h",
+    "$rdxRel/compat/rdx_record_protocol_adapter.h",
+    "$rdxRel/compat/rdx_file_transfer_cleanup_compat.h"
 )) {
     $privateHeader = Join-Path $repo $privateHeaderRel
     if (-not (Test-Path -LiteralPath $privateHeader)) {
         continue
     }
     $masked = Mask-CComments ([System.IO.File]::ReadAllText($privateHeader))
-    if ([regex]::IsMatch($masked, '\bRecordStatus\b')) {
-        Add-Failure "clean private header exposes RecordStatus: $privateHeaderRel"
+    if ([regex]::IsMatch($masked, '\b(?:RecordStatus|ReqFileInfo|uxfile_data_t)\b')) {
+        Add-Failure "clean private header exposes a legacy type: $privateHeaderRel"
     } else {
-        Add-Pass "clean private header excludes RecordStatus: $privateHeaderRel"
+        Add-Pass "clean private header excludes legacy record/uxfile types: $privateHeaderRel"
     }
 }
 

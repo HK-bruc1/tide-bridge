@@ -81,6 +81,12 @@ function Invoke-P11Contracts {
         @('-Mode', $OwnershipMode)
     Invoke-Check 'P11 trace source contract' `
         (Join-Path $repo 'tests/host/test_rdx_p11_trace_scaffold.ps1')
+    Invoke-Check 'P11 protocol adapter Host contract' `
+        (Join-Path $repo 'tests/host/test_rdx_p11_protocol_adapter.ps1')
+    Invoke-Check 'P11 storage domain Host contract' `
+        (Join-Path $repo 'tests/host/test_rdx_p11_storage_domain.ps1')
+    Invoke-Check 'P11 file-transfer cleanup Host contract' `
+        (Join-Path $repo 'tests/host/test_rdx_p11_file_transfer_cleanup.ps1')
 }
 
 Write-Host "RDX verification: $Mode"

@@ -37,15 +37,15 @@
             Purpose = 'P11 narrow formatting-state query'
         }
         @{
-            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
-            Function = 'rdx_storage_service_cleanup_ble_buffers'
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_cleanup_compat.c'
+            Function = 'rdx_file_transfer_compat_cleanup_ble_delayed'
             Symbol = 'rdx_uxfile_recordFileData_sendBuf_free'
             Count = 1
             Purpose = 'Delayed/full BLE cleanup compatibility profile'
         }
         @{
-            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
-            Function = 'rdx_storage_service_cleanup_ble_buffers'
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_cleanup_compat.c'
+            Function = 'rdx_file_transfer_compat_cleanup_ble_delayed'
             Symbol = 'rdx_uxfile_datFileInfo_sendBuf_free'
             Count = 1
             Purpose = 'Delayed/full BLE cleanup DAT-list release'
@@ -429,18 +429,18 @@
             Purpose = 'P11 protocol adapter posts a reserved legacy payload slot'
         }
         @{
-            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
-            Function = 'rdx_storage_service_cleanup_ble_immediate'
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_cleanup_compat.c'
+            Function = 'rdx_file_transfer_compat_cleanup_record_disconnect'
             Symbol = 'rdx_uxfile_recordFileData_sendBuf_free'
             Count = 1
             Purpose = 'P11 immediate BLE cleanup preserves transfer-buffer-only release'
         }
         @{
-            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
-            Function = 'rdx_storage_service_adjust_active_record_time'
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_storage_domain.c'
+            Function = 'rdx_storage_domain_adjust_active_record_time'
             Symbol = 'rdx_uxfile_get_operateFile_info'
             Count = 1
-            Purpose = 'P11 storage owner adjusts active-file time after record running gate'
+            Purpose = 'P11 storage domain adjusts active-file time after record running gate'
         }
     )
 }

@@ -17,7 +17,7 @@ rdx_err_t rdx_storage_sync_stop(void);
 u8        rdx_storage_is_syncing(void);
 u8        rdx_storage_is_formatting(void);
 
-/* BLE cutover API — Stage 5 */
+/* Legacy BLE cleanup facades; retained for compatibility. */
 rdx_err_t rdx_storage_service_cleanup_ble_immediate(void);
 rdx_err_t rdx_storage_service_cleanup_ble_buffers(void);
 rdx_err_t rdx_storage_service_adjust_active_record_time(int delta_seconds);

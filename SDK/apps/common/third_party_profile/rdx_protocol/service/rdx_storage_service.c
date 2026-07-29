@@ -7,6 +7,8 @@
 #include "rdx_command_dispatch.h"
 #include "rdx_record_service.h"
 #include "rdx_wifi_service.h"
+#include "../compat/rdx_file_transfer_cleanup_compat.h"
+#include "../internal/rdx_storage_domain.h"
 
 extern u8 get_ota_status(void);
 
@@ -106,41 +108,20 @@ u8 rdx_storage_is_formatting(void)
 	return rdx_uxfile_sd_format_status_check();
 }
 
-/* BLE cleanup — Stage 5: moved from rdx_ble_service.c to break cross-layer coupling */
-extern void rdx_protocol_uploadFileInfo_clean(void);
-extern void rdx_protocol_file_sync_busy_timer_stop(void);
-extern void rdx_protocol_send_buffer_reinit(void);
+/* Frozen compatibility facade for the delayed/full BLE cleanup profile. */
+rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
+{
+	return rdx_file_transfer_compat_cleanup_ble_delayed();
+}
 
 rdx_err_t rdx_storage_service_cleanup_ble_immediate(void)
 {
-	rdx_protocol_uploadFileInfo_clean();
-	rdx_uxfile_recordFileData_sendBuf_free();
-	rdx_protocol_file_sync_busy_timer_stop();
-	rdx_protocol_send_buffer_reinit();
-	return RDX_OK;
-}
-
-rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
-{
-	rdx_protocol_uploadFileInfo_clean();
-	rdx_uxfile_recordFileData_sendBuf_free();
-	rdx_uxfile_datFileInfo_sendBuf_free();
-	rdx_protocol_file_sync_busy_timer_stop();
-	rdx_protocol_send_buffer_reinit();
-	return RDX_OK;
+	return rdx_file_transfer_compat_cleanup_record_disconnect();
 }
 
 rdx_err_t rdx_storage_service_adjust_active_record_time(int delta_seconds)
 {
-	uxfile_data_t *op = rdx_uxfile_get_operateFile_info();
-
-	if (op && op->start_time > 0) {
-		u32 corrected = (u32)((int)op->start_time + delta_seconds);
-		y_printf("[RTC_SYNC] Recording active, fix start_time: %u -> %u (delta=%d)\r",
-		         op->start_time, corrected, delta_seconds);
-		op->start_time = corrected;
-	}
-	return RDX_OK;
+	return rdx_storage_domain_adjust_active_record_time(delta_seconds);
 }
 
 /* board SD power — Stage 5 D-class from rdx_app.c */
