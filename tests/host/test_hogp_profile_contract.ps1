@@ -10,6 +10,11 @@ $RepoRoot = Get-HostTestRepoRoot
 $ProtocolRoot = 'SDK\apps\common\third_party_profile\rdx_protocol'
 $Header = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.h"
 $Profile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.c"
+$GattProfile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.c"
+$GattProfileHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.h"
+$GattPrivateFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_private_profile.inc"
+$HidFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_profile.inc"
+$DisFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_dis_profile.inc"
 $Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
 $KeyboardHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.h"
 $Config = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
@@ -20,7 +25,10 @@ $Syscfg = Read-RepoFile $RepoRoot 'SDK\interface\utils\syscfg_id.h'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
 $MultiProtocol = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\multi_protocol_main.c'
 $NormalizedHeader = (($Header -replace '\\', '') -replace '\s+', '')
-$NormalizedServer = (($Server -replace '\\', '') -replace '\s+', '')
+$NormalizedGattProfile = (($GattProfile -replace '\\', '') -replace '\s+', '')
+$NormalizedGattFragments = ((
+    $GattPrivateFragment + $HidFragment + $DisFragment
+) -replace '\\', '') -replace '\s+', ''
 
 $Handles = [ordered]@{
     HID_SERVICE_HANDLE                           = 0x0016
@@ -42,7 +50,7 @@ $Handles = [ordered]@{
 }
 foreach ($entry in $Handles.GetEnumerator()) {
     $match = [regex]::Match(
-        $Header,
+        $GattProfileHeader,
         '#define\s+' + [regex]::Escape($entry.Key) + '\s+(0x[0-9A-Fa-f]+)'
     )
     $actual = if ($match.Success) {
@@ -96,8 +104,39 @@ $ProfileTokens = @(
     'RDX_HOGP_ATT_REPORT_REFERENCE(HID_OUTPUT_REPORT_REFERENCE_HANDLE,RDX_HOGP_OUTPUT_REPORT_ID,RDX_HOGP_OUTPUT_REPORT_TYPE)'
 )
 Assert-Contract 'PROFILE_ATTRIBUTE_ORDER' `
-    (Test-TokensInOrder $NormalizedServer $ProfileTokens) `
+    (Test-TokensInOrder $NormalizedGattFragments $ProfileTokens) `
     'HID attributes must retain their externally visible order'
+
+$ReadCallback = Get-SourceSlice $Server `
+    'static uint16_t rdx_ble_server_att_read_callback(' `
+    '/**************************************************************************'
+$WriteCallback = Get-SourceSlice $Server `
+    'static int rdx_ble_server_att_write_callback(' `
+    'static u8 rdx_ble_server_adv_append_data('
+Assert-Contract 'GATT_PROFILE_OWNS_AGGREGATE_AND_ROUTES' `
+    ($GattProfile -match 'const\s+u8\s+rdx_profile_data\[\]' -and
+     $NormalizedGattProfile.Contains('#include"rdx_gatt_private_profile.inc"#include"rdx_hid_profile.inc"#include"rdx_dis_profile.inc"') -and
+     $GattProfileHeader -match '#define\s+RDX_GATT_GAP_NAME_VALUE_HANDLE\s+0x0003' -and
+     $GattProfileHeader -match '#define\s+RDX_GATT_COMMAND_VALUE_HANDLE\s+0x0006' -and
+     $GattProfileHeader -match '#define\s+RDX_GATT_NOTIFY_CCC_HANDLE\s+0x0009' -and
+     $GattProfileHeader -match '#define\s+RDX_GATT_BATTERY_CCC_HANDLE\s+0x000f' -and
+     $GattProfileHeader -match '#define\s+RDX_GATT_OTA_NOTIFY_CCC_HANDLE\s+0x0015' -and
+     $GattProfileHeader -match '#define\s+HID_SERVICE_HANDLE\s+0x0016' -and
+     $GattProfileHeader -match '#define\s+HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE\s+0x002c' -and
+     $GattProfileHeader -match '#define\s+DIS_SERVICE_HANDLE\s+0x002d' -and
+     $Header -notmatch '(?m)^\s*#define\s+(?:HID_|DIS_).*HANDLE' -and
+     $GattProfileHeader -match 'rdx_gatt_profile_dispatch_read' -and
+     $GattProfileHeader -match 'rdx_gatt_profile_dispatch_write' -and
+     $GattProfile -match '(?s)case\s+RDX_GATT_COMMAND_VALUE_HANDLE:.*?case\s+RDX_GATT_NOTIFY_CCC_HANDLE:.*?case\s+RDX_GATT_OTA_COMMAND_VALUE_HANDLE:.*?case\s+RDX_GATT_OTA_NOTIFY_CCC_HANDLE:.*?provider\s*=\s*ops->write_private' -and
+     $Server -match '(?s)static\s+const\s+rdx_gatt_profile_ops_t\s+g_rdx_gatt_profile_ops\s*=.*?\.read_gap_name.*?\.read_hid.*?\.write_battery_ccc.*?\.write_hid' -and
+     $ReadCallback -match 'rdx_gatt_profile_dispatch_read\s*\(' -and
+     $WriteCallback -match 'rdx_gatt_profile_dispatch_write\s*\(' -and
+     $ReadCallback -notmatch '\bswitch\s*\(|RDX_GATT_(?:READ|WRITE)_ROUTE|(?:HID|DIS|RDX_GATT_).*HANDLE' -and
+     $WriteCallback -notmatch '\bswitch\s*\(|RDX_GATT_(?:READ|WRITE)_ROUTE|(?:HID|DIS|RDX_GATT_).*HANDLE' -and
+     $Server -notmatch 'const\s+(?:uint8_t|u8)\s+rdx_profile_data\[\]' -and
+     $Server -notmatch '(?m)^\s*#define\s+(?:ATT_CHARACTERISTIC_|DIS_)' -and
+     $Makefile.Contains('rdx_gatt_profile.c')) `
+    'the profile module must own the ATT layout/fragments and dispatch SDK callbacks through narrow providers'
 
 $ByteContracts = @(
     '#defineRDX_HOGP_UUID_HID_SERVICE0x1812',

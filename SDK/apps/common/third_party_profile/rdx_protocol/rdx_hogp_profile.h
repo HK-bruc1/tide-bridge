@@ -3,10 +3,9 @@
  MODULE NAME: RDX BLE HID-over-GATT keyboard profile constants.
 
  GENERAL DESCRIPTION:
-    Single source of truth for HID Service handles, Report Map, HID Information,
-    and Report Reference descriptors. Both the GATT aggregate table in
-    rdx_ble_server.c and the HOGP ATT handlers in rdx_hogp_keyboard.c include
-    this file.
+    Single source of truth for the Report Map, HID Information and Report
+    Reference descriptors. The aggregate profile owns handles; this provider
+    consumes that immutable layout contract.
  =======================================================================================*/
 
 #ifndef _RDX_HOGP_PROFILE_H_
@@ -14,6 +13,7 @@
 
 #include "system/includes.h"
 #include "rdx_hogp_config.h"
+#include "rdx_gatt_profile.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,44 +81,6 @@ extern "C" {
 
 #define RDX_HOGP_CCC_DEFAULT_VALUE                       0x0000
 #define RDX_HOGP_OUTPUT_REPORT_DEFAULT_VALUE             0x00
-
-/******************************************************************************
-* HID Service handles (0x0016-0x0025)
-******************************************************************************/
-#define HID_SERVICE_HANDLE                                              0x0016
-#define HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE                         0x0017
-#define HID_PROTOCOL_MODE_VALUE_HANDLE                                  0x0018
-#define HID_INPUT_REPORT_CHARACTERISTIC_HANDLE                          0x0019
-#define HID_INPUT_REPORT_VALUE_HANDLE                                   0x001a
-#define HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE                    0x001b
-#define HID_INPUT_REPORT_REFERENCE_HANDLE                               0x001c
-#define HID_REPORT_MAP_CHARACTERISTIC_HANDLE                            0x001d
-#define HID_REPORT_MAP_VALUE_HANDLE                                     0x001e
-#define HID_INFORMATION_CHARACTERISTIC_HANDLE                           0x001f
-#define HID_INFORMATION_VALUE_HANDLE                                    0x0020
-#define HID_CONTROL_POINT_CHARACTERISTIC_HANDLE                         0x0021
-#define HID_CONTROL_POINT_VALUE_HANDLE                                  0x0022
-
-#define HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                         0x0023
-#define HID_OUTPUT_REPORT_VALUE_HANDLE                                  0x0024
-#define HID_OUTPUT_REPORT_REFERENCE_HANDLE                              0x0025
-
-/* Codex Micro Report ID 6 attributes. These are present only in V1/C1. */
-#define HID_CODEX_INPUT_REPORT_CHARACTERISTIC_HANDLE                    0x0026
-#define HID_CODEX_INPUT_REPORT_VALUE_HANDLE                             0x0027
-#define HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE              0x0028
-#define HID_CODEX_INPUT_REPORT_REFERENCE_HANDLE                         0x0029
-#define HID_CODEX_OUTPUT_REPORT_CHARACTERISTIC_HANDLE                   0x002a
-#define HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE                            0x002b
-#define HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE                        0x002c
-
-/* Handle-range helpers */
-#define HID_SERVICE_START_HANDLE                                        HID_SERVICE_HANDLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-#define HID_SERVICE_END_HANDLE                                          HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE
-#else
-#define HID_SERVICE_END_HANDLE                                          HID_OUTPUT_REPORT_REFERENCE_HANDLE
-#endif
 
 /******************************************************************************
 * Report Map (Standard 70-byte boot keyboard report descriptor)

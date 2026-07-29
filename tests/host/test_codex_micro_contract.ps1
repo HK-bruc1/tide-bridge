@@ -12,6 +12,10 @@ $Overlay = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\t2620_project_conf
 $Config = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
 $Header = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.h"
 $Profile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_profile.c"
+$GattProfile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.c"
+$GattProfileHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.h"
+$HidFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_profile.inc"
+$DisFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_dis_profile.inc"
 $Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
@@ -29,6 +33,7 @@ $CaptureTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\capture_bl
 $EvidenceTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\new_evidence_session.ps1'
 $NormalizedHeader = (($Header -replace '\\', '') -replace '\s+', '')
 $NormalizedServer = (($Server -replace '\\', '') -replace '\s+', '')
+$NormalizedHidFragment = (($HidFragment -replace '\\', '') -replace '\s+', '')
 $DefaultNameBody = [regex]::Match(
     $Server,
     '(?s)static u8 rdx_ble_server_default_local_name_build\(char \*name\).*?\n}'
@@ -99,7 +104,7 @@ $Handles = [ordered]@{
 }
 $handlesOk = $true
 foreach ($entry in $Handles.GetEnumerator()) {
-    $match = [regex]::Match($Header,
+    $match = [regex]::Match($GattProfileHeader,
         '#define\s+' + [regex]::Escape($entry.Key) + '\s+(0x[0-9A-Fa-f]+)')
     $handlesOk = $handlesOk -and $match.Success -and
         ([convert]::ToInt32($match.Groups[1].Value, 16) -eq $entry.Value)
@@ -114,18 +119,18 @@ $CodexTokens = @(
     'RDX_HOGP_ATT_REPORT_REFERENCE(HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE,RDX_CODEX_MICRO_REPORT_ID,RDX_CODEX_MICRO_OUTPUT_REPORT_TYPE)'
 )
 Assert-Contract 'CODEX_ATTRIBUTE_LAYOUT' `
-    ($handlesOk -and (Test-TokensInOrder $NormalizedServer $CodexTokens) -and
+    ($handlesOk -and (Test-TokensInOrder $NormalizedHidFragment $CodexTokens) -and
      $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_ID0x06') -and
      $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_BODY_LEN63') -and
      $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_DATA_LEN61')) `
     'ID 6 Input/CCC/Output attributes and Report References must retain the MVP handle layout'
 
 Assert-Contract 'DIS_AND_IDENTITY_POLICY' `
-    ($Server -match '(?s)#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?DIS_SERVICE_HANDLE\s+0x002d.*?DIS_MANUFACTURER_NAME_VALUE_HANDLE\s+0x0031' -and
-     $Server -match '0x02,\s*0x3a,\s*0x30,\s*0x60,\s*0x83,\s*0x01,\s*0x01' -and
-     $Server -match "'W',\s*'o',\s*'r',\s*'k',\s*' ',\s*'L',\s*'o',\s*'u',\s*'d',\s*'e',\s*'r'" -and
-     $Server -match '0x02,\s*0x34,\s*0x12,\s*0x01,\s*0x00,\s*0x01,\s*0x00' -and
-     $Server -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'" -and
+    ($GattProfileHeader -match '(?s)#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?DIS_SERVICE_HANDLE\s+0x002d.*?DIS_MANUFACTURER_NAME_VALUE_HANDLE\s+0x0031' -and
+     $DisFragment -match '0x02,\s*0x3a,\s*0x30,\s*0x60,\s*0x83,\s*0x01,\s*0x01' -and
+     $DisFragment -match "'W',\s*'o',\s*'r',\s*'k',\s*' ',\s*'L',\s*'o',\s*'u',\s*'d',\s*'e',\s*'r'" -and
+     $DisFragment -match '0x02,\s*0x34,\s*0x12,\s*0x01,\s*0x00,\s*0x01,\s*0x00' -and
+     $DisFragment -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'" -and
      $Server -match 'BLE_APPEARANCE_GENERIC_HID' -and
      $Server -match '(?s)#if\s+TCFG_RDX_HOGP_ENABLE.*?BLE_APPEARANCE_GENERIC_HID.*?#endif.*?#if\s+TCFG_RDX_HOGP_ENABLE.*?HCI_EIR_DATATYPE_APPEARANCE_DATA') `
     'DIS identity must remain policy-gated while Generic HID appearance follows the HOGP capability'
@@ -209,7 +214,8 @@ Assert-Contract 'FAST_EXCLUSIVE_ROUTING' `
     'keys 1..5 must enter one typed router, with key_id 4 exclusively emitting Fast ACT06 down/up'
 
 Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
-    ($Makefile.Contains('rdx_codex_micro.c') -and
+    ($Makefile.Contains('rdx_gatt_profile.c') -and
+     $Makefile.Contains('rdx_codex_micro.c') -and
      $Makefile.Contains('rdx_input_router.c') -and
      $Server -match 'rdx_codex_micro_init\s*\(' -and
      $Server -match 'rdx_codex_micro_deinit\s*\(' -and

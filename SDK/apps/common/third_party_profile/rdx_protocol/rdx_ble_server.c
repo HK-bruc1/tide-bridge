@@ -50,6 +50,7 @@
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_profile.h"
+#include "rdx_gatt_profile.h"
 #include "rdx_input_router.h"
 #include "rdx_codex_micro.h"
 #include "rdx_protocol.h"
@@ -95,34 +96,6 @@
 #define RDX_BLE_PHASE0A_ATT_ERR_VALUE_NOT_ALLOWED     0x13
 #define RDX_BLE_PHASE0A_ADV_RESTART_DELAY_MS          10
 
-// characteristics <--> handles
-#define ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE 0x0003
-#define ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE 0x0006
-#define ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_VALUE_HANDLE 0x0008
-#define ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE 0x0009
-#define ATT_CHARACTERISTIC_06068D3C_6B97_11EF_B864_0243AC120002_01_VALUE_HANDLE 0x000b
-#define ATT_CHARACTERISTIC_2A19_01_VALUE_HANDLE 0x000e
-#define ATT_CHARACTERISTIC_2A19_01_CLIENT_CONFIGURATION_HANDLE 0x000f
-#define ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE 0x0012
-#define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE 0x0014
-#define ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE 0x0015
-
-// Device Information Service handles (appended after the selected HID layout)
-#if TCFG_RDX_CODEX_MICRO_MODE
-#define DIS_SERVICE_HANDLE                                              0x002d
-#define DIS_PNP_ID_CHARACTERISTIC_HANDLE                                0x002e
-#define DIS_PNP_ID_VALUE_HANDLE                                         0x002f
-#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE                     0x0030
-#define DIS_MANUFACTURER_NAME_VALUE_HANDLE                              0x0031
-#else
-#define DIS_SERVICE_HANDLE                                              0x0026
-#define DIS_PNP_ID_CHARACTERISTIC_HANDLE                                0x0027
-#define DIS_PNP_ID_VALUE_HANDLE                                         0x0028
-#define DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE                     0x0029
-#define DIS_MANUFACTURER_NAME_VALUE_HANDLE                              0x002a
-#endif
-
-
 //0 ~ 5 reserved.
 #define ADV_MODE_BIT_MASK_AI_MODE                       (7)
 #define ADV_MODE_BIT_MASK_BOUND                         (6)
@@ -158,11 +131,26 @@ static u8 rdx_ble_server_unified_link_connected(const u8 *packet,
                                                 u8 enhanced);
 static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
                                                      u16 size);
-static u8 rdx_ble_server_is_rdx_capability_handle(u16 att_handle);
 static u8 rdx_ble_server_rdx_attach(u16 con_handle);
 #if TCFG_RDX_HOGP_ENABLE
 static u8 rdx_ble_server_hogp_attach(u16 con_handle);
 #endif
+static u16 rdx_ble_server_gatt_read_gap_name(
+    const rdx_gatt_read_context_t *context);
+static u16 rdx_ble_server_gatt_read_private_value(
+    const rdx_gatt_read_context_t *context);
+static u16 rdx_ble_server_gatt_read_battery(
+    const rdx_gatt_read_context_t *context);
+static u16 rdx_ble_server_gatt_read_hid(
+    const rdx_gatt_read_context_t *context);
+static int rdx_ble_server_gatt_write_battery_ccc(
+    const rdx_gatt_write_context_t *context);
+static int rdx_ble_server_gatt_write_private(
+    const rdx_gatt_write_context_t *context);
+static int rdx_ble_server_gatt_write_hid(
+    const rdx_gatt_write_context_t *context);
+static int rdx_ble_server_gatt_write_rejected(
+    const rdx_gatt_write_context_t *context);
 
 /******************************************************************************
 * Global variable Section
@@ -212,6 +200,17 @@ static rdx_ble_async_token_t g_rdx_ble_send_pending_token = {
     .slot_index = RDX_BLE_LINK_INVALID_INDEX,
 };
 static u16 g_rdx_ble_send_pending_count = 0;
+
+static const rdx_gatt_profile_ops_t g_rdx_gatt_profile_ops = {
+    .read_gap_name = rdx_ble_server_gatt_read_gap_name,
+    .read_private_value = rdx_ble_server_gatt_read_private_value,
+    .read_battery = rdx_ble_server_gatt_read_battery,
+    .read_hid = rdx_ble_server_gatt_read_hid,
+    .write_battery_ccc = rdx_ble_server_gatt_write_battery_ccc,
+    .write_private = rdx_ble_server_gatt_write_private,
+    .write_hid = rdx_ble_server_gatt_write_hid,
+    .write_rejected = rdx_ble_server_gatt_write_rejected,
+};
 
 typedef struct {
     rdx_ble_async_token_t token;
@@ -446,234 +445,6 @@ const char *const rdx_phy_result[] = {
     "1M",
     "2M",
     "Coded",
-};
-
-/*************************************************
-                  BLE 相关内容
-*************************************************/
-const uint8_t rdx_profile_data[] = {
-    //////////////////////////////////////////////////////
-    //
-    // 0x0001 PRIMARY_SERVICE  0x1800
-    //
-    //////////////////////////////////////////////////////
-    0x0a, 0x00, 0x02, 0x00, 0x01, 0x00, 0x00, 0x28, 0x00, 0x18,
-
-     /* CHARACTERISTIC,  2A00, READ | DYNAMIC, */
-    // 0x0002 CHARACTERISTIC 2A00 READ | DYNAMIC 
-    0x0d, 0x00, 0x02, 0x00, 0x02, 0x00, 0x03, 0x28, 0x02, 0x03, 0x00, 0x00, 0x2a,
-    // 0x0003 VALUE 2A00 READ | DYNAMIC  
-    0x08, 0x00, 0x02, 0x01, 0x03, 0x00, 0x00, 0x2a,
-
-    //////////////////////////////////////////////////////
-    //
-    // 0x0004 PRIMARY_SERVICE  06068D0C-6B97-11EF-B864-0240AC120002
-    //
-    //////////////////////////////////////////////////////
-    0x18, 0x00, 0x02, 0x00, 0x04, 0x00, 0x00, 0x28, 0x02, 0x00, 0x12, 0xac, 0x40, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x0c, 0x8d, 0x06, 0x06,
-
-     /* CHARACTERISTIC,  06068D1C-6B97-11EF-B864-0241AC120002, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
-    // 0x0005 CHARACTERISTIC 06068D1C-6B97-11EF-B864-0241AC120002 WRITE_WITHOUT_RESPONSE | DYNAMIC 
-    0x1b, 0x00, 0x02, 0x00, 0x05, 0x00, 0x03, 0x28, 0x04, 0x06, 0x00, 0x02, 0x00, 0x12, 0xac, 0x41, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x1c, 0x8d, 0x06, 0x06,
-    // 0x0006 VALUE 06068D1C-6B97-11EF-B864-0241AC120002 WRITE_WITHOUT_RESPONSE | DYNAMIC  
-    0x16, 0x00, 0x04, 0x03, 0x06, 0x00, 0x02, 0x00, 0x12, 0xac, 0x41, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x1c, 0x8d, 0x06, 0x06,
-
-     /* CHARACTERISTIC,  06068D2C-6B97-11EF-B864-0242AC120002, NOTIFY, */
-    // 0x0007 CHARACTERISTIC 06068D2C-6B97-11EF-B864-0242AC120002 NOTIFY 
-    0x1b, 0x00, 0x02, 0x00, 0x07, 0x00, 0x03, 0x28, 0x10, 0x08, 0x00, 0x02, 0x00, 0x12, 0xac, 0x42, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x2c, 0x8d, 0x06, 0x06,
-    // 0x0008 VALUE 06068D2C-6B97-11EF-B864-0242AC120002 NOTIFY  
-    0x16, 0x00, 0x10, 0x02, 0x08, 0x00, 0x02, 0x00, 0x12, 0xac, 0x42, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x2c, 0x8d, 0x06, 0x06,
-    // 0x0009 CLIENT_CHARACTERISTIC_CONFIGURATION 
-    0x0a, 0x00, 0x0a, 0x01, 0x09, 0x00, 0x02, 0x29, 0x00, 0x00,
-
-     /* CHARACTERISTIC,  06068D3C-6B97-11EF-B864-0243AC120002, READ | DYNAMIC, */
-    // 0x000a CHARACTERISTIC 06068D3C-6B97-11EF-B864-0243AC120002 READ | DYNAMIC 
-    0x1b, 0x00, 0x02, 0x00, 0x0a, 0x00, 0x03, 0x28, 0x02, 0x0b, 0x00, 0x02, 0x00, 0x12, 0xac, 0x43, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x3c, 0x8d, 0x06, 0x06,
-    // 0x000b VALUE 06068D3C-6B97-11EF-B864-0243AC120002 READ | DYNAMIC  
-    0x16, 0x00, 0x02, 0x03, 0x0b, 0x00, 0x02, 0x00, 0x12, 0xac, 0x43, 0x02, 0x64, 0xb8, 0xef, 0x11, 0x97, 0x6b, 0x3c, 0x8d, 0x06, 0x06,
-
-    //////////////////////////////////////////////////////
-    //
-    // 0x000c PRIMARY_SERVICE  0x180F
-    //
-    //////////////////////////////////////////////////////
-    0x0a, 0x00, 0x02, 0x00, 0x0c, 0x00, 0x00, 0x28, 0x0f, 0x18,
-
-     /* CHARACTERISTIC,  2A19, READ | NOTIFY | DYNAMIC, */
-    // 0x000d CHARACTERISTIC 2A19 READ | NOTIFY | DYNAMIC 
-    0x0d, 0x00, 0x02, 0x00, 0x0d, 0x00, 0x03, 0x28, 0x12, 0x0e, 0x00, 0x19, 0x2a,
-    // 0x000e VALUE 2A19 READ | NOTIFY | DYNAMIC  
-    0x08, 0x00, 0x12, 0x01, 0x0e, 0x00, 0x19, 0x2a,
-    // 0x000f CLIENT_CHARACTERISTIC_CONFIGURATION 
-    0x0a, 0x00, 0x0a, 0x01, 0x0f, 0x00, 0x02, 0x29, 0x00, 0x00,
-
-    //////////////////////////////////////////////////////
-    //
-    // 0x0010 PRIMARY_SERVICE  00239A6F-C616-89BB-3374-F05AF588A7B3
-    //
-    //////////////////////////////////////////////////////
-    0x18, 0x00, 0x02, 0x00, 0x10, 0x00, 0x00, 0x28, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf0, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x6f, 0x9a, 0x23, 0x00,
-
-     /* CHARACTERISTIC,  00239A7F-C616-89BB-3374-F15AF588A7B3, WRITE_WITHOUT_RESPONSE | DYNAMIC, */
-    // 0x0011 CHARACTERISTIC 00239A7F-C616-89BB-3374-F15AF588A7B3 WRITE_WITHOUT_RESPONSE | DYNAMIC 
-    0x1b, 0x00, 0x02, 0x00, 0x11, 0x00, 0x03, 0x28, 0x04, 0x12, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf1, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x7f, 0x9a, 0x23, 0x00,
-    // 0x0012 VALUE 00239A7F-C616-89BB-3374-F15AF588A7B3 WRITE_WITHOUT_RESPONSE | DYNAMIC  
-    0x16, 0x00, 0x04, 0x03, 0x12, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf1, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x7f, 0x9a, 0x23, 0x00,
-
-     /* CHARACTERISTIC,  00239A8F-C616-89BB-3374-F25AF588A7B3, NOTIFY, */
-    // 0x0013 CHARACTERISTIC 00239A8F-C616-89BB-3374-F25AF588A7B3 NOTIFY 
-    0x1b, 0x00, 0x02, 0x00, 0x13, 0x00, 0x03, 0x28, 0x10, 0x14, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf2, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x8f, 0x9a, 0x23, 0x00,
-    // 0x0014 VALUE 00239A8F-C616-89BB-3374-F25AF588A7B3 NOTIFY  
-    0x16, 0x00, 0x10, 0x02, 0x14, 0x00, 0xb3, 0xa7, 0x88, 0xf5, 0x5a, 0xf2, 0x74, 0x33, 0xbb, 0x89, 0x16, 0xc6, 0x8f, 0x9a, 0x23, 0x00,
-    // 0x0015 CLIENT_CHARACTERISTIC_CONFIGURATION
-    0x0a, 0x00, 0x0a, 0x01, 0x15, 0x00, 0x02, 0x29, 0x00, 0x00,
-
-    //////////////////////////////////////////////////////
-    //
-    // 0x0016 PRIMARY_SERVICE  0x1812 (HID)
-    //
-    //////////////////////////////////////////////////////
-#if TCFG_RDX_HOGP_ENABLE
-    RDX_HOGP_ATT_PRIMARY_SERVICE_16(HID_SERVICE_HANDLE, RDX_HOGP_UUID_HID_SERVICE),
-
-     /* CHARACTERISTIC,  2A4E, READ | WRITE_WITHOUT_RESPONSE | DYNAMIC; value requires encryption */
-    // 0x0017 CHARACTERISTIC 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_PROTOCOL_MODE_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_PROTOCOL_MODE,
-                                   HID_PROTOCOL_MODE_VALUE_HANDLE, RDX_HOGP_UUID_PROTOCOL_MODE),
-    // 0x0018 VALUE 2A4E READ | WRITE_WITHOUT_RESPONSE | DYNAMIC | ENCRYPTED READ/WRITE
-    RDX_HOGP_ATT_VALUE_16(HID_PROTOCOL_MODE_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_PROTOCOL_MODE_VALUE,
-                          RDX_HOGP_UUID_PROTOCOL_MODE),
-
-#if TCFG_RDX_CODEX_MICRO_MODE != RDX_CODEX_MICRO_MODE_VENDOR_ONLY
-     /* CHARACTERISTIC,  2A4D, READ | NOTIFY | DYNAMIC; value/CCC require encryption */
-    // 0x0019 CHARACTERISTIC 2A4D READ | NOTIFY | DYNAMIC
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INPUT_REPORT_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_INPUT_REPORT,
-                                   HID_INPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x001a VALUE 2A4D READ | NOTIFY | DYNAMIC | ENCRYPTED READ
-    RDX_HOGP_ATT_VALUE_16(HID_INPUT_REPORT_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,
-                          RDX_HOGP_UUID_REPORT),
-    // 0x001b CLIENT_CHARACTERISTIC_CONFIGURATION | ENCRYPTED READ/WRITE
-    RDX_HOGP_ATT_CCC(HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE, RDX_HOGP_CCC_DEFAULT_VALUE),
-    // 0x001c REPORT_REFERENCE, report_id=1, report_type=1 (Input)
-    RDX_HOGP_ATT_REPORT_REFERENCE(HID_INPUT_REPORT_REFERENCE_HANDLE,
-                                  RDX_HOGP_INPUT_REPORT_ID, RDX_HOGP_INPUT_REPORT_TYPE),
-#endif
-
-     /* CHARACTERISTIC,  2A4B, READ | DYNAMIC */
-    // 0x001d CHARACTERISTIC 2A4B READ | DYNAMIC
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_REPORT_MAP_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_REPORT_MAP,
-                                   HID_REPORT_MAP_VALUE_HANDLE, RDX_HOGP_UUID_REPORT_MAP),
-    // 0x001e VALUE 2A4B READ | DYNAMIC
-    RDX_HOGP_ATT_VALUE_16(HID_REPORT_MAP_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_REPORT_MAP_VALUE,
-                          RDX_HOGP_UUID_REPORT_MAP),
-
-     /* CHARACTERISTIC,  2A4A, READ | DYNAMIC */
-    // 0x001f CHARACTERISTIC 2A4A READ | DYNAMIC
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_INFORMATION_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_HID_INFORMATION,
-                                   HID_INFORMATION_VALUE_HANDLE, RDX_HOGP_UUID_HID_INFORMATION),
-    // 0x0020 VALUE 2A4A READ | DYNAMIC
-    RDX_HOGP_ATT_VALUE_16(HID_INFORMATION_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_HID_INFORMATION_VALUE,
-                          RDX_HOGP_UUID_HID_INFORMATION),
-
-     /* CHARACTERISTIC,  2A4C, WRITE_WITHOUT_RESPONSE | DYNAMIC; value requires encryption */
-    // 0x0021 CHARACTERISTIC 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CONTROL_POINT_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_CONTROL_POINT,
-                                   HID_CONTROL_POINT_VALUE_HANDLE,
-                                   RDX_HOGP_UUID_HID_CONTROL_POINT),
-    // 0x0022 VALUE 2A4C WRITE_WITHOUT_RESPONSE | DYNAMIC | ENCRYPTED WRITE
-    RDX_HOGP_ATT_VALUE_16(HID_CONTROL_POINT_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_CONTROL_POINT_VALUE,
-                          RDX_HOGP_UUID_HID_CONTROL_POINT),
-
-#if TCFG_RDX_CODEX_MICRO_MODE != RDX_CODEX_MICRO_MODE_VENDOR_ONLY
-    // 0x0023 CHARACTERISTIC 0x2A4D (Output Report)
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,
-                                   HID_OUTPUT_REPORT_VALUE_HANDLE, RDX_HOGP_UUID_REPORT),
-    // 0x0024 VALUE 0x2A4D, 1-byte keyboard LED bitmap, DYNAMIC | ENCRYPTED READ/WRITE
-    RDX_HOGP_ATT_VALUE_16(HID_OUTPUT_REPORT_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
-                          RDX_HOGP_UUID_REPORT),
-    // 0x0025 REPORT_REFERENCE (ID=1, Type=2=Output)
-    RDX_HOGP_ATT_REPORT_REFERENCE(HID_OUTPUT_REPORT_REFERENCE_HANDLE,
-                                  RDX_HOGP_OUTPUT_REPORT_ID,
-                                  RDX_HOGP_OUTPUT_REPORT_TYPE),
-#endif
-
-#if TCFG_RDX_CODEX_MICRO_MODE
-    // 0x0026-0x0029 Report ID 6 Input Value, CCC, and Report Reference
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CODEX_INPUT_REPORT_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_INPUT_REPORT,
-                                   HID_CODEX_INPUT_REPORT_VALUE_HANDLE,
-                                   RDX_HOGP_UUID_REPORT),
-    RDX_HOGP_ATT_VALUE_16(HID_CODEX_INPUT_REPORT_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_INPUT_REPORT_VALUE,
-                          RDX_HOGP_UUID_REPORT),
-    RDX_HOGP_ATT_CCC(HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE,
-                     RDX_HOGP_CCC_DEFAULT_VALUE),
-    RDX_HOGP_ATT_REPORT_REFERENCE(HID_CODEX_INPUT_REPORT_REFERENCE_HANDLE,
-                                  RDX_CODEX_MICRO_REPORT_ID,
-                                  RDX_CODEX_MICRO_INPUT_REPORT_TYPE),
-
-    // 0x002a-0x002c Report ID 6 Output Value and Report Reference
-    RDX_HOGP_ATT_CHARACTERISTIC_16(HID_CODEX_OUTPUT_REPORT_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_CHAR_PROP_OUTPUT_REPORT,
-                                   HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE,
-                                   RDX_HOGP_UUID_REPORT),
-    RDX_HOGP_ATT_VALUE_16(HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE,
-                          RDX_HOGP_ATT_FLAGS_OUTPUT_REPORT_VALUE,
-                          RDX_HOGP_UUID_REPORT),
-    RDX_HOGP_ATT_REPORT_REFERENCE(HID_CODEX_OUTPUT_REPORT_REFERENCE_HANDLE,
-                                  RDX_CODEX_MICRO_REPORT_ID,
-                                  RDX_CODEX_MICRO_OUTPUT_REPORT_TYPE),
-#endif
-#endif /* TCFG_RDX_HOGP_ENABLE */
-
-    //////////////////////////////////////////////////////
-    //
-    // Device Information Service
-    //
-    //////////////////////////////////////////////////////
-    RDX_HOGP_ATT_PRIMARY_SERVICE_16(DIS_SERVICE_HANDLE, 0x180a),
-
-     /* CHARACTERISTIC,  2A50, READ, */
-    // 0x0027 CHARACTERISTIC 2A50 READ
-    RDX_HOGP_ATT_CHARACTERISTIC_16(DIS_PNP_ID_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_ATT_PROP_READ,
-                                   DIS_PNP_ID_VALUE_HANDLE, 0x2a50),
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-    // PnP ID: source=USB-IF, VID=303A, PID=8360, version=0101 (little-endian)
-    0x0f, 0x00, 0x02, 0x00, RDX_HOGP_ATT_U16_LE(DIS_PNP_ID_VALUE_HANDLE),
-    0x50, 0x2a, 0x02, 0x3a, 0x30, 0x60, 0x83, 0x01, 0x01,
-#else
-    0x0f, 0x00, 0x02, 0x00, RDX_HOGP_ATT_U16_LE(DIS_PNP_ID_VALUE_HANDLE),
-    0x50, 0x2a, 0x02, 0x34, 0x12, 0x01, 0x00, 0x01, 0x00,
-#endif
-
-     /* CHARACTERISTIC,  2A29, READ, */
-    // 0x0029 CHARACTERISTIC 2A29 READ
-    RDX_HOGP_ATT_CHARACTERISTIC_16(DIS_MANUFACTURER_NAME_CHARACTERISTIC_HANDLE,
-                                   RDX_HOGP_ATT_PROP_READ,
-                                   DIS_MANUFACTURER_NAME_VALUE_HANDLE, 0x2a29),
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-    0x13, 0x00, 0x02, 0x00, RDX_HOGP_ATT_U16_LE(DIS_MANUFACTURER_NAME_VALUE_HANDLE),
-    0x29, 0x2a, 'W', 'o', 'r', 'k', ' ', 'L', 'o', 'u', 'd', 'e', 'r',
-#else
-    0x0d, 0x00, 0x02, 0x00, RDX_HOGP_ATT_U16_LE(DIS_MANUFACTURER_NAME_VALUE_HANDLE),
-    0x29, 0x2a, 'J', 'i', 'e', 'L', 'i',
-#endif
-
-    // END
-    0x00, 0x00,
 };
 
 /******************************************************************************
@@ -1824,22 +1595,6 @@ static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
     rdx_ble_server_disconnected_idle_policy_resume();
 }
 
-static u8 rdx_ble_server_is_rdx_capability_handle(u16 att_handle)
-{
-    switch (att_handle) {
-    case ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE:
-    case ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_VALUE_HANDLE:
-    case ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE:
-    case ATT_CHARACTERISTIC_06068D3C_6B97_11EF_B864_0243AC120002_01_VALUE_HANDLE:
-    case ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE:
-    case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE:
-    case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 static u8 rdx_ble_server_rdx_attach(u16 con_handle)
 {
     if (!rdx_ble_session_is_current(con_handle)) {
@@ -2317,133 +2072,98 @@ static int rdx_ble_server_gatts_value_set(u8 *p_data, u8 length)
     return 0;
 }
 
-/**************************************************************************
- * function: rdx_ble_server_att_read_callback
- * description: 
- * param (void) *hdl
- * param (hci_con_handle_t) connection_handle
- * param (uint16_t) att_handle
- * param (uint16_t) offset
- * param (uint8_t) *buffer
- * param (uint16_t) buffer_size
- * return (*)
- **************************************************************************/
-static uint16_t rdx_ble_server_att_read_callback(void *hdl, hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t offset, uint8_t *buffer, uint16_t buffer_size)
+static u16 rdx_ble_server_gatt_read_gap_name(
+    const rdx_gatt_read_context_t *context)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    uint16_t att_value_len = 0;
-    uint16_t handle = att_handle;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
+    const char *gap_name = rdx_ble_server_get_local_name();
+    u16 att_value_len = strlen(gap_name);
+
+    if ((context->offset >= att_value_len) ||
+        (context->offset + context->buffer_size) > att_value_len) {
+        return att_value_len;
+    }
+    if (context->buffer) {
+        memcpy(context->buffer, &gap_name[context->offset],
+               context->buffer_size);
+        att_value_len = context->buffer_size;
+        log_info("\n------read gap_name: %s \r", gap_name);
+    }
+    return att_value_len;
+}
+
+static u16 rdx_ble_server_gatt_read_private_value(
+    const rdx_gatt_read_context_t *context)
+{
+    char *value = rdx_app_earphone_get_readchardata();
+
+#if (RDX_AI_TRANSLATE_SUPPORT == 1)
+    y_printf("%s --> readchardata: %s \r", __func__, value);
+#endif
+    if (context->buffer) {
+        strncpy((char *)context->buffer, value, BLE_READCHAR_INFO_SIZE);
+#if (RDX_AI_TRANSLATE_SUPPORT != 1)
+        y_printf("%s --> readchardata: %s \r", __func__, context->buffer);
+#endif
+    }
+    return BLE_READCHAR_INFO_SIZE;
+}
+
+static u16 rdx_ble_server_gatt_read_battery(
+    const rdx_gatt_read_context_t *context)
+{
+    u8 master_bat = rdx_battery_get_percent();
+
+    if (master_bat > 100) {
+        master_bat = 100;
+    }
+    y_printf("%s --> master_bat: %d \r", __func__, master_bat);
+    if (context->buffer) {
+        context->buffer[0] = master_bat;
+    }
+    return 1;
+}
+
+static u16 rdx_ble_server_gatt_read_hid(
+    const rdx_gatt_read_context_t *context)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    u16 att_value_len = rdx_hogp_att_read(
+        context->connection_handle, context->att_handle, context->offset,
+        context->buffer, context->buffer_size);
+
+    if (att_value_len) {
+        y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r",
+                 context->att_handle, context->offset, att_value_len);
+    }
+    return att_value_len;
+#else
+    (void)context;
+    return 0;
+#endif
+}
+
+static uint16_t rdx_ble_server_att_read_callback(
+    void *hdl, hci_con_handle_t connection_handle, uint16_t att_handle,
+    uint16_t offset, uint8_t *buffer, uint16_t buffer_size)
+{
+    rdx_gatt_read_context_t context = {
+        .ble_hdl = hdl,
+        .connection_handle = connection_handle,
+        .att_handle = att_handle,
+        .offset = offset,
+        .buffer = buffer,
+        .buffer_size = buffer_size,
+    };
+    u16 att_value_len;
+
     if (!rdx_ble_server_phase0a_event_matches(hdl, connection_handle,
                                                "att_read")) {
         return 0;
     }
-    r_printf("<-------------read_callback, handle= 0x%04x,buffer= %08x \r", handle, (u32)buffer);
-
-    switch (handle) {
-        case ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE:
-            const char *gap_name = rdx_ble_server_get_local_name();//bt_get_local_name();
-            att_value_len = strlen(gap_name);
-            if ((offset >= att_value_len) || (offset + buffer_size) > att_value_len) {
-                break;
-            }
-            if (buffer) {
-                memcpy(buffer, &gap_name[offset], buffer_size);
-                att_value_len = buffer_size;
-                log_info("\n------read gap_name: %s \r", gap_name);
-            }
-
-            // att_value_len = 24;
-            // if (buffer) {
-            //     uint8_t *p_data = rdx_get_ble_characteristic_value(&att_value_len);
-            //     memcpy(buffer, (void *)p_data, att_value_len);
-            // }
-
-            break;
-
-        case ATT_CHARACTERISTIC_06068D3C_6B97_11EF_B864_0243AC120002_01_VALUE_HANDLE:
-            {
-            #if (RDX_AI_TRANSLATE_SUPPORT == 1)
-                //readchar data read.
-                char* p = rdx_app_earphone_get_readchardata();
-                y_printf("%s --> readchardata: %s \r", __func__, p);
-                att_value_len = BLE_READCHAR_INFO_SIZE;
-                if (buffer) {
-                    strncpy(buffer, p, BLE_READCHAR_INFO_SIZE);
-                } 
-            #else
-                // if (buffer) {
-                //     buffer[0] = att_get_ccc_config(handle);
-                //     buffer[1] = 0;
-                // }
-                // att_value_len = 2;
-
-                
-                //readchar data read.
-                char* p = rdx_app_earphone_get_readchardata();
-                att_value_len = BLE_READCHAR_INFO_SIZE;
-                if (buffer) {
-                    strncpy((char*)buffer, p, BLE_READCHAR_INFO_SIZE);
-                    y_printf("%s --> readchardata: %s \r", __func__, buffer);
-                } 
-            #endif
-            }
-            break;
-
-        case ATT_CHARACTERISTIC_2A19_01_VALUE_HANDLE:
-            {
-                //battery read.
-            #if 0
-                DeviceBatInfo* pb = rdx_protocol_update_dev_battery_level();
-                char d[30];
-                memset(d, 0, 30);
-                sprintf(d, "<%d,%d,%d>", pb->tbat_percent_L, pb->tbat_percent_R, pb->tbat_percent_C);
-                att_value_len = strlen(d);
-                y_printf("%s --> %s, att_value_len = %d \r", __func__, d, att_value_len);
-                if(buffer){
-                    strncpy(buffer, d, att_value_len);
-                }
-            #else
-                u8 master_bat = rdx_battery_get_percent();//get_self_battery_level() * 10 + 10;
-                if (master_bat > 100) {
-                    master_bat = 100;
-                }  
-                y_printf("%s --> master_bat: %d \r", __func__, master_bat);
-
-                att_value_len = 1;
-                if (buffer) {
-                    buffer[0] = master_bat;
-                }   
-            #endif  
-            }
-            break;
-
-        case HID_PROTOCOL_MODE_VALUE_HANDLE:
-        case HID_REPORT_MAP_VALUE_HANDLE:
-        case HID_INFORMATION_VALUE_HANDLE:
-        case HID_INPUT_REPORT_VALUE_HANDLE:
-        case HID_OUTPUT_REPORT_VALUE_HANDLE:
-        case HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-#if TCFG_RDX_CODEX_MICRO_MODE
-        case HID_CODEX_INPUT_REPORT_VALUE_HANDLE:
-        case HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE:
-        case HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE:
-#endif
-#if TCFG_RDX_HOGP_ENABLE
-            att_value_len = rdx_hogp_att_read(connection_handle, handle, offset, buffer, buffer_size);
-            if (att_value_len) {
-                y_printf("[HOGP] read hdl=0x%04x offset=%d len=%d\r", handle, offset, att_value_len);
-            }
-#endif
-            break;
-        default:
-            break;
-    }
-
+    r_printf("<-------------read_callback, handle= 0x%04x,buffer= %08x \r",
+             att_handle, (u32)buffer);
+    att_value_len = rdx_gatt_profile_dispatch_read(
+        &context, &g_rdx_gatt_profile_ops);
     log_info("\natt_value_len = %d \r", att_value_len);
     return att_value_len;
 }
@@ -2686,9 +2406,9 @@ static int rdx_ble_server_phase2_rdx_write(
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
     if (att_handle ==
-            ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE ||
+            RDX_GATT_NOTIFY_CCC_HANDLE ||
         att_handle ==
-            ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE) {
+            RDX_GATT_OTA_NOTIFY_CCC_HANDLE) {
         if (buffer_size != 2) {
             return RDX_BLE_PHASE0A_ATT_ERR_INVALID_VALUE_LEN;
         }
@@ -2699,7 +2419,7 @@ static int rdx_ble_server_phase2_rdx_write(
         if (cfg == 0x0000) {
             multi_att_set_ccc_config(link->con_handle, att_handle, cfg);
             if (att_handle ==
-                    ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE &&
+                    RDX_GATT_NOTIFY_CCC_HANDLE &&
                 rdx_ble_session_link_is_rdx(link)) {
                 rdx_ble_server_syn_data_timers_cancel();
                 link->rdx_ccc_configured = 0;
@@ -2712,21 +2432,21 @@ static int rdx_ble_server_phase2_rdx_write(
     }
 
     switch (att_handle) {
-    case ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE:
+    case RDX_GATT_COMMAND_VALUE_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
             return attach_error;
         }
         rdx_ble_server_gatt_receive_data(buffer, buffer_size);
         return 0;
-    case ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE:
+    case RDX_GATT_OTA_COMMAND_VALUE_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
             return attach_error;
         }
         rdx_protocol_ota_handle(buffer, buffer_size);
         return 0;
-    case ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE:
+    case RDX_GATT_NOTIFY_CCC_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
             return attach_error;
@@ -2745,7 +2465,7 @@ static int rdx_ble_server_phase2_rdx_write(
             }
         }
         return 0;
-    case ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE:
+    case RDX_GATT_OTA_NOTIFY_CCC_HANDLE:
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
             return attach_error;
@@ -2784,7 +2504,7 @@ static int rdx_ble_server_phase0a_hogp_control_write(
     }
 
     switch (att_handle) {
-    case ATT_CHARACTERISTIC_2A19_01_CLIENT_CONFIGURATION_HANDLE: {
+    case RDX_GATT_BATTERY_CCC_HANDLE: {
         u16 cfg;
         u8 battery;
         if (buffer_size != 2) {
@@ -2804,7 +2524,7 @@ static int rdx_ble_server_phase0a_hogp_control_write(
             }
             int send_ret = ble_op_multi_att_send_data(
                 connection_handle,
-                ATT_CHARACTERISTIC_2A19_01_VALUE_HANDLE,
+                RDX_GATT_BATTERY_VALUE_HANDLE,
                 &battery, sizeof(battery), ATT_OP_AUTO_READ_CCC);
             r_printf("[RDX_BLE_GATT] Battery test notify con=0x%04x ret=%d\n",
                      connection_handle, send_ret);
@@ -2893,6 +2613,103 @@ static int rdx_ble_server_phase0a_hogp_control_write(
     return 0;
 }
 
+static int rdx_ble_server_gatt_write_battery_ccc(
+    const rdx_gatt_write_context_t *context)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    return rdx_ble_server_phase0a_hogp_control_write(
+        context->ble_hdl, context->connection_handle, context->att_handle,
+        context->offset, context->buffer, context->buffer_size);
+#else
+    return rdx_ble_server_gatt_write_rejected(context);
+#endif
+}
+
+static int rdx_ble_server_gatt_write_private(
+    const rdx_gatt_write_context_t *context)
+{
+    return rdx_ble_server_phase2_rdx_write(
+        rdx_ble_server_phase0b_link_find(context->ble_hdl,
+                                         context->connection_handle),
+        context->att_handle, context->offset, context->buffer,
+        context->buffer_size);
+}
+
+static int rdx_ble_server_gatt_write_hid(
+    const rdx_gatt_write_context_t *context)
+{
+#if TCFG_RDX_HOGP_ENABLE
+    rdx_ble_link_state_t *link = rdx_ble_server_phase0b_link_find(
+        context->ble_hdl, context->connection_handle);
+    u16 cfg = (context->buffer && context->buffer_size == 2) ?
+              (context->buffer[0] | (context->buffer[1] << 8)) : 0xffff;
+    int result;
+
+    if ((context->att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+         || context->att_handle ==
+                HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#endif
+        ) && cfg == 0x0000) {
+        if (rdx_ble_session_link_is_hid(link)) {
+            return rdx_hogp_att_write(
+                context->connection_handle, context->att_handle,
+                context->transaction_mode, context->offset,
+                context->buffer, context->buffer_size);
+        }
+        multi_att_set_ccc_config(context->connection_handle,
+                                 context->att_handle, 0);
+        return 0;
+    }
+    if ((context->att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+         || context->att_handle ==
+                HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#endif
+        ) && cfg == 0x0001) {
+        if (!link || !link->encrypted) {
+            if (link) {
+                rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+            }
+            r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x (no claim)\n",
+                     context->connection_handle);
+            sm_api_request_pairing(context->connection_handle);
+            return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
+        }
+        rdx_ble_session_link_set_hid_pairing_pending(link, 0);
+        result = rdx_ble_server_phase2_hid_attach(link);
+        if (result) {
+            return result;
+        }
+#if TCFG_RDX_CODEX_MICRO_MODE
+    } else if (context->att_handle == HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE &&
+               !rdx_ble_session_link_is_hid(link)) {
+        return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+#endif
+    } else if (!rdx_ble_session_link_is_hid(link)) {
+        /* Windows may write Protocol Mode before it enables Input CCC. */
+        return rdx_ble_server_phase0a_hogp_control_write(
+            context->ble_hdl, context->connection_handle,
+            context->att_handle, context->offset, context->buffer,
+            context->buffer_size);
+    }
+    return rdx_hogp_att_write(
+        context->connection_handle, context->att_handle,
+        context->transaction_mode, context->offset,
+        context->buffer, context->buffer_size);
+#else
+    return rdx_ble_server_gatt_write_rejected(context);
+#endif
+}
+
+static int rdx_ble_server_gatt_write_rejected(
+    const rdx_gatt_write_context_t *context)
+{
+    r_printf("[RDX_BLE_GATT] write rejected att=0x%04x\n",
+             context->att_handle);
+    return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+}
+
 /**************************************************************************
  * function: rdx_ble_server_att_write_callback
  * description:
@@ -2907,99 +2724,22 @@ static int rdx_ble_server_phase0a_hogp_control_write(
  **************************************************************************/
 static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, uint16_t offset, uint8_t *buffer, uint16_t buffer_size)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    int result = 0;
-    u16 tmp16;
-    u16 handle = att_handle;
-    rdx_ble_link_state_t *link;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    link = rdx_ble_server_phase0b_link_find(hdl, connection_handle);
+    rdx_gatt_write_context_t context = {
+        .ble_hdl = hdl,
+        .connection_handle = connection_handle,
+        .att_handle = att_handle,
+        .transaction_mode = transaction_mode,
+        .offset = offset,
+        .buffer = buffer,
+        .buffer_size = buffer_size,
+    };
 
-    (void)tmp16;
-    (void)transaction_mode;
     if (!rdx_ble_server_phase0a_event_matches(hdl, connection_handle,
                                                "att_write")) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
-#if TCFG_RDX_HOGP_ENABLE
-    if (handle == ATT_CHARACTERISTIC_2A19_01_CLIENT_CONFIGURATION_HANDLE) {
-        return rdx_ble_server_phase0a_hogp_control_write(
-            hdl, connection_handle, handle, offset, buffer, buffer_size);
-    }
-    if (handle >= HID_SERVICE_START_HANDLE &&
-        handle <= HID_SERVICE_END_HANDLE) {
-        u16 cfg = (buffer && buffer_size == 2) ?
-                  (buffer[0] | (buffer[1] << 8)) : 0xffff;
-
-        if ((handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-             || handle == HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#endif
-            ) &&
-            cfg == 0x0000) {
-            if (rdx_ble_session_link_is_hid(link)) {
-                return rdx_hogp_att_write(connection_handle, handle,
-                                          transaction_mode, offset,
-                                          buffer, buffer_size);
-            }
-            multi_att_set_ccc_config(connection_handle, handle, 0);
-            return 0;
-        }
-        if ((handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-             || handle == HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#endif
-            ) &&
-            cfg == 0x0001) {
-            if (!link || !link->encrypted) {
-                if (link) {
-                    rdx_ble_session_link_set_hid_pairing_pending(link, 1);
-                }
-                r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x (no claim)\n",
-                         connection_handle);
-                sm_api_request_pairing(connection_handle);
-                return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
-            }
-            rdx_ble_session_link_set_hid_pairing_pending(link, 0);
-            result = rdx_ble_server_phase2_hid_attach(link);
-            if (result) {
-                return result;
-            }
-#if TCFG_RDX_CODEX_MICRO_MODE
-        } else if (handle == HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE &&
-                   !rdx_ble_session_link_is_hid(link)) {
-            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
-#endif
-        } else if (!rdx_ble_session_link_is_hid(link)) {
-            /* Windows may write Protocol Mode before it enables Input CCC.
-             * Preserve the enumeration control plane without claiming HID or
-             * mutating the HOGP singleton. */
-            return rdx_ble_server_phase0a_hogp_control_write(
-                hdl, connection_handle, handle, offset, buffer, buffer_size);
-        }
-        return rdx_hogp_att_write(connection_handle, handle,
-                                  transaction_mode, offset,
-                                  buffer, buffer_size);
-    }
-#else
-    (void)offset;
-    (void)buffer;
-    (void)buffer_size;
-#endif
-    if (handle == ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE ||
-        handle == ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE ||
-        handle == ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE ||
-        handle == ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE) {
-        return rdx_ble_server_phase2_rdx_write(
-            rdx_ble_server_phase0b_link_find(hdl, connection_handle),
-            handle, offset, buffer, buffer_size);
-    }
-    r_printf("[RDX_BLE_GATT] write rejected att=0x%04x\n", handle);
-    return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+    return rdx_gatt_profile_dispatch_write(
+        &context, &g_rdx_gatt_profile_ops);
 }
 
 static u8 rdx_ble_server_adv_append_data(u8 *adv_data,
@@ -3589,7 +3329,7 @@ static int rdx_ble_server_send_internal(
     }
     rdx_ble_server_rdx_send_pending_arm(&snapshot);
     ret = app_ble_att_send_data(send_hdl,
-                               ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_VALUE_HANDLE,
+                               RDX_GATT_NOTIFY_VALUE_HANDLE,
                                data, len, ATT_OP_AUTO_READ_CCC);
     if (ret) {
         g_ble_send_fail_cnt++;
@@ -3666,7 +3406,7 @@ static int rdx_ble_server_ota_send_internal(
         return -1;
     }
     rdx_ble_server_rdx_send_pending_arm(&snapshot);
-    ret = app_ble_att_send_data(send_hdl, ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_VALUE_HANDLE, data, len, ATT_OP_AUTO_READ_CCC);
+    ret = app_ble_att_send_data(send_hdl, RDX_GATT_OTA_NOTIFY_VALUE_HANDLE, data, len, ATT_OP_AUTO_READ_CCC);
     if (ret) {
         log_info("ota data send fail\n");
         rdx_ble_server_rdx_send_pending_cancel(&snapshot);
