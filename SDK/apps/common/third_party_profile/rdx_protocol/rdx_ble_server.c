@@ -811,11 +811,6 @@ static u8 rdx_ble_server_local_name_copy(char *dst, const char *src, u8 len)
 
 static u8 rdx_ble_server_default_local_name_build(char *name)
 {
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-    snprintf(name, BLE_LOCAL_NAME_MAX_LEN + 1, "%s", "Codex Micro");
-    name[BLE_LOCAL_NAME_MAX_LEN] = '\0';
-    return (u8)strlen(name);
-#else
     DevBaseInfo *p = rdx_app_get_dev_base_info();
     u8 suffix[5] = {0};
 
@@ -829,7 +824,6 @@ static u8 rdx_ble_server_default_local_name_build(char *name)
     }
     name[BLE_LOCAL_NAME_MAX_LEN] = '\0';
     return (u8)strlen(name);
-#endif
 }
 
 static int rdx_ble_server_local_name_store(const char *name, u8 len, u8 refresh_adv)
@@ -891,11 +885,6 @@ char* rdx_ble_server_get_local_name(void)
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-    rdx_ble_server_default_local_name_build(tmp);
-    rdx_ble_server_local_name_copy(g_rdx_ble_server_info.ble_local_name,
-                                   tmp, (u8)strlen(tmp));
-#else
     int ret = syscfg_read(VM_RDX_BLE_NAME, tmp, BLE_LOCAL_NAME_MAX_LEN);
     if (ret <= 0) {
         log_info("===> %s --> local name set default! \r", __func__);
@@ -906,7 +895,6 @@ char* rdx_ble_server_get_local_name(void)
         rdx_ble_server_local_name_copy(g_rdx_ble_server_info.ble_local_name,
                                        tmp, (u8)ret);
     }
-#endif
     return g_rdx_ble_server_info.ble_local_name;
 }
 
@@ -3047,7 +3035,7 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     const u8 flags[] = {0x0A};
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
+#if TCFG_RDX_HOGP_ENABLE
     const u8 appearance[] = {
         (u8)(BLE_APPEARANCE_GENERIC_HID & 0xff),
         (u8)(BLE_APPEARANCE_GENERIC_HID >> 8)
@@ -3072,7 +3060,7 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
                                         name_type, name_p, name_len)) {
         return 0;
     }
-#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
+#if TCFG_RDX_HOGP_ENABLE
     if (!rdx_ble_server_adv_append_data(adv_data, &offset,
                                         HCI_EIR_DATATYPE_APPEARANCE_DATA,
                                         appearance, sizeof(appearance))) {

@@ -97,36 +97,31 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
-/*
- * Codex Micro Windows MVP experiment. Keep both switches disabled for normal
- * product builds. Mode 1 exposes only Report ID 6 (V1); mode 2 exposes the
- * keyboard plus Report ID 6 (C1). The reference identity is a separate guard
- * because it is test-only and must never enter a release image.
- */
+/* Product default: composite keyboard + Codex Report ID 6. */
 #ifndef TCFG_RDX_CODEX_MICRO_MODE
-#define TCFG_RDX_CODEX_MICRO_MODE                  0
+#define TCFG_RDX_CODEX_MICRO_MODE                  2
 #endif
 
+/*
+ * Current all image keeps the product name but uses the verified reference
+ * Manufacturer/PnP pair. This is a laboratory compatibility image, not a
+ * production identity.
+ */
 #ifndef TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-#define TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE  0
+#define TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE  1
 #endif
 
 #ifndef TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE
-#define TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE 0
+#define TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE 1
 #endif
 
 #if TCFG_RDX_CODEX_MICRO_MODE < 0 || TCFG_RDX_CODEX_MICRO_MODE > 2
 #error "TCFG_RDX_CODEX_MICRO_MODE must be 0 (C0), 1 (V1), or 2 (C1)"
 #endif
 
-#if TCFG_RDX_CODEX_MICRO_MODE && !TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE
-#error "Codex Micro V1/C1 requires the explicit test-identity guard"
-#endif
-
-#if (TCFG_RDX_CODEX_MICRO_MODE || \
-     TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE) && \
+#if TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE && \
     !TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE
-#error "Codex Micro reference personas require an explicit experimental build"
+#error "Codex Micro reference identity requires an explicit experimental build"
 #endif
 
 /* -------------------------------------------------------------------------- */

@@ -32,7 +32,7 @@ static const rdx_input_action_map_t s_rdx_input_test_map = {
           { 0, HID_KEYBOARD_USAGE_BACKSPACE, 0, 0, 0, 0, 0 } },
         { RDX_INPUT_ACTION_KEYBOARD,
           { 0, HID_KEYBOARD_USAGE_ENTER, 0, 0, 0, 0, 0 } },
-        { RDX_INPUT_ACTION_CODEX_AGENT, { 0, 0, 0, 0, 0, 0, 0 } },
+        { RDX_INPUT_ACTION_CODEX_FAST, { 0, 0, 0, 0, 0, 0, 0 } },
     },
 };
 #endif
@@ -91,9 +91,8 @@ static u8 rdx_input_router_entry_is_valid(
         return rdx_input_router_data_is_zero(entry->data, 0);
     case RDX_INPUT_ACTION_KEYBOARD:
         return 1;
-    case RDX_INPUT_ACTION_CODEX_AGENT:
-        return entry->data[0] == 0 &&
-               rdx_input_router_data_is_zero(entry->data, 1);
+    case RDX_INPUT_ACTION_CODEX_FAST:
+        return rdx_input_router_data_is_zero(entry->data, 0);
     default:
         return 0;
     }
@@ -154,7 +153,7 @@ void rdx_input_router_keyboard_ready_drop_cleanup(void)
 void rdx_input_router_reset(void)
 {
     rdx_input_router_keyboard_ready_drop_cleanup();
-    rdx_codex_micro_agent_key_release_all();
+    rdx_codex_micro_fast_key_release_all();
 }
 
 void rdx_input_router_deinit(void)
@@ -208,11 +207,11 @@ int rdx_input_router_click(u8 physical_key_id)
         return RDX_INPUT_ROUTER_OK;
     case RDX_INPUT_ACTION_KEYBOARD:
         return rdx_input_router_keyboard_click(entry);
-    case RDX_INPUT_ACTION_CODEX_AGENT:
-        if (entry->data[0] != 0 || !rdx_hogp_codex_is_ready()) {
+    case RDX_INPUT_ACTION_CODEX_FAST:
+        if (!rdx_hogp_codex_is_ready()) {
             return RDX_INPUT_ROUTER_NOT_SENT;
         }
-        return rdx_codex_micro_agent_key_click() ?
+        return rdx_codex_micro_fast_key_click() ?
                RDX_INPUT_ROUTER_NOT_SENT : RDX_INPUT_ROUTER_OK;
     default:
         return RDX_INPUT_ROUTER_INVALID;

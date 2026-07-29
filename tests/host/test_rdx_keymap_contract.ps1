@@ -70,13 +70,13 @@ Assert-Contract 'KEYMAP_RELEASE_BEFORE_APPLY' `
         'memcpy('
      )) -and
      $reset -match 'rdx_input_router_keyboard_ready_drop_cleanup\s*\(\s*\)' -and
-     $reset -match 'rdx_codex_micro_agent_key_release_all\s*\(\s*\)') `
+     $reset -match 'rdx_codex_micro_fast_key_release_all\s*\(\s*\)') `
     'hot replacement must release both typed providers before publishing new actions'
 
 $typedMapOk = $RouterHeader -match '#define\s+RDX_INPUT_ACTION_DATA_LEN\s+7' -and
               $RouterHeader -match '#define\s+RDX_INPUT_ACTION_NONE\s+0x00' -and
               $RouterHeader -match '#define\s+RDX_INPUT_ACTION_KEYBOARD\s+0x01' -and
-              $RouterHeader -match '#define\s+RDX_INPUT_ACTION_CODEX_AGENT\s+0x02' -and
+              $RouterHeader -match '#define\s+RDX_INPUT_ACTION_CODEX_FAST\s+0x02' -and
               $Router -match 'sizeof\(rdx_input_action_entry_t\)\s*==\s*8' -and
               $Service -match '(?s)memcmp\s*\(\s*entry.*?RDX_HOGPKM_ENTRY_LEN\s*\)\s*==\s*0\s*\?\s*RDX_INPUT_ACTION_NONE\s*:\s*RDX_INPUT_ACTION_KEYBOARD' -and
               $Service -match 'rdx_input_router_action_map_apply\s*\('
@@ -88,7 +88,7 @@ $testModeOk = $Internal -match '#define\s+RDX_HOGPKM_STATUS_TEST_MODE_ACTIVE\s+0
               $Service -match '(?s)action_map_source=TEST; persisted V1 map not applied.*?#else\s*if \(rdx_hogpkm_apply_payload' -and
               $Router -match '(?s)RDX_HOGP_KEY_ACTION_TEST_ENABLE.*?rdx_input_router_action_map_apply.*?RDX_INPUT_ROUTER_TEST_MODE'
 Assert-Contract 'KEYMAP_TEST_SOURCE_IS_IMMUTABLE' $testModeOk `
-    'the built-in Gate map must reject SET/RESET and must not be overwritten by persisted V1 data'
+    'the hardcoded test map must reject SET/RESET and must not be overwritten by persisted V1 data'
 
 Assert-Contract 'KEYMAP_RESPONSE_USES_OWNER_TOKEN' `
     ($Service -match 'rdx_ble_server_send_for_token\s*\(\s*packet\s*,\s*offset\s*,\s*token\s*\)' -and

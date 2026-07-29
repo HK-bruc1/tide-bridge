@@ -57,7 +57,7 @@ static u32 s_codex_generation;
 static u32 s_codex_rx_drop_count;
 static u32 s_codex_tx_drop_count;
 static u32 s_codex_buffer_full_count;
-static u16 s_codex_agent_release_timer;
+static u16 s_codex_fast_release_timer;
 static u16 s_codex_rx_timer;
 
 extern u8 rdx_battery_get_percent(void);
@@ -111,9 +111,9 @@ static void rdx_codex_tx_clear(void)
 
 void rdx_codex_micro_runtime_reset(void)
 {
-    if (s_codex_agent_release_timer) {
-        sys_timeout_del(s_codex_agent_release_timer);
-        s_codex_agent_release_timer = 0;
+    if (s_codex_fast_release_timer) {
+        sys_timeout_del(s_codex_fast_release_timer);
+        s_codex_fast_release_timer = 0;
     }
     s_codex_generation++;
     rdx_codex_rx_clear();
@@ -122,7 +122,7 @@ void rdx_codex_micro_runtime_reset(void)
 
 void rdx_codex_micro_ready_drop_cleanup(void)
 {
-    rdx_codex_micro_agent_key_release_all();
+    rdx_codex_micro_fast_key_release_all();
     rdx_codex_micro_runtime_reset();
 }
 
@@ -520,48 +520,48 @@ void rdx_codex_micro_on_can_send_now(void)
     }
 }
 
-int rdx_codex_micro_send_agent_key(u8 action)
+static int rdx_codex_micro_send_fast_key(u8 action)
 {
     char json[96];
     if (action > 1) {
         return -1;
     }
     snprintf(json, sizeof(json),
-             "{\"method\":\"v.oai.hid\",\"params\":{\"k\":\"AG00\",\"act\":%u,\"ag\":0}}",
+             "{\"method\":\"v.oai.hid\",\"params\":{\"k\":\"ACT06\",\"act\":%u}}",
              action);
     return rdx_codex_tx_enqueue(json);
 }
 
-static void rdx_codex_agent_release(void *priv)
+static void rdx_codex_fast_release(void *priv)
 {
     (void)priv;
-    s_codex_agent_release_timer = 0;
-    rdx_codex_micro_send_agent_key(0);
+    s_codex_fast_release_timer = 0;
+    rdx_codex_micro_send_fast_key(0);
 }
 
-int rdx_codex_micro_agent_key_click(void)
+int rdx_codex_micro_fast_key_click(void)
 {
-    if (s_codex_agent_release_timer || rdx_codex_micro_send_agent_key(1)) {
+    if (s_codex_fast_release_timer || rdx_codex_micro_send_fast_key(1)) {
         return -1;
     }
-    s_codex_agent_release_timer = sys_timeout_add(
-        NULL, rdx_codex_agent_release, TCFG_RDX_HOGP_KEY_UP_DELAY_MS);
-    if (!s_codex_agent_release_timer) {
-        rdx_codex_micro_send_agent_key(0);
+    s_codex_fast_release_timer = sys_timeout_add(
+        NULL, rdx_codex_fast_release, TCFG_RDX_HOGP_KEY_UP_DELAY_MS);
+    if (!s_codex_fast_release_timer) {
+        rdx_codex_micro_send_fast_key(0);
         return -1;
     }
     return 0;
 }
 
-void rdx_codex_micro_agent_key_release_all(void)
+void rdx_codex_micro_fast_key_release_all(void)
 {
-    if (!s_codex_agent_release_timer) {
+    if (!s_codex_fast_release_timer) {
         return;
     }
-    sys_timeout_del(s_codex_agent_release_timer);
-    s_codex_agent_release_timer = 0;
+    sys_timeout_del(s_codex_fast_release_timer);
+    s_codex_fast_release_timer = 0;
     if (rdx_hogp_codex_is_ready()) {
-        (void)rdx_codex_micro_send_agent_key(0);
+        (void)rdx_codex_micro_send_fast_key(0);
     }
 }
 
@@ -576,8 +576,7 @@ u16 rdx_codex_micro_att_read(hci_con_handle_t c, u16 h, u16 o, u8 *b, u16 s)
 int rdx_codex_micro_output_write(hci_con_handle_t c, u16 o, const u8 *b, u16 s)
 { (void)c; (void)o; (void)b; (void)s; return -1; }
 void rdx_codex_micro_on_can_send_now(void) {}
-int rdx_codex_micro_send_agent_key(u8 action) { (void)action; return -1; }
-int rdx_codex_micro_agent_key_click(void) { return -1; }
-void rdx_codex_micro_agent_key_release_all(void) {}
+int rdx_codex_micro_fast_key_click(void) { return -1; }
+void rdx_codex_micro_fast_key_release_all(void) {}
 
 #endif

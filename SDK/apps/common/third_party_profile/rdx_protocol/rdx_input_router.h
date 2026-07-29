@@ -15,7 +15,7 @@ extern "C" {
 
 #define RDX_INPUT_ACTION_NONE                      0x00
 #define RDX_INPUT_ACTION_KEYBOARD                  0x01
-#define RDX_INPUT_ACTION_CODEX_AGENT               0x02
+#define RDX_INPUT_ACTION_CODEX_FAST                0x02
 
 #define RDX_INPUT_ROUTER_OK                        0
 #define RDX_INPUT_ROUTER_NOT_SENT                  1

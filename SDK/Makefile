@@ -1257,7 +1257,7 @@ LINK_AT ?= 1
 # 表示下面的不是一个文件的名字，无论是否存在 all, clean, pre_build 这样的文件
 # 还是要执行命令
 # see: https://www.gnu.org/software/make/manual/html_node/Phony-Targets.html
-.PHONY: all clean pre_build codex-v1 codex-c1 codex-c1-keytest
+.PHONY: all clean pre_build
 
 # 不要使用 make 预设置的规则
 # see: https://www.gnu.org/software/make/manual/html_node/Suffix-Rules.html
@@ -1279,20 +1279,6 @@ pre_build:
 clean:
 	$(QUITE) $(RM) $(OUT_ELF)
 	$(QUITE) $(RM) $(BUILD_DIR)
-
-codex-v1:
-	$(MAKE) clean
-	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=1 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1"
-
-codex-c1:
-	$(MAKE) clean
-	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=2 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1"
-
-codex-c1-keytest:
-	$(MAKE) clean
-	$(MAKE) all EXT_CFLAGS="-DTCFG_RDX_CODEX_MICRO_MODE=2 -DTCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1 -DTCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1 -DRDX_HOGP_KEY_ACTION_TEST_ENABLE=1"
-
-
 
 ifeq ($(LINK_AT), 1)
 $(OUT_ELF): $(OBJS)

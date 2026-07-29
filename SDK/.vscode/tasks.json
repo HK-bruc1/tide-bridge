@@ -25,16 +25,6 @@
             "group": "build"
         },
         {
-            "label": "codex-c1-keytest",
-            "type": "shell",
-            "windows": {
-                "command": ".vscode/winmk.bat codex-c1-keytest"
-            },
-            "command": "make codex-c1-keytest -j`nproc`",
-            "problemMatcher": [],
-            "group": "build"
-        },
-        {
             "label": "test: host software",
             "type": "shell",
             "windows": {

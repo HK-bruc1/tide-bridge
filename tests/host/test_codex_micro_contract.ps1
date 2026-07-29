@@ -29,16 +29,40 @@ $CaptureTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\capture_bl
 $EvidenceTool = Read-RepoFile $RepoRoot 'tools\windows\codex_micro_hid\new_evidence_session.ps1'
 $NormalizedHeader = (($Header -replace '\\', '') -replace '\s+', '')
 $NormalizedServer = (($Server -replace '\\', '') -replace '\s+', '')
+$DefaultNameBody = [regex]::Match(
+    $Server,
+    '(?s)static u8 rdx_ble_server_default_local_name_build\(char \*name\).*?\n}'
+).Value
+$GetNameBody = [regex]::Match(
+    $Server,
+    '(?s)char\* rdx_ble_server_get_local_name\(void\).*?\n}'
+).Value
 
-Assert-Contract 'EXPERIMENT_DEFAULTS_OFF' `
-    ($Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_MODE\s+0' -and
-     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE\s+0' -and
-     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE\s+0' -and
-     $AppConfig -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+0' -and
-     $Overlay -match 'Codex Micro V1/C1 requires the explicit test-identity guard' -and
+Assert-Contract 'PRODUCT_DEFAULTS_AND_IDENTITY_GUARD' `
+    ($Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_MODE\s+2' -and
+     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE\s+1' -and
+     $Overlay -match '#define\s+TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE\s+1' -and
+     $Overlay -notmatch '(?m)^\s*#\s*(?:define|undef)\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\b' -and
+     $AppConfig -match '#define\s+RDX_HOGP_KEY_ACTION_TEST_ENABLE\s+1' -and
+     $AppConfig -match '1 selects the built-in five-key map; 0 restores APP/VM keymap ownership' -and
+     $Overlay -match 'Codex Micro reference identity requires an explicit experimental build' -and
      $Config -match '#define\s+RDX_CODEX_MICRO_MODE_VENDOR_ONLY\s+1' -and
      $Config -match '#define\s+RDX_CODEX_MICRO_MODE_COMPOSITE\s+2') `
-    'Codex modes and the borrowed reference identity must be independently guarded and disabled by default'
+    'all must be the controlled composite laboratory image with the hardcoded Fast map and guarded reference identity'
+
+Assert-Contract 'PRODUCT_NAME_IS_UNIFIED' `
+    ($DefaultNameBody -match 'BLE_LOCAL_NAME' -and
+     $DefaultNameBody -match 'p->auth\s*\+\s*20' -and
+     $DefaultNameBody -notmatch 'TCFG_RDX_CODEX_MICRO' -and
+     $GetNameBody -match 'syscfg_read\(VM_RDX_BLE_NAME' -and
+     $GetNameBody -match 'rdx_ble_server_default_local_name_build\(tmp\)' -and
+     $GetNameBody -notmatch 'TCFG_RDX_CODEX_MICRO' -and
+     $AppConfig -match '#define\s+BLE_LOCAL_NAME\s+"Beanstalk RKB"' -and
+     $Server -notmatch '"Codex Micro"' -and
+     $Overlay -notmatch 'TCFG_RDX_CODEX_MICRO_REFERENCE_NAME_ENABLE' -and
+     $Makefile -notmatch 'codex-c1-name-test' -and
+     $Tasks -notmatch 'codex-c1-name-test') `
+    'all personas must use the product BLE name, authentication suffix and VM configuration path'
 
 $VendorBytes = @(
     0x06,0x00,0xFF,0x09,0x01,0xA1,0x01,0x85,0x06,0x15,
@@ -96,14 +120,15 @@ Assert-Contract 'CODEX_ATTRIBUTE_LAYOUT' `
      $NormalizedHeader.Contains('#defineRDX_CODEX_MICRO_REPORT_DATA_LEN61')) `
     'ID 6 Input/CCC/Output attributes and Report References must retain the MVP handle layout'
 
-Assert-Contract 'DIS_AND_TEST_IDENTITY' `
+Assert-Contract 'DIS_AND_IDENTITY_POLICY' `
     ($Server -match '(?s)#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?DIS_SERVICE_HANDLE\s+0x002d.*?DIS_MANUFACTURER_NAME_VALUE_HANDLE\s+0x0031' -and
      $Server -match '0x02,\s*0x3a,\s*0x30,\s*0x60,\s*0x83,\s*0x01,\s*0x01' -and
      $Server -match "'W',\s*'o',\s*'r',\s*'k',\s*' ',\s*'L',\s*'o',\s*'u',\s*'d',\s*'e',\s*'r'" -and
-     $Server -match '"Codex Micro"' -and
+     $Server -match '0x02,\s*0x34,\s*0x12,\s*0x01,\s*0x00,\s*0x01,\s*0x00' -and
+     $Server -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'" -and
      $Server -match 'BLE_APPEARANCE_GENERIC_HID' -and
-     $Server -match 'HCI_EIR_DATATYPE_APPEARANCE_DATA') `
-    'V1/C1 must shift DIS and use the exact gated name, manufacturer, PnP bytes and Generic HID appearance'
+     $Server -match '(?s)#if\s+TCFG_RDX_HOGP_ENABLE.*?BLE_APPEARANCE_GENERIC_HID.*?#endif.*?#if\s+TCFG_RDX_HOGP_ENABLE.*?HCI_EIR_DATATYPE_APPEARANCE_DATA') `
+    'DIS identity must remain policy-gated while Generic HID appearance follows the HOGP capability'
 
 $WriteBody = Get-SourceSlice $Codex `
     'int rdx_codex_micro_output_write(' `
@@ -166,21 +191,22 @@ $testMapOk = Test-TokensInOrder $Router @(
     'HID_KEYBOARD_USAGE_V',
     'HID_KEYBOARD_USAGE_BACKSPACE',
     'HID_KEYBOARD_USAGE_ENTER',
-    '{ RDX_INPUT_ACTION_CODEX_AGENT'
+    '{ RDX_INPUT_ACTION_CODEX_FAST'
 )
-Assert-Contract 'AG00_EXCLUSIVE_ROUTING' `
+Assert-Contract 'FAST_EXCLUSIVE_ROUTING' `
     ($routeBody -match 'rdx_hogp_route_is_active\s*\(\s*\)' -and
      $routeBody -match 'rdx_input_router_click\s*\(\s*\(u8\)num_idx\s*\)' -and
      $routeBody -notmatch 'rdx_codex_micro|rdx_hogp_keyboard_report_send' -and
      $App -notmatch 'num_idx\s*==\s*0' -and
      $routerClick -match 'switch\s*\(\s*entry->kind\s*\)' -and
-     $routerClick -match '(?s)case\s+RDX_INPUT_ACTION_KEYBOARD:.*?rdx_input_router_keyboard_click\s*\(\s*entry\s*\).*?case\s+RDX_INPUT_ACTION_CODEX_AGENT:.*?rdx_hogp_codex_is_ready\s*\(\s*\).*?rdx_codex_micro_agent_key_click\s*\(\s*\)' -and
+     $routerClick -match '(?s)case\s+RDX_INPUT_ACTION_KEYBOARD:.*?rdx_input_router_keyboard_click\s*\(\s*entry\s*\).*?case\s+RDX_INPUT_ACTION_CODEX_FAST:.*?rdx_hogp_codex_is_ready\s*\(\s*\).*?rdx_codex_micro_fast_key_click\s*\(\s*\)' -and
      $testMapOk -and
      $RouterHeader -match '#define\s+RDX_INPUT_ROUTER_PHYSICAL_KEY_COUNT\s+5' -and
-     $Codex -match '\\"k\\":\\"AG00\\"' -and
-     $Codex -match 'rdx_codex_micro_send_agent_key\(1\)' -and
-     $Codex -match 'rdx_codex_micro_send_agent_key\(0\)') `
-    'keys 1..5 must enter one typed router, with key_id 4 exclusively emitting AG00 down/up'
+     $Codex -match '\\"k\\":\\"ACT06\\",\\"act\\":%u\}\}' -and
+     $Codex -notmatch '\\"k\\":\\"AG00\\"' -and
+     $Codex -match 'rdx_codex_micro_send_fast_key\(1\)' -and
+     $Codex -match 'rdx_codex_micro_send_fast_key\(0\)') `
+    'keys 1..5 must enter one typed router, with key_id 4 exclusively emitting Fast ACT06 down/up'
 
 Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
     ($Makefile.Contains('rdx_codex_micro.c') -and
@@ -191,16 +217,15 @@ Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
      $Server -match 'rdx_input_router_deinit\s*\(' -and
      $Keyboard -match 'rdx_codex_micro_runtime_reset\s*\(' -and
      $Keyboard -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
-     $CodexHeader -match 'rdx_codex_micro_agent_key_release_all' -and
+     $CodexHeader -match 'rdx_codex_micro_fast_key_release_all' -and
      $CodexHeader -match 'rdx_codex_micro_output_write' -and
      $Runner.Contains('test_codex_micro_contract.ps1') -and
-     $Makefile -match '(?m)^codex-v1:' -and
-     $Makefile -match '(?m)^codex-c1:' -and
-     $Makefile -match '(?m)^codex-c1-keytest:' -and
-     $Makefile -match '(?s)codex-c1-keytest:.*?\$\(MAKE\) clean.*?TCFG_RDX_CODEX_MICRO_MODE=2.*?TCFG_RDX_CODEX_MICRO_TEST_IDENTITY_ENABLE=1.*?TCFG_RDX_CODEX_MICRO_EXPERIMENTAL_BUILD_ENABLE=1.*?RDX_HOGP_KEY_ACTION_TEST_ENABLE=1' -and
-     $Tasks -match '"label"\s*:\s*"codex-c1-keytest"' -and
-     $Tasks -match 'winmk\.bat codex-c1-keytest') `
-    'the router and Codex module must be lifecycle-wired and the Gate must have one reproducible build entry'
+     $Makefile -match '(?m)^\.PHONY:\s+all\s+clean\s+pre_build\s*$' -and
+     $Makefile -notmatch '(?m)^codex-(?:v1|c1)' -and
+     $Tasks -match '"label"\s*:\s*"all"' -and
+     $Tasks -match 'winmk\.bat all' -and
+     $Tasks -notmatch 'codex-(?:v1|c1)') `
+    'the router and Codex module must be lifecycle-wired and all must be the only product build entry'
 
 Assert-Contract 'WINDOWS_HID_TOOL' `
     ($Tool -match 'SetupDiGetClassDevsW' -and
