@@ -5,8 +5,10 @@
 #include "rdx_err.h"
 
 void      rdx_storage_service_init(void);
+rdx_err_t rdx_storage_service_runtime_init(void);
 
 /* format orchestration (moved from rdx_app.c) */
+rdx_err_t rdx_storage_service_format_for_app(void);
 void rdx_storage_service_format_handle(void);
 void rdx_storage_service_format_cb(u8 result);
 

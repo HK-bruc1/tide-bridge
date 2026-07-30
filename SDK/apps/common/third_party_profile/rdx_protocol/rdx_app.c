@@ -238,8 +238,6 @@ extern void sys_set_auto_off_time(u16 auto_off_time);
 extern ApInfo* xxp_uart_get_wifi_AP_info(void);
 extern void rdx_record_start(void* priv);
 extern void init_crc32_table();
-extern int rdx_uxfile_sd_format(uxfile_format_cb formatCB);
-
 extern u8 sd_io_suspend(u8 sdx, u8 sdx_io);
 extern u8 sd_io_resume(u8 sdx, u8 sdx_io);
 
@@ -1840,7 +1838,7 @@ void rdx_app_tasks_init(void)
 {
     
 #if defined(__UUX_FILE__)
-	rdx_uxfile_init();
+	(void)rdx_storage_service_runtime_init();
 #endif
 
     //rdx ble server initial.

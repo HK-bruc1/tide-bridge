@@ -108,7 +108,6 @@ extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);
 extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 is_bound);
 extern void rdx_protocol_bound_result_indicate(u8 result);
-extern int rdx_uxfile_sd_format(uxfile_format_cb formatCB);
 extern void rdx_app_earphone_pack_readchardata(void);
 extern void rdx_app_time_to_reset(void);
 extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);

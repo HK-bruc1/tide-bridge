@@ -24,10 +24,31 @@
         }
         @{
             File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
-            Function = 'rdx_storage_service_format_handle'
+            Function = 'rdx_storage_service_runtime_init'
+            Symbol = 'rdx_uxfile_init'
+            Count = 1
+            Purpose = 'P11 storage runtime initialization owner'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_service_format_for_app'
             Symbol = 'rdx_uxfile_sd_format'
             Count = 1
-            Purpose = 'Legacy APP format compatibility request'
+            Purpose = 'P11 APP clean format request with fixed completion'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat.c'
+            Function = 'rdx_storage_format_compat_for_dut'
+            Symbol = 'rdx_uxfile_device_sd_format'
+            Count = 1
+            Purpose = 'P11 DUT legacy callback format compatibility request'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat.c'
+            Function = 'rdx_storage_format_compat_for_unbind'
+            Symbol = 'rdx_uxfile_sd_format'
+            Count = 1
+            Purpose = 'P11 unbound legacy callback format compatibility request'
         }
         @{
             File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'

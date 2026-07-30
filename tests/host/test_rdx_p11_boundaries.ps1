@@ -192,6 +192,7 @@ foreach ($privateHeaderRel in @(
     "$rdxRel/internal/rdx_record_domain.h",
     "$rdxRel/internal/rdx_storage_domain.h",
     "$rdxRel/compat/rdx_record_protocol_adapter.h",
+    "$rdxRel/compat/rdx_storage_format_compat.h",
     "$rdxRel/compat/rdx_file_transfer_cleanup_compat.h"
 )) {
     $privateHeader = Join-Path $repo $privateHeaderRel

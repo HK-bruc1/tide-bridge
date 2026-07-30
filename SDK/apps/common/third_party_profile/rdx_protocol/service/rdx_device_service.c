@@ -23,6 +23,7 @@
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
 #include "rdx_default_hooks.h"
+#include "../compat/rdx_storage_format_compat.h"
 
 /* rdx_app.c symbols */
 extern void      rdx_ble_server_app_disconnect(void);
@@ -198,7 +199,7 @@ void rdx_device_service_unbound_cb(u8 result)
 void rdx_device_service_unbound_handle(void)
 {
 	rdx_vm_set_unbounding(true);
-	rdx_uxfile_sd_format(rdx_device_service_unbound_cb);
+	(void)rdx_storage_format_compat_for_unbind(rdx_device_service_unbound_cb);
 }
 
 void rdx_device_service_choose_to_unbound_cb(u8 result)
@@ -236,7 +237,8 @@ void rdx_device_service_choose_to_unbound_handle(int usr_para, int format_en)
 
 	if (format_en == 1) {
 		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
-		rdx_uxfile_sd_format(rdx_device_service_choose_to_unbound_cb);
+		(void)rdx_storage_format_compat_for_unbind(
+			rdx_device_service_choose_to_unbound_cb);
 	} else {
 		rdx_vm_set_bound_status(0, 0);
 		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());

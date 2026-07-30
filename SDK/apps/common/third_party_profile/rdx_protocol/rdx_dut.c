@@ -38,9 +38,9 @@
 #include "rdx_dut.h"
 #include "rdx_record.h"
 #include "service/rdx_record_service.h"
+#include "compat/rdx_storage_format_compat.h"
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
-#include "rdx_uxfile.h"
 #include "rdx_app.h"
 #include "rdx_app_config.h"
 #include "rdx_charge.h"
@@ -544,7 +544,7 @@ void rdx_dut_format_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_FORMAT;
     
-    rdx_uxfile_device_sd_format(rdx_dut_format_cb);
+    (void)rdx_storage_format_compat_for_dut(rdx_dut_format_cb);
 }
 
 /******************************************************************************
@@ -634,7 +634,7 @@ void rdx_dut_finalpack_end(void)
     
     g_finalpack_end_pending = true;
     
-    rdx_uxfile_device_sd_format(rdx_dut_finalpack_end_format_cb);
+    (void)rdx_storage_format_compat_for_dut(rdx_dut_finalpack_end_format_cb);
 }
 
 /**************************************************************************

@@ -25,7 +25,7 @@ static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
 	    return;
 	}
 	ops->sd_format_ack_indicate(0);
-	rdx_storage_service_format_handle();
+	(void)rdx_storage_service_format_for_app();
 
 }
 
@@ -70,6 +70,12 @@ void rdx_storage_service_init(void)
 	RDX_LOGI("storage_service init done");
 }
 
+rdx_err_t rdx_storage_service_runtime_init(void)
+{
+	rdx_uxfile_init();
+	return RDX_OK;
+}
+
 /* ---- format (moved from rdx_app.c) ---- */
 
 void rdx_storage_service_format_cb(u8 result)
@@ -78,9 +84,15 @@ void rdx_storage_service_format_cb(u8 result)
 		rdx_event_publish(RDX_EVENT_STORAGE_FORMAT_DONE, NULL, 0);
 }
 
+rdx_err_t rdx_storage_service_format_for_app(void)
+{
+	return rdx_uxfile_sd_format(rdx_storage_service_format_cb) == 0
+	       ? RDX_OK : RDX_ERR_IO;
+}
+
 void rdx_storage_service_format_handle(void)
 {
-	rdx_uxfile_sd_format(rdx_storage_service_format_cb);
+	(void)rdx_storage_service_format_for_app();
 }
 
 rdx_err_t rdx_storage_format_request(void)

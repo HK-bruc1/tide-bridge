@@ -1081,8 +1081,213 @@ $formatHandler = Get-FunctionSlice `
     'APP format handler'
 Assert-OrderedTokens `
     $formatHandler `
-    @('sd_format_ack_indicate(0)', 'rdx_storage_service_format_handle()') `
+    @('sd_format_ack_indicate(0)', 'rdx_storage_service_format_for_app()') `
     'APP success ACK-before-format'
+if ($formatHandler -match '\brdx_storage_service_format_handle\s*\(') {
+    Add-Failure 'APP format command still enters through the legacy compatibility wrapper'
+} else {
+    Add-Pass 'APP format command uses the clean no-callback entry'
+}
+
+$formatForAppSignature = `
+    'rdx_err_t\s+rdx_storage_service_format_for_app\s*\(void\s*\)\s*;'
+if ((Count-Pattern $storageServiceHeader $formatForAppSignature) -ne 1) {
+    Add-Failure 'APP clean format public signature is missing or duplicated'
+} else {
+    Add-Pass 'APP clean format public signature is exact and unique'
+}
+$formatForApp = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_format_for_app' `
+    'void rdx_storage_service_format_handle' `
+    'APP clean format entry'
+Assert-OrderedTokens $formatForApp `
+    @('rdx_uxfile_sd_format(rdx_storage_service_format_cb)',
+      '== 0',
+      '? RDX_OK : RDX_ERR_IO') `
+    'APP clean format fixed callback and zero-success initiation mapping'
+
+$legacyFormatHandle = Get-FunctionSlice `
+    $storageService `
+    'void rdx_storage_service_format_handle' `
+    'rdx_err_t rdx_storage_format_request' `
+    'legacy APP format compatibility wrapper'
+Assert-OrderedTokens $legacyFormatHandle `
+    @('(void)rdx_storage_service_format_for_app()') `
+    'Legacy APP format wrapper ignores clean initiation result'
+if ($legacyFormatHandle -match '\brdx_uxfile_sd_format\s*\(') {
+    Add-Failure 'legacy APP format wrapper still calls raw uxfile format'
+} else {
+    Add-Pass 'legacy APP format wrapper delegates only to the clean entry'
+}
+
+$appFormatCallback = Get-FunctionSlice `
+    $appControl `
+    'void rdx_app_format_cb' `
+    'void rdx_app_format_handle' `
+    'legacy APP format callback wrapper'
+Assert-OrderedTokens $appFormatCallback `
+    @('rdx_storage_service_format_cb(result)') `
+    'Legacy APP format callback wrapper remains exact'
+$appFormatHandle = Get-FunctionSlice `
+    $appControl `
+    "void rdx_app_format_handle(void)`n{" `
+    '/*' `
+    'legacy APP format request wrapper'
+Assert-OrderedTokens $appFormatHandle `
+    @('rdx_storage_service_format_handle()') `
+    'Legacy APP format request wrapper remains exact'
+
+$formatCompatHeader = Read-Working "$rdxRel/compat/rdx_storage_format_compat.h"
+$formatCompat = Read-Working "$rdxRel/compat/rdx_storage_format_compat.c"
+$legacyFormatCallbackSignature = `
+    'typedef\s+void\s*\(\*rdx_storage_legacy_format_cb_t\)\s*\(u8\s+legacy_result\s*\)\s*;'
+$dutFormatCompatSignature = `
+    'rdx_err_t\s+rdx_storage_format_compat_for_dut\s*\(\s*rdx_storage_legacy_format_cb_t\s+cb\s*\)\s*;'
+$unbindFormatCompatSignature = `
+    'rdx_err_t\s+rdx_storage_format_compat_for_unbind\s*\(\s*rdx_storage_legacy_format_cb_t\s+cb\s*\)\s*;'
+foreach ($signature in @(
+    @{ Pattern = $legacyFormatCallbackSignature; Label = 'legacy storage format callback typedef' },
+    @{ Pattern = $dutFormatCompatSignature; Label = 'DUT storage format compatibility entry' },
+    @{ Pattern = $unbindFormatCompatSignature; Label = 'unbound storage format compatibility entry' }
+)) {
+    if ((Count-Pattern $formatCompatHeader $signature.Pattern) -ne 1) {
+        Add-Failure "$($signature.Label) is missing or duplicated"
+    } else {
+        Add-Pass "$($signature.Label) is exact and unique"
+    }
+}
+if ($formatCompatHeader -match '\b(?:ctx|context)\b') {
+    Add-Failure 'storage format compatibility header adds callback context state'
+} else {
+    Add-Pass 'storage format compatibility header keeps the legacy one-argument callback'
+}
+
+$dutFormatCompat = Get-FunctionSlice `
+    $formatCompat `
+    'rdx_err_t rdx_storage_format_compat_for_dut' `
+    'rdx_err_t rdx_storage_format_compat_for_unbind' `
+    'DUT storage format compatibility adapter'
+Assert-OrderedTokens $dutFormatCompat `
+    @('rdx_uxfile_device_sd_format(cb)', 'return RDX_OK') `
+    'DUT storage format thin forwarding'
+$unbindFormatCompat = Get-FunctionSlice `
+    $formatCompat `
+    'rdx_err_t rdx_storage_format_compat_for_unbind' `
+    '' `
+    'unbound storage format compatibility adapter'
+Assert-OrderedTokens $unbindFormatCompat `
+    @('rdx_uxfile_sd_format(cb)',
+      '== 0',
+      '? RDX_OK : RDX_ERR_IO') `
+    'Unbound storage format thin forwarding and result mapping'
+if ($formatCompat -match '\b(?:queue|timer|ctx|context)\b') {
+    Add-Failure 'storage format compatibility adapter adds queue, timer or callback context state'
+} else {
+    Add-Pass 'storage format compatibility adapter adds no queue, timer or callback context state'
+}
+
+$dutFormatStart = Get-FunctionSlice `
+    $dutControl `
+    'void rdx_dut_format_start' `
+    '/*' `
+    'DUT format request caller'
+Assert-OrderedTokens $dutFormatStart `
+    @('rdx_dut_info.current_func = DUT_FUNC_FORMAT',
+      'rdx_storage_format_compat_for_dut(rdx_dut_format_cb)') `
+    'DUT format state-before-request order'
+$dutFinalpackFormat = Get-FunctionSlice `
+    $dutControl `
+    'void rdx_dut_finalpack_end(void)' `
+    'void rdx_dut_key_dut_enable' `
+    'DUT final-pack format caller'
+Assert-OrderedTokens $dutFinalpackFormat `
+    @('rdx_vm_sys_reset_to_defaults()',
+      'rdx_storage_write(RDX_STORAGE_KEY_DUT_DISABLED',
+      'g_finalpack_end_pending = true',
+      'rdx_storage_format_compat_for_dut(rdx_dut_finalpack_end_format_cb)') `
+    'DUT final-pack reset, marker, pending and format order'
+if ((Count-Pattern $dutControl '\brdx_uxfile_device_sd_format\s*\(') -ne 0 -or
+    (Count-Pattern $dutControl '\brdx_storage_format_compat_for_dut\s*\(') -ne 2) {
+    Add-Failure 'DUT format callers do not use exactly two compatibility requests and zero raw requests'
+} else {
+    Add-Pass 'DUT format callers use exactly two compatibility requests and zero raw requests'
+}
+
+$unboundHandle = Get-FunctionSlice `
+    $deviceControl `
+    'void rdx_device_service_unbound_handle' `
+    'void rdx_device_service_choose_to_unbound_cb' `
+    'unbound format request caller'
+Assert-OrderedTokens $unboundHandle `
+    @('rdx_vm_set_unbounding(true)',
+      'rdx_storage_format_compat_for_unbind(rdx_device_service_unbound_cb)') `
+    'Unbound state-before-format order'
+$chooseUnboundHandle = Get-FunctionSlice `
+    $deviceControl `
+    'void rdx_device_service_choose_to_unbound_handle' `
+    'rdx_err_t rdx_device_service_factory_reset' `
+    'choose-to-unbound format request caller'
+Assert-OrderedTokens $chooseUnboundHandle `
+    @('if (format_en == 1)',
+      'rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status())',
+      'rdx_storage_format_compat_for_unbind(',
+      'rdx_device_service_choose_to_unbound_cb)') `
+    'Choose-to-unbound ACK-before-format order'
+if ((Count-Pattern $deviceControl '\brdx_uxfile_sd_format\s*\(') -ne 0 -or
+    (Count-Pattern $deviceControl '\brdx_storage_format_compat_for_unbind\s*\(') -ne 2) {
+    Add-Failure 'unbound format callers do not use exactly two compatibility requests and zero raw requests'
+} else {
+    Add-Pass 'unbound format callers use exactly two compatibility requests and zero raw requests'
+}
+
+$runtimeInitSignature = `
+    'rdx_err_t\s+rdx_storage_service_runtime_init\s*\(void\s*\)\s*;'
+if ((Count-Pattern $storageServiceHeader $runtimeInitSignature) -ne 1) {
+    Add-Failure 'storage runtime-init public signature is missing or duplicated'
+} else {
+    Add-Pass 'storage runtime-init public signature is exact and unique'
+}
+$runtimeInit = Get-FunctionSlice `
+    $storageService `
+    'rdx_err_t rdx_storage_service_runtime_init' `
+    '/* ---- format' `
+    'storage runtime initialization owner'
+Assert-OrderedTokens $runtimeInit `
+    @('rdx_uxfile_init()', 'return RDX_OK') `
+    'Storage runtime-init thin forwarding'
+$appTasksInit = Get-FunctionSlice `
+    $appControl `
+    'void rdx_app_tasks_init(void)' `
+    'void rdx_led_hardware_init(void)' `
+    'RDX task initialization'
+Assert-OrderedTokens $appTasksInit `
+    @('rdx_storage_service_runtime_init()',
+      'rdx_ble_server_init()',
+      'rdx_protocol_task_create(&protocol_cbs)',
+      'xxp_uart_register_wifi_cfg(&wifi_cfg)',
+      'rdx_wifi_event_register(rdx_app_wifi_event_handle)') `
+    'Storage, BLE, protocol and WiFi runtime initialization order'
+if ((Count-Pattern $appTasksInit '\brdx_storage_service_runtime_init\s*\(') -ne 1 -or
+    (Count-Pattern $appControl '\brdx_uxfile_init\s*\(') -ne 0) {
+    Add-Failure 'app runtime initialization is not one storage entry with zero raw init calls'
+} else {
+    Add-Pass 'app runtime initialization uses one storage entry with zero raw init calls'
+}
+if ((Count-Pattern ($storageServiceHeader + $storageService + $appControl) `
+        '\brdx_storage_service_runtime_exit\b') -ne 0) {
+    Add-Failure 'P11.5d adds a storage runtime-exit API or caller'
+} else {
+    Add-Pass 'P11.5d adds no speculative storage runtime-exit path'
+}
+
+$makefile = Read-Working 'SDK/Makefile'
+if ((Count-Pattern $makefile `
+        'apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat\.c') -ne 1) {
+    Add-Failure 'storage format compatibility source is not registered exactly once in the Makefile'
+} else {
+    Add-Pass 'storage format compatibility source is registered exactly once in the Makefile'
+}
 
 $recordService = Read-Working "$rdxRel/service/rdx_record_service.c"
 $bleEventHandler = Get-FunctionSlice `
