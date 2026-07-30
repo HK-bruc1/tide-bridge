@@ -8,10 +8,11 @@
 #include "app_config.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_profile.h"
-#include "rdx_hogp_keyboard.h"
+#include "rdx_hid_service.h"
 #include "rdx_codex_micro.h"
 #include "rdx_ble_session.h"
 #include "app_ble_spp_api.h"
+#include "ble_user.h"
 #include "btstack/le/att.h"
 #include "btstack/le/le_user.h"
 #include "cJSON.h"
@@ -249,7 +250,8 @@ int rdx_codex_micro_output_write(hci_con_handle_t connection_handle,
     if (buffer[0] != 0x02 || buffer[1] > RDX_CODEX_MICRO_REPORT_DATA_LEN) {
         return RDX_CODEX_ATT_ERR_VALUE;
     }
-    if (!rdx_hogp_codex_is_ready() || !rdx_codex_token_capture(&token)) {
+    if (!rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX) ||
+        !rdx_codex_token_capture(&token)) {
         return RDX_CODEX_ATT_ERR_UNLIKELY;
     }
     link = rdx_codex_token_resolve(&token);
@@ -328,7 +330,7 @@ static void rdx_codex_tx_pump(void *priv)
         u16 remaining;
         u8 chunk;
         int ret;
-        if (!link || !rdx_hogp_codex_is_ready()) {
+        if (!link || !rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
             rdx_codex_micro_runtime_reset();
             return;
         }
@@ -338,9 +340,9 @@ static void rdx_codex_tx_pump(void *priv)
         report[0] = 0x02;
         report[1] = chunk;
         memcpy(report + 2, item->data + item->offset, chunk);
-        ret = app_ble_att_send_data(link->ble_hdl,
+        ret = rdx_hid_report_notify(RDX_HID_REPORT_CODEX,
                                     HID_CODEX_INPUT_REPORT_VALUE_HANDLE,
-                                    report, sizeof(report), ATT_OP_NOTIFY);
+                                    report, sizeof(report));
         if (ret == APP_BLE_BUFF_FULL) {
             s_codex_buffer_full_count++;
             att_server_request_can_send_now_event(link->con_handle);
@@ -366,7 +368,7 @@ static int rdx_codex_tx_enqueue(const char *json)
     u16 len;
     u8 tail;
     rdx_codex_tx_item_t *item;
-    if (!json || !rdx_hogp_codex_is_ready()) {
+    if (!json || !rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
         return -1;
     }
     len = (u16)strlen(json);
@@ -560,7 +562,7 @@ void rdx_codex_micro_fast_key_release_all(void)
     }
     sys_timeout_del(s_codex_fast_release_timer);
     s_codex_fast_release_timer = 0;
-    if (rdx_hogp_codex_is_ready()) {
+    if (rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
         (void)rdx_codex_micro_send_fast_key(0);
     }
 }

@@ -69,7 +69,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
 #include "rdx_hogp_config.h"
-#include "rdx_hogp_keyboard.h"
+#include "rdx_hid_service.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_protocol.h"
 #include "xxpUart.h"
@@ -755,7 +755,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         // A claimed HID link consumes the action even when its mapped report
         // is not ready; the router never falls back to another provider.
 #if TCFG_RDX_HOGP_ENABLE
-        if (rdx_hogp_route_is_active()) {
+        if (rdx_hid_service_route_is_active()) {
             if (index == KEY_ACTION_CLICK) {
                 int action_ret = rdx_input_router_click((u8)num_idx);
                 if (action_ret != 0) {

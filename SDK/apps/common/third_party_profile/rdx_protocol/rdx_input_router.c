@@ -11,8 +11,10 @@
 #include "rdx_app_config.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
+#include "rdx_hid_service.h"
 #include "rdx_codex_micro.h"
 #include "rdx_input_router.h"
+#include "ble_user.h"
 #include "device/hid/hid_keyboard_usage.h"
 
 typedef char rdx_input_action_entry_size_check[
@@ -208,7 +210,7 @@ int rdx_input_router_click(u8 physical_key_id)
     case RDX_INPUT_ACTION_KEYBOARD:
         return rdx_input_router_keyboard_click(entry);
     case RDX_INPUT_ACTION_CODEX_FAST:
-        if (!rdx_hogp_codex_is_ready()) {
+        if (!rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
             return RDX_INPUT_ROUTER_NOT_SENT;
         }
         return rdx_codex_micro_fast_key_click() ?

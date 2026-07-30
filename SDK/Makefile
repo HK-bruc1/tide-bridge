@@ -471,6 +471,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_session.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_gatt_profile.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_hid_service.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keyboard.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_profile.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_codex_micro.c \

@@ -137,8 +137,8 @@ Assert-Contract 'LIFECYCLE_FAILURES_STAY_CLOSED' $closedOk `
     'identity or barrier failure must never time out or fall through to READY'
 
 $isolationOk = ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_protocol_task_(free|create)|rdx_uxfile_task_free|rdx_uxfile_init|os_task_(create|del)' -and
-               ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_hogp_(on_disconnected|deinit)' -and
-               $Disconnect -match '(?s)rdx_ble_session_link_is_hid.*?rdx_hogp_on_disconnected' -and
+               ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_hid_service_(on_disconnected|deinit)' -and
+               $Disconnect -match '(?s)rdx_ble_session_link_is_hid.*?rdx_hid_service_on_disconnected' -and
                $Disconnect -match '(?s)rdx_ble_session_link_is_rdx.*?rdx_ble_server_phase2_rdx_detach'
 Assert-Contract 'RUNTIME_REUSE_PRESERVES_HID' $isolationOk `
     'reconnect must reuse the audited singleton without resetting an independent HID owner'

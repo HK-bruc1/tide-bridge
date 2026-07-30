@@ -16,6 +16,8 @@ $GattProfile = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.c"
 $GattProfileHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.h"
 $HidFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_profile.inc"
 $DisFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_dis_profile.inc"
+$HidService = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_service.c"
+$HidServiceHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_service.h"
 $Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
@@ -199,12 +201,12 @@ $testMapOk = Test-TokensInOrder $Router @(
     '{ RDX_INPUT_ACTION_CODEX_FAST'
 )
 Assert-Contract 'FAST_EXCLUSIVE_ROUTING' `
-    ($routeBody -match 'rdx_hogp_route_is_active\s*\(\s*\)' -and
+    ($routeBody -match 'rdx_hid_service_route_is_active\s*\(\s*\)' -and
      $routeBody -match 'rdx_input_router_click\s*\(\s*\(u8\)num_idx\s*\)' -and
      $routeBody -notmatch 'rdx_codex_micro|rdx_hogp_keyboard_report_send' -and
      $App -notmatch 'num_idx\s*==\s*0' -and
      $routerClick -match 'switch\s*\(\s*entry->kind\s*\)' -and
-     $routerClick -match '(?s)case\s+RDX_INPUT_ACTION_KEYBOARD:.*?rdx_input_router_keyboard_click\s*\(\s*entry\s*\).*?case\s+RDX_INPUT_ACTION_CODEX_FAST:.*?rdx_hogp_codex_is_ready\s*\(\s*\).*?rdx_codex_micro_fast_key_click\s*\(\s*\)' -and
+     $routerClick -match '(?s)case\s+RDX_INPUT_ACTION_KEYBOARD:.*?rdx_input_router_keyboard_click\s*\(\s*entry\s*\).*?case\s+RDX_INPUT_ACTION_CODEX_FAST:.*?rdx_hid_report_is_ready\s*\(\s*RDX_HID_REPORT_CODEX\s*\).*?rdx_codex_micro_fast_key_click\s*\(\s*\)' -and
      $testMapOk -and
      $RouterHeader -match '#define\s+RDX_INPUT_ROUTER_PHYSICAL_KEY_COUNT\s+5' -and
      $Codex -match '\\"k\\":\\"ACT06\\",\\"act\\":%u\}\}' -and
@@ -215,14 +217,18 @@ Assert-Contract 'FAST_EXCLUSIVE_ROUTING' `
 
 Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
     ($Makefile.Contains('rdx_gatt_profile.c') -and
+     $Makefile.Contains('rdx_hid_service.c') -and
      $Makefile.Contains('rdx_codex_micro.c') -and
      $Makefile.Contains('rdx_input_router.c') -and
      $Server -match 'rdx_codex_micro_init\s*\(' -and
      $Server -match 'rdx_codex_micro_deinit\s*\(' -and
      $App -match 'rdx_input_router_init\s*\(' -and
      $Server -match 'rdx_input_router_deinit\s*\(' -and
-     $Keyboard -match 'rdx_codex_micro_runtime_reset\s*\(' -and
-     $Keyboard -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
+     $HidService -match 'rdx_codex_micro_runtime_reset\s*\(' -and
+     $HidService -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
+     $HidServiceHeader -match 'rdx_hid_report_notify' -and
+     $Codex -match 'rdx_hid_report_notify\s*\(\s*RDX_HID_REPORT_CODEX' -and
+     $Codex -notmatch 'app_ble_att_send_data|rdx_hogp_codex_is_ready' -and
      $CodexHeader -match 'rdx_codex_micro_fast_key_release_all' -and
      $CodexHeader -match 'rdx_codex_micro_output_write' -and
      $Runner.Contains('test_codex_micro_contract.ps1') -and

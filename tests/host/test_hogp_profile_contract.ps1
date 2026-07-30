@@ -15,6 +15,8 @@ $GattProfileHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_profile.h"
 $GattPrivateFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_gatt_private_profile.inc"
 $HidFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_profile.inc"
 $DisFragment = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_dis_profile.inc"
+$HidService = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_service.c"
+$HidServiceHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hid_service.h"
 $Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
 $KeyboardHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.h"
 $Config = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
@@ -182,27 +184,71 @@ Assert-Contract 'HID_SECURITY_POLICY' `
      $encryptedFlagsOk) `
     'HOGP must use bonded Just Works and encrypted dynamic attributes without a false MITM claim'
 
-$WriteBody = Get-SourceSlice $Keyboard `
-    'int rdx_hogp_att_write(' `
-    '/******************************************************************************'
-$ReadyBody = Get-SourceSlice $Keyboard `
-    'u8 rdx_hogp_keyboard_is_ready(' `
-    'int rdx_hogp_keyboard_report_send('
-$ReadyDropBody = Get-SourceSlice $Keyboard `
-    'static void rdx_hogp_ready_drop_cleanup(' `
-    'static void rdx_hogp_peer_identity_reset('
+$WriteBody = Get-SourceSlice $HidService `
+    'int rdx_hid_service_att_write(' `
+    'u8 rdx_hid_service_is_connected('
+$ReadyBody = Get-SourceSlice $HidService `
+    'u8 rdx_hid_report_is_ready(' `
+    'int rdx_hid_report_notify('
+$ReadyDropBody = Get-SourceSlice $HidService `
+    'static void rdx_hid_report_ready_drop(' `
+    'void rdx_hid_service_runtime_cleanup('
+$KeyboardDropBody = Get-SourceSlice $Keyboard `
+    'void rdx_hogp_keyboard_ready_drop_cleanup(' `
+    'u16 rdx_hogp_keyboard_att_read('
+$HidStateMatch = [regex]::Match(
+    $HidService,
+    '(?s)typedef\s+struct\s*\{(.*?)\}\s*rdx_hid_service_state_t\s*;'
+)
+$HidStateBody = if ($HidStateMatch.Success) {
+    $HidStateMatch.Groups[1].Value
+} else { '' }
+$VolatileRuntimeFields = @(
+    'connected',
+    'encrypted',
+    'suspended',
+    'keyboard_notify_enabled',
+    'codex_notify_enabled'
+)
+$volatileRuntimeStateOk = $HidStateMatch.Success
+foreach ($field in $VolatileRuntimeFields) {
+    $volatileRuntimeStateOk = $volatileRuntimeStateOk -and
+        ($HidStateBody -match ('volatile\s+u8\s+' + [regex]::Escape($field) + '\s*;'))
+}
+$volatileRuntimeStateOk = $volatileRuntimeStateOk -and
+    ([regex]::Matches($HidStateBody, 'volatile\s+u8\s+\w+\s*;').Count -eq
+        $VolatileRuntimeFields.Count)
+Assert-Contract 'HID_RUNTIME_FLAGS_ARE_VOLATILE' `
+    $volatileRuntimeStateOk `
+    'the five callback-shared HID runtime flags must preserve their volatile baseline semantics under JL LTO'
+
 Assert-Contract 'HID_CCC_AND_READY_BOUNDARY' `
     ($WriteBody -match 'offset\s*!=\s*0' -and
      $WriteBody -match 'buffer_size\s*!=\s*2' -and
      $WriteBody -match 'cfg\s*!=\s*0x0000\s*&&\s*cfg\s*!=\s*0x0001' -and
-     $WriteBody -match '!s_hogp_encrypted' -and
-     $ReadyBody -match 's_hogp_connected' -and
-     $ReadyBody -match 's_hid_notify_enabled' -and
-     $ReadyBody -match 's_hogp_encrypted' -and
-     $ReadyBody -match 's_hogp_suspended' -and
-     $ReadyDropBody -match 'rdx_input_router_keyboard_ready_drop_cleanup\s*\(\s*\)' -and
-     $ReadyDropBody -match 'rdx_hogp_current_report_clear\s*\(\s*\)') `
-    'HID is ready only for encrypted CCC 0x0001 while not suspended, and every ready drop clears key state'
+     $WriteBody -match '!s_hid\.encrypted' -and
+     $ReadyBody -match 's_hid\.connected' -and
+     $ReadyBody -match 's_hid\.keyboard_notify_enabled' -and
+     $ReadyBody -match 's_hid\.codex_notify_enabled' -and
+     $ReadyBody -match 's_hid\.encrypted' -and
+     $ReadyBody -match 's_hid\.suspended' -and
+     $ReadyDropBody -match 'rdx_hogp_keyboard_ready_drop_cleanup\s*\(\s*\)' -and
+     $ReadyDropBody -match 'rdx_codex_micro_ready_drop_cleanup\s*\(\s*\)' -and
+     $KeyboardDropBody -match 'rdx_input_router_keyboard_ready_drop_cleanup\s*\(\s*\)') `
+    'HID core must gate each report by its own CCC plus shared encrypted/non-suspended state and clean providers before ready drops'
+
+Assert-Contract 'HID_CORE_OWNS_SHARED_STATE' `
+    ($Makefile.Contains('rdx_hid_service.c') -and
+     $HidServiceHeader -match 'rdx_hid_report_is_ready' -and
+     $HidServiceHeader -match 'rdx_hid_report_notify' -and
+     $HidService -match 'app_ble_att_send_data\s*\(' -and
+     $Keyboard -notmatch 'app_ble_att_send_data|s_hogp_connected|s_hogp_encrypted|s_hogp_suspended|s_codex_notify_enabled|get_sm_peer_address|rdx_hogp_subscription_store|rdx_codex_micro' -and
+     $KeyboardHeader -notmatch 'rdx_hogp_(?:on_connected|on_disconnected|on_encryption_change|on_sm_event|codex_is_ready|route_is_active)' -and
+     $HidService -match 'rdx_hogp_keyboard_att_(?:read|write)' -and
+     $HidService -match 'rdx_codex_micro_(?:att_read|output_write)' -and
+     $Server -match 'rdx_hid_service_att_(?:read|write)' -and
+     $Server -notmatch 'rdx_hogp_att_(?:read|write)') `
+    'HID core must exclusively own shared runtime/transport while keyboard remains an ID 1 report provider'
 
 $storeOk = $Makefile.Contains('rdx_hogp_subscription_store.c') -and
            $Syscfg -match '#define\s+VM_RDX_HOGP_SUBSCRIPTION_A\s+165' -and
@@ -210,8 +256,8 @@ $storeOk = $Makefile.Contains('rdx_hogp_subscription_store.c') -and
            $Store.Contains('rdx_hogp_subscription_crc32') -and
            $Store.Contains('memcmp(record, readback, sizeof(record))') -and
            $Store.Contains('baseline_revision') -and
-           $Keyboard -match 'get_sm_peer_address\s*\(' -and
-           $Keyboard -match 'rdx_hogp_subscription_store_(?:set|contains)\s*\(' -and
+           $HidService -match 'get_sm_peer_address\s*\(' -and
+           $HidService -match 'rdx_hogp_subscription_store_(?:set|contains)\s*\(' -and
            $Vm -match '(?s)rdx_vm_ble_pairing_state_reset.*?rdx_hogp_subscription_store_reset\s*\('
 Assert-Contract 'BONDED_CCC_IS_PEER_SCOPED' $storeOk `
     'bonded CCC intent must use verified A/B records keyed by SM identity and clear with bond reset'

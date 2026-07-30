@@ -47,7 +47,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
 #include "rdx_hogp_config.h"
-#include "rdx_hogp_keyboard.h"
+#include "rdx_hid_service.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_profile.h"
 #include "rdx_gatt_profile.h"
@@ -1575,10 +1575,10 @@ static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
     r_printf("[BLE_SESSION] disconnect hdl=0x%04x status=0x%02x reason=0x%02x rdx=%u hid_ready=%u\n",
              disconnected_handle, status, reason,
              rdx_active,
-             rdx_hogp_keyboard_is_ready());
+             rdx_hid_report_is_ready(RDX_HID_REPORT_KEYBOARD));
 
 #if TCFG_RDX_HOGP_ENABLE
-    rdx_hogp_on_disconnected(disconnected_handle);
+    rdx_hid_service_on_disconnected(disconnected_handle);
 #endif
 
     if (rdx_active) {
@@ -1625,14 +1625,14 @@ static u8 rdx_ble_server_hogp_attach(u16 con_handle)
                  con_handle, g_rdx_ble_server_info.ble_con_handle);
         return 0;
     }
-    if (rdx_hogp_keyboard_is_connected()) {
+    if (rdx_hid_service_is_connected()) {
         return 1;
     }
 
     link_state = rdx_ble_session_get_link_state();
-    rdx_hogp_on_connected(con_handle,
-                          link_state ? link_state->encrypted : 0);
-    return rdx_hogp_keyboard_is_connected();
+    rdx_hid_service_on_connected(con_handle,
+                                 link_state ? link_state->encrypted : 0);
+    return rdx_hid_service_is_connected();
 }
 #endif
 
@@ -1830,7 +1830,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     if (rdx_ble_session_link_is_hid(link)) {
         /* Disconnection Complete is already too late for an ATT release
          * report.  HOGP only drops its local report/runtime state here. */
-        rdx_hogp_on_disconnected(con_handle);
+        rdx_hid_service_on_disconnected(con_handle);
     }
 #endif
     if (rdx_ble_session_link_is_rdx(link)) {
@@ -1938,14 +1938,14 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
 #if TCFG_RDX_HOGP_ENABLE
                 if (rdx_ble_session_link_is_hid(link)) {
-                    rdx_hogp_on_encryption_change(con_handle, encrypted,
-                                                  status);
+                    rdx_hid_service_on_encryption_change(con_handle,
+                                                         encrypted, status);
                 } else if (encrypted &&
-                           rdx_hogp_peer_has_persisted_subscription(
+                           rdx_hid_service_peer_has_persisted_subscription(
                                con_handle) &&
                            !rdx_ble_server_phase2_hid_attach(link)) {
-                    rdx_hogp_on_encryption_change(con_handle, encrypted,
-                                                  status);
+                    rdx_hid_service_on_encryption_change(con_handle,
+                                                         encrypted, status);
                 }
 #endif
             }
@@ -1995,7 +1995,7 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
         }
 #if TCFG_RDX_HOGP_ENABLE
         if (rdx_ble_session_link_is_hid(link)) {
-            rdx_hogp_on_sm_event(packet_type, packet, size);
+            rdx_hid_service_on_sm_event(packet_type, packet, size);
             return;
         }
 #endif
@@ -2127,7 +2127,7 @@ static u16 rdx_ble_server_gatt_read_hid(
     const rdx_gatt_read_context_t *context)
 {
 #if TCFG_RDX_HOGP_ENABLE
-    u16 att_value_len = rdx_hogp_att_read(
+    u16 att_value_len = rdx_hid_service_att_read(
         context->connection_handle, context->att_handle, context->offset,
         context->buffer, context->buffer_size);
 
@@ -2376,18 +2376,19 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
-    if (!rdx_hogp_keyboard_is_connected()) {
-        rdx_hogp_on_connected_with_hdl(link->ble_hdl, link->con_handle,
-                                       link->encrypted);
+    if (!rdx_hid_service_is_connected()) {
+        rdx_hid_service_on_connected_with_hdl(link->ble_hdl,
+                                              link->con_handle,
+                                              link->encrypted);
         r_printf("[RDX_BLE_HID] owner attached con=0x%04x hdl=%p\n",
                  link->con_handle, link->ble_hdl);
     }
     if (had_rdx_owner && !had_hid_owner &&
-        rdx_hogp_keyboard_is_connected()) {
+        rdx_hid_service_is_connected()) {
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=RDX+HID\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
-    return rdx_hogp_keyboard_is_connected() ? 0 :
+    return rdx_hid_service_is_connected() ? 0 :
            RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
 }
 #endif
@@ -2652,7 +2653,7 @@ static int rdx_ble_server_gatt_write_hid(
 #endif
         ) && cfg == 0x0000) {
         if (rdx_ble_session_link_is_hid(link)) {
-            return rdx_hogp_att_write(
+            return rdx_hid_service_att_write(
                 context->connection_handle, context->att_handle,
                 context->transaction_mode, context->offset,
                 context->buffer, context->buffer_size);
@@ -2693,7 +2694,7 @@ static int rdx_ble_server_gatt_write_hid(
             context->att_handle, context->offset, context->buffer,
             context->buffer_size);
     }
-    return rdx_hogp_att_write(
+    return rdx_hid_service_att_write(
         context->connection_handle, context->att_handle,
         context->transaction_mode, context->offset,
         context->buffer, context->buffer_size);
@@ -3678,7 +3679,7 @@ void rdx_ble_server_init(void)
 
         //init HOGP submodule.
 #if TCFG_RDX_HOGP_ENABLE
-        rdx_hogp_init(g_rdx_ble_server_info.rdx_ble_server_hdl);
+        rdx_hid_service_init(g_rdx_ble_server_info.rdx_ble_server_hdl);
         rdx_codex_micro_init();
 #endif
 
@@ -3733,7 +3734,7 @@ void rdx_ble_server_exit(void)
     
     rdx_input_router_deinit();
     rdx_codex_micro_deinit();
-    rdx_hogp_deinit();
+    rdx_hid_service_deinit();
     rdx_ble_session_reset();
 
     if (g_rdx_ble_secondary_hdl) {
