@@ -1,4 +1,5 @@
 #include "rdx_file_transfer_cleanup_compat.h"
+#include "system/includes.h"
 #include "rdx_uxfile.h"
 
 extern void rdx_protocol_uploadFileInfo_clean(void);
