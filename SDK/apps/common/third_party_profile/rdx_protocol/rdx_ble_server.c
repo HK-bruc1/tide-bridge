@@ -2776,12 +2776,6 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     const u8 flags[] = {0x0A};
-#if TCFG_RDX_HOGP_ENABLE
-    const u8 appearance[] = {
-        (u8)(BLE_APPEARANCE_GENERIC_HID & 0xff),
-        (u8)(BLE_APPEARANCE_GENERIC_HID >> 8)
-    };
-#endif
     u8 name_type = HCI_EIR_DATATYPE_COMPLETE_LOCAL_NAME;
     u8 name_capacity;
 
@@ -2801,14 +2795,6 @@ static u8 rdx_ble_server_fill_adv_data(u8 *adv_data)
                                         name_type, name_p, name_len)) {
         return 0;
     }
-#if TCFG_RDX_HOGP_ENABLE
-    if (!rdx_ble_server_adv_append_data(adv_data, &offset,
-                                        HCI_EIR_DATATYPE_APPEARANCE_DATA,
-                                        appearance, sizeof(appearance))) {
-        return 0;
-    }
-#endif
-
     if (offset > ADV_RSP_PACKET_MAX) {
         r_printf("***adv_data overflow!!!!!!\n");
         return 0;

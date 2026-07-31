@@ -122,11 +122,12 @@ $advertisingOk = $advertisingOk -and
     $RspBody -match 'RDX_SELF_MARK' -and
     $RspBody -match 'const\s+u8\s+hid_uuid\[\]\s*=\s*\{\s*0x12\s*,\s*0x18\s*\}' -and
     $RspBody -match '#if\s+TCFG_RDX_HOGP_ENABLE' -and
+    $AdvBody -notmatch 'APPEARANCE|Appearance|appearance' -and
     $Server -match '\(u16\)\(\*offset\)\s*\+\s*2\s*\+\s*data_len\s*>\s*ADV_RSP_PACKET_MAX' -and
     $AdvBuildBody -match 'rdx_ble_server_fill_rsp_data\s*\(\s*rspData\s*\)' -and
     $Server -notmatch 'rdx_hogp_adv_start|rdx_hogp_adv_stop|rdx_ble_mode_start_hogp_advertising'
 Assert-Contract 'UNIFIED_ADVERTISING_PACKET' $advertisingOk `
-    'ADV must contain Flags+Name and Scan Response must contain bounded RDX manufacturer data then HID UUID'
+    'ADV must contain only Flags+Name without Appearance, and Scan Response must contain bounded RDX manufacturer data then HID UUID'
 
 Assert-Contract 'ADVERTISING_RESTART_REVALIDATES_SLOT' `
     ($AdvRestartBody -match 'rdx_ble_server_phase0b_adv_token_is_current\s*\(\s*\)' -and

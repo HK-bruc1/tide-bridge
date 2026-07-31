@@ -132,10 +132,8 @@ Assert-Contract 'DIS_AND_IDENTITY_POLICY' `
      $DisFragment -match '0x02,\s*0x3a,\s*0x30,\s*0x60,\s*0x83,\s*0x01,\s*0x01' -and
      $DisFragment -match "'W',\s*'o',\s*'r',\s*'k',\s*' ',\s*'L',\s*'o',\s*'u',\s*'d',\s*'e',\s*'r'" -and
      $DisFragment -match '0x02,\s*0x34,\s*0x12,\s*0x01,\s*0x00,\s*0x01,\s*0x00' -and
-     $DisFragment -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'" -and
-     $Server -match 'BLE_APPEARANCE_GENERIC_HID' -and
-     $Server -match '(?s)#if\s+TCFG_RDX_HOGP_ENABLE.*?BLE_APPEARANCE_GENERIC_HID.*?#endif.*?#if\s+TCFG_RDX_HOGP_ENABLE.*?HCI_EIR_DATATYPE_APPEARANCE_DATA') `
-    'DIS identity must remain policy-gated while Generic HID appearance follows the HOGP capability'
+     $DisFragment -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'") `
+    'DIS identity must remain policy-gated independently of the product advertising layout'
 
 $WriteBody = Get-SourceSlice $Codex `
     'int rdx_codex_micro_output_write(' `
