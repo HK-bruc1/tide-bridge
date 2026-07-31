@@ -132,9 +132,6 @@ static u8 rdx_ble_server_unified_link_connected(const u8 *packet,
 static void rdx_ble_server_unified_link_disconnected(const u8 *packet,
                                                      u16 size);
 static u8 rdx_ble_server_rdx_attach(u16 con_handle);
-#if TCFG_RDX_HOGP_ENABLE
-static u8 rdx_ble_server_hogp_attach(u16 con_handle);
-#endif
 static u16 rdx_ble_server_gatt_read_gap_name(
     const rdx_gatt_read_context_t *context);
 static u16 rdx_ble_server_gatt_read_private_value(
@@ -1615,27 +1612,6 @@ static u8 rdx_ble_server_rdx_attach(u16 con_handle)
     return 1;
 }
 
-#if TCFG_RDX_HOGP_ENABLE
-static u8 rdx_ble_server_hogp_attach(u16 con_handle)
-{
-    const rdx_ble_link_state_t *link_state;
-
-    if (!rdx_ble_session_is_current(con_handle)) {
-        y_printf("[HOGP] attach rejected: stale hdl=0x%04x current=0x%04x\n",
-                 con_handle, g_rdx_ble_server_info.ble_con_handle);
-        return 0;
-    }
-    if (rdx_hid_service_is_connected()) {
-        return 1;
-    }
-
-    link_state = rdx_ble_session_get_link_state();
-    rdx_hid_service_on_connected(con_handle,
-                                 link_state ? link_state->encrypted : 0);
-    return rdx_hid_service_is_connected();
-}
-#endif
-
 /**************************************************************************
  * function:
  * description: 
@@ -1940,9 +1916,9 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 if (rdx_ble_session_link_is_hid(link)) {
                     rdx_hid_service_on_encryption_change(con_handle,
                                                          encrypted, status);
-                } else if (encrypted &&
+                } else if (encrypted && link->peer_identity_valid &&
                            rdx_hid_service_peer_has_persisted_subscription(
-                               con_handle) &&
+                               link->peer_identity) &&
                            !rdx_ble_server_phase2_hid_attach(link)) {
                     rdx_hid_service_on_encryption_change(con_handle,
                                                          encrypted, status);
@@ -2365,7 +2341,7 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
     u8 had_hid_owner;
     u8 had_rdx_owner;
 
-    if (!link) {
+    if (!link || !link->peer_identity_valid) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
     had_hid_owner = rdx_ble_session_link_is_hid(link);
@@ -2379,7 +2355,8 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
     if (!rdx_hid_service_is_connected()) {
         rdx_hid_service_on_connected_with_hdl(link->ble_hdl,
                                               link->con_handle,
-                                              link->encrypted);
+                                              link->encrypted,
+                                              link->peer_identity);
         r_printf("[RDX_BLE_HID] owner attached con=0x%04x hdl=%p\n",
                  link->con_handle, link->ble_hdl);
     }
@@ -2657,6 +2634,23 @@ static int rdx_ble_server_gatt_write_hid(
                 context->connection_handle, context->att_handle,
                 context->transaction_mode, context->offset,
                 context->buffer, context->buffer_size);
+        }
+        if (!link) {
+            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+        }
+#if RDX_HOGP_ENCRYPTION_REQUIRED
+        if (!link->encrypted) {
+            return RDX_BLE_PHASE0A_ATT_ERR_INSUFFICIENT_ENCRYPTION;
+        }
+#endif
+        if (!link->peer_identity_valid ||
+            rdx_hid_service_peer_subscription_update(
+                link->peer_identity,
+                context->att_handle ==
+                    HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE ?
+                        RDX_HID_REPORT_KEYBOARD : RDX_HID_REPORT_CODEX,
+                0)) {
+            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
         }
         multi_att_set_ccc_config(context->connection_handle,
                                  context->att_handle, 0);

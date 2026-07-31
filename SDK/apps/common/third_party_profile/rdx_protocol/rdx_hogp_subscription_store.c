@@ -17,8 +17,10 @@
 
 #if TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 
-#define RDX_HOGP_SUB_VM_MAGIC               "HCS1"
-#define RDX_HOGP_SUB_VM_SCHEMA              0x01
+#define RDX_HOGP_SUB_VM_MAGIC               "HCS2"
+#define RDX_HOGP_SUB_VM_SCHEMA              0x02
+#define RDX_HOGP_SUB_VM_LEGACY_MAGIC        "HCS1"
+#define RDX_HOGP_SUB_VM_LEGACY_SCHEMA       0x01
 #define RDX_HOGP_SUB_VM_SLOT_COUNT          4
 #define RDX_HOGP_SUB_VM_RECORD_LEN          48
 #define RDX_HOGP_SUB_VM_HEADER_LEN          12
@@ -28,12 +30,14 @@
 
 typedef struct {
     u8 valid;
+    u8 subscription_bits;
     u8 peer_addr[RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN];
 } rdx_hogp_subscription_entry_t;
 
 typedef struct {
     u8 loaded;
     u8 active_vm_slot;
+    u8 source_schema;
     u32 revision;
     rdx_hogp_subscription_entry_t entries[RDX_HOGP_SUB_VM_SLOT_COUNT];
 } rdx_hogp_subscription_cache_t;
@@ -114,6 +118,7 @@ static void rdx_hogp_subscription_build_record(
                      (i * RDX_HOGP_SUB_VM_ENTRY_LEN);
         record[offset] = cache->entries[i].valid ? 1 : 0;
         if (cache->entries[i].valid) {
+            record[offset + 1] = cache->entries[i].subscription_bits;
             memcpy(&record[offset + 2], cache->entries[i].peer_addr,
                    RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN);
         }
@@ -127,12 +132,20 @@ static int rdx_hogp_subscription_parse_record(
     const u8 *record,
     rdx_hogp_subscription_cache_t *cache)
 {
+    u8 schema;
     u8 i;
     u8 j;
 
-    if (memcmp(&record[0], RDX_HOGP_SUB_VM_MAGIC, 4) != 0 ||
-        record[4] != RDX_HOGP_SUB_VM_SCHEMA ||
-        record[5] != RDX_HOGP_SUB_VM_SLOT_COUNT ||
+    if (memcmp(&record[0], RDX_HOGP_SUB_VM_MAGIC, 4) == 0 &&
+        record[4] == RDX_HOGP_SUB_VM_SCHEMA) {
+        schema = RDX_HOGP_SUB_VM_SCHEMA;
+    } else if (memcmp(&record[0], RDX_HOGP_SUB_VM_LEGACY_MAGIC, 4) == 0 &&
+               record[4] == RDX_HOGP_SUB_VM_LEGACY_SCHEMA) {
+        schema = RDX_HOGP_SUB_VM_LEGACY_SCHEMA;
+    } else {
+        return -1;
+    }
+    if (record[5] != RDX_HOGP_SUB_VM_SLOT_COUNT ||
         record[6] != 0 || record[7] != 0 ||
         rdx_hogp_subscription_get_le32(&record[RDX_HOGP_SUB_VM_CRC_OFFSET]) !=
             rdx_hogp_subscription_crc32(record, RDX_HOGP_SUB_VM_CRC_OFFSET)) {
@@ -140,6 +153,7 @@ static int rdx_hogp_subscription_parse_record(
     }
 
     memset(cache, 0, sizeof(*cache));
+    cache->source_schema = schema;
     cache->revision = rdx_hogp_subscription_get_le32(&record[8]);
     if (cache->revision == 0) {
         return -1;
@@ -148,17 +162,31 @@ static int rdx_hogp_subscription_parse_record(
     for (i = 0; i < RDX_HOGP_SUB_VM_SLOT_COUNT; i++) {
         u16 offset = RDX_HOGP_SUB_VM_HEADER_LEN +
                      (i * RDX_HOGP_SUB_VM_ENTRY_LEN);
-        if (record[offset] > 1 || record[offset + 1] != 0) {
+        if (record[offset] > 1) {
             return -1;
         }
         cache->entries[i].valid = record[offset];
         if (!cache->entries[i].valid) {
-            for (j = 0; j < RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN; j++) {
-                if (record[offset + 2 + j] != 0) {
+            for (j = 1; j < RDX_HOGP_SUB_VM_ENTRY_LEN; j++) {
+                if (record[offset + j] != 0) {
                     return -1;
                 }
             }
             continue;
+        }
+        if (schema == RDX_HOGP_SUB_VM_LEGACY_SCHEMA) {
+            if (record[offset + 1] != 0) {
+                return -1;
+            }
+            cache->entries[i].subscription_bits =
+                RDX_HOGP_SUBSCRIPTION_KEYBOARD;
+        } else {
+            cache->entries[i].subscription_bits = record[offset + 1];
+            if (!cache->entries[i].subscription_bits ||
+                (cache->entries[i].subscription_bits &
+                 ~RDX_HOGP_SUBSCRIPTION_ALL)) {
+                return -1;
+            }
         }
         memcpy(cache->entries[i].peer_addr, &record[offset + 2],
                RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN);
@@ -193,6 +221,9 @@ static int rdx_hogp_subscription_read_vm_slot(
     cache->active_vm_slot = slot;
     return 0;
 }
+
+static int rdx_hogp_subscription_publish(
+    const rdx_hogp_subscription_cache_t *candidate);
 
 static void rdx_hogp_subscription_load(void)
 {
@@ -273,7 +304,25 @@ static int rdx_hogp_subscription_publish(
     return 0;
 }
 
-int rdx_hogp_subscription_store_contains(const u8 *peer_addr)
+int rdx_hogp_subscription_store_init(void)
+{
+    rdx_hogp_subscription_cache_t candidate;
+
+    rdx_hogp_subscription_load();
+    if (s_hogp_subscription_cache.source_schema !=
+        RDX_HOGP_SUB_VM_LEGACY_SCHEMA) {
+        return 0;
+    }
+    memcpy(&candidate, &s_hogp_subscription_cache, sizeof(candidate));
+    if (rdx_hogp_subscription_publish(&candidate)) {
+        y_printf("[HOGP_SUB] HCS1 migration deferred\n");
+        return -1;
+    }
+    y_printf("[HOGP_SUB] HCS1 migrated to HCS2\n");
+    return 0;
+}
+
+u8 rdx_hogp_subscription_store_get(const u8 *peer_addr)
 {
     u8 i;
 
@@ -285,19 +334,23 @@ int rdx_hogp_subscription_store_contains(const u8 *peer_addr)
         if (s_hogp_subscription_cache.entries[i].valid &&
             memcmp(s_hogp_subscription_cache.entries[i].peer_addr,
                    peer_addr, RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN) == 0) {
-            return 1;
+            return s_hogp_subscription_cache.entries[i].subscription_bits;
         }
     }
     return 0;
 }
 
-int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
+int rdx_hogp_subscription_store_update(const u8 *peer_addr,
+                                       u8 subscription_bit, u8 enabled)
 {
     rdx_hogp_subscription_cache_t candidate;
+    u8 updated_bits;
     int found = -1;
     int i;
 
-    if (!rdx_hogp_subscription_peer_valid(peer_addr)) {
+    if (!rdx_hogp_subscription_peer_valid(peer_addr) ||
+        (subscription_bit != RDX_HOGP_SUBSCRIPTION_KEYBOARD &&
+         subscription_bit != RDX_HOGP_SUBSCRIPTION_CODEX)) {
         return -1;
     }
     rdx_hogp_subscription_load();
@@ -309,7 +362,17 @@ int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
             break;
         }
     }
-    if ((enabled && found == 0) || (!enabled && found < 0)) {
+    updated_bits = found >= 0 ?
+        s_hogp_subscription_cache.entries[found].subscription_bits : 0;
+    if (enabled) {
+        updated_bits |= subscription_bit;
+    } else {
+        updated_bits &= ~subscription_bit;
+    }
+    if ((found >= 0 &&
+         updated_bits ==
+             s_hogp_subscription_cache.entries[found].subscription_bits) ||
+        (found < 0 && !updated_bits)) {
         return 0;
     }
 
@@ -321,11 +384,12 @@ int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
         memset(&candidate.entries[RDX_HOGP_SUB_VM_SLOT_COUNT - 1], 0,
                sizeof(candidate.entries[0]));
     }
-    if (enabled) {
+    if (updated_bits) {
         for (i = RDX_HOGP_SUB_VM_SLOT_COUNT - 1; i > 0; i--) {
             candidate.entries[i] = candidate.entries[i - 1];
         }
         candidate.entries[0].valid = 1;
+        candidate.entries[0].subscription_bits = updated_bits;
         memcpy(candidate.entries[0].peer_addr, peer_addr,
                RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN);
     }
@@ -346,15 +410,22 @@ int rdx_hogp_subscription_store_reset(void)
 
 #else
 
-int rdx_hogp_subscription_store_contains(const u8 *peer_addr)
+int rdx_hogp_subscription_store_init(void)
+{
+    return 0;
+}
+
+u8 rdx_hogp_subscription_store_get(const u8 *peer_addr)
 {
     (void)peer_addr;
     return 0;
 }
 
-int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
+int rdx_hogp_subscription_store_update(const u8 *peer_addr,
+                                       u8 subscription_bit, u8 enabled)
 {
     (void)peer_addr;
+    (void)subscription_bit;
     (void)enabled;
     return 0;
 }

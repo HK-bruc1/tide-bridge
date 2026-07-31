@@ -22,6 +22,7 @@ $KeyboardHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.h"
 $Config = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $Store = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_subscription_store.c"
+$StoreHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_subscription_store.h"
 $Vm = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_vm.c"
 $Syscfg = Read-RepoFile $RepoRoot 'SDK\interface\utils\syscfg_id.h'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
@@ -250,16 +251,103 @@ Assert-Contract 'HID_CORE_OWNS_SHARED_STATE' `
      $Server -notmatch 'rdx_hogp_att_(?:read|write)') `
     'HID core must exclusively own shared runtime/transport while keyboard remains an ID 1 report provider'
 
+$StoreParseBody = Get-SourceSlice $Store `
+    'static int rdx_hogp_subscription_parse_record(' `
+    'static int rdx_hogp_subscription_read_vm_slot('
+$StoreBuildBody = Get-SourceSlice $Store `
+    'static void rdx_hogp_subscription_build_record(' `
+    'static int rdx_hogp_subscription_parse_record('
+$StoreUpdateBody = Get-SourceSlice $Store `
+    'int rdx_hogp_subscription_store_update(' `
+    'int rdx_hogp_subscription_store_reset('
+$RestoreBody = Get-SourceSlice $HidService `
+    'static void rdx_hid_subscription_restore_if_available(' `
+    'static void rdx_hid_report_ready_drop('
+$StoreLoadBody = Get-SourceSlice $Store `
+    'static void rdx_hogp_subscription_load(' `
+    'static int rdx_hogp_subscription_publish('
+$StoreInitBody = Get-SourceSlice $Store `
+    'int rdx_hogp_subscription_store_init(' `
+    'u8 rdx_hogp_subscription_store_get('
+$NotifyBody = Get-SourceSlice $HidService `
+    'int rdx_hid_report_notify(' `
+    'u8 rdx_hid_service_peer_has_persisted_subscription('
+$ConnectedBody = Get-SourceSlice $HidService `
+    'void rdx_hid_service_on_connected_with_hdl(' `
+    'void rdx_hid_service_on_disconnected('
+$ServerHidWriteBody = Get-SourceSlice $Server `
+    'static int rdx_ble_server_gatt_write_hid(' `
+    'static int rdx_ble_server_gatt_write_rejected(' -Last
+$LegacyMigrationMatch = [regex]::Match(
+    $StoreParseBody,
+    '(?s)if\s*\(schema\s*==\s*RDX_HOGP_SUB_VM_LEGACY_SCHEMA\)\s*\{(.*?)\}\s*else'
+)
+$LegacyMigrationBody = if ($LegacyMigrationMatch.Success) {
+    $LegacyMigrationMatch.Groups[1].Value
+} else { '' }
+
+Assert-Contract 'BONDED_CCC_HCS2_SCHEMA' `
+    ($Store -match '#define\s+RDX_HOGP_SUB_VM_MAGIC\s+"HCS2"' -and
+     $Store -match '#define\s+RDX_HOGP_SUB_VM_SCHEMA\s+0x02' -and
+     $Store -match '#define\s+RDX_HOGP_SUB_VM_RECORD_LEN\s+48' -and
+     $Store -match '#define\s+RDX_HOGP_SUB_VM_ENTRY_LEN\s+8' -and
+     $StoreHeader -match '#define\s+RDX_HOGP_SUBSCRIPTION_KEYBOARD\s+0x01' -and
+     $StoreHeader -match '#define\s+RDX_HOGP_SUBSCRIPTION_CODEX\s+0x02' -and
+     $StoreBuildBody -match 'record\[offset\s*\+\s*1\]\s*=\s*cache->entries\[i\]\.subscription_bits' -and
+     $StoreParseBody -match 'subscription_bits\s*=\s*record\[offset\s*\+\s*1\]') `
+    'HCS2 must preserve the 48-byte A/B record while assigning independent ID 1 and ID 6 bits to entry byte 1'
+
+Assert-Contract 'BONDED_CCC_HCS1_MIGRATION' `
+    ($Store -match '#define\s+RDX_HOGP_SUB_VM_LEGACY_MAGIC\s+"HCS1"' -and
+     $Store -match '#define\s+RDX_HOGP_SUB_VM_LEGACY_SCHEMA\s+0x01' -and
+     $LegacyMigrationMatch.Success -and
+     $LegacyMigrationBody -match 'RDX_HOGP_SUBSCRIPTION_KEYBOARD' -and
+     $LegacyMigrationBody -notmatch 'RDX_HOGP_SUBSCRIPTION_CODEX' -and
+     $StoreInitBody -match 'HCS1 migrated to HCS2' -and
+     $StoreInitBody -match 'rdx_hogp_subscription_publish\s*\(' -and
+     $StoreLoadBody -notmatch 'rdx_hogp_subscription_publish\s*\(' -and
+     $HidService -match '(?s)rdx_hid_service_init.*?rdx_hogp_subscription_store_init\s*\(') `
+    'HCS1 entries must migrate to keyboard-only HCS2 state without inferring a Codex subscription'
+
+Assert-Contract 'BONDED_CCC_REPORT_BITS_ARE_INDEPENDENT' `
+    ($StoreUpdateBody -match 'updated_bits\s*\|=\s*subscription_bit' -and
+     $StoreUpdateBody -match 'updated_bits\s*&=\s*~subscription_bit' -and
+     $WriteBody -match '(?s)HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE.*?rdx_hid_subscription_update_queue\s*\(\s*RDX_HOGP_SUBSCRIPTION_KEYBOARD' -and
+     $WriteBody -match '(?s)HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE.*?rdx_hid_subscription_update_queue\s*\(\s*RDX_HOGP_SUBSCRIPTION_CODEX' -and
+     $RestoreBody -match '(?s)RDX_HOGP_SUBSCRIPTION_KEYBOARD.*?HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE' -and
+     $RestoreBody -match '(?s)RDX_HOGP_SUBSCRIPTION_CODEX.*?HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE' -and
+     ([regex]::Matches($WriteBody, 'rdx_hid_subscription_update_cancel\s*\(').Count -ge 2)) `
+    'each CCC must update, restore, disable, and roll back only its own persisted report bit'
+
+Assert-Contract 'HID_IDENTITY_COMES_FROM_LINK_REGISTRY' `
+    ($Server -match '(?s)rdx_ble_session_link_set_peer_identity\s*\(\s*link\s*,\s*peer_identity\s*\)' -and
+     $Server -match '(?s)rdx_hid_service_peer_has_persisted_subscription\s*\(\s*link->peer_identity\s*\)' -and
+     $Server -match '(?s)rdx_hid_service_on_connected_with_hdl\s*\(.*?link->peer_identity\s*\)' -and
+     $ConnectedBody -match 'rdx_hid_peer_identity_set\s*\(\s*peer_identity\s*\)' -and
+     $HidService -notmatch 'get_sm_peer_address\s*\(') `
+    'the dual-link registry must resolve SM identity once and pass it into the owner-scoped HID runtime'
+
+Assert-Contract 'NON_OWNER_CCC_DISABLE_PERSISTS_OWN_BIT' `
+    ($ServerHidWriteBody -match '(?s)cfg\s*==\s*0x0000.*?rdx_ble_session_link_is_hid.*?rdx_hid_service_peer_subscription_update\s*\(\s*link->peer_identity' -and
+     $ServerHidWriteBody -match 'link->peer_identity_valid' -and
+     $ServerHidWriteBody -match 'RDX_HID_REPORT_KEYBOARD\s*:\s*RDX_HID_REPORT_CODEX' -and
+     $HidService -match '(?s)rdx_hid_service_peer_subscription_update.*?rdx_hogp_subscription_store_update\s*\(') `
+    'an encrypted non-owner peer must be able to clear only its own persisted report bit without claiming HID'
+
+Assert-Contract 'REPORT_NOTIFY_DOES_NOT_TOUCH_VM' `
+    ($NotifyBody -notmatch 'subscription_update_flush|subscription_store|syscfg_' -and
+     $NotifyBody -match 'app_ble_att_send_data\s*\(') `
+    'report sending must remain a transport-only path and never flush subscription VM state from app_core'
+
 $storeOk = $Makefile.Contains('rdx_hogp_subscription_store.c') -and
            $Syscfg -match '#define\s+VM_RDX_HOGP_SUBSCRIPTION_A\s+165' -and
            $Syscfg -match '#define\s+VM_RDX_HOGP_SUBSCRIPTION_B\s+166' -and
            $Store.Contains('rdx_hogp_subscription_crc32') -and
            $Store.Contains('memcmp(record, readback, sizeof(record))') -and
            $Store.Contains('baseline_revision') -and
-           $HidService -match 'get_sm_peer_address\s*\(' -and
-           $HidService -match 'rdx_hogp_subscription_store_(?:set|contains)\s*\(' -and
+           $HidService -match 'rdx_hogp_subscription_store_(?:get|update)\s*\(' -and
            $Vm -match '(?s)rdx_vm_ble_pairing_state_reset.*?rdx_hogp_subscription_store_reset\s*\('
 Assert-Contract 'BONDED_CCC_IS_PEER_SCOPED' $storeOk `
-    'bonded CCC intent must use verified A/B records keyed by SM identity and clear with bond reset'
+    'bonded dual-report CCC intent must use verified A/B records keyed by SM identity and clear with bond reset'
 
 Write-Host 'HOGP profile contracts passed.'
