@@ -216,7 +216,6 @@ static const RdxWifiCfg wifi_cfg = {
 * Function Declaration Section
 ******************************************************************************/ 
 extern u8 get_remote_dev_company(void);
-extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
 extern void rdx_ble_server_app_disconnect(void);
 extern void sd_set_power(u8 enable);
 extern void power_set_soft_poweroff();

@@ -85,7 +85,7 @@ function Invoke-P11Contracts {
         (Join-Path $repo 'tests/host/test_rdx_p11_protocol_adapter.ps1')
     Invoke-Check 'P11 storage domain Host contract' `
         (Join-Path $repo 'tests/host/test_rdx_p11_storage_domain.ps1')
-    Invoke-Check 'P11 APP storage format Host contract' `
+    Invoke-Check 'P11 storage service Host contract' `
         (Join-Path $repo 'tests/host/test_rdx_p11_storage_service.ps1')
     Invoke-Check 'P11 storage format compatibility Host contract' `
         (Join-Path $repo 'tests/host/test_rdx_p11_storage_format_compat.ps1')

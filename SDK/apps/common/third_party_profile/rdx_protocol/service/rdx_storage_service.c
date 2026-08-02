@@ -120,6 +120,26 @@ u8 rdx_storage_is_formatting(void)
 	return rdx_uxfile_sd_format_status_check();
 }
 
+u8 rdx_storage_is_dat_sync_in_progress(void)
+{
+	return rdx_uxfile_is_sync_in_progress();
+}
+
+u8 rdx_storage_is_file_info_loading(void)
+{
+	return rdx_uxfile_is_datFileInfo_loading();
+}
+
+u8 rdx_storage_is_scan_active(void)
+{
+	return rdx_uxfile_is_scan_active();
+}
+
+u8 rdx_storage_is_format_operation_active(void)
+{
+	return rdx_uxfile_is_formatting();
+}
+
 /* Frozen compatibility facade for the delayed/full BLE cleanup profile. */
 rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
 {

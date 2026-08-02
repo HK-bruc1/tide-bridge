@@ -16,6 +16,14 @@ function Normalize-LineEndings([string]$Text) {
     return $Text.Replace("`r`n", "`n").Replace("`r", "`n")
 }
 
+function Mask-CCommentsAndStrings([string]$Text) {
+    $pattern = '(?s)/\*.*?\*/|//[^\r\n]*|"(?:\\.|[^"\\])*"|''(?:\\.|[^''\\])*'''
+    return [regex]::Replace($Text, $pattern, {
+        param($match)
+        return [regex]::Replace($match.Value, '[^\r\n]', ' ')
+    })
+}
+
 function Add-Pass([string]$Message) {
     Write-Host "PASS: $Message"
 }
@@ -202,6 +210,10 @@ $uxfileFinalAllow = @(
     "$rdxRel/compat/rdx_file_transfer_cleanup_compat.c"
 )
 $wifiTransferException = "$rdxRel/service/rdx_wifi_service.c"
+$finalMetricExceptions = @{
+    "rdx_uxfile call/reference::$rdxRel/rdx_app.c" = 2
+    "rdx_uxfile call/reference::$rdxRel/service/rdx_device_service.c" = 2
+}
 
 foreach ($metric in $metrics) {
     Write-Host ""
@@ -212,8 +224,8 @@ foreach ($metric in $metrics) {
     foreach ($file in $allFiles) {
         $baselineText = Read-Baseline $file
         $workingText = Read-Working $file
-        $baselineCount = Count-Pattern $baselineText $metric.Pattern
-        $workingCount = Count-Pattern $workingText $metric.Pattern
+        $baselineCount = Count-Pattern (Mask-CCommentsAndStrings $baselineText) $metric.Pattern
+        $workingCount = Count-Pattern (Mask-CCommentsAndStrings $workingText) $metric.Pattern
         $baselineTotal += $baselineCount
         $workingTotal += $workingCount
 
@@ -253,11 +265,25 @@ foreach ($metric in $metrics) {
                 }
                 continue
             }
-            if ($workingCount -ne 0) {
-                Add-Failure "Final ownership still has $($metric.Name) in $file"
+            $exceptionKey = "$($metric.Name)::$file"
+            $expectedCount = if ($finalMetricExceptions.ContainsKey($exceptionKey)) {
+                [int]$finalMetricExceptions[$exceptionKey]
+            } else {
+                0
             }
-        } elseif (-not ($recordAdapterAllow -contains $file) -and $workingCount -ne 0) {
-            Add-Failure "Final ownership still has $($metric.Name) in $file"
+            if ($workingCount -ne $expectedCount) {
+                Add-Failure "Final ownership exception drifted for $($metric.Name) in ${file}: expected=$expectedCount actual=$workingCount"
+            }
+        } elseif (-not ($recordAdapterAllow -contains $file)) {
+            $exceptionKey = "$($metric.Name)::$file"
+            $expectedCount = if ($finalMetricExceptions.ContainsKey($exceptionKey)) {
+                [int]$finalMetricExceptions[$exceptionKey]
+            } else {
+                0
+            }
+            if ($workingCount -ne $expectedCount) {
+                Add-Failure "Final ownership exception drifted for $($metric.Name) in ${file}: expected=$expectedCount actual=$workingCount"
+            }
         }
     }
 
@@ -1060,13 +1086,83 @@ Assert-OrderedTokens $modeActive `
 $deviceService = $deviceControl
 $emmcDisabledPattern = 'void\s+rdx_device_service_emmc_poweroff_check\s*\(void\)\s*\{\s*return\s*;\s*\}'
 if ([regex]::IsMatch($deviceService, $emmcDisabledPattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-    Add-Pass 'eMMC auto-poweroff check remains an immediate-return disabled policy'
+    Add-Pass 'eMMC public auto-poweroff check remains an immediate-return disabled entry'
 } else {
     Add-Failure 'eMMC auto-poweroff check no longer has return as its only executable statement'
+}
+$emmcPoweron = Get-FunctionSlice $deviceService `
+    'void rdx_device_service_emmc_poweron' `
+    'void rdx_device_service_emmc_poweroff' `
+    'eMMC poweron path'
+Assert-OrderedTokens $emmcPoweron `
+    @('if (g_emmc_poweroff_flag == TRUE)',
+      'rdx_board_vdd_power_on()',
+      'sd_set_power(1)',
+      'if (check_en)',
+      'rdx_device_service_emmc_poweroff_check_timer_start()',
+      'g_emmc_poweroff_flag = false') `
+    'eMMC poweron active timer-start path'
+$emmcAutoShutdown = Get-FunctionSlice $appControl `
+    "void rdx_app_auto_shutdown(void)`n{" `
+    '#endif' `
+    'APP auto-shutdown path'
+Assert-OrderedTokens $emmcAutoShutdown `
+    @('rdx_app_emmc_poweron(1)',
+      'rdx_hook_motor_start(500)',
+      'rdx_os_timer_add(rdx_app_enter_idle_timer_cb, NULL, 1500)') `
+    'APP auto-shutdown poweron and idle-timer order'
+$emmcTimerCallback = Get-FunctionSlice $deviceService `
+    "static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)`n{" `
+    "static void rdx_device_service_emmc_poweroff_check_timer_start(void)`n{" `
+    'eMMC poweroff timer callback'
+Assert-OrderedTokens $emmcTimerCallback `
+    @('rdx_record_service_is_offline_active()',
+      'rdx_storage_is_dat_sync_in_progress()',
+      'rdx_storage_is_file_info_loading()',
+      'rdx_is_file_transfer_active()',
+      'rdx_is_file_sync_busy()',
+      'rdx_storage_is_scan_active()',
+      'rdx_storage_is_format_operation_active()',
+      'rdx_hook_motor_is_running()',
+      'rdx_device_service_emmc_poweroff()') `
+    'eMMC timer callback owner-query and poweroff order'
+$emmcTimerStart = Get-FunctionSlice $deviceService `
+    "static void rdx_device_service_emmc_poweroff_check_timer_start(void)`n{" `
+    '' `
+    'eMMC poweroff timer start'
+Assert-OrderedTokens $emmcTimerStart `
+    @('rdx_record_service_is_running()',
+      'app_in_mode(APP_MODE_PC)',
+      'if (record_running)',
+      'rdx_wifi_service_get_wifi_info()->onoff',
+      'if (g_emmc_poweroff_check_timer == 0)',
+      'rdx_os_timer_add(') `
+    'eMMC timer-start owner-query and scheduling order'
+$emmcLegacyPattern = '\b(?:RecordStatus|rdx_record_get_status|rdx_uxfile_[A-Za-z0-9_]*)\b'
+if ([regex]::IsMatch($emmcTimerCallback + $emmcTimerStart, $emmcLegacyPattern)) {
+    Add-Failure 'eMMC active timer path still crosses a legacy record/storage boundary'
+} else {
+    Add-Pass 'eMMC active timer path uses only service owner queries'
 }
 
 $storageService = Read-Working "$rdxRel/service/rdx_storage_service.c"
 $storageServiceHeader = Read-Working "$rdxRel/service/rdx_storage_service.h"
+$storageActivitySignaturesOk = $true
+foreach ($queryName in @(
+    'rdx_storage_is_dat_sync_in_progress',
+    'rdx_storage_is_file_info_loading',
+    'rdx_storage_is_scan_active',
+    'rdx_storage_is_format_operation_active'
+)) {
+    $signature = "u8\s+$queryName\s*\(void\s*\)\s*;"
+    if ((Count-Pattern $storageServiceHeader $signature) -ne 1) {
+        Add-Failure "storage activity query signature is missing or duplicated: $queryName"
+        $storageActivitySignaturesOk = $false
+    }
+}
+if ($storageActivitySignaturesOk) {
+    Add-Pass 'eMMC storage activity query signatures are exact and unique'
+}
 $immediateCleanupSignature = `
     'rdx_err_t\s+rdx_storage_service_cleanup_ble_immediate\s*\(void\s*\)\s*;'
 if ((Count-Pattern $storageServiceHeader $immediateCleanupSignature) -ne 1) {

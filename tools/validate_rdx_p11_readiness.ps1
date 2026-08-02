@@ -1,6 +1,6 @@
 param(
     [ValidateSet('Baseline', 'Progress', 'Final')]
-    [string]$OwnershipMode = 'Baseline'
+    [string]$OwnershipMode = 'Final'
 )
 
 Set-StrictMode -Version 2.0

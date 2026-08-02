@@ -73,6 +73,11 @@ static bool g_record_busy;
 static int g_wifi_busy;
 static int g_format_result;
 static uxfile_format_cb g_format_callback;
+static bool g_format_status_check;
+static u8 g_dat_sync_in_progress;
+static u8 g_file_info_loading;
+static u8 g_scan_active;
+static u8 g_format_operation_active;
 
 static void trace(enum trace_event event)
 {
@@ -98,6 +103,11 @@ static void reset_test(void)
     g_wifi_busy = 0;
     g_format_result = 0;
     g_format_callback = NULL;
+    g_format_status_check = false;
+    g_dat_sync_in_progress = 0;
+    g_file_info_loading = 0;
+    g_scan_active = 0;
+    g_format_operation_active = 0;
 }
 
 static void assert_trace(const enum trace_event *expected, unsigned count)
@@ -193,7 +203,27 @@ int rdx_uxfile_recordFile_delete_handle(int file_num, char *file_name)
 
 bool rdx_uxfile_sd_format_status_check(void)
 {
-    return false;
+    return g_format_status_check;
+}
+
+u8 rdx_uxfile_is_sync_in_progress(void)
+{
+    return g_dat_sync_in_progress;
+}
+
+u8 rdx_uxfile_is_datFileInfo_loading(void)
+{
+    return g_file_info_loading;
+}
+
+u8 rdx_uxfile_is_scan_active(void)
+{
+    return g_scan_active;
+}
+
+u8 rdx_uxfile_is_formatting(void)
+{
+    return g_format_operation_active;
 }
 
 rdx_err_t rdx_file_transfer_compat_cleanup_record_disconnect(void)
@@ -330,6 +360,26 @@ static void test_callback_events(void)
     assert(g_trace_count == 0);
 }
 
+static void test_narrow_activity_queries_preserve_owner_results(void)
+{
+    reset_test();
+    g_dat_sync_in_progress = 0x11;
+    g_file_info_loading = 0x22;
+    g_scan_active = 0x44;
+    g_format_operation_active = 0x88;
+    g_format_status_check = true;
+
+    assert(rdx_storage_is_formatting() == 1);
+    assert(rdx_storage_is_dat_sync_in_progress() == 0x11);
+    assert(rdx_storage_is_file_info_loading() == 0x22);
+    assert(rdx_storage_is_scan_active() == 0x44);
+    assert(rdx_storage_is_format_operation_active() == 0x88);
+
+    g_format_status_check = false;
+    assert(rdx_storage_is_formatting() == 0);
+    assert(rdx_storage_is_format_operation_active() == 0x88);
+}
+
 int main(void)
 {
     test_runtime_init();
@@ -339,6 +389,7 @@ int main(void)
     test_initiation_error_does_not_change_ack();
     test_clean_result_and_legacy_wrapper();
     test_callback_events();
-    puts("P11 APP storage format Host tests passed.");
+    test_narrow_activity_queries_preserve_owner_results();
+    puts("P11 storage service Host tests passed.");
     return 0;
 }

@@ -3,11 +3,10 @@
 #include "system/includes.h"
 #include "rdx_log.h"
 #include "rdx_err.h"
-#include "rdx_record.h"
 #include "rdx_record_service.h"
+#include "rdx_storage_service.h"
 #include "rdx_vm.h"
 #include "rdx_app.h"
-#include "rdx_uxfile.h"
 #include "rdx_wifi_service.h"
 #include "xxpUart.h"
 #include "rdx_jl_osal.h"
@@ -521,13 +520,9 @@ void rdx_device_service_init(void)
 static u16  g_emmc_poweroff_check_timer = 0;
 static bool g_emmc_poweroff_flag = FALSE;
 
-/* external symbols needed by the timer callback */
-extern u8   rdx_uxfile_is_sync_in_progress(void);
-extern u8   rdx_uxfile_is_datFileInfo_loading(void);
+/* File-transfer compatibility queries remain P12 ownership work. */
 extern u8   rdx_is_file_transfer_active(void);
 extern u8   rdx_is_file_sync_busy(void);
-extern u8   rdx_uxfile_is_scan_active(void);
-extern u8   rdx_uxfile_is_formatting(void);
 
 static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv);
 static void rdx_device_service_emmc_poweroff_check_timer_start(void);
@@ -588,18 +583,18 @@ void rdx_device_service_emmc_poweroff_check_timer_stop(void)
 
 static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)
 {
-    RecordStatus *rp = rdx_record_get_status();
-    y_printf("=====> %s --> rp->run = %d \r", __func__, rp->run);
-    if (rp->orig_mode == RECORD_MODE_OFFLINE
-        && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+    bool offline_active = rdx_record_service_is_offline_active();
+    (void)priv;
+    y_printf("=====> %s --> offline_active = %d \r", __func__, offline_active);
+    if (offline_active) {
         y_printf("emmc poweroff timer cb --> emmc is busy, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_uxfile_is_sync_in_progress()) {
+    if (rdx_storage_is_dat_sync_in_progress()) {
         y_printf("emmc poweroff timer cb --> DAT sync in progress, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_uxfile_is_datFileInfo_loading()) {
+    if (rdx_storage_is_file_info_loading()) {
         y_printf("emmc poweroff timer cb --> datFileInfo loading, do not power off \r");
         EXCEPTION_THROW();
     }
@@ -611,11 +606,11 @@ static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)
         y_printf("emmc poweroff timer cb --> file sync busy, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_uxfile_is_scan_active()) {
+    if (rdx_storage_is_scan_active()) {
         y_printf("emmc poweroff timer cb --> async scan active, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_uxfile_is_formatting()) {
+    if (rdx_storage_is_format_operation_active()) {
         y_printf("emmc poweroff timer cb --> SD formatting, do not power off \r");
         EXCEPTION_THROW();
     }
@@ -634,12 +629,12 @@ EXCEPTION_POINTER()
 
 static void rdx_device_service_emmc_poweroff_check_timer_start(void)
 {
-    RecordStatus *rp = rdx_record_get_status();
+    bool record_running = rdx_record_service_is_running();
     if (true == app_in_mode(APP_MODE_PC)) {
         r_printf("=====> %s --> APP_MODE_PC, do not start poweroff timer\r", __func__);
         return;
     }
-    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+    if (record_running) {
         return;
     }
     if (rdx_wifi_service_get_wifi_info()->onoff == TRANSFER_BY_WIFI_ON) {

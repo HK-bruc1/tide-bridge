@@ -58,6 +58,34 @@
             Purpose = 'P11 narrow formatting-state query'
         }
         @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_is_dat_sync_in_progress'
+            Symbol = 'rdx_uxfile_is_sync_in_progress'
+            Count = 1
+            Purpose = 'P11 narrow DAT-sync activity query for device orchestration'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_is_file_info_loading'
+            Symbol = 'rdx_uxfile_is_datFileInfo_loading'
+            Count = 1
+            Purpose = 'P11 narrow file-info loading query for device orchestration'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_is_scan_active'
+            Symbol = 'rdx_uxfile_is_scan_active'
+            Count = 1
+            Purpose = 'P11 narrow asynchronous-scan query for device orchestration'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c'
+            Function = 'rdx_storage_is_format_operation_active'
+            Symbol = 'rdx_uxfile_is_formatting'
+            Count = 1
+            Purpose = 'P11 narrow legacy format-operation query for device orchestration'
+        }
+        @{
             File = 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_cleanup_compat.c'
             Function = 'rdx_file_transfer_compat_cleanup_ble_delayed'
             Symbol = 'rdx_uxfile_recordFileData_sendBuf_free'
@@ -462,6 +490,62 @@
             Symbol = 'rdx_uxfile_get_operateFile_info'
             Count = 1
             Purpose = 'P11 storage domain adjusts active-file time after record running gate'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_task_free'
+            Count = 1
+            Purpose = 'P12 lifecycle compatibility declaration for idle task teardown'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c'
+            Function = 'rdx_app_idle_handle'
+            Symbol = 'rdx_uxfile_task_free'
+            Count = 1
+            Purpose = 'P12 lifecycle compatibility call preserving idle teardown order'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_dat_1_gen'
+            Count = 1
+            Purpose = 'Record-owner data-plane declaration retained for DAT creation'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_dat_1_save_gen'
+            Count = 1
+            Purpose = 'Record-owner data-plane declaration retained for DAT finalization'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_get_operateFile_info'
+            Count = 1
+            Purpose = 'Record-owner data-plane declaration retained for active-file metadata'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_operate_file_init'
+            Count = 1
+            Purpose = 'Record-owner data-plane declaration retained for active-file reset'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c'
+            Function = '<file-scope>'
+            Symbol = 'rdx_uxfile_task_free'
+            Count = 1
+            Purpose = 'P12 lifecycle compatibility declaration for poweroff task teardown'
+        }
+        @{
+            File = 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c'
+            Function = 'rdx_device_service_poweroff_cb'
+            Symbol = 'rdx_uxfile_task_free'
+            Count = 1
+            Purpose = 'P12 lifecycle compatibility call preserving poweroff teardown order'
         }
     )
 }

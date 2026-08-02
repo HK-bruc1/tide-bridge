@@ -102,7 +102,6 @@ u8   rdx_vm_is_unbounding(void)    { return unbounding ? 1 : 0; }
 ******************************************************************************/
 extern void sys_set_auto_off_time(u16 auto_off_time);
 extern u8 get_ota_status();
-extern RecordStatus* rdx_record_get_status();
 extern void rdx_record_mic_gain_set_default();
 extern u32 sdfile_get_disk_capacity(void);
 extern u32 sdfile_flash_addr2cpu_addr(u32 offset);

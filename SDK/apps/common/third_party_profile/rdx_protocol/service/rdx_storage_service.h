@@ -18,6 +18,10 @@ rdx_err_t rdx_storage_sync_start(void);
 rdx_err_t rdx_storage_sync_stop(void);
 u8        rdx_storage_is_syncing(void);
 u8        rdx_storage_is_formatting(void);
+u8        rdx_storage_is_dat_sync_in_progress(void);
+u8        rdx_storage_is_file_info_loading(void);
+u8        rdx_storage_is_scan_active(void);
+u8        rdx_storage_is_format_operation_active(void);
 
 /* Legacy BLE cleanup facades; retained for compatibility. */
 rdx_err_t rdx_storage_service_cleanup_ble_immediate(void);
