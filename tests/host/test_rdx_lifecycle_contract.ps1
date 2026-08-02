@@ -125,7 +125,7 @@ $peerOk = $PeerCapture -match 'link->peer_identity_valid' -and
           $PeerCapture -match 'link->peer_addr_type' -and
           $PeerCheck -match 'memcmp\s*\(\s*s_rdx_rebind_peer_addr\s*,\s*link->peer_identity' -and
           $Claim -match '(?s)s_rdx_runtime_consumed_this_boot.*?rdx_ble_session_rebind_peer_check\s*\(' -and
-          $PacketHandler -match '(?s)if\s*\(\s*encrypted\s*\).*?get_sm_peer_address\s*\(.*?rdx_ble_session_link_set_peer_identity'
+          $PacketHandler -match '(?s)if\s*\(\s*encrypted\s*\).*?get_sm_peer_address_for_hci_handle\s*\(\s*con_handle\s*,\s*peer_identity\s*\).*?rdx_ble_session_link_set_peer_identity'
 Assert-Contract 'REBIND_REQUIRES_SAME_SM_PEER' $peerOk `
     'a consumed singleton may only rebind to the same resolved SM identity'
 

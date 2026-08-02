@@ -206,6 +206,10 @@ extern "C" {
     extern void le_audio_set_discover_mode(u8 flag);
 
     /*************************************************************************************************/
+    /* Resolve the bonded peer identity for a specific LE connection. */
+    extern u8 get_sm_peer_address_for_hci_handle(u16 hci_handle, u8 *addr);
+
+    /*************************************************************************************************/
     /*!
      *  \brief      获取le audio连接手机的真实地址
      *  \function  u8 get_sm_peer_address(u8 *addr);

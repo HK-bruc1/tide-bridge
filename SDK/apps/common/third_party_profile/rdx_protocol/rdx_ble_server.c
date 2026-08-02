@@ -35,6 +35,7 @@
 #include "bt_tws.h"
 #include "app_main.h"
 #include "btstack/avctp_user.h"
+#include "btstack/le/att.h"
 #include "btstack/le/sm.h"
 #include "btstack/le/le_user.h"
 #include "btstack/btstack_event.h"
@@ -89,6 +90,7 @@
 
 #define RDX_BLE_PHASE0A_WRAPPER_MAX                   2
 #define RDX_BLE_PHASE0A_INVALID_WRAPPER_INDEX        0xff
+#define RDX_BLE_PHASE0A_ATT_ERR_REQUEST_NOT_SUPPORTED 0x06
 #define RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR       0x0e
 #define RDX_BLE_PHASE0A_ATT_ERR_INVALID_OFFSET        0x07
 #define RDX_BLE_PHASE0A_ATT_ERR_INVALID_VALUE_LEN     0x0d
@@ -1904,7 +1906,8 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 if (encrypted) {
                     bd_addr_t peer_identity = {0};
 
-                    if (get_sm_peer_address(peer_identity)) {
+                    if (get_sm_peer_address_for_hci_handle(
+                            con_handle, peer_identity)) {
                         rdx_ble_session_link_set_peer_identity(
                             link, peer_identity);
                     }
@@ -2619,16 +2622,25 @@ static int rdx_ble_server_gatt_write_hid(
 #if TCFG_RDX_HOGP_ENABLE
     rdx_ble_link_state_t *link = rdx_ble_server_phase0b_link_find(
         context->ble_hdl, context->connection_handle);
+    u8 input_ccc_write = (
+        context->att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#if TCFG_RDX_CODEX_MICRO_MODE
+        || context->att_handle ==
+               HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
+#endif
+    );
     u16 cfg = (context->buffer && context->buffer_size == 2) ?
               (context->buffer[0] | (context->buffer[1] << 8)) : 0xffff;
     int result;
 
-    if ((context->att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-         || context->att_handle ==
-                HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#endif
-        ) && cfg == 0x0000) {
+    if (input_ccc_write &&
+        context->transaction_mode != ATT_TRANSACTION_MODE_NONE) {
+        return RDX_BLE_PHASE0A_ATT_ERR_REQUEST_NOT_SUPPORTED;
+    }
+    if (input_ccc_write && context->offset != 0) {
+        return RDX_BLE_PHASE0A_ATT_ERR_INVALID_OFFSET;
+    }
+    if (input_ccc_write && cfg == 0x0000) {
         if (rdx_ble_session_link_is_hid(link)) {
             return rdx_hid_service_att_write(
                 context->connection_handle, context->att_handle,
@@ -2656,12 +2668,7 @@ static int rdx_ble_server_gatt_write_hid(
                                  context->att_handle, 0);
         return 0;
     }
-    if ((context->att_handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#if TCFG_RDX_CODEX_MICRO_MODE
-         || context->att_handle ==
-                HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE
-#endif
-        ) && cfg == 0x0001) {
+    if (input_ccc_write && cfg == 0x0001) {
         if (!link || !link->encrypted) {
             if (link) {
                 rdx_ble_session_link_set_hid_pairing_pending(link, 1);

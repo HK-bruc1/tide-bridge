@@ -25,6 +25,7 @@ $Store = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_subscription_store.c"
 $StoreHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_subscription_store.h"
 $Vm = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_vm.c"
 $Syscfg = Read-RepoFile $RepoRoot 'SDK\interface\utils\syscfg_id.h'
+$LeUser = Read-RepoFile $RepoRoot 'SDK\interface\btstack\le\le_user.h'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
 $MultiProtocol = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\multi_protocol_main.c'
 $NormalizedHeader = (($Header -replace '\\', '') -replace '\s+', '')
@@ -275,6 +276,9 @@ $NotifyBody = Get-SourceSlice $HidService `
 $ConnectedBody = Get-SourceSlice $HidService `
     'void rdx_hid_service_on_connected_with_hdl(' `
     'void rdx_hid_service_on_disconnected('
+$PersistedSubscriptionBody = Get-SourceSlice $HidService `
+    'u8 rdx_hid_service_peer_has_persisted_subscription(' `
+    'int rdx_hid_service_peer_subscription_update('
 $ServerHidWriteBody = Get-SourceSlice $Server `
     'static int rdx_ble_server_gatt_write_hid(' `
     'static int rdx_ble_server_gatt_write_rejected(' -Last
@@ -320,12 +324,26 @@ Assert-Contract 'BONDED_CCC_REPORT_BITS_ARE_INDEPENDENT' `
     'each CCC must update, restore, disable, and roll back only its own persisted report bit'
 
 Assert-Contract 'HID_IDENTITY_COMES_FROM_LINK_REGISTRY' `
-    ($Server -match '(?s)rdx_ble_session_link_set_peer_identity\s*\(\s*link\s*,\s*peer_identity\s*\)' -and
+    ($LeUser -match 'get_sm_peer_address_for_hci_handle\s*\(\s*u16\s+hci_handle\s*,\s*u8\s*\*\s*addr\s*\)' -and
+     $Server -match '(?s)get_sm_peer_address_for_hci_handle\s*\(\s*con_handle\s*,\s*peer_identity\s*\).*?rdx_ble_session_link_set_peer_identity\s*\(\s*link\s*,\s*peer_identity\s*\)' -and
      $Server -match '(?s)rdx_hid_service_peer_has_persisted_subscription\s*\(\s*link->peer_identity\s*\)' -and
      $Server -match '(?s)rdx_hid_service_on_connected_with_hdl\s*\(.*?link->peer_identity\s*\)' -and
      $ConnectedBody -match 'rdx_hid_peer_identity_set\s*\(\s*peer_identity\s*\)' -and
-     $HidService -notmatch 'get_sm_peer_address\s*\(') `
-    'the dual-link registry must resolve SM identity once and pass it into the owner-scoped HID runtime'
+     $HidService -notmatch 'get_sm_peer_address\s*\(' -and
+     $Server -notmatch '(?<!for_hci_handle)get_sm_peer_address\s*\(') `
+    'the dual-link registry must resolve SM identity by connection handle and pass it into the owner-scoped HID runtime'
+
+Assert-Contract 'PERSISTED_CCC_AUTO_ATTACH_MATCHES_PERSONA' `
+    ($HidService -match '(?s)static\s+u8\s+rdx_hid_supported_subscription_bits.*?TCFG_RDX_CODEX_MICRO_MODE\s*!=\s*RDX_CODEX_MICRO_MODE_VENDOR_ONLY.*?RDX_HOGP_SUBSCRIPTION_KEYBOARD.*?#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?RDX_HOGP_SUBSCRIPTION_CODEX' -and
+     $PersistedSubscriptionBody -match '(?s)rdx_hogp_subscription_store_get\s*\(\s*peer_identity\s*\).*?subscription_bits\s*&\s*rdx_hid_supported_subscription_bits\s*\(\s*\)') `
+    'bonded reconnect must claim the HID owner only when a persisted CCC bit is supported by the active C0, V1, or C1 persona'
+
+Assert-Contract 'HID_CCC_REJECTS_QUEUED_WRITES' `
+    ($Server -match '#define\s+RDX_BLE_PHASE0A_ATT_ERR_REQUEST_NOT_SUPPORTED\s+0x06' -and
+     $ServerHidWriteBody -match '(?s)u8\s+input_ccc_write\s*=.*?HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE.*?#if\s+TCFG_RDX_CODEX_MICRO_MODE.*?HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE' -and
+     $ServerHidWriteBody -match '(?s)input_ccc_write\s*&&\s*context->transaction_mode\s*!=\s*ATT_TRANSACTION_MODE_NONE.*?RDX_BLE_PHASE0A_ATT_ERR_REQUEST_NOT_SUPPORTED' -and
+     $ServerHidWriteBody -match '(?s)input_ccc_write\s*&&\s*context->offset\s*!=\s*0.*?RDX_BLE_PHASE0A_ATT_ERR_INVALID_OFFSET.*?input_ccc_write\s*&&\s*cfg\s*==\s*0x0000') `
+    'Input CCC writes must reject queued transactions and nonzero offsets before owner routing or HCS2 persistence'
 
 Assert-Contract 'NON_OWNER_CCC_DISABLE_PERSISTS_OWN_BIT' `
     ($ServerHidWriteBody -match '(?s)cfg\s*==\s*0x0000.*?rdx_ble_session_link_is_hid.*?rdx_hid_service_peer_subscription_update\s*\(\s*link->peer_identity' -and

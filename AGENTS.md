@@ -91,13 +91,14 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner keeps a five-contract core suite covering:
+The host test runner keeps a six-contract core suite covering:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
-- `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
+- `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, handle-scoped SM identity, persona-aware bonded CCC, and queued-write rejection.
 - `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
 - `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, same-peer restriction, and fail-closed behavior.
 - `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
+- `test_codex_micro_contract.ps1` - Codex identity, Report ID 6 layout, framing, RPC allowlist, owner generation, and lifecycle wiring.
 
 The former phase-specific, playback, and split configuration scripts were
 historical evidence or inactive product checks and are no longer part of the

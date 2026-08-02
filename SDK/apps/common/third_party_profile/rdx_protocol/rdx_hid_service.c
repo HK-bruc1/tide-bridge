@@ -170,6 +170,19 @@ static u8 rdx_hid_report_subscription_bit(rdx_hid_report_id_t report_id)
     return 0;
 }
 
+static u8 rdx_hid_supported_subscription_bits(void)
+{
+    u8 supported_bits = 0;
+
+#if TCFG_RDX_CODEX_MICRO_MODE != RDX_CODEX_MICRO_MODE_VENDOR_ONLY
+    supported_bits |= RDX_HOGP_SUBSCRIPTION_KEYBOARD;
+#endif
+#if TCFG_RDX_CODEX_MICRO_MODE
+    supported_bits |= RDX_HOGP_SUBSCRIPTION_CODEX;
+#endif
+    return supported_bits;
+}
+
 static int rdx_hid_subscription_update_one(
     const u8 peer_addr[RDX_HOGP_SUBSCRIPTION_PEER_ADDR_LEN],
     u8 subscription_bit)
@@ -544,10 +557,14 @@ int rdx_hid_report_notify(rdx_hid_report_id_t report_id,
 
 u8 rdx_hid_service_peer_has_persisted_subscription(const u8 *peer_identity)
 {
+    u8 subscription_bits;
+
     if (!rdx_hid_peer_identity_is_valid(peer_identity)) {
         return 0;
     }
-    return rdx_hogp_subscription_store_get(peer_identity) ? 1 : 0;
+    subscription_bits = rdx_hogp_subscription_store_get(peer_identity);
+    return (subscription_bits & rdx_hid_supported_subscription_bits()) ?
+           1 : 0;
 }
 
 int rdx_hid_service_peer_subscription_update(
