@@ -7,299 +7,37 @@
 
 #include "app_config.h"
 #include "rdx_hogp_config.h"
-#include "rdx_hogp_profile.h"
 #include "rdx_hid_service.h"
 #include "rdx_codex_micro.h"
-#include "rdx_ble_session.h"
-#include "app_ble_spp_api.h"
-#include "ble_user.h"
-#include "btstack/le/att.h"
-#include "btstack/le/le_user.h"
+#include "rdx_codex_transport.h"
 #include "cJSON.h"
 
 #if TCFG_RDX_CODEX_MICRO_MODE
 
-#define RDX_CODEX_RX_MAX             1024
-#define RDX_CODEX_TX_DEPTH           4
-#define RDX_CODEX_TX_ITEM_MAX        512
 #define RDX_CODEX_METHOD_MAX         48
-#define RDX_CODEX_JSON_DEPTH_MAX     8
-#define RDX_CODEX_ATT_ERR_OFFSET     0x07
-#define RDX_CODEX_ATT_ERR_LENGTH     0x0d
-#define RDX_CODEX_ATT_ERR_UNLIKELY   0x0e
-#define RDX_CODEX_ATT_ERR_VALUE      0x13
 
-typedef struct {
-    char data[RDX_CODEX_TX_ITEM_MAX];
-    u16 len;
-    u16 offset;
-    rdx_ble_async_token_t token;
-} rdx_codex_tx_item_t;
-
-typedef struct {
-    char data[RDX_CODEX_RX_MAX + 1];
-    u16 len;
-    u16 con_handle;
-    s16 depth;
-    u8 started;
-    u8 in_string;
-    u8 escaped;
-    u8 complete;
-    u8 queued;
-    rdx_ble_async_token_t token;
-} rdx_codex_rx_state_t;
-
-static rdx_codex_rx_state_t s_codex_rx;
-static rdx_codex_tx_item_t s_codex_tx[RDX_CODEX_TX_DEPTH];
-static u8 s_codex_tx_head;
-static u8 s_codex_tx_count;
-static u16 s_codex_tx_bytes;
-static u32 s_codex_generation;
-static u32 s_codex_rx_drop_count;
-static u32 s_codex_tx_drop_count;
-static u32 s_codex_buffer_full_count;
 static u16 s_codex_fast_release_timer;
-static u16 s_codex_rx_timer;
 
 extern u8 rdx_battery_get_percent(void);
 extern u8 get_charge_online_flag(void);
 
-static u8 rdx_codex_token_capture(rdx_ble_async_token_t *token)
+void rdx_codex_micro_init(void)
 {
-    rdx_ble_link_state_t *link = rdx_ble_session_get_hid_link();
-    if (!link || !link->connected || !rdx_ble_session_link_is_hid(link)) {
-        return 0;
-    }
-    *token = rdx_ble_session_token_capture(link);
-    return token->slot_index != RDX_BLE_LINK_INVALID_INDEX;
+    s_codex_fast_release_timer = 0;
 }
 
-static rdx_ble_link_state_t *rdx_codex_token_resolve(
-    const rdx_ble_async_token_t *token)
-{
-    rdx_ble_link_state_t *link = rdx_ble_session_link_token_resolve(token);
-    if (!link || !rdx_ble_session_link_is_hid(link)) {
-        return NULL;
-    }
-    return link;
-}
-
-static void rdx_codex_rx_clear(void)
-{
-    if (s_codex_rx_timer) {
-        sys_timeout_del(s_codex_rx_timer);
-        s_codex_rx_timer = 0;
-    }
-    memset(&s_codex_rx, 0, sizeof(s_codex_rx));
-}
-
-static void rdx_codex_rx_timeout(void *priv)
-{
-    (void)priv;
-    s_codex_rx_timer = 0;
-    s_codex_rx_drop_count++;
-    s_codex_generation++;
-    rdx_codex_rx_clear();
-}
-
-static void rdx_codex_tx_clear(void)
-{
-    memset(s_codex_tx, 0, sizeof(s_codex_tx));
-    s_codex_tx_head = 0;
-    s_codex_tx_count = 0;
-    s_codex_tx_bytes = 0;
-}
-
-void rdx_codex_micro_runtime_reset(void)
+void rdx_codex_micro_deinit(void)
 {
     if (s_codex_fast_release_timer) {
         sys_timeout_del(s_codex_fast_release_timer);
         s_codex_fast_release_timer = 0;
     }
-    s_codex_generation++;
-    rdx_codex_rx_clear();
-    rdx_codex_tx_clear();
 }
 
 void rdx_codex_micro_ready_drop_cleanup(void)
 {
     rdx_codex_micro_fast_key_release_all();
-    rdx_codex_micro_runtime_reset();
-}
-
-void rdx_codex_micro_init(void)
-{
-    s_codex_generation = 1;
-    s_codex_rx_drop_count = 0;
-    s_codex_tx_drop_count = 0;
-    s_codex_buffer_full_count = 0;
-    rdx_codex_rx_clear();
-    rdx_codex_tx_clear();
-}
-
-void rdx_codex_micro_deinit(void)
-{
-    rdx_codex_micro_runtime_reset();
-}
-
-static u16 rdx_codex_read_helper(const u8 *data, u16 len, u16 offset,
-                                 u8 *buffer, u16 buffer_size)
-{
-    u16 copy_len;
-    if (offset >= len) {
-        return 0;
-    }
-    copy_len = len - offset;
-    if (copy_len > buffer_size) {
-        copy_len = buffer_size;
-    }
-    if (buffer && copy_len) {
-        memcpy(buffer, data + offset, copy_len);
-    }
-    return copy_len;
-}
-
-u16 rdx_codex_micro_att_read(hci_con_handle_t connection_handle,
-                             u16 att_handle, u16 offset,
-                             u8 *buffer, u16 buffer_size)
-{
-    static const u8 empty_report[RDX_CODEX_MICRO_REPORT_BODY_LEN] = {0};
-    if (att_handle == HID_CODEX_INPUT_REPORT_VALUE_HANDLE ||
-        att_handle == HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE) {
-        return rdx_codex_read_helper(empty_report, sizeof(empty_report),
-                                     offset, buffer, buffer_size);
-    }
-    if (att_handle == HID_CODEX_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE) {
-        u16 cfg = multi_att_get_ccc_config(connection_handle, att_handle);
-        u8 value[2] = {(u8)(cfg & 0xff), (u8)(cfg >> 8)};
-        return rdx_codex_read_helper(value, sizeof(value), offset,
-                                     buffer, buffer_size);
-    }
-    return 0;
-}
-
-static u8 rdx_codex_json_feed(const u8 *data, u8 len)
-{
-    u8 i;
-    for (i = 0; i < len; i++) {
-        u8 ch = data[i];
-        if (s_codex_rx.complete) {
-            if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') {
-                return 0;
-            }
-            continue;
-        }
-        if (!s_codex_rx.started) {
-            if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') {
-                continue;
-            }
-            if (ch != '{') {
-                return 0;
-            }
-            s_codex_rx.started = 1;
-            s_codex_rx.depth = 1;
-        } else if (s_codex_rx.in_string) {
-            if (s_codex_rx.escaped) {
-                s_codex_rx.escaped = 0;
-            } else if (ch == '\\') {
-                s_codex_rx.escaped = 1;
-            } else if (ch == '"') {
-                s_codex_rx.in_string = 0;
-            }
-        } else if (ch == '"') {
-            s_codex_rx.in_string = 1;
-        } else if (ch == '{' || ch == '[') {
-            s_codex_rx.depth++;
-            if (s_codex_rx.depth > RDX_CODEX_JSON_DEPTH_MAX) {
-                return 0;
-            }
-        } else if (ch == '}' || ch == ']') {
-            s_codex_rx.depth--;
-            if (s_codex_rx.depth < 0) {
-                return 0;
-            }
-            if (s_codex_rx.depth == 0) {
-                s_codex_rx.complete = 1;
-            }
-        }
-        if (s_codex_rx.len >= RDX_CODEX_RX_MAX) {
-            return 0;
-        }
-        s_codex_rx.data[s_codex_rx.len++] = (char)ch;
-    }
-    s_codex_rx.data[s_codex_rx.len] = '\0';
-    return 1;
-}
-
-static void rdx_codex_process_rx(void *priv);
-
-int rdx_codex_micro_output_write(hci_con_handle_t connection_handle,
-                                 u16 offset, const u8 *buffer,
-                                 u16 buffer_size)
-{
-    rdx_ble_async_token_t token;
-    rdx_ble_link_state_t *link;
-    u8 payload_len;
-    int msg[2];
-    if (offset != 0) {
-        return RDX_CODEX_ATT_ERR_OFFSET;
-    }
-    if (!buffer || buffer_size != RDX_CODEX_MICRO_REPORT_BODY_LEN) {
-        return RDX_CODEX_ATT_ERR_LENGTH;
-    }
-    if (buffer[0] != 0x02 || buffer[1] > RDX_CODEX_MICRO_REPORT_DATA_LEN) {
-        return RDX_CODEX_ATT_ERR_VALUE;
-    }
-    if (!rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX) ||
-        !rdx_codex_token_capture(&token)) {
-        return RDX_CODEX_ATT_ERR_UNLIKELY;
-    }
-    link = rdx_codex_token_resolve(&token);
-    if (!link || link->con_handle != connection_handle) {
-        return RDX_CODEX_ATT_ERR_UNLIKELY;
-    }
-    if (s_codex_rx.queued) {
-        s_codex_rx_drop_count++;
-        return RDX_CODEX_ATT_ERR_UNLIKELY;
-    }
-    if (!s_codex_rx.started) {
-        s_codex_rx.token = token;
-        s_codex_rx.con_handle = connection_handle;
-    } else if (!rdx_codex_token_resolve(&s_codex_rx.token) ||
-               s_codex_rx.con_handle != connection_handle) {
-        rdx_codex_rx_clear();
-        return RDX_CODEX_ATT_ERR_UNLIKELY;
-    }
-    payload_len = buffer[1];
-    if (!rdx_codex_json_feed(buffer + 2, payload_len)) {
-        s_codex_rx_drop_count++;
-        rdx_codex_rx_clear();
-        return RDX_CODEX_ATT_ERR_VALUE;
-    }
-    if (!s_codex_rx.complete) {
-        if (!s_codex_rx_timer) {
-            s_codex_rx_timer = sys_timeout_add(
-                NULL, rdx_codex_rx_timeout, 2000);
-            if (!s_codex_rx_timer) {
-                rdx_codex_rx_clear();
-                return RDX_CODEX_ATT_ERR_UNLIKELY;
-            }
-        }
-        return 0;
-    }
-    if (s_codex_rx_timer) {
-        sys_timeout_del(s_codex_rx_timer);
-        s_codex_rx_timer = 0;
-    }
-    s_codex_rx.queued = 1;
-    msg[0] = (int)rdx_codex_process_rx;
-    msg[1] = 0;
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
-        s_codex_rx_drop_count++;
-        rdx_codex_rx_clear();
-        return RDX_CODEX_ATT_ERR_UNLIKELY;
-    }
-    return 0;
+    rdx_codex_transport_runtime_reset();
 }
 
 static u8 rdx_codex_id_copy(cJSON *response, const cJSON *id)
@@ -318,79 +56,6 @@ static u8 rdx_codex_params_valid(const char *method, const cJSON *params)
         return cJSON_IsObject(params);
     }
     return 1;
-}
-
-static void rdx_codex_tx_pump(void *priv)
-{
-    (void)priv;
-    while (s_codex_tx_count) {
-        rdx_codex_tx_item_t *item = &s_codex_tx[s_codex_tx_head];
-        rdx_ble_link_state_t *link = rdx_codex_token_resolve(&item->token);
-        u8 report[RDX_CODEX_MICRO_REPORT_BODY_LEN] = {0};
-        u16 remaining;
-        u8 chunk;
-        int ret;
-        if (!link || !rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
-            rdx_codex_micro_runtime_reset();
-            return;
-        }
-        remaining = item->len - item->offset;
-        chunk = remaining > RDX_CODEX_MICRO_REPORT_DATA_LEN ?
-                RDX_CODEX_MICRO_REPORT_DATA_LEN : (u8)remaining;
-        report[0] = 0x02;
-        report[1] = chunk;
-        memcpy(report + 2, item->data + item->offset, chunk);
-        ret = rdx_hid_report_notify(RDX_HID_REPORT_CODEX,
-                                    HID_CODEX_INPUT_REPORT_VALUE_HANDLE,
-                                    report, sizeof(report));
-        if (ret == APP_BLE_BUFF_FULL) {
-            s_codex_buffer_full_count++;
-            att_server_request_can_send_now_event(link->con_handle);
-            return;
-        }
-        if (ret != APP_BLE_NO_ERROR) {
-            s_codex_tx_drop_count++;
-            rdx_codex_micro_runtime_reset();
-            return;
-        }
-        item->offset += chunk;
-        if (item->offset == item->len) {
-            s_codex_tx_bytes -= item->len;
-            memset(item, 0, sizeof(*item));
-            s_codex_tx_head = (s_codex_tx_head + 1) % RDX_CODEX_TX_DEPTH;
-            s_codex_tx_count--;
-        }
-    }
-}
-
-static int rdx_codex_tx_enqueue(const char *json)
-{
-    u16 len;
-    u8 tail;
-    rdx_codex_tx_item_t *item;
-    if (!json || !rdx_hid_report_is_ready(RDX_HID_REPORT_CODEX)) {
-        return -1;
-    }
-    len = (u16)strlen(json);
-    if (len + 1 >= RDX_CODEX_TX_ITEM_MAX ||
-        s_codex_tx_count >= RDX_CODEX_TX_DEPTH ||
-        s_codex_tx_bytes + len + 1 > 2048) {
-        s_codex_tx_drop_count++;
-        return -1;
-    }
-    tail = (s_codex_tx_head + s_codex_tx_count) % RDX_CODEX_TX_DEPTH;
-    item = &s_codex_tx[tail];
-    memset(item, 0, sizeof(*item));
-    if (!rdx_codex_token_capture(&item->token)) {
-        return -1;
-    }
-    memcpy(item->data, json, len);
-    item->data[len++] = '\n';
-    item->len = len;
-    s_codex_tx_count++;
-    s_codex_tx_bytes += len;
-    rdx_codex_tx_pump(NULL);
-    return 0;
 }
 
 static void rdx_codex_send_response(const cJSON *id, cJSON *result,
@@ -420,7 +85,7 @@ static void rdx_codex_send_response(const cJSON *id, cJSON *result,
     }
     json = cJSON_PrintUnformatted(response);
     if (json) {
-        rdx_codex_tx_enqueue(json);
+        rdx_codex_transport_send_json(json);
         cJSON_free(json);
     }
     cJSON_Delete(response);
@@ -487,39 +152,14 @@ static void rdx_codex_dispatch(cJSON *request)
     rdx_codex_send_response(id, NULL, -32601, "Method not found");
 }
 
-static void rdx_codex_process_rx(void *priv)
+void rdx_codex_micro_process_json(const char *json, u16 len)
 {
-    cJSON *request;
-    rdx_ble_async_token_t token = s_codex_rx.token;
-    u32 generation = s_codex_generation;
-    (void)priv;
-    if (!s_codex_rx.queued || !rdx_codex_token_resolve(&token)) {
-        rdx_codex_rx_clear();
-        return;
-    }
-    request = cJSON_ParseWithLength(s_codex_rx.data, s_codex_rx.len);
-    rdx_codex_rx_clear();
-    if (!request || generation != s_codex_generation ||
-        !rdx_codex_token_resolve(&token)) {
-        cJSON_Delete(request);
+    cJSON *request = cJSON_ParseWithLength(json, len);
+    if (!request) {
         return;
     }
     rdx_codex_dispatch(request);
     cJSON_Delete(request);
-}
-
-void rdx_codex_micro_on_can_send_now(void)
-{
-    int msg[2];
-    if (!s_codex_tx_count) {
-        return;
-    }
-    msg[0] = (int)rdx_codex_tx_pump;
-    msg[1] = 0;
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
-        s_codex_tx_drop_count++;
-        rdx_codex_micro_runtime_reset();
-    }
 }
 
 static int rdx_codex_micro_send_fast_key(u8 action)
@@ -531,7 +171,7 @@ static int rdx_codex_micro_send_fast_key(u8 action)
     snprintf(json, sizeof(json),
              "{\"method\":\"v.oai.hid\",\"params\":{\"k\":\"ACT06\",\"act\":%u}}",
              action);
-    return rdx_codex_tx_enqueue(json);
+    return rdx_codex_transport_send_json(json);
 }
 
 static void rdx_codex_fast_release(void *priv)
@@ -571,13 +211,9 @@ void rdx_codex_micro_fast_key_release_all(void)
 
 void rdx_codex_micro_init(void) {}
 void rdx_codex_micro_deinit(void) {}
-void rdx_codex_micro_runtime_reset(void) {}
 void rdx_codex_micro_ready_drop_cleanup(void) {}
-u16 rdx_codex_micro_att_read(hci_con_handle_t c, u16 h, u16 o, u8 *b, u16 s)
-{ (void)c; (void)h; (void)o; (void)b; (void)s; return 0; }
-int rdx_codex_micro_output_write(hci_con_handle_t c, u16 o, const u8 *b, u16 s)
-{ (void)c; (void)o; (void)b; (void)s; return -1; }
-void rdx_codex_micro_on_can_send_now(void) {}
+void rdx_codex_micro_process_json(const char *j, u16 l)
+{ (void)j; (void)l; }
 int rdx_codex_micro_fast_key_click(void) { return -1; }
 void rdx_codex_micro_fast_key_release_all(void) {}
 

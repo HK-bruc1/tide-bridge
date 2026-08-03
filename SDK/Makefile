@@ -475,6 +475,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keyboard.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_profile.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_codex_micro.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_codex_transport.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_input_router.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_led_ctrl.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_spp.c \

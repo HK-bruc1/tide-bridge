@@ -23,6 +23,8 @@ $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $Codex = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.c"
 $CodexHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_micro.h"
+$Transport = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_transport.c"
+$TransportHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_codex_transport.h"
 $Router = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_input_router.c"
 $RouterHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_input_router.h"
 $AppConfig = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app_config.h"
@@ -135,38 +137,41 @@ Assert-Contract 'DIS_AND_IDENTITY_POLICY' `
      $DisFragment -match "'J',\s*'i',\s*'e',\s*'L',\s*'i'") `
     'DIS identity must remain policy-gated independently of the product advertising layout'
 
-$WriteBody = Get-SourceSlice $Codex `
-    'int rdx_codex_micro_output_write(' `
-    'static u8 rdx_codex_id_copy('
-$TxBody = Get-SourceSlice $Codex `
+$WriteBody = Get-SourceSlice $Transport `
+    'int rdx_codex_transport_output_write(' `
+    'static void rdx_codex_tx_pump('
+$TxBody = Get-SourceSlice $Transport `
     'static void rdx_codex_tx_pump(' `
-    'static int rdx_codex_tx_enqueue('
+    'int rdx_codex_transport_send_json('
 Assert-Contract 'FRAMING_AND_BOUNDS' `
-    ($Codex -match '#define\s+RDX_CODEX_RX_MAX\s+1024' -and
-     $Codex -match '#define\s+RDX_CODEX_TX_DEPTH\s+4' -and
-     $Codex -match '#define\s+RDX_CODEX_TX_ITEM_MAX\s+512' -and
+    ($Transport -match '#define\s+RDX_CODEX_RX_MAX\s+1024' -and
+     $Transport -match '#define\s+RDX_CODEX_TX_DEPTH\s+4' -and
+     $Transport -match '#define\s+RDX_CODEX_TX_ITEM_MAX\s+512' -and
      $WriteBody -match 'buffer_size\s*!=\s*RDX_CODEX_MICRO_REPORT_BODY_LEN' -and
      $WriteBody -match 'buffer\[0\]\s*!=\s*0x02' -and
      $WriteBody -match 'buffer\[1\]\s*>\s*RDX_CODEX_MICRO_REPORT_DATA_LEN' -and
      $WriteBody -match 'rdx_codex_json_feed' -and
-     $Codex -match '#define\s+RDX_CODEX_JSON_DEPTH_MAX\s+8' -and
-     $Codex -match 's_codex_rx.depth\s*>\s*RDX_CODEX_JSON_DEPTH_MAX' -and
-     $Codex -match 'rdx_codex_rx_timeout,\s*2000' -and
-     $Codex -match "item->data\[len\+\+\]\s*=\s*'\\n'" -and
+     $Transport -match '#define\s+RDX_CODEX_JSON_DEPTH_MAX\s+8' -and
+     $Transport -match 's_codex_rx.depth\s*>\s*RDX_CODEX_JSON_DEPTH_MAX' -and
+     $Transport -match 'rdx_codex_rx_timeout,\s*2000' -and
+     $Transport -match "item->data\[len\+\+\]\s*=\s*'\\n'" -and
      $TxBody -match 'report\[0\]\s*=\s*0x02' -and
      $TxBody -match 'report\[1\]\s*=\s*chunk') `
     'ATT bodies must use [02][N], bounded complete-JSON reassembly, LF TX and 63-byte chunks'
 
 Assert-Contract 'OWNER_GENERATION_AND_BACKPRESSURE' `
-    ($Codex -match 'rdx_ble_session_get_hid_link' -and
-     $Codex -match 'rdx_ble_session_token_capture' -and
-     $Codex -match 'rdx_ble_session_link_token_resolve' -and
-     $Codex -match 'rdx_ble_session_link_is_hid' -and
+    ($Transport -match 'rdx_ble_session_get_hid_link' -and
+     $Transport -match 'rdx_ble_session_token_capture' -and
+     $Transport -match 'rdx_ble_session_link_token_resolve' -and
+     $Transport -match 'rdx_ble_session_link_is_hid' -and
      $WriteBody -match 'link->con_handle\s*!=\s*connection_handle' -and
+     $WriteBody -match 'msg\[1\]\s*=\s*\(int\)s_codex_generation' -and
+     $Transport -match 'u32\s+generation\s*=\s*\(u32\)priv' -and
+     $Transport -match 'generation\s*!=\s*s_codex_generation' -and
      $TxBody -match 'APP_BLE_BUFF_FULL' -and
      $TxBody -match 'att_server_request_can_send_now_event' -and
-     $Server -match '(?s)case\s+ATT_EVENT_CAN_SEND_NOW:.*?rdx_codex_micro_on_can_send_now' -and
-     $Codex -notmatch 'delay\s*\(') `
+     $Server -match '(?s)case\s+ATT_EVENT_CAN_SEND_NOW:.*?rdx_codex_transport_on_can_send_now' -and
+     $Transport -notmatch 'delay\s*\(') `
     'wrong-owner/stale work must fail closed and buffer-full must retry asynchronously without blocking delay'
 
 Assert-Contract 'RPC_ALLOWLIST' `
@@ -217,18 +222,22 @@ Assert-Contract 'BUILD_AND_LIFECYCLE_WIRING' `
     ($Makefile.Contains('rdx_gatt_profile.c') -and
      $Makefile.Contains('rdx_hid_service.c') -and
      $Makefile.Contains('rdx_codex_micro.c') -and
+     $Makefile.Contains('rdx_codex_transport.c') -and
      $Makefile.Contains('rdx_input_router.c') -and
+     $Server -match 'rdx_codex_transport_init\s*\(' -and
+     $Server -match 'rdx_codex_transport_deinit\s*\(' -and
      $Server -match 'rdx_codex_micro_init\s*\(' -and
      $Server -match 'rdx_codex_micro_deinit\s*\(' -and
      $App -match 'rdx_input_router_init\s*\(' -and
      $Server -match 'rdx_input_router_deinit\s*\(' -and
-     $HidService -match 'rdx_codex_micro_runtime_reset\s*\(' -and
+     $HidService -match 'rdx_codex_transport_runtime_reset\s*\(' -and
      $HidService -match 'rdx_codex_micro_ready_drop_cleanup\s*\(' -and
      $HidServiceHeader -match 'rdx_hid_report_notify' -and
-     $Codex -match 'rdx_hid_report_notify\s*\(\s*RDX_HID_REPORT_CODEX' -and
-     $Codex -notmatch 'app_ble_att_send_data|rdx_hogp_codex_is_ready' -and
+     $Transport -match 'rdx_hid_report_notify\s*\(\s*RDX_HID_REPORT_CODEX' -and
+     $Transport -notmatch 'app_ble_att_send_data|rdx_hogp_codex_is_ready|cJSON' -and
+     $TransportHeader -match 'rdx_codex_transport_output_write' -and
+     $TransportHeader -match 'rdx_codex_transport_send_json' -and
      $CodexHeader -match 'rdx_codex_micro_fast_key_release_all' -and
-     $CodexHeader -match 'rdx_codex_micro_output_write' -and
      $Runner.Contains('test_codex_micro_contract.ps1') -and
      $Makefile -match '(?m)^\.PHONY:\s+all\s+clean\s+pre_build\s*$' -and
      $Makefile -notmatch '(?m)^codex-(?:v1|c1)' -and

@@ -14,6 +14,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_subscription_store.h"
 #include "rdx_codex_micro.h"
+#include "rdx_codex_transport.h"
 #include "rdx_gatt_profile.h"
 #include "ble_user.h"
 #include "btstack/le/sm.h"
@@ -350,8 +351,8 @@ u16 rdx_hid_service_att_read(hci_con_handle_t connection_handle,
 #if TCFG_RDX_CODEX_MICRO_MODE
     case HID_CODEX_INPUT_REPORT_VALUE_HANDLE:
     case HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE:
-        return rdx_codex_micro_att_read(connection_handle, att_handle,
-                                        offset, buffer, buffer_size);
+        return rdx_codex_transport_att_read(connection_handle, att_handle,
+                                            offset, buffer, buffer_size);
 #endif
     default:
         return 0;
@@ -489,8 +490,8 @@ int rdx_hid_service_att_write(hci_con_handle_t connection_handle,
         rdx_hid_service_dump_state();
         return 0;
     case HID_CODEX_OUTPUT_REPORT_VALUE_HANDLE:
-        return rdx_codex_micro_output_write(connection_handle, offset,
-                                            buffer, buffer_size);
+        return rdx_codex_transport_output_write(connection_handle, offset,
+                                                buffer, buffer_size);
 #endif
     default:
         return 0;
@@ -668,7 +669,7 @@ void rdx_hid_service_on_disconnected(u16 con_handle)
     s_hid.con_handle = 0;
     s_hid.keyboard_notify_enabled = 0;
     s_hid.codex_notify_enabled = 0;
-    rdx_codex_micro_runtime_reset();
+    rdx_codex_transport_runtime_reset();
     s_hid.encrypted = 0;
     s_hid.suspended = 0;
     rdx_hid_peer_identity_reset();

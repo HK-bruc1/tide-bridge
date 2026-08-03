@@ -54,6 +54,7 @@
 #include "rdx_gatt_profile.h"
 #include "rdx_input_router.h"
 #include "rdx_codex_micro.h"
+#include "rdx_codex_transport.h"
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
@@ -1838,7 +1839,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
     switch (hci_event_packet_get_type(packet)) {
     case ATT_EVENT_CAN_SEND_NOW:
         {
-            rdx_codex_micro_on_can_send_now();
+            rdx_codex_transport_on_can_send_now();
             rdx_ble_link_state_t *link =
                 rdx_ble_server_phase0b_link_find(hdl,
                                                  app_ble_get_hdl_con_handle(hdl));
@@ -3667,6 +3668,7 @@ void rdx_ble_server_init(void)
         //init HOGP submodule.
 #if TCFG_RDX_HOGP_ENABLE
         rdx_hid_service_init(g_rdx_ble_server_info.rdx_ble_server_hdl);
+        rdx_codex_transport_init();
         rdx_codex_micro_init();
 #endif
 
@@ -3721,6 +3723,7 @@ void rdx_ble_server_exit(void)
     
     rdx_input_router_deinit();
     rdx_codex_micro_deinit();
+    rdx_codex_transport_deinit();
     rdx_hid_service_deinit();
     rdx_ble_session_reset();
 

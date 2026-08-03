@@ -247,7 +247,7 @@ Assert-Contract 'HID_CORE_OWNS_SHARED_STATE' `
      $Keyboard -notmatch 'app_ble_att_send_data|s_hogp_connected|s_hogp_encrypted|s_hogp_suspended|s_codex_notify_enabled|get_sm_peer_address|rdx_hogp_subscription_store|rdx_codex_micro' -and
      $KeyboardHeader -notmatch 'rdx_hogp_(?:on_connected|on_disconnected|on_encryption_change|on_sm_event|codex_is_ready|route_is_active)' -and
      $HidService -match 'rdx_hogp_keyboard_att_(?:read|write)' -and
-     $HidService -match 'rdx_codex_micro_(?:att_read|output_write)' -and
+     $HidService -match 'rdx_codex_transport_(?:att_read|output_write)' -and
      $Server -match 'rdx_hid_service_att_(?:read|write)' -and
      $Server -notmatch 'rdx_hogp_att_(?:read|write)') `
     'HID core must exclusively own shared runtime/transport while keyboard remains an ID 1 report provider'
