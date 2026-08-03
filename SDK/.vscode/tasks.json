@@ -24,21 +24,25 @@
             "problemMatcher": [],
             "group": "build"
         }
-        ,        {
+        ,{
             "label": "rdx verify",
             "type": "shell",
-            "windows": {
-                "command": "cmd /c \"..\\tests\\host\\run_tests.bat && ..\\tools\\check_rdx_boundaries.bat\"",
-                "options": {
-                    "shell": {
-                        "executable": "cmd.exe",
-                        "args": ["/c"]
-                    }
-                }
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${workspaceFolder}/../tools/verify_rdx.ps1"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
             },
-            "command": "make -C ../tests/host && bash ../tools/check_rdx_boundaries.sh",
             "problemMatcher": [],
-            "group": "test"
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            }
         }
     ]
 }

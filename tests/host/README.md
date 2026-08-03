@@ -1,26 +1,42 @@
-# RDX Host verification
+# RDX repository tests
 
-Open `SDK` as the VS Code workspace and run the existing `rdx verify` task.
-That JL-native task is the single user entry point.
+`tests/host` contains only repository-local checks. The default verification has
+one entry point:
 
-`run_tests.bat` is only its thin Host adapter. It runs:
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/verify_rdx.ps1
+```
 
-- Windows/JL configuration matrix;
-- storage and record-recovery contracts;
-- frozen static-library ABI checks;
-- P11 ownership and exact allowlist checks;
-- diagnostic trace source contract.
+In VS Code, open the `SDK` directory as the workspace and run
+**Terminal > Run Test Task** (or **Run Task > rdx verify**). The task invokes the
+same default entry point; the two underlying scripts remain independently
+runnable for diagnosis.
 
-The VS Code task then runs the existing production boundary check. The Host
-framework uses only PowerShell, Git, the repository `make.exe`, and the JL
-production compiler. It does not install, discover, or require a native Host
-compiler.
+It protects two stable contracts:
 
-Executable C mocks, shadow SDK headers, Host Makefile targets, and compiler
-selection logic are intentionally absent. Necessary query and stop-command
-semantics are enforced by `test_rdx_p11_ownership.ps1`; target execution and
-timing remain covered by the normal JL build and board regression workflow.
+- `test_rdx_architecture.ps1`: module ownership and platform-isolation rules;
+- `test_rdx_public_contract.ps1`: public declarations that must remain compatible
+  with the prebuilt RDX library and existing callers.
 
-Individual scripts are implementation details. Keep a check only when it
-protects a production boundary, frozen ABI, configuration selection, ownership
-rule, or required evidence contract.
+The checks inspect only the current working tree. They do not require Git
+history, a C compiler, the JL SDK installation, `make`, `nm`, firmware artifacts,
+a target board, or evidence manifests. They intentionally avoid freezing
+implementation text, function order, call counts, product counts, diagnostics,
+or whole-library hashes.
+
+Production compilation, link/map inspection, binary integrity, caller traces,
+and target regression are release validation activities. They must be run
+explicitly in the corresponding JL/board environment and are not part of this
+Host framework.
+
+## Adding a constraint
+
+Add a default constraint only when all of the following are true:
+
+1. it protects a long-lived architecture or public compatibility boundary;
+2. it can be evaluated from the current repository alone;
+3. equivalent refactoring does not break it;
+4. a production build or behavior test is not a better owner for the check.
+
+Prefer directory/module allowlists over function-level call counts. Prefer
+public declaration checks over snapshots of implementation text.
