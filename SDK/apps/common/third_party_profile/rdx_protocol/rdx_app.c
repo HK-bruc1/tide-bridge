@@ -94,6 +94,7 @@
 #include "rdx_event_bus.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_wifi_service.h"
+#include "rdx_file_transfer_service.h"
 #include "rdx_ble_service.h"
 #include "rdx_device_service.h"
 #include "rdx_info_service.h"
@@ -1248,11 +1249,19 @@ void rdx_app_quadruple_click_handle(void)
             return;
         }
 
-        ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
-        y_printf("rf_info->file_send_busy = %d \r", rf_info->file_send_busy);
-        if(rf_info->file_send_busy == true){
-            r_printf("====== %s --> file uploading... \r", __func__);
-            return;
+        {
+            rdx_file_transfer_state_t state;
+
+            if (rdx_file_transfer_get_state(&state) != RDX_OK ||
+                state == RDX_FILE_TRANSFER_STATE_UNAVAILABLE) {
+                r_printf("====== %s --> file transfer state unavailable \r", __func__);
+                return;
+            }
+            y_printf("file transfer state = %d \r", state);
+            if (state == RDX_FILE_TRANSFER_STATE_BUSY) {
+                r_printf("====== %s --> file uploading... \r", __func__);
+                return;
+            }
         }
         u8 temp[25];
         rdx_app_get_dev_base_info();
@@ -1556,7 +1565,6 @@ int rdx_app_msg_handler(int *msg)
                     break;
                 }
 
-                ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
                 if(get_ota_status()){
                     r_printf("====== %s --> busy on ota! \r", __func__);
                     break;
@@ -1565,10 +1573,19 @@ int rdx_app_msg_handler(int *msg)
                     r_printf("%s --> busy on recording! \r", __func__);
                     break;
                 }
-                y_printf("rf_info->file_send_busy = %d \r", rf_info->file_send_busy);
-                if(rf_info->file_send_busy == true){
-                    r_printf("====== %s --> file uploading... \r", __func__);
-                    rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
+                {
+                    rdx_file_transfer_state_t state;
+
+                    if (rdx_file_transfer_get_state(&state) != RDX_OK ||
+                        state == RDX_FILE_TRANSFER_STATE_UNAVAILABLE) {
+                        r_printf("====== %s --> file transfer state unavailable \r", __func__);
+                        break;
+                    }
+                    y_printf("file transfer state = %d \r", state);
+                    if (state == RDX_FILE_TRANSFER_STATE_BUSY) {
+                        r_printf("====== %s --> file uploading... \r", __func__);
+                        rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
+                    }
                 }
                 rdx_dut_msg_handle();
             }

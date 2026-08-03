@@ -105,7 +105,9 @@ static int sink_dev1_init(struct sink_dev1_hdl *hdl)
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #if RDX_RECORD_SINK_AUTO_INIT
     //do init record run.
-    rdx_record_run_init();
+    if (rdx_record_run_init() != 0) {
+        return -1;
+    }
 #endif
 
     // ADC 节点已随录音流完成初始化；增益失败记录诊断，但不阻断录音。

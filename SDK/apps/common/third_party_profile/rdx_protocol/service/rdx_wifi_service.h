@@ -31,8 +31,8 @@ void rdx_wifi_service_on_rx(const u8 *data, u32 len);
 void rdx_wifi_service_on_tx_done(void);
 
 /*
- * Transport state queries — wrap ReqFileInfo* access so rdx_spi.c
- * doesn't reach into protocol state directly.
+ * Migration compatibility facade. File-transfer callers should use
+ * rdx_file_transfer_service.h; TX-done/send-stop/retry remain here until P12.3.
  */
 int  rdx_wifi_service_is_send_stopped(void);
 int  rdx_wifi_service_is_file_send_busy(void);

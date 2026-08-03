@@ -538,6 +538,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_command_dispatch.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_default_hooks.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c \
+	apps/common/third_party_profile/rdx_protocol/service/rdx_file_transfer_query.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_ble_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c \
 	apps/common/third_party_profile/rdx_protocol/service/rdx_info_service.c \

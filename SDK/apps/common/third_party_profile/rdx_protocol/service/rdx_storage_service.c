@@ -6,11 +6,19 @@
 #include "rdx_uxfile.h"
 #include "rdx_command_dispatch.h"
 #include "rdx_record_service.h"
-#include "rdx_wifi_service.h"
+#include "rdx_file_transfer_service.h"
 #include "../compat/rdx_file_transfer_cleanup_compat.h"
 #include "../internal/rdx_storage_domain.h"
 
 extern u8 get_ota_status(void);
+
+static bool rdx_storage_service_is_file_send_busy(void)
+{
+    rdx_file_transfer_state_t state = RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+
+    return rdx_file_transfer_get_state(&state) == RDX_OK &&
+           state == RDX_FILE_TRANSFER_STATE_BUSY;
+}
 
 static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
 {
@@ -19,7 +27,7 @@ static void rdx_cmd_handle_sd_format(ProtocolEvents event, void *data, u32 len)
 	if (!ops) return;
 	if(get_ota_status() ||
 	   rdx_record_service_is_running() ||
-	   rdx_wifi_service_is_file_send_busy()){
+	   rdx_storage_service_is_file_send_busy()){
 	    y_printf("[APP CMD] sd_format rejected: busy\r");
 	    ops->sd_format_ack_indicate(1);
 	    return;

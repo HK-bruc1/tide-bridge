@@ -103,6 +103,8 @@ $uxfileHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rd
 $storagePortHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/port/jl/include/rdx_jl_storage.h'
 $bleHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.h'
 $recordServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_record_service.h'
+$fileTransferServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_file_transfer_service.h'
+$wifiServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.h'
 $storageServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.h'
 $storageFormatHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat.h'
 $protocolAdapterHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.h'
@@ -168,6 +170,11 @@ $contracts = @(
     @{ Name = 'record service state query remains available'; Text = $recordServiceHeader; Pattern = 'u8\s+rdx_record_service_get_state\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'record service stop command remains available'; Text = $recordServiceHeader; Pattern = 'void\s+rdx_record_service_stop\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'storage format command remains available'; Text = $storageServiceHeader; Pattern = 'rdx_err_t\s+rdx_storage_service_format_for_app\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'file transfer state query exposes unavailable idle busy'; Text = $fileTransferServiceHeader; Pattern = 'typedef\s+enum\s*\{\s*RDX_FILE_TRANSFER_STATE_UNAVAILABLE\s*=\s*0\s*,\s*RDX_FILE_TRANSFER_STATE_IDLE\s*,\s*RDX_FILE_TRANSFER_STATE_BUSY\s*,?\s*\}\s*rdx_file_transfer_state_t\s*;' },
+    @{ Name = 'file transfer state query remains available'; Text = $fileTransferServiceHeader; Pattern = 'rdx_err_t\s+rdx_file_transfer_get_state\s*\(\s*rdx_file_transfer_state_t\s*\*\s*out\s*\)\s*;' },
+    @{ Name = 'WiFi file busy compatibility query remains available'; Text = $wifiServiceHeader; Pattern = 'int\s+rdx_wifi_service_is_file_send_busy\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy upload info getter signature remains available'; Text = $uxfileHeader; Pattern = 'ReqFileInfo\s*\*\s*rdx_protocol_get_uploadfileInfo\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy record file send finish signature remains available'; Text = $uxfileHeader; Pattern = 'void\s+rdx_uxfile_recordFileData_send_finish\s*\(\s*ReqFileInfo\s*\*\s*rf_info\s*\)\s*;' },
     @{ Name = 'legacy format callback keeps u8 result ABI'; Text = $storageFormatHeader; Pattern = 'typedef\s+void\s*\(\s*\*\s*rdx_storage_legacy_format_cb_t\s*\)\s*\(\s*u8\s+legacy_result\s*\)\s*;' },
     @{ Name = 'format result mapping keeps u8 ABI'; Text = $storageFormatHeader; Pattern = 'u8\s+rdx_storage_format_compat_result_is_ok\s*\(\s*u8\s+legacy_result\s*\)\s*;' },
     @{ Name = 'record protocol adapter accepts semantic payload'; Text = $protocolAdapterHeader; Pattern = 'rdx_err_t\s+rdx_record_protocol_post_trigger\s*\(\s*const\s+rdx_record_trigger_payload_t\s*\*\s*payload\s*\)\s*;' }
@@ -183,6 +190,8 @@ Assert-NoMatch 'record service public API does not expose RecordStatus' `
     $recordServiceHeader '\bRecordStatus\b'
 Assert-NoMatch 'storage service public API does not expose uxfile types' `
     $storageServiceHeader '\b(?:ReqFileInfo|uxfile_[A-Za-z0-9_]*_t)\b'
+Assert-NoMatch 'file transfer public API does not expose legacy types' `
+    $fileTransferServiceHeader '\b(?:ReqFileInfo|rdx_protocol_get_uploadfileInfo|uxfile_[A-Za-z0-9_]*_t|OS_[A-Za-z0-9_]+)\b'
 
 if ($failures.Count -ne 0) {
     Write-Host ''

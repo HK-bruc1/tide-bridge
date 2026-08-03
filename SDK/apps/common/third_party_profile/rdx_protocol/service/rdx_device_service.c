@@ -4,6 +4,7 @@
 #include "rdx_log.h"
 #include "rdx_err.h"
 #include "rdx_record_service.h"
+#include "rdx_file_transfer_service.h"
 #include "rdx_storage_service.h"
 #include "rdx_vm.h"
 #include "rdx_app.h"
@@ -41,7 +42,7 @@ extern void rdx_util_str_hexstr2hexarray(u8 *str, u32 len, u8 *out);
 extern void rdx_util_reverse_byte(u8 *p, int len);
 extern void rdx_protocol_bound_result_indicate(u8 result);
 extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 state);
-/* ReqFileInfo queries now go through rdx_wifi_service_is_file_send_busy() */
+/* File-transfer busy gates use the public semantic query. */
 
 /* rdx_app.c / JL SDK symbols needed by VM business functions */
 extern void rdx_app_time_to_reset(void);
@@ -54,6 +55,14 @@ extern u16  sys_get_auto_off_time(void);
 extern u8   get_ota_status(void);
 extern void bt_tws_remove_pairs(void);
 extern int  tws_api_get_role(void);
+
+static bool rdx_device_service_is_file_send_busy(void)
+{
+    rdx_file_transfer_state_t state = RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+
+    return rdx_file_transfer_get_state(&state) == RDX_OK &&
+           state == RDX_FILE_TRANSFER_STATE_BUSY;
+}
 
 /* ---- poweroff ---- */
 
@@ -255,7 +264,7 @@ rdx_err_t rdx_device_service_factory_reset(void)
 		return RDX_ERR_BUSY;
 	if (rdx_record_service_is_running())
 		return RDX_ERR_BUSY;
-	if (rdx_wifi_service_is_file_send_busy())
+	if (rdx_device_service_is_file_send_busy())
 		return RDX_ERR_BUSY;
 
 #if TCFG_USER_TWS_ENABLE
@@ -296,7 +305,7 @@ void rdx_device_service_user_para_reset(void)
 		return;
 	if (rdx_record_service_is_running())
 		return;
-	if (rdx_wifi_service_is_file_send_busy())
+	if (rdx_device_service_is_file_send_busy())
 		return;
 
 #if TCFG_USER_TWS_ENABLE
@@ -335,7 +344,7 @@ static void rdx_cmd_handle_sys_reset(ProtocolEvents event, void *data, u32 len)
 	if (!ops) return;
 	if(get_ota_status() ||
 	   rdx_record_service_is_running() ||
-	   rdx_wifi_service_is_file_send_busy()){
+	   rdx_device_service_is_file_send_busy()){
 	    y_printf("[APP CMD] sys_reset rejected: busy\r");
 	    ops->sys_set_default_ack_indicate(1);
 	    return;
@@ -375,7 +384,7 @@ static void rdx_cmd_handle_unbound(ProtocolEvents event, void *data, u32 len)
 	ProtocolUnboundParams* p = (ProtocolUnboundParams*)data;
 	if(get_ota_status() ||
 	   rdx_record_service_is_running() ||
-	   rdx_wifi_service_is_file_send_busy()){
+	   rdx_device_service_is_file_send_busy()){
 	    y_printf("[APP CMD] unbound rejected: busy\r");
 	    ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
 	    return;

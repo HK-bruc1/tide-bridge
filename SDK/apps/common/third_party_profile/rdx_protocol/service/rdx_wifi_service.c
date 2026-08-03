@@ -1,4 +1,5 @@
 #include "rdx_wifi_service.h"
+#include "rdx_file_transfer_service.h"
 #include "rdx_spi.h"
 #include "system/includes.h"
 #include "rdx_log.h"
@@ -161,8 +162,10 @@ int rdx_wifi_service_is_send_stopped(void)
 
 int rdx_wifi_service_is_file_send_busy(void)
 {
-	ReqFileInfo *ru = rdx_protocol_get_uploadfileInfo();
-	return (ru && ru->file_send_busy == true) ? 1 : 0;
+    rdx_file_transfer_state_t state = RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+
+    return rdx_file_transfer_get_state(&state) == RDX_OK &&
+           state == RDX_FILE_TRANSFER_STATE_BUSY;
 }
 
 void rdx_wifi_service_retry_on_stuck(void)

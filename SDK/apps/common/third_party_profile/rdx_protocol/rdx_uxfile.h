@@ -127,6 +127,7 @@ uxfile_data_t* rdx_uxfile_get_file_data_by_sn(u32 fnum, u8 type, int f_offset);
 int rdx_uxfile_raw_read(u32 data_len, u32 off_set, u8* data_ptr);
 void rdx_uxfile_close_read_file_handle(void);  // [优化] 关闭持久化文件句柄
 void rdx_uxfile_recordFileData_sendBuf_free(void);
+ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 void rdx_uxfile_recordFileData_send_finish(ReqFileInfo * rf_info);
 void rdx_uxfile_txt_write_test(u8* d, u32 len);
 void rdx_uxfile_device_sd_mem_check(void);

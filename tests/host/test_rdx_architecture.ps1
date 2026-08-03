@@ -74,13 +74,10 @@ function Get-Matches {
 function Assert-NoMatches {
     param(
         [string]$Name,
-        [object[]]$Matches
+        [object[]]$Items
     )
 
-    $matchList = [System.Collections.ArrayList]@()
-    foreach ($item in @($Matches)) {
-        [void]$matchList.Add($item)
-    }
+    $matchList = @($Items | Where-Object { $null -ne $_ })
     if ($matchList.Count -eq 0) {
         Write-Host "PASS: $Name"
         return
@@ -158,6 +155,17 @@ Assert-NoMatches 'legacy uxfile access is confined to storage owners and compati
 
 Assert-NoMatches 'service public headers do not expose legacy record or uxfile types' `
     (Get-Matches $publicHeaders '\b(?:RecordStatus|ReqFileInfo|uxfile_[A-Za-z0-9_]*_t)\b' @() $true)
+
+# P12.1: WiFi TX-done/send-stop/retry still own legacy state until P12.3.
+$fileTransferLegacyOwnerFiles = @(
+    'SDK/apps/common/third_party_profile/rdx_protocol/rdx_uxfile.h',
+    'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_file_transfer_query.c',
+    'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c'
+)
+Assert-NoMatches 'file transfer legacy state is confined to query and compatibility owners' `
+    (Get-Matches $allFiles `
+        '\b(?:rdx_protocol_get_uploadfileInfo\s*\(|ReqFileInfo\b)|->\s*file_send_busy\b' `
+        $fileTransferLegacyOwnerFiles $true)
 
 Assert-NoMatches 'production sources do not include Host-only test support' `
     (Get-Matches $allFiles '(?:tests[/\\]host|rdx_p11_trace_(?:schema|spy)\.h)' @() $true)

@@ -109,7 +109,6 @@ extern void rdx_protocol_choose_to_unbound_ack_indicate(u8 result, u8 is_bound);
 extern void rdx_protocol_bound_result_indicate(u8 result);
 extern void rdx_app_earphone_pack_readchardata(void);
 extern void rdx_app_time_to_reset(void);
-extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 #if (TCFG_USER_TWS_ENABLE)
 extern void bt_tws_remove_pairs(void);
 #endif

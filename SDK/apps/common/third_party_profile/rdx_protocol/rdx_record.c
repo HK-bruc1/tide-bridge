@@ -53,6 +53,7 @@
 #include "jiffies.h"
 #include "rdx_jl_osal.h"
 #include "rdx_jl_storage.h"
+#include "rdx_file_transfer_service.h"
 
 #if defined(__UUX_FILE__)
 #include "rdx_uxfile.h"
@@ -62,6 +63,30 @@
 #include "app_tone.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+
+static bool rdx_record_file_transfer_ready(void)
+{
+    rdx_file_transfer_state_t state;
+
+    return rdx_file_transfer_get_state(&state) == RDX_OK &&
+           state != RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+}
+
+static bool rdx_record_file_transfer_admit(RecordStatus *rp)
+{
+    if (rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME) {
+        return true;
+    }
+    if (rdx_record_file_transfer_ready()) {
+        return true;
+    }
+
+    r_printf("====== %s --> file transfer state unavailable \r", __func__);
+    rp->run = rp->run == RECORD_STATE_RESUME
+            ? RECORD_STATE_PAUSE
+            : RECORD_STATE_STOP;
+    return false;
+}
 
 /******************************************************************************
 * Macro Define Section
@@ -897,6 +922,12 @@ void rdx_record_cmd_handle(Record_info *r_info)
         }
     }
 
+    if ((r_info->cmd == '0' || r_info->cmd == '2') &&
+        !rdx_record_file_transfer_ready()) {
+        r_printf("====== %s --> file transfer state unavailable \r", __func__);
+        return;
+    }
+
     if(r_info->cmd - 0x30 == record_status.run){
         //if the cmd is same as last time, do not handle it again.
         y_printf("====== %s --> record cmd job is same as current, cmd = %c \r", __FUNCTION__, r_info->cmd);
@@ -1018,6 +1049,10 @@ void rdx_record_start(void* priv)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rp->run == RECORD_STATE_STOP){
+        if (!rdx_record_file_transfer_ready()) {
+            r_printf("====== %s --> file transfer state unavailable \r", __func__);
+            return;
+        }
         //other para remain as last used.
         rp->run = RECORD_STATE_START;
         if(0xffff == con_hdl || 0 == con_hdl){
@@ -1101,14 +1136,20 @@ void rdx_record_auto_run(RecordStatus* rp)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    
+
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s --> rp->run = %d, rp->scene = %d \r", __FUNCTION__, rp->run, rp->scene);
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         //record init.
-        rdx_record_run_init();
+        if (rdx_record_run_init() != 0) {
+            rp->run = rp->run == RECORD_STATE_RESUME
+                    ? RECORD_STATE_PAUSE
+                    : RECORD_STATE_STOP;
+            rdx_record_set_process_state_ready();
+            return;
+        }
         //do start or resume during record scene.
         if(rp->scene == RECORD_SCENE_CHAT){
             os_taskq_post_msg(RECORD_TASK_NAME, 2, rp->run, MIC_TO_MONO_OPUS);
@@ -1145,6 +1186,9 @@ void rdx_record_process(void)
     //check record process state.
     if(rdx_record_process_is_busy_check()){
         r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
+        return;
+    }
+    if (!rdx_record_file_transfer_admit(&record_status)) {
         return;
     }
 
@@ -1299,6 +1343,9 @@ void rdx_record_process(void)
     //check record process state.
     if(rdx_record_process_is_busy_check()){
         r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
+        return;
+    }
+    if (!rdx_record_file_transfer_admit(&record_status)) {
         return;
     }
     //send record state to app.
@@ -2163,12 +2210,17 @@ int rdx_record_run_init(void)
     /*----------------------------------------------------------------*/
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
+    rdx_file_transfer_state_t state;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
-    if(rf_info->file_send_busy == true){
+    if (rdx_file_transfer_get_state(&state) != RDX_OK ||
+        state == RDX_FILE_TRANSFER_STATE_UNAVAILABLE) {
+        r_printf("====== %s --> file transfer state unavailable \r", __func__);
+        return -1;
+    }
+    if (state == RDX_FILE_TRANSFER_STATE_BUSY) {
         rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
     }
 
@@ -2378,12 +2430,17 @@ int rdx_record_run_init(void)
     /*----------------------------------------------------------------*/
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
+    rdx_file_transfer_state_t state;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
-    if(rf_info->file_send_busy == true){
+    if (rdx_file_transfer_get_state(&state) != RDX_OK ||
+        state == RDX_FILE_TRANSFER_STATE_UNAVAILABLE) {
+        r_printf("====== %s --> file transfer state unavailable \r", __func__);
+        return -1;
+    }
+    if (state == RDX_FILE_TRANSFER_STATE_BUSY) {
         rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
     }
 

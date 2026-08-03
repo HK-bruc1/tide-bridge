@@ -37,12 +37,11 @@
 #include "rdx_record_service.h"
 #include "rdx_app.h"
 #include "rdx_charge.h"
-#include "rdx_uxfile.h"
+#include "rdx_file_transfer_service.h"
 #include "rdx_jl_osal.h"
 
 extern bool rdx_app_get_dut_status(void);
 extern u8 get_ota_status(void);
-extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 
 /******************************************************************************
 * Macro Define Section
@@ -127,12 +126,14 @@ static void rdx_led_ctrl_update_timer_cb(void *priv)
 static bool _rdx_led_is_transfer_active(void)
 {
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
+    rdx_file_transfer_state_t state = RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+
     if (wifi_info && wifi_info->onoff == TRANSFER_BY_WIFI_ON) {
         return true;
     }
 
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
-    return rf_info && rf_info->file_send_busy == true;
+    return rdx_file_transfer_get_state(&state) == RDX_OK &&
+           state == RDX_FILE_TRANSFER_STATE_BUSY;
 }
 
 static bool _rdx_led_can_show_transfer_effect(void)
