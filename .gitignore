@@ -37,5 +37,9 @@ patch/
 SDK.git/
 info.json
 *sdk.md5
-output/
+# Track release artifacts under output/, but keep JSON metadata untracked.
+!output/
+!output/**
+output/*.json
+output/**/*.json
 cache/
