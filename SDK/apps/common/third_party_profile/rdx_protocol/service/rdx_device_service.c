@@ -160,7 +160,7 @@ rdx_err_t rdx_device_service_unpair(void)
 
 void rdx_device_service_unbound_cb(u8 result)
 {
-	if (result == MEM_FORMAT_RESULT_OK) {
+	if (rdx_storage_format_compat_result_is_ok(result)) {
 #if TCFG_USER_TWS_ENABLE
 		bt_tws_remove_pairs();
 #endif
@@ -203,7 +203,7 @@ void rdx_device_service_unbound_handle(void)
 
 void rdx_device_service_choose_to_unbound_cb(u8 result)
 {
-	if (result == MEM_FORMAT_RESULT_OK) {
+	if (rdx_storage_format_compat_result_is_ok(result)) {
 		rdx_vm_set_bound_status(0, 0);
 		rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_vm_get_bound_status());
 		rdx_vm_set_unbounding(false);

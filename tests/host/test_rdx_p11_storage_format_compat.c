@@ -42,6 +42,13 @@ static void unbind_callback(u8 result)
     (void)result;
 }
 
+static void test_result_mapping(void)
+{
+    assert(rdx_storage_format_compat_result_is_ok(MEM_FORMAT_RESULT_OK));
+    assert(!rdx_storage_format_compat_result_is_ok(MEM_FORMAT_RESULT_FAIL));
+    assert(!rdx_storage_format_compat_result_is_ok(0));
+}
+
 static void test_dut_thin_forward(void)
 {
     reset_test();
@@ -75,6 +82,7 @@ static void test_unbind_result_mapping(void)
 
 int main(void)
 {
+    test_result_mapping();
     test_dut_thin_forward();
     test_unbind_result_mapping();
     puts("P11 storage format compatibility Host tests passed.");

@@ -6,6 +6,8 @@
 
 typedef void (*rdx_storage_legacy_format_cb_t)(u8 legacy_result);
 
+u8 rdx_storage_format_compat_result_is_ok(u8 legacy_result);
+
 rdx_err_t rdx_storage_format_compat_for_dut(
 	rdx_storage_legacy_format_cb_t cb);
 rdx_err_t rdx_storage_format_compat_for_unbind(
