@@ -35,6 +35,12 @@ $AdvRestartBody = Get-SourceSlice $Server `
 $SendBody = Get-SourceSlice $Server `
     'static int rdx_ble_server_send_internal(' `
     'int rdx_ble_server_send('
+$PendingBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_rdx_send_pending_reset(' `
+    'static void *rdx_ble_server_phase0a_wrapper_get('
+$PacketHandlerBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_phase0a_packet_handler(' `
+    'static void rdx_ble_server_sm_event_callback('
 
 $RuntimeText = $Server + $Session + $SessionHeader + $HogpConfig + $ProjectConfig
 Assert-Contract 'FIXED_DUAL_LINK_TOPOLOGY' `
@@ -93,6 +99,29 @@ Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*&snapshot\s*\)' -and
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl') `
     'CCC, MTU and RDX sends must remain bound to the owning connection snapshot'
+
+$retryArmOrder = Test-TokensInOrder $SendBody @(
+    'rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot)',
+    'app_ble_att_vaild_len_get(send_hdl) < len',
+    'rdx_ble_server_rdx_send_retry_arm(&snapshot)',
+    'return -1'
+)
+$retryWakeOrder = Test-TokensInOrder $PacketHandlerBody @(
+    'rdx_ble_server_rdx_send_pending_consume(link)',
+    'rdx_protocol_clear_send_confirm_flag()',
+    'os_sem_post(&ble_send_data->send_sem)'
+)
+Assert-Contract 'RDX_CAN_SEND_NOW_RETRY_IS_OWNER_SCOPED' `
+    ($PendingBody -match 'g_rdx_ble_send_retry_pending\s*=\s*1' -and
+     $PendingBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*snapshot\s*\)' -and
+     $PendingBody -match 'rdx_ble_session_rdx_token_resolve\s*\(' -and
+     $PendingBody -match '!g_rdx_ble_send_pending_count\s*&&\s*!g_rdx_ble_send_retry_pending' -and
+     $PendingBody -match 'g_rdx_ble_send_retry_pending\s*=\s*0' -and
+     $retryArmOrder -and
+     $SendBody -match '(?s)if\s*\(ret\).*?rdx_ble_server_rdx_send_pending_cancel\s*\(\s*&snapshot\s*\).*?rdx_ble_server_rdx_send_retry_arm\s*\(\s*&snapshot\s*\)' -and
+     $SendBody -match '(?s)else\s*\{.*?rdx_ble_server_rdx_send_retry_cancel\s*\(\s*&snapshot\s*\)' -and
+     $retryWakeOrder) `
+    'a transient ATT failure must retain the current owner token so the first readiness event can wake the immutable bulk worker'
 
 $AdvBody = Get-SourceSlice $Server `
     'static u8 rdx_ble_server_fill_adv_data(' `
