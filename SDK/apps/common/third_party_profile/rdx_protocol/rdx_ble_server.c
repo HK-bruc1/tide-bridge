@@ -203,6 +203,7 @@ static rdx_ble_async_token_t g_rdx_ble_send_pending_token = {
     .slot_index = RDX_BLE_LINK_INVALID_INDEX,
 };
 static u16 g_rdx_ble_send_pending_count = 0;
+static u8 g_rdx_ble_send_retry_pending = 0;
 
 typedef struct {
     rdx_ble_async_token_t token;
@@ -214,6 +215,7 @@ typedef struct {
 static void rdx_ble_server_rdx_send_pending_reset(void)
 {
     g_rdx_ble_send_pending_count = 0;
+    g_rdx_ble_send_retry_pending = 0;
     g_rdx_ble_send_pending_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
     g_rdx_ble_send_pending_token.slot_generation = 0;
     g_rdx_ble_send_pending_token.transport_epoch = 0;
@@ -260,7 +262,7 @@ static void rdx_ble_server_rdx_send_pending_arm(
     if (!rdx_ble_server_rdx_transport_snapshot_is_current(snapshot)) {
         return;
     }
-    if (g_rdx_ble_send_pending_count &&
+    if ((g_rdx_ble_send_pending_count || g_rdx_ble_send_retry_pending) &&
         (g_rdx_ble_send_pending_token.slot_index !=
              snapshot->token.slot_index ||
          g_rdx_ble_send_pending_token.slot_generation !=
@@ -272,6 +274,43 @@ static void rdx_ble_server_rdx_send_pending_arm(
     g_rdx_ble_send_pending_token = snapshot->token;
     if (g_rdx_ble_send_pending_count != 0xffff) {
         g_rdx_ble_send_pending_count++;
+    }
+}
+
+static void rdx_ble_server_rdx_send_retry_arm(
+    const rdx_ble_rdx_transport_snapshot_t *snapshot)
+{
+    if (!rdx_ble_server_rdx_transport_snapshot_is_current(snapshot)) {
+        return;
+    }
+    if ((g_rdx_ble_send_pending_count || g_rdx_ble_send_retry_pending) &&
+        (g_rdx_ble_send_pending_token.slot_index !=
+             snapshot->token.slot_index ||
+         g_rdx_ble_send_pending_token.slot_generation !=
+             snapshot->token.slot_generation ||
+         g_rdx_ble_send_pending_token.transport_epoch !=
+             snapshot->token.transport_epoch)) {
+        rdx_ble_server_rdx_send_pending_reset();
+    }
+    g_rdx_ble_send_pending_token = snapshot->token;
+    g_rdx_ble_send_retry_pending = 1;
+}
+
+static void rdx_ble_server_rdx_send_retry_cancel(
+    const rdx_ble_rdx_transport_snapshot_t *snapshot)
+{
+    if (!snapshot || !g_rdx_ble_send_retry_pending ||
+        g_rdx_ble_send_pending_token.slot_index !=
+            snapshot->token.slot_index ||
+        g_rdx_ble_send_pending_token.slot_generation !=
+            snapshot->token.slot_generation ||
+        g_rdx_ble_send_pending_token.transport_epoch !=
+            snapshot->token.transport_epoch) {
+        return;
+    }
+    g_rdx_ble_send_retry_pending = 0;
+    if (!g_rdx_ble_send_pending_count) {
+        rdx_ble_server_rdx_send_pending_reset();
     }
 }
 
@@ -288,7 +327,7 @@ static void rdx_ble_server_rdx_send_pending_cancel(
         return;
     }
     g_rdx_ble_send_pending_count--;
-    if (!g_rdx_ble_send_pending_count) {
+    if (!g_rdx_ble_send_pending_count && !g_rdx_ble_send_retry_pending) {
         rdx_ble_server_rdx_send_pending_reset();
     }
 }
@@ -298,7 +337,8 @@ static u8 rdx_ble_server_rdx_send_pending_consume(
 {
     rdx_ble_link_state_t *pending_link;
 
-    if (!g_rdx_ble_send_pending_count || !event_link) {
+    if ((!g_rdx_ble_send_pending_count && !g_rdx_ble_send_retry_pending) ||
+        !event_link) {
         return 0;
     }
     pending_link = rdx_ble_session_rdx_token_resolve(
@@ -312,7 +352,10 @@ static u8 rdx_ble_server_rdx_send_pending_consume(
             event_link->con_handle) {
         return 0;
     }
-    g_rdx_ble_send_pending_count--;
+    if (g_rdx_ble_send_pending_count) {
+        g_rdx_ble_send_pending_count--;
+    }
+    g_rdx_ble_send_retry_pending = 0;
     if (!g_rdx_ble_send_pending_count) {
         rdx_ble_server_rdx_send_pending_reset();
     }
@@ -2056,7 +2099,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 break;
             }
             if (!rdx_ble_server_rdx_send_pending_consume(link)) {
-                r_printf("[RDX_BLE_TX] can_send_now ignored: no current pending token con=0x%04x\n",
+                r_printf("[RDX_BLE_TX] can_send_now ignored: no current send/retry token con=0x%04x\n",
                          link->con_handle);
                 break;
             }
@@ -3463,15 +3506,15 @@ static int rdx_ble_server_send_internal(
         return -1;
     }
 
-    //ble send buffer is full?
-    if(!send_hdl || app_ble_att_vaild_len_get(send_hdl) < len){
-        g_ble_send_fail_cnt++;
+    if (!rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
+        !send_hdl) {
         return -1;
     }
 
-    if (
-        !rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
-        !send_hdl) {
+    //ble send buffer is full?
+    if(app_ble_att_vaild_len_get(send_hdl) < len){
+        g_ble_send_fail_cnt++;
+        rdx_ble_server_rdx_send_retry_arm(&snapshot);
         return -1;
     }
     rdx_ble_server_rdx_send_pending_arm(&snapshot);
@@ -3481,8 +3524,10 @@ static int rdx_ble_server_send_internal(
     if (ret) {
         g_ble_send_fail_cnt++;
         rdx_ble_server_rdx_send_pending_cancel(&snapshot);
+        rdx_ble_server_rdx_send_retry_arm(&snapshot);
     } else {
         g_ble_send_fail_cnt = 0;
+        rdx_ble_server_rdx_send_retry_cancel(&snapshot);
     }
 
     return ret;
@@ -3557,6 +3602,9 @@ static int rdx_ble_server_ota_send_internal(
     if (ret) {
         log_info("ota data send fail\n");
         rdx_ble_server_rdx_send_pending_cancel(&snapshot);
+        rdx_ble_server_rdx_send_retry_arm(&snapshot);
+    } else {
+        rdx_ble_server_rdx_send_retry_cancel(&snapshot);
     }
     return ret;
 }
