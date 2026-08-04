@@ -441,6 +441,31 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 // 因此主要动作放在 LONG[1], CLICK[0] 留给多击场景
 // ============================================================
 
+/* Reusable press-to-record behavior. Routing decides which physical key and
+ * connection state select this table. */
+u8 key_table_record_hold[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,              // CLICK
+    APP_MSG_RECORD_HOLD_START, // LONG
+    APP_MSG_NULL,              // HOLD
+    APP_MSG_RECORD_HOLD_STOP,  // UP
+    APP_MSG_NULL,              // DOUBLE_CLICK
+    APP_MSG_NULL,              // TRIPLE_CLICK
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
 // NUM0 (KEY1 — PB2): 下一条录音文件, 长按快进, 双击播放
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_NEXT,          //短按 (CLICK: 多击场景用)

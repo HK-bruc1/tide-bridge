@@ -73,6 +73,7 @@ extern u8 key_table_wifi_r[KEY_ACTION_MAX];
 /******************************************************************************
 * IO NUM key tables — 5 physical buttons (KEY_IO_NUM0~4)
 ******************************************************************************/
+extern u8 key_table_record_hold[KEY_ACTION_MAX];
 extern u8 key_table_io_num0_normal[KEY_ACTION_MAX];
 extern u8 key_table_io_num1_normal[KEY_ACTION_MAX];
 extern u8 key_table_io_num2_normal[KEY_ACTION_MAX];

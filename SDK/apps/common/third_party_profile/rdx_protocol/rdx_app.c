@@ -177,6 +177,7 @@ static u8 hold_record_session_active = 0;
 static u8 hold_record_busy_wait_armed = 0;
 static u8 hold_record_scene = RECORD_SCENE_CHAT;
 static u16 hold_record_retry_timer = 0;
+static u8 key5_online_hold_routed = 0;
 
 static bool app_is_idle = FALSE;
 
@@ -747,6 +748,7 @@ static void rdx_app_hold_record_reset(void)
     hold_record_pressed = 0;
     hold_record_session_active = 0;
     hold_record_scene = RECORD_SCENE_CHAT;
+    key5_online_hold_routed = 0;
 }
 
 static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
@@ -833,6 +835,49 @@ static void rdx_app_hold_record_pump(void)
  **************************************************************************/
 static int rdx_app_get_scene(void);
 
+static u8 rdx_app_rdx_key_route_ready(void)
+{
+    rdx_ble_async_token_t token;
+
+    return rdx_ble_session_rdx_token_capture(&token, 1);
+}
+
+static void rdx_app_key5_remap(int *value, int index, int scene)
+{
+    u8 *key_table;
+
+    /* Balance an online START even if the BLE state changes while held. */
+    if (index == KEY_ACTION_UP && key5_online_hold_routed) {
+        key5_online_hold_routed = 0;
+        *value = key_table_record_hold[index];
+        return;
+    }
+
+    if (rdx_app_rdx_key_route_ready()) {
+        if (index == KEY_ACTION_LONG) {
+            key5_online_hold_routed = 1;
+        } else if (index == KEY_ACTION_UP) {
+            key_press_record_ready_flag = 0;
+        }
+        *value = key_table_record_hold[index];
+        return;
+    }
+
+    /* Local behavior is allowed only when both BLE wrappers are idle. */
+    if (rdx_ble_server_has_active_link()) {
+        if (index == KEY_ACTION_UP) {
+            key_press_record_ready_flag = 0;
+        }
+        *value = APP_MSG_NULL;
+        return;
+    }
+
+    key_table = rdx_key_get_io_num_table(4, scene);
+    if (key_table) {
+        *value = key_table[index];
+    }
+}
+
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
     /*----------------------------------------------------------------*/
@@ -873,10 +918,14 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        // HOGP key action routing boundary:
-        //   HID ready     -> consume every action; CLICK executes the HID keymap.
-        //   HID not ready -> dispatch through the legacy offline key table.
-        // Ready-but-unsupported actions must never leak into offline product behavior.
+        /* KEY5 remains in the five-key HID keymap protocol, but its physical
+         * event is reserved for RDX online hold recording for now. */
+        if (num_idx == 4) {
+            rdx_app_key5_remap(value, index, scene);
+            return;
+        }
+
+        /* KEY1-KEY4 use HID while ready. Unsupported actions are consumed. */
 #if TCFG_RDX_HOGP_ENABLE
         if (rdx_hogp_keyboard_is_ready()) {
             if (index == KEY_ACTION_CLICK) {
@@ -893,6 +942,13 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
             return;
         }
 #endif
+
+        /* Any BLE ACL excludes local offline behavior, including links that
+         * have not completed RDX/HID capability setup yet. */
+        if (rdx_ble_server_has_active_link()) {
+            *value = APP_MSG_NULL;
+            return;
+        }
 
         pk_r = rdx_key_get_io_num_table(num_idx, scene);
         if (pk_r) {

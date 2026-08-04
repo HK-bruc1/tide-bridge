@@ -18,6 +18,8 @@ $UsbTask = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_task.c'
 $UsbCommon = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_common_def.h'
 $DevManager = Read-RepoFile $RepoRoot 'SDK\apps\common\dev_manager\dev_manager.c'
 $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app.c'
+$RdxKey = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.c'
+$RdxKeyH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.h'
 $RdxRecord = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_record.c'
 $AppMsg = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_msg.h'
 $Dip = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
@@ -60,13 +62,33 @@ Assert-Contract 'RDX_LOCAL_PLAYBACK_DEPENDENCIES' $localPlaybackDependenciesOk `
     'the local playback switch must own both stereo and raw/CBR Opus decoder dependencies'
 
 $holdRecordOk = $AppMsg -match '(?s)APP_MSG_REQUEST_POWEROFF,.*?APP_MSG_RECORD_HOLD_START,.*?APP_MSG_RECORD_HOLD_STOP,' -and
-                $RdxApp -notmatch 'if\s*\(num_idx\s*==\s*4\)' -and
                 $RdxApp -match '(?s)case APP_MSG_RECORD_HOLD_START:.*?hold_record_pressed = 1.*?case APP_MSG_RECORD_HOLD_STOP:.*?hold_record_pressed = 0' -and
                 $RdxApp -match '(?s)rdx_app_hold_record_pump.*?rdx_app_device_record_set\(hold_record_scene, RECORD_STATE_STOP\).*?rdx_app_device_record_set\(hold_record_scene, RECORD_STATE_START\)' -and
                 $RdxApp -match '(?s)rdx_app_hold_record_wait_until_ready.*?REC_PROCESS_STATE_BUSY.*?rdx_record_process_is_busy_check.*?rdx_app_hold_record_retry_schedule' -and
                 $RdxApp -match '(?s)static int rdx_app_device_record_set.*?rdx_ble_server_get_conn_handle.*?void rdx_app_device_record_handle.*?rdx_app_device_record_set\(scene, run\)'
 Assert-Contract 'RDX_HOLD_RECORD_TRIGGER_CAPABILITY' $holdRecordOk `
-    'hold start/stop must remain reusable without binding the implementation to a key number or duplicating online/offline routing'
+    'hold start/stop messages must remain reusable and share the existing online/offline recording implementation'
+
+$holdRecordTableOk = $RdxKeyH -match 'extern\s+u8\s+key_table_record_hold\s*\[KEY_ACTION_MAX\]' -and
+                     $RdxKey -match '(?s)u8\s+key_table_record_hold\s*\[KEY_ACTION_MAX\]\s*=\s*\{\s*APP_MSG_NULL,.*?APP_MSG_RECORD_HOLD_START,.*?APP_MSG_NULL,.*?APP_MSG_RECORD_HOLD_STOP,'
+Assert-Contract 'RDX_HOLD_RECORD_ACTION_TABLE' $holdRecordTableOk `
+    'press-to-record must use a reusable action table with LONG start and UP stop mappings'
+
+$ioKeyRouting = Get-SourceSlice $RdxApp `
+    'static u8 rdx_app_rdx_key_route_ready(void)' `
+    '// ---- KEY_POWER'
+$ioKeyRoutingOk = (Test-TokensInOrder $ioKeyRouting @(
+                      'if (num_idx == 4)',
+                      'rdx_app_key5_remap(value, index, scene)',
+                      'rdx_hogp_keyboard_is_ready()',
+                      'rdx_ble_server_has_active_link()',
+                      'rdx_key_get_io_num_table(num_idx, scene)'
+                  )) -and
+                  $ioKeyRouting -match '(?s)rdx_app_rdx_key_route_ready.*?rdx_ble_session_rdx_token_capture\(&token,\s*1\)' -and
+                  $ioKeyRouting -match '(?s)rdx_app_key5_remap.*?KEY_ACTION_UP\s*&&\s*key5_online_hold_routed.*?key_table_record_hold\[index\].*?rdx_app_rdx_key_route_ready\(\).*?KEY_ACTION_LONG.*?key_table_record_hold\[index\]' -and
+                  $ioKeyRouting -match '(?s)rdx_ble_server_has_active_link\(\).*?APP_MSG_NULL.*?rdx_key_get_io_num_table\(4,\s*scene\)'
+Assert-Contract 'RDX_IO_KEY_BLE_CAPABILITY_ROUTING' $ioKeyRoutingOk `
+    'KEY1-4 must prefer HID, KEY5 must prefer RDX hold recording, and local tables require zero BLE links'
 
 $defaultMeetingSceneOk = $RdxRecord -match '(?s)void rdx_record_set_default\(void\).*?record_status\.scene\s*=\s*RECORD_SCENE_CHAT' -and
                          $RdxApp -notmatch 'rp->scene\s*=\s*RECORD_SCENE_CALL'

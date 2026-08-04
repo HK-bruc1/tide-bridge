@@ -13,6 +13,7 @@ $Store = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_store.c"
 $Action = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_key_action.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
+$Internal = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_internal.h"
 
 $Commit = Get-SourceSlice $Service `
     'static int rdx_hogpkm_commit(' `
@@ -23,6 +24,12 @@ $Init = Get-SourceSlice $Service `
 $Custom = Get-SourceSlice $App `
     'void rdx_app_custom_command_parse(char* cmd, char* value)' `
     'void rdx_app_single_click_handle(void)'
+
+Assert-Contract 'KEYMAP_RETAINS_FIVE_KEYS' `
+    ($Internal -match '(?m)^#define\s+RDX_HOGPKM_KEY_COUNT\s+5\s*$' -and
+     $Internal -match '(?m)^#define\s+RDX_HOGPKM_ENTRY_LEN\s+7\s*$' -and
+     $Internal -match '(?m)^#define\s+RDX_HOGPKM_KEYMAP_LEN\s+35\s*$') `
+    'the RDX App protocol and persisted HID keymap must retain all five key entries'
 
 Assert-Contract 'KEYMAP_CUSTOM_COMMAND_ENTRY' `
     ($Custom -match 'strcmp\s*\(\s*cmd\s*,\s*RDX_HOGP_KEYMAP_CUSTOM_CMD\s*\)' -and
