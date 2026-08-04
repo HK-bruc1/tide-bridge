@@ -1,4 +1,5 @@
 #include "rdx_file_transfer_service.h"
+#include "system/includes.h"
 #include "rdx_uxfile.h"
 
 rdx_err_t rdx_file_transfer_get_state(rdx_file_transfer_state_t *out)
