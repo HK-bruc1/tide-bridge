@@ -124,9 +124,7 @@
 
 #define EMMC_LDO_POWER_OFF_CHECK_TIMEOUT                    (10 * 1000)
 
-/*******************************************************************************
-* Structure and Enum Section
-*******************************************************************************/
+#define RDX_HOLD_RECORD_RETRY_MS                             (50)
 
 /******************************************************************************
 * Global variable Section
@@ -174,6 +172,11 @@ static bool poweron_ready_flag = 0;
 
 static u16 mode_switch_keep_timer = 0;
 static u8 key_press_record_ready_flag = 0;
+static u8 hold_record_pressed = 0;
+static u8 hold_record_session_active = 0;
+static u8 hold_record_busy_wait_armed = 0;
+static u8 hold_record_scene = RECORD_SCENE_CHAT;
+static u16 hold_record_retry_timer = 0;
 
 static bool app_is_idle = FALSE;
 
@@ -697,6 +700,125 @@ void rdx_app_volume_indicate(s8 volume)
     log_info("cur_vol is:%d, max:%d\n", volume, app_audio_get_max_volume());
     u8 rdx_sync_valume = (int)(volume * 100 / max_vol);
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
+}
+
+static int rdx_app_device_record_set(u8 scene, u8 run);
+static void rdx_app_hold_record_pump(void);
+
+static void rdx_app_hold_record_retry_cb(void *priv)
+{
+    int msg[2];
+
+    (void)priv;
+    hold_record_retry_timer = 0;
+    msg[0] = (int)rdx_app_hold_record_pump;
+    msg[1] = 0;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
+        hold_record_retry_timer = sys_timeout_add(
+            NULL, rdx_app_hold_record_retry_cb,
+            RDX_HOLD_RECORD_RETRY_MS);
+    }
+}
+
+static void rdx_app_hold_record_retry_schedule(void)
+{
+    if (hold_record_retry_timer == 0) {
+        hold_record_retry_timer = sys_timeout_add(
+            NULL, rdx_app_hold_record_retry_cb,
+            RDX_HOLD_RECORD_RETRY_MS);
+        if (hold_record_retry_timer == 0) {
+            r_printf("[RDX_HOLD_RECORD] retry timer start failed\r");
+        }
+    }
+}
+
+static void rdx_app_hold_record_retry_cancel(void)
+{
+    if (hold_record_retry_timer) {
+        sys_timeout_del(hold_record_retry_timer);
+        hold_record_retry_timer = 0;
+    }
+    hold_record_busy_wait_armed = 0;
+}
+
+static void rdx_app_hold_record_reset(void)
+{
+    rdx_app_hold_record_retry_cancel();
+    hold_record_pressed = 0;
+    hold_record_session_active = 0;
+    hold_record_scene = RECORD_SCENE_CHAT;
+}
+
+static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
+{
+    if (rp->process_state != REC_PROCESS_STATE_BUSY) {
+        hold_record_busy_wait_armed = 0;
+        return 0;
+    }
+
+    if (!hold_record_busy_wait_armed) {
+        /* Arm the recording module's existing stuck-busy watchdog once. */
+        rdx_record_process_is_busy_check();
+        hold_record_busy_wait_armed = 1;
+    }
+    rdx_app_hold_record_retry_schedule();
+    return 1;
+}
+
+static void rdx_app_hold_record_pump(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    int ret;
+
+    if (!hold_record_pressed) {
+        if (!hold_record_session_active) {
+            rdx_app_hold_record_retry_cancel();
+            return;
+        }
+        if (rdx_app_hold_record_wait_until_ready(rp)) {
+            return;
+        }
+
+        ret = rdx_app_device_record_set(hold_record_scene, RECORD_STATE_STOP);
+        if (ret != 0) {
+            r_printf("[RDX_HOLD_RECORD] stop request rejected\r");
+        }
+        hold_record_session_active = 0;
+        rdx_app_hold_record_retry_cancel();
+        return;
+    }
+
+    if (hold_record_session_active) {
+        return;
+    }
+    if (!rdx_app_init_flag || poweroff_ready_flag || rdx_dut_mode ||
+        get_ota_status() || mode_switch_keep_timer ||
+        app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
+        hold_record_pressed = 0;
+        r_printf("[RDX_HOLD_RECORD] start rejected by product state\r");
+        return;
+    }
+    if (rp->run != RECORD_STATE_STOP) {
+        hold_record_pressed = 0;
+        r_printf("[RDX_HOLD_RECORD] start rejected: another recording is active\r");
+        return;
+    }
+    if (rdx_app_hold_record_wait_until_ready(rp)) {
+        return;
+    }
+
+    hold_record_scene = rp->scene;
+    if (hold_record_scene != RECORD_SCENE_CALL) {
+        hold_record_scene = RECORD_SCENE_CHAT;
+    }
+    ret = rdx_app_device_record_set(hold_record_scene, RECORD_STATE_START);
+    if (ret != 0) {
+        hold_record_pressed = 0;
+        r_printf("[RDX_HOLD_RECORD] start request rejected\r");
+        return;
+    }
+    hold_record_session_active = 1;
+    g_printf("[RDX_HOLD_RECORD] start request, scene=%d\r", hold_record_scene);
 }
 
 /* HOGP key action execution lives in rdx_hogp_key_action.c.  Online/offline
@@ -1362,6 +1484,8 @@ void rdx_app_normal_poweroff(void)
     /*----------------------------------------------------------------*/
     r_printf("------> %s \n", __func__);
 
+    rdx_app_hold_record_reset();
+
     //close record.
     if(rp->run != RECORD_STATE_STOP){
         rp->run = RECORD_STATE_STOP;
@@ -1522,47 +1646,40 @@ void rdx_app_record_state_upload_timer_start(void)
     }
 }
 
-/**************************************************************************
- * function: rdx_app_device_record_handle
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
-void rdx_app_device_record_handle(u8 scene)
+static int rdx_app_device_record_set(u8 scene, u8 run)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
     u8 formate = 0;
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
     rdx_ble_async_token_t rdx_token = {0};
     u8 rdx_token_valid = 0;
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("====== %s ------> scene = %d \n", __FUNCTION__, scene);
+
+    if (run != RECORD_STATE_START && run != RECORD_STATE_STOP) {
+        return -1;
+    }
     if(scene == RECORD_SCENE_CHAT){
         formate = RECORD_FORMATE_OPUS_16K_STERO; //会议模式用降噪算法，改为双声道
     }else if(scene == RECORD_SCENE_CALL){
         formate = RECORD_FORMATE_OPUS_16K_STERO;
     }else{
-        return;
+        return -1;
     }
 
     if(0xffff != con_hdl && 0 != con_hdl){
         rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
         if (!rdx_token_valid) {
             r_printf("[RDX_RECORD] ignore online trigger without RDX owner\r");
-            return;
+            return -1;
         }
-        //ota?
         if(get_ota_status()){
-            return;
+            return -1;
         }
 
         memset(&set_rp, 0, sizeof(RecordStatus));
-        if(rp->run == RECORD_STATE_STOP){
+        if(run == RECORD_STATE_START){
+            if (rp->run != RECORD_STATE_STOP) {
+                return -1;
+            }
             set_rp.run = RECORD_STATE_START;
             set_rp.formate = formate;
             set_rp.scene = scene;
@@ -1571,7 +1688,8 @@ void rdx_app_device_record_handle(u8 scene)
 
             rdx_app_record_state_upload_timer_start();
         }else{
-            if(rp->orig_mode == RECORD_MODE_OFFLINE){
+            if(rp->run != RECORD_STATE_STOP &&
+               rp->orig_mode == RECORD_MODE_OFFLINE){
                 g_printf("====== %s --> offline-originated recording, direct stop + send trigger \r", __func__);
                 rp->run = RECORD_STATE_STOP;
                 int msg_stop[2];
@@ -1585,8 +1703,8 @@ void rdx_app_device_record_handle(u8 scene)
                 set_rp.mode = rp->mode;
             }else{
                 set_rp.run = RECORD_STATE_STOP;
-                set_rp.formate = rp->formate;
-                set_rp.scene = rp->scene;
+                set_rp.formate = (rp->run == RECORD_STATE_STOP) ? formate : rp->formate;
+                set_rp.scene = (rp->run == RECORD_STATE_STOP) ? scene : rp->scene;
                 set_rp.mode = rp->mode;
                 g_printf("====== %s --> 在线录音结束触发，并发送结束消息, scene = %d, formate = %d \r", __func__, set_rp.scene, set_rp.formate); 
             }
@@ -1597,8 +1715,12 @@ void rdx_app_device_record_handle(u8 scene)
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }
+        return ret;
     }else{
-        if(rp->run == RECORD_STATE_STOP){
+        if(run == RECORD_STATE_START){
+            if (rp->run != RECORD_STATE_STOP) {
+                return -1;
+            }
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
             /* 离线录音会立即启动，先在 app_core 结束本地回听会话。 */
             rdx_playback_stop();
@@ -1611,15 +1733,35 @@ void rdx_app_device_record_handle(u8 scene)
             msg[1] = 0;
             int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
             g_printf("====== %s --> 离线录音开启 \r", __func__);
+            return ret;
         }else{
+            if (rp->run == RECORD_STATE_STOP) {
+                return 0;
+            }
             rp->run = RECORD_STATE_STOP;
             int msg[2];
             msg[0] = (int)rdx_record_process;
             msg[1] = 0;
             int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
             g_printf("====== %s --> 离线录音结束 \r", __func__);
+            return ret;
         }
     }
+}
+
+/**************************************************************************
+ * function: rdx_app_device_record_handle
+ * description:
+ * param (*)
+ * return (*)
+ **************************************************************************/
+void rdx_app_device_record_handle(u8 scene)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    u8 run = (rp->run == RECORD_STATE_STOP) ?
+             RECORD_STATE_START : RECORD_STATE_STOP;
+
+    rdx_app_device_record_set(scene, run);
 }
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
@@ -2269,6 +2411,18 @@ int rdx_app_msg_handler(int *msg)
             ret = TRUE;
             break;
 
+        case APP_MSG_RECORD_HOLD_START:
+            hold_record_pressed = 1;
+            rdx_app_hold_record_pump();
+            ret = TRUE;
+            break;
+
+        case APP_MSG_RECORD_HOLD_STOP:
+            hold_record_pressed = 0;
+            rdx_app_hold_record_pump();
+            ret = TRUE;
+            break;
+
         case APP_MSG_RECORD_CHAT_MODE:
             {
                 if(rdx_dut_mode == TRUE || get_ota_status()){
@@ -2655,7 +2809,6 @@ void rdx_record_mode_active_check(bool show)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     if(rp->run == RECORD_STATE_STOP){
-        rp->scene = RECORD_SCENE_CALL;
         record_mode = RDX_RECORD_CHANNAL_DUAL;
         rp->orig_scene = rp->scene;
     }
@@ -3620,6 +3773,7 @@ void rdx_app_all_init(void)
     rdx_app_init_flag = false;
     poweron_ready_flag = false;
     emmc_poweroff_check_timer = 0;
+    rdx_app_hold_record_reset();
 
     // 在按键事件处理之前初始化 record_status.
     rdx_record_set_default();
@@ -3789,6 +3943,7 @@ static void rdx_app_idle_handle(void* priv)
 
     poweroff_ready_flag = false;
     key_press_record_ready_flag = false;
+    rdx_app_hold_record_reset();
 
     xxp_uart_set_wifi_default_flag(false);
 

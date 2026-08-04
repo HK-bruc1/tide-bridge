@@ -284,6 +284,10 @@ enum {
     APP_MSG_PC_MODE_ON,
     APP_MSG_PC_MODE_OFF,
     APP_MSG_REQUEST_POWEROFF,
+
+    /* Append product messages to preserve the existing app-message ABI. */
+    APP_MSG_RECORD_HOLD_START,
+    APP_MSG_RECORD_HOLD_STOP,
 };
 
 
