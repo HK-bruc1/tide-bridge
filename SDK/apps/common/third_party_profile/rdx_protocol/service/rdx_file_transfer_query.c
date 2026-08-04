@@ -1,23 +1,12 @@
 #include "rdx_file_transfer_service.h"
-#include "system/includes.h"
-#include "rdx_uxfile.h"
+#include "../internal/rdx_file_transfer_domain.h"
 
 rdx_err_t rdx_file_transfer_get_state(rdx_file_transfer_state_t *out)
 {
-    ReqFileInfo *info;
+    return rdx_file_transfer_domain_get_state(out);
+}
 
-    if (!out) {
-        return RDX_ERR_INVAL;
-    }
-
-    info = rdx_protocol_get_uploadfileInfo();
-    if (!info) {
-        *out = RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
-        return RDX_OK;
-    }
-
-    *out = info->file_send_busy == true
-         ? RDX_FILE_TRANSFER_STATE_BUSY
-         : RDX_FILE_TRANSFER_STATE_IDLE;
-    return RDX_OK;
+rdx_err_t rdx_file_transfer_get_stopped(int *out)
+{
+    return rdx_file_transfer_domain_get_stopped(out);
 }

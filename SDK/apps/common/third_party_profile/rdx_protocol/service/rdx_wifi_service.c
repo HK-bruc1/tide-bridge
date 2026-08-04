@@ -156,8 +156,10 @@ void rdx_wifi_service_on_tx_done(void)
 
 int rdx_wifi_service_is_send_stopped(void)
 {
-	ReqFileInfo *ru = rdx_protocol_get_uploadfileInfo();
-	return (ru && ru->send_stop == true) ? 1 : 0;
+	int stopped = 0;
+
+	return rdx_file_transfer_get_stopped(&stopped) == RDX_OK
+	       ? stopped : 0;
 }
 
 int rdx_wifi_service_is_file_send_busy(void)

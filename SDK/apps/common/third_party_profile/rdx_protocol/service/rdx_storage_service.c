@@ -7,7 +7,6 @@
 #include "rdx_command_dispatch.h"
 #include "rdx_record_service.h"
 #include "rdx_file_transfer_service.h"
-#include "../compat/rdx_file_transfer_cleanup_compat.h"
 #include "../internal/rdx_storage_domain.h"
 
 extern u8 get_ota_status(void);
@@ -151,12 +150,12 @@ u8 rdx_storage_is_format_operation_active(void)
 /* Frozen compatibility facade for the delayed/full BLE cleanup profile. */
 rdx_err_t rdx_storage_service_cleanup_ble_buffers(void)
 {
-	return rdx_file_transfer_compat_cleanup_ble_delayed();
+	return rdx_file_transfer_cleanup_ble_delayed();
 }
 
 rdx_err_t rdx_storage_service_cleanup_ble_immediate(void)
 {
-	return rdx_file_transfer_compat_cleanup_record_disconnect();
+	return rdx_file_transfer_cleanup_record_disconnect();
 }
 
 rdx_err_t rdx_storage_service_adjust_active_record_time(int delta_seconds)

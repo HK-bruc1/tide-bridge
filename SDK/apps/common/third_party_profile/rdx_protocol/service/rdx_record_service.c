@@ -12,8 +12,8 @@
 #include "rdx_jl_osal.h"
 #include "rdx_time_service.h"
 #include "rdx_storage_service.h"
+#include "rdx_file_transfer_service.h"
 #include "../internal/rdx_record_domain.h"
-#include "../compat/rdx_file_transfer_cleanup_compat.h"
 #include "../compat/rdx_record_protocol_adapter.h"
 
 /* BLE event business logic — Stage 4 cutover from rdx_ble_service.c */
@@ -111,7 +111,7 @@ static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len
     } else if (event == RDX_EVENT_BLE_DISCONNECTED) {
         rdx_record_stream_interrupt();
         rdx_record_on_ble_conn_changed(0);
-        (void)rdx_file_transfer_compat_cleanup_record_disconnect();
+        (void)rdx_file_transfer_cleanup_record_disconnect();
     }
 }
 

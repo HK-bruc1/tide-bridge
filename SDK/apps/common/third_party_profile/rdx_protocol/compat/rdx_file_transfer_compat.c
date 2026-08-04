@@ -1,10 +1,26 @@
-#include "rdx_file_transfer_cleanup_compat.h"
+#include "rdx_file_transfer_compat.h"
 #include "system/includes.h"
 #include "rdx_uxfile.h"
 
 extern void rdx_protocol_uploadFileInfo_clean(void);
 extern void rdx_protocol_file_sync_busy_timer_stop(void);
 extern void rdx_protocol_send_buffer_reinit(void);
+
+rdx_err_t rdx_file_transfer_compat_get_status(
+    rdx_file_transfer_compat_status_t *out)
+{
+    ReqFileInfo *info;
+
+    if (!out) {
+        return RDX_ERR_INVAL;
+    }
+
+    info = rdx_protocol_get_uploadfileInfo();
+    out->available = info != NULL;
+    out->busy = info && info->file_send_busy == true;
+    out->stopped = info && info->send_stop == true;
+    return RDX_OK;
+}
 
 rdx_err_t rdx_file_transfer_compat_cleanup_record_disconnect(void)
 {
