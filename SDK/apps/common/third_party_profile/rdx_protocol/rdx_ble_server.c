@@ -43,6 +43,7 @@
 #include "user_cfg.h"
 #include "system/includes.h"
 #include "app_config.h"
+#include "power/power_manage.h"
 
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
@@ -188,6 +189,7 @@ static u8 g_syn_data_token_valid;
 static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
+static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
 static u8 g_rdx_lifecycle_barrier_armed;
 static char g_rdx_lifecycle_barrier_value[
     RDX_LIFECYCLE_BARRIER_VALUE_SIZE];
@@ -398,6 +400,32 @@ static u8 rdx_ble_server_phase0a_connected_count(void)
     }
     return count;
 }
+
+static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
+{
+    u8 connected = rdx_ble_server_phase0a_connected_count();
+    u8 second_acl_window = g_rdx_ble_advertising_hdl ? 1 : 0;
+    u8 block;
+
+    block = (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
+            (connected == 1 && second_acl_window);
+    if (g_rdx_ble_dual_acl_sleep_blocked != block) {
+        g_rdx_ble_dual_acl_sleep_blocked = block;
+        r_printf("[RDX_BLE_LP] system_sleep_block=%u connected=%u "
+                 "second_acl_window=%u reason=%s\n",
+                 block, connected, second_acl_window, reason);
+    }
+}
+
+static u8 rdx_ble_server_dual_acl_lp_idle_query(void)
+{
+    return g_rdx_ble_dual_acl_sleep_blocked ? 0 : 1;
+}
+
+REGISTER_LP_TARGET(rdx_ble_dual_acl_lp_target) = {
+    .name = "rdx_ble_dual_acl",
+    .is_idle = rdx_ble_server_dual_acl_lp_idle_query,
+};
 
 static void *rdx_ble_server_phase0a_idle_wrapper_get(void)
 {
@@ -1628,6 +1656,7 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
         r_printf("[RDX_BLE_LINK] advertising restart on released wrapper\n");
         rdx_ble_server_adv_enable(1);
     }
+    rdx_ble_server_dual_acl_sleep_policy_update("disconnect_cleanup");
     return;
 
     if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
@@ -2015,6 +2044,11 @@ static void rdx_ble_server_phase0a_link_state_capture(
     rdx_ble_session_link_set_peer(link, peer_addr_type, peer_addr);
     rdx_ble_session_link_set_conn_params(link, conn_interval, conn_latency,
                                          supervision_timeout);
+    r_printf("[RDX_BLE_PARAM] initial wrapper=%u con=0x%04x "
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u\n",
+             rdx_ble_session_link_index(link), link->con_handle,
+             link->conn_interval, link->conn_latency,
+             link->supervision_timeout);
 }
 
 static void rdx_ble_server_phase0a_link_conn_params_update(
@@ -2029,6 +2063,11 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
         hci_subevent_le_connection_update_complete_get_conn_interval(packet),
         hci_subevent_le_connection_update_complete_get_conn_latency(packet),
         hci_subevent_le_connection_update_complete_get_supervision_timeout(packet));
+    r_printf("[RDX_BLE_PARAM] update wrapper=%u con=0x%04x "
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u\n",
+             rdx_ble_session_link_index(link), link->con_handle,
+             link->conn_interval, link->conn_latency,
+             link->supervision_timeout);
 }
 
 static void rdx_ble_server_phase0a_link_connected(void *hdl,
@@ -2059,6 +2098,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     if (status != 0) {
         r_printf("[RDX_BLE_LINK] connection failed status=0x%02x enhanced=%u\n",
                  status, enhanced);
+        rdx_ble_server_dual_acl_sleep_policy_update("connect_failed");
         return;
     }
     /* Only the wrapper that owned the active advertiser may accept this
@@ -2093,6 +2133,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     rdx_ble_server_adv_interval_change_timer_stop();
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
+    rdx_ble_server_dual_acl_sleep_policy_update("connect");
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
 }
 
@@ -3359,6 +3400,8 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     if (enable == app_ble_adv_state_get(hdl)) {
         if (enable) {
             g_rdx_ble_advertising_hdl = hdl;
+        } else if (g_rdx_ble_advertising_hdl == hdl) {
+            g_rdx_ble_advertising_hdl = NULL;
         }
         return 0;
     }
@@ -3417,12 +3460,15 @@ int rdx_ble_server_adv_enable(u8 enable)
                 }
             }
         }
+        g_rdx_ble_advertising_hdl = NULL;
+        rdx_ble_server_dual_acl_sleep_policy_update("advertising_off");
         return ret;
     }
 
     target = rdx_ble_server_phase0a_idle_wrapper_get();
     if (!target) {
         r_printf("[RDX_BLE_LINK] no idle wrapper; advertising remains off\n");
+        rdx_ble_server_dual_acl_sleep_policy_update("advertising_full");
         return 0;
     }
 
@@ -3434,7 +3480,9 @@ int rdx_ble_server_adv_enable(u8 enable)
     }
     r_printf("[RDX_BLE_LINK] advertiser wrapper=%u hdl=%p\n",
              rdx_ble_server_phase0a_wrapper_index(target), target);
-    return rdx_ble_server_adv_enable_on_hdl(target, 1);
+    ret = rdx_ble_server_adv_enable_on_hdl(target, 1);
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_on");
+    return ret;
 }
 
 /**************************************************************************
@@ -4002,6 +4050,7 @@ void rdx_ble_server_exit(void)
     }
     g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
     g_rdx_ble_advertising_hdl = NULL;
+    g_rdx_ble_dual_acl_sleep_blocked = 0;
 }
 
 u8 rdx_ble_server_is_stream_tx_ready(void)
