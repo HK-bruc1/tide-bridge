@@ -146,6 +146,9 @@ void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
 u8 rdx_record_online_session_token_capture(rdx_ble_async_token_t *token);
 u8 rdx_record_online_session_token_is_current(
     const rdx_ble_async_token_t *token);
+void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
+void rdx_record_stream_only_start_cancel(void);
+u8 rdx_record_stream_only_session_is_active(void);
 int rdx_record_task_create(void);
 int rdx_record_task_free(void);
 RecordStatus* rdx_record_get_status(void);

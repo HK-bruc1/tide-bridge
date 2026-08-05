@@ -60,7 +60,7 @@ $Idle = Get-SourceSlice $App `
     'u8 rdx_app_rdx_rebind_is_idle(void)' `
     '/**************************************************************************'
 
-$abiOk = $ArchiveHash -eq 'C540D70540DC4D61E15D1CA13579CD2342D4EA972FF0A74A1AFCCC04B1EF4ACA' -and
+$abiOk = $ArchiveHash -eq '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
          $ProtocolHeader -match '(?s)typedef\s+struct\s*\{\s*int\s+app_select;\s*int\s+device_select;.*?rdx_protocol_cb.*?\}\s*RdxProtocolCallbacks;' -and
          $ServerHeader -match '(?s)ble_state_e\s+ble_work_state;.*?u16\s+ble_con_handle;.*?void\s*\*rdx_ble_server_hdl;.*?\}\s*rdx_ble_server_info_t;'
 Assert-Contract 'IMMUTABLE_RUNTIME_ABI' $abiOk `

@@ -41,6 +41,9 @@ $PendingBody = Get-SourceSlice $Server `
 $PacketHandlerBody = Get-SourceSlice $Server `
     'static void rdx_ble_server_phase0a_packet_handler(' `
     'static void rdx_ble_server_sm_event_callback('
+$ConnParamBody = Get-SourceSlice $Server `
+    'static u8 rdx_ble_server_request_connect_parameter_for_token(' `
+    'static void rdx_ble_server_check_connetion_updata_deal(void)'
 
 $RuntimeText = $Server + $Session + $SessionHeader + $HogpConfig + $ProjectConfig
 Assert-Contract 'FIXED_DUAL_LINK_TOPOLOGY' `
@@ -99,6 +102,17 @@ Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
      $SendBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*&snapshot\s*\)' -and
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl') `
     'CCC, MTU and RDX sends must remain bound to the owning connection snapshot'
+
+Assert-Contract 'TRANSFER_CONN_PARAMS_ARE_OWNER_SCOPED' `
+    ($ServerHeader -match 'void\s+rdx_ble_server_request_stream_fast_param\s*\(void\)' -and
+     $ServerHeader -match 'void\s+rdx_ble_server_post_transfer_lowpower\s*\(void\)' -and
+     $ConnParamBody -match 'rdx_ble_session_rdx_token_capture\s*\(' -and
+     $ConnParamBody -match 'rdx_ble_session_rdx_token_resolve\s*\(\s*token\s*,\s*1\s*\)' -and
+     $ConnParamBody -match 'RDX_CONN_PARAM_STREAM_FAST_INDEX' -and
+     $ConnParamBody -match 'RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX' -and
+     $ConnParamBody -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK' -and
+     $ConnParamBody -notmatch 'g_rdx_ble_server_info\.ble_con_handle') `
+    'stream-fast and post-transfer lowpower requests must stay bound to the current RDX owner token'
 
 $retryArmOrder = Test-TokensInOrder $SendBody @(
     'rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot)',

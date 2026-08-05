@@ -739,6 +739,36 @@ static const struct conn_update_param_t connection_param_table[] = {
 }; 
 
 #define CONN_PARAM_TABLE_CNT      (sizeof(connection_param_table)/sizeof(struct conn_update_param_t))
+#define RDX_CONN_PARAM_STREAM_FAST_INDEX          (0u)
+#define RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX \
+    ((u8)(CONN_PARAM_TABLE_CNT - 1u))
+
+static rdx_ble_async_token_t g_rdx_post_transfer_lowpower_token;
+static u8 g_rdx_post_transfer_lowpower_pending = 0;
+
+static u8 rdx_ble_server_request_connect_parameter_for_token(
+    const rdx_ble_async_token_t *token,
+    u8 table_index)
+{
+    rdx_ble_link_state_t *link;
+    const struct conn_update_param_t *param;
+
+    if (!token || table_index >= CONN_PARAM_TABLE_CNT) {
+        return 0;
+    }
+    link = rdx_ble_session_rdx_token_resolve(token, 1);
+    if (!link) {
+        return 0;
+    }
+    param = &connection_param_table[table_index];
+    log_info("====== update_request:-%d-%d-%d-%d-\r",
+             param->interval_min, param->interval_max,
+             param->latency, param->timeout);
+    rdx_ble_session_link_set_conn_param_index(link, table_index);
+    ble_op_conn_param_request(link->con_handle,
+                              (struct conn_update_param_t *)param);
+    return 1;
+}
 
 /**************************************************************************
  * function: rdx_ble_server_send_request_connect_parameter
@@ -748,16 +778,48 @@ static const struct conn_update_param_t connection_param_table[] = {
  **************************************************************************/
 void rdx_ble_server_send_request_connect_parameter(u8 table_index)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    struct conn_update_param_t *param = (void *)&connection_param_table[table_index];
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    log_info("====== update_request:-%d-%d-%d-%d-\r", param->interval_min, param->interval_max, param->latency, param->timeout);
-    if(g_rdx_ble_server_info.ble_con_handle) {
-        ble_op_conn_param_request(g_rdx_ble_server_info.ble_con_handle, param);
+    rdx_ble_async_token_t token;
+
+    if (rdx_ble_session_rdx_token_capture(&token, 1)) {
+        rdx_ble_server_request_connect_parameter_for_token(
+            &token, table_index);
+    }
+}
+
+void rdx_ble_server_request_stream_fast_param(void)
+{
+    rdx_ble_async_token_t token;
+
+    if (rdx_ble_session_rdx_token_capture(&token, 1)) {
+        rdx_ble_server_request_connect_parameter_for_token(
+            &token, RDX_CONN_PARAM_STREAM_FAST_INDEX);
+    }
+}
+
+static void rdx_ble_server_post_transfer_lowpower_cb(void)
+{
+    rdx_ble_async_token_t token = g_rdx_post_transfer_lowpower_token;
+
+    g_rdx_post_transfer_lowpower_pending = 0;
+    rdx_ble_server_request_connect_parameter_for_token(
+        &token, RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX);
+}
+
+void rdx_ble_server_post_transfer_lowpower(void)
+{
+    int msg[2];
+
+    if (g_rdx_post_transfer_lowpower_pending ||
+        !rdx_ble_session_rdx_token_capture(
+            &g_rdx_post_transfer_lowpower_token, 1)) {
+        return;
+    }
+    g_rdx_post_transfer_lowpower_pending = 1;
+    msg[0] = (int)rdx_ble_server_post_transfer_lowpower_cb;
+    msg[1] = 0;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
+        g_rdx_post_transfer_lowpower_pending = 0;
+        r_printf("[RDX_BLE] post-transfer lowpower request failed\r");
     }
 }
 
@@ -1398,7 +1460,9 @@ static void rdx_ble_server_rdx_disconnected_cleanup_internal(void)
     // r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);
     if(rp->orig_mode != RECORD_MODE_OFFLINE){
         rp->mode = RECORD_MODE_OFFLINE;
-        rp->orig_mode = RECORD_MODE_OFFLINE;
+        if(!rdx_record_stream_only_session_is_active()){
+            rp->orig_mode = RECORD_MODE_OFFLINE;
+        }
     }
 #else
     r_printf("====== %s --> orig_mode: %d, mode: %d \n", __func__, rp->orig_mode, rp->mode);

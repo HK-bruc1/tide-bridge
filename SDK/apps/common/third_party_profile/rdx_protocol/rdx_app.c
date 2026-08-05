@@ -312,6 +312,7 @@ typedef struct {
     RecordStatus status;
     rdx_ble_async_token_t token;
     u8 factor;
+    u8 stream_only;
 } rdx_app_record_trigger_request_t;
 
 static void rdx_app_record_trigger_on_app_core(
@@ -325,6 +326,10 @@ static void rdx_app_record_trigger_on_app_core(
         free(request);
         return;
     }
+    if (request->stream_only &&
+        request->status.run == RECORD_STATE_START) {
+        rdx_record_stream_only_start_arm(&request->token);
+    }
     rdx_protocol_record_trigger_indicate(&request->status, request->factor);
     free(request);
 }
@@ -332,7 +337,8 @@ static void rdx_app_record_trigger_on_app_core(
 static int rdx_app_record_trigger_post(
     const RecordStatus *status,
     u8 factor,
-    const rdx_ble_async_token_t *token)
+    const rdx_ble_async_token_t *token,
+    u8 stream_only)
 {
     rdx_app_record_trigger_request_t *request;
     int msg[3];
@@ -347,6 +353,7 @@ static int rdx_app_record_trigger_post(
     request->status = *status;
     request->token = *token;
     request->factor = factor;
+    request->stream_only = stream_only;
     msg[0] = (int)rdx_app_record_trigger_on_app_core;
     msg[1] = 1;
     msg[2] = (int)request;
@@ -703,7 +710,7 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
-static int rdx_app_device_record_set(u8 scene, u8 run);
+static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only);
 static void rdx_app_hold_record_pump(void);
 
 static void rdx_app_hold_record_retry_cb(void *priv)
@@ -781,7 +788,8 @@ static void rdx_app_hold_record_pump(void)
             return;
         }
 
-        ret = rdx_app_device_record_set(hold_record_scene, RECORD_STATE_STOP);
+        ret = rdx_app_device_record_set(
+            hold_record_scene, RECORD_STATE_STOP, 1);
         if (ret != 0) {
             r_printf("[RDX_HOLD_RECORD] stop request rejected\r");
         }
@@ -813,7 +821,8 @@ static void rdx_app_hold_record_pump(void)
     if (hold_record_scene != RECORD_SCENE_CALL) {
         hold_record_scene = RECORD_SCENE_CHAT;
     }
-    ret = rdx_app_device_record_set(hold_record_scene, RECORD_STATE_START);
+    ret = rdx_app_device_record_set(
+        hold_record_scene, RECORD_STATE_START, 1);
     if (ret != 0) {
         hold_record_pressed = 0;
         r_printf("[RDX_HOLD_RECORD] start request rejected\r");
@@ -1636,7 +1645,7 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
             set_rp.scene = rp->scene;
             //report this action to app.
             u8 factor = 0;
-            int ret = rdx_app_record_trigger_post(&set_rp, factor, &token);
+            int ret = rdx_app_record_trigger_post(&set_rp, factor, &token, 0);
             if(ret) {
                 r_printf("%s rdx_record_state_indicate taskq post err \n", __func__);
             }
@@ -1673,6 +1682,7 @@ void rdx_app_record_state_upload_timer_stop(void)
         record_state_upload_timer = 0;
     }
     record_state_upload_token_valid = 0;
+    rdx_record_stream_only_start_cancel();
     y_printf("====== %s \r", __func__);
 }
 
@@ -1702,7 +1712,7 @@ void rdx_app_record_state_upload_timer_start(void)
     }
 }
 
-static int rdx_app_device_record_set(u8 scene, u8 run)
+static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
 {
     u8 formate = 0;
     u16 con_hdl = rdx_ble_server_get_conn_handle();
@@ -1767,7 +1777,8 @@ static int rdx_app_device_record_set(u8 scene, u8 run)
         }
         //report this action to app. 
         u8 factor = 0;
-        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token);
+        int ret = rdx_app_record_trigger_post(
+            &set_rp, factor, &rdx_token, stream_only);
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }
@@ -1817,7 +1828,7 @@ void rdx_app_device_record_handle(u8 scene)
     u8 run = (rp->run == RECORD_STATE_STOP) ?
              RECORD_STATE_START : RECORD_STATE_STOP;
 
-    rdx_app_device_record_set(scene, run);
+    rdx_app_device_record_set(scene, run, 0);
 }
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
@@ -2927,7 +2938,7 @@ void rdx_app_record_switch(u8 orig_scene)
 
         //report this action to app.
         u8 factor = 0;
-        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token);
+        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token, 0);
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }

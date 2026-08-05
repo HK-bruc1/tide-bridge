@@ -153,6 +153,9 @@ static rdx_ble_async_token_t g_record_session_token;
 static u8 g_record_session_token_valid = 0;
 static rdx_ble_async_token_t g_stream_resume_token;
 static u8 g_stream_resume_token_valid = 0;
+static rdx_ble_async_token_t g_stream_only_start_token;
+static u8 g_stream_only_start_pending = 0;
+static u8 g_stream_only_session_active = 0;
 
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
@@ -172,6 +175,35 @@ static u8 rdx_record_token_equal(const rdx_ble_async_token_t *left,
             left->slot_index == right->slot_index &&
             left->slot_generation == right->slot_generation &&
             left->transport_epoch == right->transport_epoch) ? 1 : 0;
+}
+
+void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token)
+{
+    if (!token) {
+        g_stream_only_start_pending = 0;
+        return;
+    }
+    g_stream_only_start_token = *token;
+    g_stream_only_start_pending = 1;
+}
+
+void rdx_record_stream_only_start_cancel(void)
+{
+    g_stream_only_start_pending = 0;
+}
+
+u8 rdx_record_stream_only_session_is_active(void)
+{
+    return g_stream_only_session_active;
+}
+
+static void rdx_record_stream_only_start_consume(
+    const rdx_ble_async_token_t *token)
+{
+    g_stream_only_session_active =
+        (token && g_stream_only_start_pending &&
+         rdx_record_token_equal(token, &g_stream_only_start_token)) ? 1 : 0;
+    g_stream_only_start_pending = 0;
 }
 
 static void rdx_record_online_session_clear(void)
@@ -625,6 +657,8 @@ void rdx_record_set_default(void)
     record_status.paused_accumulated_ms = 0;
     rdx_record_online_session_clear();
     g_stream_resume_token_valid = 0;
+    g_stream_only_start_pending = 0;
+    g_stream_only_session_active = 0;
     s_cur_mark_count = 0;
     memset(s_cur_marks, 0, sizeof(s_cur_marks));
 }
@@ -1024,6 +1058,7 @@ static void rdx_record_cmd_handle_internal(
     if(r_info->cmd == '0'){
         //do record start.
         // g_printf("====== %s --> record START", __FUNCTION__);
+        rdx_record_stream_only_start_consume(token);
         rdx_record_online_session_bind(token);
         record_status.run = RECORD_STATE_START;
         if(info_type == RECORD_SCENE_CHAT){
@@ -2033,6 +2068,10 @@ void rdx_record_pause_timeout_start(void)
  **************************************************************************/
 void rdx_record_on_ble_conn_changed(u8 connected)
 {
+    if(!connected){
+        rdx_record_stream_only_start_cancel();
+    }
+
     /* 仅 PAUSE 时参与决策; START/RESUME/STOP 一律 no-op, 保持原有 BLE 断开
      * 切离线继续录音 (或正常 auto_shut_down) 的行为不变. */
     if(record_status.run != RECORD_STATE_PAUSE){
@@ -2176,28 +2215,33 @@ int rdx_record_run_init(void)
         y_printf("%s --> connected, rp->mode = %d \r", __FUNCTION__, rp->mode);
     }
     // 现在 RECORD_SCENE_xxx 与 COMMAND_RECORD_SCENE_xxx 值一致，无需映射
-    u8 scene = rp->scene;
-
-    //power on force online.
-    rdx_app_emmc_poweroff_check_timer_stop();
-    rdx_app_emmc_poweron(0);
-    int err = dev_manager_add("sd0");
-    if (err != 0) {
-        r_printf("sd add fail\n");
+    if(rdx_record_stream_only_session_is_active()){
+        if(rp->run == RECORD_STATE_START){
+            rdx_uxfile_operate_file_init();
+        }
     }else{
-        g_printf("====== %s --> sd add success \n", __func__);
+        rdx_app_emmc_poweroff_check_timer_stop();
+        rdx_app_emmc_poweron(0);
+        int err = dev_manager_add("sd0");
+        if (err != 0) {
+            r_printf("sd add fail\n");
+        }else{
+            g_printf("====== %s --> sd add success \n", __func__);
+        }
+
+        if(rp->run == RECORD_STATE_RESUME){
+            y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
+                     (unsigned)rdx_uxfile_get_operateFile_info()->sn,
+                     rdx_uxfile_get_operateFile_info()->filename,
+                     (unsigned)rp->begin_time,
+                     (unsigned)rp->paused_accumulated_ms,
+                     (unsigned)s_cur_mark_count);
+        }else{
+            rdx_uxfile_dat_1_gen(rp->scene);
+        }
     }
 
-    if(rp->run == RECORD_STATE_RESUME){
-        y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
-                 (unsigned)rdx_uxfile_get_operateFile_info()->sn,
-                 rdx_uxfile_get_operateFile_info()->filename,
-                 (unsigned)rp->begin_time,
-                 (unsigned)rp->paused_accumulated_ms,
-                 (unsigned)s_cur_mark_count);
-    }else{
-        // rdx_uxfile_mssg_1_generate(scene);
-        rdx_uxfile_dat_1_gen(scene);
+    if(rp->run != RECORD_STATE_RESUME){
         if(rp->begin_time == 0){
             rp->begin_time = jiffies_msec();
         }
@@ -2250,27 +2294,29 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     }
 
     //local save.
-    if(au_len + len < AUDIO_SEND_BUF_SIZE){
-        memcpy(au_buf + au_len, d, len);
-        au_len += len;
-    }else{
-        if(au_len + len > AUDIO_SEND_BUF_SIZE){
-            memcpy(au_buf + au_len, d, AUDIO_SEND_BUF_SIZE - au_len);
-            au_len = AUDIO_SEND_BUF_SIZE;
-        }else{
+    if(!rdx_record_stream_only_session_is_active()){
+        if(au_len + len < AUDIO_SEND_BUF_SIZE){
             memcpy(au_buf + au_len, d, len);
             au_len += len;
-        }
-        int r = rdx_uxfile_raw_write((u8*)au_buf, (u32)au_len, rp->scene);
-        if(r < 0){
-            r_printf("!!! stream write fail, stop record! \n");
-            rdx_record_stop();
+        }else{
+            if(au_len + len > AUDIO_SEND_BUF_SIZE){
+                memcpy(au_buf + au_len, d, AUDIO_SEND_BUF_SIZE - au_len);
+                au_len = AUDIO_SEND_BUF_SIZE;
+            }else{
+                memcpy(au_buf + au_len, d, len);
+                au_len += len;
+            }
+            int r = rdx_uxfile_raw_write((u8*)au_buf, (u32)au_len, rp->scene);
+            if(r < 0){
+                r_printf("!!! stream write fail, stop record! \n");
+                rdx_record_stop();
+                memset(au_buf, 0, sizeof(au_buf));
+                au_len = 0;
+                //show error.
+            }
             memset(au_buf, 0, sizeof(au_buf));
             au_len = 0;
-            //show error.
         }
-        memset(au_buf, 0, sizeof(au_buf));
-        au_len = 0;
     }
     return 0;
 }
@@ -2291,7 +2337,7 @@ int rdx_record_run_exit(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if(au_len > 0){
+    if(!rdx_record_stream_only_session_is_active() && au_len > 0){
         int r = rdx_uxfile_raw_write((u8*)au_buf, (u32)au_len, rp->scene);
         if(r < 0){
             r_printf("!!! stream write fail, stop record! \n");
@@ -2322,14 +2368,14 @@ int rdx_record_run_exit(void)
         return 0;
     }
 
-    // if(rp->orig_mode == RECORD_MODE_OFFLINE){
-        // rdx_uxfile_mssg_1_save();
+    if(!rdx_record_stream_only_session_is_active()){
         rdx_uxfile_dat_1_save_gen();
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
         if(rp->run == RECORD_STATE_STOP){
             rdx_record_notify_playback_content_changed();
         }
 #endif
+    }
         /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻,
          * 否则 RESUME 后 run_init 会重新写一个 jiffies, 录音标记 offset_ms 失真 */
         if(rp->run == RECORD_STATE_STOP){
@@ -2337,7 +2383,6 @@ int rdx_record_run_exit(void)
             rp->paused_accumulated_ms = 0;
             rp->pause_start_ms = 0;
         }
-    // }
     
     rdx_record_set_process_state_ready();
     rp->orig_mode = rp->mode;
@@ -2355,6 +2400,7 @@ int rdx_record_run_exit(void)
 
     rp->stream_discont = false;
     if (rp->run == RECORD_STATE_STOP) {
+        g_stream_only_session_active = 0;
         rdx_record_online_session_clear();
     }
     

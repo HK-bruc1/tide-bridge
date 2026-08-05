@@ -136,6 +136,8 @@ u8 rdx_ble_server_has_active_link(void);
 u16 rdx_ble_server_get_conn_handle(void);
 u16 rdx_ble_server_get_mtu(void);
 u8 rdx_ble_server_is_stream_tx_ready(void);
+void rdx_ble_server_request_stream_fast_param(void);
+void rdx_ble_server_post_transfer_lowpower(void);
 
 /* Binary compatibility only. Source modules must use the narrow queries
  * above instead of reading connection fields from this legacy structure. */
