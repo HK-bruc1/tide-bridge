@@ -122,9 +122,13 @@ Assert-NoMatches 'service code uses OS abstraction ports for tasks and timers' `
     (Get-Matches $serviceSources `
         '\b(?:os_taskq_post_type|sys_timeout_(?:add|del)|sys_timer_(?:add|del|modify|re_run)|sys_timeout_add_2_task)\s*\(' @() $true)
 
-Assert-NoMatches 'service raw task message post remains confined to P12.3 WiFi compatibility' `
-    (Get-Matches $serviceSources '\bos_taskq_post_msg\s*\(' `
-        @('SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c') $true)
+Assert-NoMatches 'service code does not post raw task messages' `
+    (Get-Matches $serviceSources '\bos_taskq_post_msg\s*\(' @() $true)
+
+Assert-NoMatches 'protocol owner pointer post remains in file transfer compat' `
+    (Get-Matches $allFiles `
+        '\bos_taskq_post_msg\s*\(\s*RDX_PROTOCOL_SEND_TASK_NAME\b' `
+        @('SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c') $true)
 
 Assert-NoMatches 'business code keeps persistence behind the JL storage port' `
     (Get-Matches $businessFiles `
@@ -150,7 +154,6 @@ $uxfileControlOwnerFiles = @(
     'SDK/apps/common/third_party_profile/rdx_protocol/internal/rdx_storage_domain.c',
     'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_device_service.c',
     'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.c',
-    'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c',
     'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c',
     'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat.c'
 )
@@ -168,16 +171,22 @@ Assert-NoMatches 'file transfer compat header remains private to its domain' `
             'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c'
         ))
 
-# P12.2a: compat owns semantic reads; WiFi TX-done/retry remain until P12.3.
 $fileTransferLegacyOwnerFiles = @(
     'SDK/apps/common/third_party_profile/rdx_protocol/rdx_uxfile.h',
-    'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c',
-    'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c'
+    'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c'
 )
 Assert-NoMatches 'file transfer legacy state is confined to registered owners and compatibility modules' `
     (Get-Matches $allFiles `
         '\b(?:rdx_protocol_get_uploadfileInfo\s*\(|ReqFileInfo\b)|->\s*file_send_busy\b' `
         $fileTransferLegacyOwnerFiles $true)
+
+Assert-NoMatches 'file transfer callers do not use WiFi ownership compatibility facade' `
+    (Get-Matches $allFiles `
+        '\brdx_wifi_service_(?:is_send_stopped|is_file_send_busy|retry_on_stuck)\s*\(' `
+        @(
+            'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.c',
+            'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.h'
+        ) $true)
 
 Assert-NoMatches 'production sources do not include Host-only test support' `
     (Get-Matches $allFiles '(?:tests[/\\]host|rdx_p11_trace_(?:schema|spy)\.h)' @() $true)

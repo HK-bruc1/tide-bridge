@@ -50,3 +50,15 @@ rdx_err_t rdx_file_transfer_domain_cleanup_ble_delayed(void)
 {
     return rdx_file_transfer_compat_cleanup_ble_delayed();
 }
+
+void rdx_file_transfer_domain_on_tx_done(
+    rdx_file_transfer_timer_control_t timer_control,
+    const void *timer_ctx)
+{
+    rdx_file_transfer_compat_on_tx_done(timer_control, timer_ctx);
+}
+
+void rdx_file_transfer_domain_retry_on_stuck(void)
+{
+    rdx_file_transfer_compat_retry_on_stuck();
+}

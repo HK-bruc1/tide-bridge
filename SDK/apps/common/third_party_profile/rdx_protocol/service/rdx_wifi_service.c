@@ -3,19 +3,12 @@
 #include "rdx_spi.h"
 #include "system/includes.h"
 #include "rdx_log.h"
-#include "rdx_protocol.h"
-#include "rdx_uxfile.h"
-#include "rdx_jl_osal.h"
 #include "rdx_ops.h"
 #include "xxpUart.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_default_hooks.h"
 
 extern u8  xxp_rx_parse(u8 *data, unsigned short len);
-
-extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
-extern void rdx_protocol_file_sync_busy_timer_stop(void);
-extern void rdx_protocol_prepared_data_clean(void);
 
 static RdxWifiInfo g_wifi_info;
 static const rdx_wifi_transport_ops_t *g_wifi_transport;
@@ -42,57 +35,26 @@ static void wifi_rx_cb(const u8 *data, u32 len, void *ctx)
 	xxp_rx_parse((u8 *)data, (unsigned short)len);
 }
 
+static void wifi_file_transfer_timer_control(
+    rdx_file_transfer_timer_action_t action,
+    const void *ctx)
+{
+    const rdx_wifi_transport_ops_t *transport =
+        (const rdx_wifi_transport_ops_t *)ctx;
+    u32 command = action == RDX_FILE_TRANSFER_TIMER_STOP
+                  ? RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_STOP
+                  : RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_START;
+
+    transport->control(command, NULL);
+}
+
 static void wifi_tx_done_cb(void *ctx)
 {
-	ReqFileInfo *ru;
-
 	(void)ctx;
-	ru = rdx_protocol_get_uploadfileInfo();
-	if (!ru) {
-		return;
-	}
-
-	if (ru->file_send_busy == true) {
-		ru->file_send_busy = false;
-	}
-
-	if (ru->send_stop == true) {
-		rdx_protocol_file_sync_busy_timer_stop();
-		rdx_uxfile_recordFileData_sendBuf_free();
-		rdx_protocol_prepared_data_clean();
-		if (g_wifi_transport && g_wifi_transport->control) {
-			g_wifi_transport->control(RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_STOP, NULL);
-			g_wifi_transport->control(RDX_WIFI_CTRL_DATA_TRANSFER_TIMER_START, NULL);
-		}
-		ru->interrupt = false;
-		return;
-	}
-
-	if (ru->interrupt == true) {
-		ru->interrupt = false;
-		if (ru->loop == true) {
-			os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-		}
-	} else {
-		if (ru->loop == true) {
-			if (ru->total_pack > ru->pack_num) {
-				ru->pack_num++;
-				ru->ack = 0;
-			} else {
-				ru->pack_num = 0;
-				ru->ack = 0;
-			}
-			rdx_os_time_dly(2);
-			{
-				int qret;
-				qret = os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-				if (qret != OS_NO_ERR) {
-					rdx_os_time_dly(1);
-					os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-				}
-			}
-		}
-	}
+	rdx_file_transfer_on_tx_done(
+		g_wifi_transport && g_wifi_transport->control
+		? wifi_file_transfer_timer_control : NULL,
+		g_wifi_transport);
 }
 
 void rdx_wifi_service_init(void)
@@ -172,9 +134,5 @@ int rdx_wifi_service_is_file_send_busy(void)
 
 void rdx_wifi_service_retry_on_stuck(void)
 {
-	ReqFileInfo *ru = rdx_protocol_get_uploadfileInfo();
-	if (ru && ru->loop && !ru->send_stop && !ru->interrupt) {
-		ru->ack = 1;
-		os_taskq_post_msg(RDX_PROTOCOL_SEND_TASK_NAME, 1, ru);
-	}
+	rdx_file_transfer_retry_on_stuck();
 }

@@ -37,6 +37,7 @@
 #include "rdx_board_hal.h"
 #include "rdx_port_spi.h"
 #include "rdx_wifi_service.h"
+#include "rdx_file_transfer_service.h"
 
 #include "media/includes.h"
 #include "spi.h"
@@ -862,10 +863,15 @@ EXCEPTION_POINTER()
         memset(spi_manager.trans_data, 0, ESP_SPI_DMA_MAX_LEN + 1);
         spi_mutex_unlock();
 
-        if (rdx_wifi_service_is_send_stopped()) {
-            rdx_wifi_service_on_tx_done();
-        } else if (g_spi_tx_done_cb) {
-            g_spi_tx_done_cb(g_spi_cb_ctx);
+        {
+            int file_send_stopped = 0;
+
+            if (rdx_file_transfer_get_stopped(&file_send_stopped) == RDX_OK &&
+                file_send_stopped) {
+                rdx_wifi_service_on_tx_done();
+            } else if (g_spi_tx_done_cb) {
+                g_spi_tx_done_cb(g_spi_cb_ctx);
+            }
         }
     }
 }
@@ -909,7 +915,7 @@ static void spi_trans_task(void* arg)
                         memset(spi_manager.trans_data, 0, ESP_SPI_DMA_MAX_LEN + 1);
                         spi_mutex_unlock();
                         spi_send_start_ts = 0;
-                        rdx_wifi_service_retry_on_stuck();
+                        rdx_file_transfer_retry_on_stuck();
                     }
                 }
             }else if(msg[1] == SPI_MSG_SLAVE_NOTIFY){
@@ -1163,8 +1169,14 @@ static u8 rdx_spi_idle_query(void)
         return 0;
     }
 
-    if (rdx_wifi_service_is_file_send_busy()) {
-        return 0;
+    {
+        rdx_file_transfer_state_t file_transfer_state =
+            RDX_FILE_TRANSFER_STATE_UNAVAILABLE;
+
+        if (rdx_file_transfer_get_state(&file_transfer_state) == RDX_OK &&
+            file_transfer_state == RDX_FILE_TRANSFER_STATE_BUSY) {
+            return 0;
+        }
     }
 
     return 1;
