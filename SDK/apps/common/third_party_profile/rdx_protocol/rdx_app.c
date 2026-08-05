@@ -378,7 +378,8 @@ void rdx_app_set_power_ready_flag(void)
     poweron_ready_flag = true;
 }
 
-u8 rdx_pc_storage_is_busy(void)
+static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
+                                           u8 allow_paused_playback)
 {
     if (!rdx_app_init_flag) {
         return false;
@@ -386,12 +387,12 @@ u8 rdx_pc_storage_is_busy(void)
 
     RecordStatus *record = rdx_record_get_status();
     if (!record || record->run != RECORD_STATE_STOP) {
-        r_printf("[PC-STORAGE] busy: record state=%d\n",
+        r_printf("[%s] busy: record state=%d\n", log_tag,
                  record ? record->run : -1);
         return true;
     }
     if (rdx_record_process_is_busy_check()) {
-        r_printf("[PC-STORAGE] busy: record worker\n");
+        r_printf("[%s] busy: record worker\n", log_tag);
         return true;
     }
 
@@ -399,8 +400,9 @@ u8 rdx_pc_storage_is_busy(void)
     pb_public_info_t playback = {0};
     rdx_playback_get_info(&playback);
     if (playback.state != PB_STATE_UNREADY &&
-        playback.state != PB_STATE_STOPPED) {
-        r_printf("[PC-STORAGE] busy: playback state=%d\n", playback.state);
+        playback.state != PB_STATE_STOPPED &&
+        !(allow_paused_playback && playback.state == PB_STATE_PAUSED)) {
+        r_printf("[%s] busy: playback state=%d\n", log_tag, playback.state);
         return true;
     }
 #endif
@@ -413,26 +415,26 @@ u8 rdx_pc_storage_is_busy(void)
     if ((file_info && file_info->file_send_busy) ||
         rdx_is_file_transfer_active() ||
         rdx_is_file_sync_busy()) {
-        r_printf("[PC-STORAGE] busy: file transfer or sync\n");
+        r_printf("[%s] busy: file transfer or sync\n", log_tag);
         return true;
     }
     if (rdx_uxfile_is_datFileInfo_loading() ||
         rdx_uxfile_is_scan_active()) {
-        r_printf("[PC-STORAGE] busy: file index operation\n");
+        r_printf("[%s] busy: file index operation\n", log_tag);
         return true;
     }
     if (rdx_uxfile_is_formatting() ||
         rdx_uxfile_sd_format_status_check()) {
-        r_printf("[PC-STORAGE] busy: formatting\n");
+        r_printf("[%s] busy: formatting\n", log_tag);
         return true;
     }
     if (get_ota_status()) {
-        r_printf("[PC-STORAGE] busy: OTA\n");
+        r_printf("[%s] busy: OTA\n", log_tag);
         return true;
     }
 #if RDX_WIFI_ENABLE
     if (wifiInfo.onoff == TRANSFER_BY_WIFI_ON) {
-        r_printf("[PC-STORAGE] busy: WiFi transfer mode\n");
+        r_printf("[%s] busy: WiFi transfer mode\n", log_tag);
         return true;
     }
 #endif
@@ -440,14 +442,20 @@ u8 rdx_pc_storage_is_busy(void)
     return false;
 }
 
+u8 rdx_pc_storage_is_busy(void)
+{
+    return rdx_app_storage_activity_is_busy("PC-STORAGE", 0);
+}
+
 u8 rdx_app_rdx_rebind_is_idle(void)
 {
     BLE_SendData *send_data = rdx_protocol_get_ble_send_data();
     BleBulkSendData *bulk_data = rdx_protocol_get_bulk_send_data();
 
-    if (rdx_pc_storage_is_busy()) {
+    if (rdx_app_storage_activity_is_busy("RDX_BLE_SESSION", 1)) {
         return 0;
     }
+
     if (!send_data || !bulk_data ||
         send_data->send_pending || send_data->bulk_sending ||
         bulk_data->busy || bulk_data->bulk_flag) {

@@ -16,10 +16,6 @@ static u8 s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_runtime_consumed_this_boot;
 static rdx_ble_runtime_state_t s_rdx_runtime_state = RDX_BLE_RUNTIME_OFF;
-static u8 s_rdx_rebind_peer_valid;
-static u8 s_rdx_rebind_peer_uses_identity;
-static u8 s_rdx_rebind_peer_addr_type;
-static u8 s_rdx_rebind_peer_addr[6];
 
 static void rdx_ble_session_transport_epoch_advance(void)
 {
@@ -75,53 +71,6 @@ static u8 rdx_ble_session_peer_addr_valid(const u8 peer_addr[6])
         }
     }
     return (!all_zero && !all_ff) ? 1 : 0;
-}
-
-static void rdx_ble_session_rebind_peer_capture(
-    const rdx_ble_link_state_t *link)
-{
-    s_rdx_rebind_peer_valid = 0;
-    s_rdx_rebind_peer_uses_identity = 0;
-    s_rdx_rebind_peer_addr_type = 0;
-    memset(s_rdx_rebind_peer_addr, 0, sizeof(s_rdx_rebind_peer_addr));
-
-    if (!link) {
-        return;
-    }
-    if (link->peer_identity_valid &&
-        rdx_ble_session_peer_addr_valid(link->peer_identity)) {
-        s_rdx_rebind_peer_valid = 1;
-        s_rdx_rebind_peer_uses_identity = 1;
-        memcpy(s_rdx_rebind_peer_addr, link->peer_identity,
-               sizeof(s_rdx_rebind_peer_addr));
-        return;
-    }
-    if (rdx_ble_session_peer_addr_valid(link->peer_addr)) {
-        s_rdx_rebind_peer_valid = 1;
-        s_rdx_rebind_peer_addr_type = link->peer_addr_type;
-        memcpy(s_rdx_rebind_peer_addr, link->peer_addr,
-               sizeof(s_rdx_rebind_peer_addr));
-    }
-}
-
-static rdx_ble_claim_result_t rdx_ble_session_rebind_peer_check(
-    const rdx_ble_link_state_t *link)
-{
-    if (!s_rdx_rebind_peer_valid || !link) {
-        return RDX_BLE_CLAIM_CONFLICT;
-    }
-    if (s_rdx_rebind_peer_uses_identity) {
-        if (!link->peer_identity_valid) {
-            return RDX_BLE_CLAIM_NOT_READY;
-        }
-        return memcmp(s_rdx_rebind_peer_addr, link->peer_identity,
-                      sizeof(s_rdx_rebind_peer_addr)) == 0 ?
-               RDX_BLE_CLAIM_OK : RDX_BLE_CLAIM_CONFLICT;
-    }
-    return (link->peer_addr_type == s_rdx_rebind_peer_addr_type &&
-            memcmp(s_rdx_rebind_peer_addr, link->peer_addr,
-                   sizeof(s_rdx_rebind_peer_addr)) == 0) ?
-           RDX_BLE_CLAIM_OK : RDX_BLE_CLAIM_CONFLICT;
 }
 
 void rdx_ble_session_transport_init(void *primary_hdl, void *secondary_hdl)
@@ -313,37 +262,6 @@ rdx_ble_claim_result_t rdx_ble_session_claim_rdx(
     if (s_rdx_runtime_state != RDX_BLE_RUNTIME_READY) {
         return RDX_BLE_CLAIM_NOT_READY;
     }
-    if (s_rdx_runtime_consumed_this_boot) {
-        result = rdx_ble_session_rebind_peer_check(link);
-        if (result != RDX_BLE_CLAIM_OK) {
-            r_printf("[RDX_BLE_SESSION] rebind peer rejected result=%u saved_valid=%u saved_identity=%u saved_type=%u saved=%02x:%02x:%02x:%02x:%02x:%02x current_type=%u current=%02x:%02x:%02x:%02x:%02x:%02x current_identity_valid=%u current_identity=%02x:%02x:%02x:%02x:%02x:%02x\n",
-                     result,
-                     s_rdx_rebind_peer_valid,
-                     s_rdx_rebind_peer_uses_identity,
-                     s_rdx_rebind_peer_addr_type,
-                     s_rdx_rebind_peer_addr[0],
-                     s_rdx_rebind_peer_addr[1],
-                     s_rdx_rebind_peer_addr[2],
-                     s_rdx_rebind_peer_addr[3],
-                     s_rdx_rebind_peer_addr[4],
-                     s_rdx_rebind_peer_addr[5],
-                     link ? link->peer_addr_type : 0,
-                     link ? link->peer_addr[0] : 0,
-                     link ? link->peer_addr[1] : 0,
-                     link ? link->peer_addr[2] : 0,
-                     link ? link->peer_addr[3] : 0,
-                     link ? link->peer_addr[4] : 0,
-                     link ? link->peer_addr[5] : 0,
-                     link ? link->peer_identity_valid : 0,
-                     link ? link->peer_identity[0] : 0,
-                     link ? link->peer_identity[1] : 0,
-                     link ? link->peer_identity[2] : 0,
-                     link ? link->peer_identity[3] : 0,
-                     link ? link->peer_identity[4] : 0,
-                     link ? link->peer_identity[5] : 0);
-            return result;
-        }
-    }
     result = rdx_ble_session_claim(link, expected_slot_generation,
                                    RDX_BLE_CAPABILITY_RDX);
     if (result == RDX_BLE_CLAIM_OK) {
@@ -518,7 +436,6 @@ u8 rdx_ble_session_rdx_runtime_begin_quiesce(rdx_ble_link_state_t *link)
     }
 
     s_rdx_runtime_state = RDX_BLE_RUNTIME_QUIESCING;
-    rdx_ble_session_rebind_peer_capture(link);
     link->rdx_runtime_active = 0;
     link->rdx_ccc_configured = 0;
     link->rdx_stream_tx_ready = 0;
@@ -539,10 +456,6 @@ u8 rdx_ble_session_rdx_runtime_barrier_arrive(void)
 u8 rdx_ble_session_rdx_runtime_rearm(void)
 {
     if (s_rdx_runtime_state != RDX_BLE_RUNTIME_RESETTING) {
-        return 0;
-    }
-    if (!s_rdx_rebind_peer_valid) {
-        s_rdx_runtime_state = RDX_BLE_RUNTIME_FAILED;
         return 0;
     }
     s_rdx_runtime_state = RDX_BLE_RUNTIME_READY;

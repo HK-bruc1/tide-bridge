@@ -96,7 +96,7 @@ The host test runner keeps a five-contract core suite covering:
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
 - `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
-- `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, same-peer restriction, and fail-closed behavior.
+- `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, cross-peer handoff after full reset, and fail-closed behavior.
 - `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
 
 The former phase-specific, playback, and split configuration scripts were
@@ -154,6 +154,7 @@ Key points:
 - One RDX owner and one HID owner are allowed globally. They may occupy separate links or the same link as a composite `RDX_HID` owner.
 - RDX access claims the current link; online keyboard routing is independently gated by `Input CCC enabled && encrypted && !suspended`
 - Bonded HID subscription intent is persisted per SM peer identity so a Windows reconnect can restore ready state without leaking CCC state to another peer
+- RDX ownership is currently sticky to the physical ACL. Closing the PC App does not release RDX while Windows keeps the same ACL for HOGP; the pending explicit logical-release design is tracked in `docs/5-3.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md`.
 
 ### T2620 project config overlay
 
@@ -197,6 +198,7 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `tests/host/test_rdx_transport_contract.ps1` - dual-link transport and advertising contract
 - `tests/host/test_rdx_lifecycle_contract.ps1` - reconnect lifecycle contract
 - `tests/host/test_rdx_keymap_contract.ps1` - online keymap transaction contract
+- `docs/5-3.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md` - blocked PC-App logical RDX release boundary and planned acceptance criteria
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
 - `SDK/.vscode/tasks.json` — source of truth for VS Code build/test commands

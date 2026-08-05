@@ -1411,7 +1411,7 @@ static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
     rdx_app_emmc_poweroff_check();
     if (!rdx_ble_session_rdx_runtime_rearm()) {
         rdx_ble_session_rdx_runtime_fail_closed();
-        r_printf("[RDX_BLE_SESSION] runtime FAILED: peer identity unavailable\r");
+        r_printf("[RDX_BLE_SESSION] runtime FAILED: rearm rejected\r");
         return 0;
     }
     r_printf("[RDX_BLE_SESSION] runtime READY: FIFO drained and workers idle\r");
