@@ -97,6 +97,11 @@
 #define TCFG_RDX_HOGP_ENABLE                      1
 #endif
 
+/* 联调时打印 RDX App 下行 ATT 命令；量产版本可在本覆盖层关闭。 */
+#ifndef TCFG_RDX_APP_RX_TRACE_ENABLE
+#define TCFG_RDX_APP_RX_TRACE_ENABLE              1
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */

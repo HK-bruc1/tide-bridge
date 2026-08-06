@@ -95,6 +95,10 @@
 #define RDX_BLE_PHASE0A_ATT_ERR_VALUE_NOT_ALLOWED     0x13
 #define RDX_BLE_PHASE0A_ADV_RESTART_DELAY_MS          10
 
+#ifndef TCFG_RDX_APP_RX_TRACE_ENABLE
+#define TCFG_RDX_APP_RX_TRACE_ENABLE                   0
+#endif
+
 // characteristics <--> handles
 #define ATT_CHARACTERISTIC_2A00_01_VALUE_HANDLE 0x0003
 #define ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE 0x0006
@@ -2954,6 +2958,39 @@ static int rdx_ble_server_phase0a_hogp_control_write(
     return 0;
 }
 
+#if TCFG_RDX_APP_RX_TRACE_ENABLE
+/**************************************************************************
+ * function: rdx_ble_server_app_rx_ascii_dump
+ * description: Print a length-bounded ATT payload as readable ASCII.
+ *              Non-printable bytes are represented as '.'.
+ **************************************************************************/
+static void rdx_ble_server_app_rx_ascii_dump(const u8 *buffer, u16 buffer_size)
+{
+    char ascii[65];
+    u16 consumed = 0;
+
+    if (!buffer || !buffer_size) {
+        return;
+    }
+
+    while (consumed < buffer_size) {
+        u16 line_len = buffer_size - consumed;
+        u16 i;
+
+        if (line_len > sizeof(ascii) - 1) {
+            line_len = sizeof(ascii) - 1;
+        }
+        for (i = 0; i < line_len; i++) {
+            u8 value = buffer[consumed + i];
+            ascii[i] = (value >= 0x20 && value <= 0x7e) ? value : '.';
+        }
+        ascii[line_len] = '\0';
+        r_printf("[RDX_APP_RX] ASCII: %s\r", ascii);
+        consumed += line_len;
+    }
+}
+#endif
+
 /**************************************************************************
  * function: rdx_ble_server_att_write_callback
  * description:
@@ -2986,6 +3023,15 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
                                                "att_write")) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
+#if TCFG_RDX_APP_RX_TRACE_ENABLE
+    if (handle ==
+        ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE) {
+        r_printf("[RDX_APP_RX] con=0x%04x hdl=%p att=0x%04x mode=%u offset=%u len=%u\r",
+                 connection_handle, hdl, handle, transaction_mode, offset,
+                 buffer_size);
+        rdx_ble_server_app_rx_ascii_dump(buffer, buffer_size);
+    }
+#endif
 #if TCFG_RDX_HOGP_ENABLE
     if (handle == ATT_CHARACTERISTIC_2A19_01_CLIENT_CONFIGURATION_HANDLE) {
         return rdx_ble_server_phase0a_hogp_control_write(
