@@ -31,8 +31,8 @@ void rdx_wifi_service_on_rx(const u8 *data, u32 len);
 void rdx_wifi_service_on_tx_done(void);
 
 /*
- * Migration compatibility facade. File-transfer callers should use
- * rdx_file_transfer_service.h; TX-done/send-stop/retry remain here until P12.3.
+ * Frozen compatibility facade for existing external callers. New file-transfer
+ * callers must use rdx_file_transfer_service.h.
  */
 int  rdx_wifi_service_is_send_stopped(void);
 int  rdx_wifi_service_is_file_send_busy(void);

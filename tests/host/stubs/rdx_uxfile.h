@@ -1,0 +1,1 @@
+/* Host behavior harness stub. ReqFileInfo is declared by the harness. */

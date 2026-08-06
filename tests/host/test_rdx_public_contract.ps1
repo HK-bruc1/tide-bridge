@@ -294,6 +294,9 @@ $reqFileInfoAbiAssertions = @(
 Assert-Match 'ReqFileInfo production size assertion remains enabled' `
     $fileTransferCompatSource `
     'RDX_REQ_FILE_INFO_ABI_ASSERT\s*\(\s*size\s*,\s*sizeof\s*\(\s*ReqFileInfo\s*\)\s*==\s*52\s*\)\s*;'
+Assert-Match 'ReqFileInfo production alignment assertion remains enabled' `
+    $fileTransferCompatSource `
+    'RDX_REQ_FILE_INFO_ABI_ASSERT\s*\(\s*alignment\s*,\s*__alignof__\s*\(\s*ReqFileInfo\s*\)\s*==\s*4\s*\)\s*;'
 foreach ($abiAssertion in $reqFileInfoAbiAssertions) {
     Assert-Match `
         ("ReqFileInfo production offset assertion remains enabled: {0}" -f $abiAssertion.Field) `

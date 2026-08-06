@@ -1,0 +1,1 @@
+/* Host behavior harness stub. OS functions are declared by the harness. */

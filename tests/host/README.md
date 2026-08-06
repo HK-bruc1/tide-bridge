@@ -29,6 +29,17 @@ and target regression are release validation activities. They must be run
 explicitly in the corresponding JL/board environment and are not part of this
 Host framework.
 
+P12 also provides two explicit, non-default release checks:
+
+- `test_rdx_file_transfer_behavior.ps1` compiles a Host harness that includes
+  the production file-transfer compat source and injects legacy dependencies;
+- `tools/verify_rdx_production_artifacts.ps1` checks the current JL archive,
+  ELF and map without building, downloading or flashing firmware.
+
+The behavior harness requires Tiny C Compiler (`tcc`) or an explicitly supplied
+compatible compiler. Its mocks remain under `tests/host` and never enter the
+production include chain.
+
 ## Adding a constraint
 
 Add a default constraint only when all of the following are true:

@@ -1,0 +1,1 @@
+/* Host behavior harness stub. Required types are declared by the harness. */

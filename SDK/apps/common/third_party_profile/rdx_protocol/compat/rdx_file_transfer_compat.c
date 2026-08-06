@@ -9,6 +9,7 @@
     typedef char rdx_req_file_info_abi_##name[(condition) ? 1 : -1]
 
 RDX_REQ_FILE_INFO_ABI_ASSERT(size, sizeof(ReqFileInfo) == 52);
+RDX_REQ_FILE_INFO_ABI_ASSERT(alignment, __alignof__(ReqFileInfo) == 4);
 RDX_REQ_FILE_INFO_ABI_ASSERT(ack, offsetof(ReqFileInfo, ack) == 0);
 RDX_REQ_FILE_INFO_ABI_ASSERT(file_num, offsetof(ReqFileInfo, file_num) == 4);
 RDX_REQ_FILE_INFO_ABI_ASSERT(is_first_pack, offsetof(ReqFileInfo, is_first_pack) == 8);

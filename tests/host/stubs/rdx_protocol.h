@@ -1,0 +1,1 @@
+/* Host behavior harness stub. Legacy functions are declared by the harness. */
