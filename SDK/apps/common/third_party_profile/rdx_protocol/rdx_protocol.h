@@ -475,6 +475,8 @@ void rdx_protocol_uploadFileInfo_clean(void);
 void rdx_protocol_file_sync_busy_timer_stop(void);
 void rdx_protocol_prepared_data_clean(void);
 void rdx_protocol_send_buffer_reinit(void);
+u8 rdx_is_file_transfer_active(void);
+u8 rdx_is_file_sync_busy(void);
 void rdx_protocol_ota_handle(u8* p_data, u16 len);
 void rdx_protocol_set_ble_sent(u8 d);
 int rdx_protocol_packet_send(void *buf, u16 len);
@@ -622,5 +624,4 @@ u32 rdx_protocol_calc_opus_format(u8 record_formate);
 
 
 #endif
-
 

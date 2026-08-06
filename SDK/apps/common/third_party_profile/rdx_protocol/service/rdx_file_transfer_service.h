@@ -20,6 +20,9 @@ typedef void (*rdx_file_transfer_timer_control_t)(
 
 rdx_err_t rdx_file_transfer_get_state(rdx_file_transfer_state_t *out);
 rdx_err_t rdx_file_transfer_get_stopped(int *out);
+/* Storage power gates; distinct from the upload packet busy state. */
+rdx_err_t rdx_file_transfer_get_active(int *out);
+rdx_err_t rdx_file_transfer_get_sync_busy(int *out);
 void rdx_file_transfer_on_ble_connected(void);
 rdx_err_t rdx_file_transfer_cleanup_record_disconnect(void);
 rdx_err_t rdx_file_transfer_cleanup_ble_delayed(void);

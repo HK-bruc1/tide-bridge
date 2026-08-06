@@ -529,10 +529,6 @@ void rdx_device_service_init(void)
 static u16  g_emmc_poweroff_check_timer = 0;
 static bool g_emmc_poweroff_flag = FALSE;
 
-/* File-transfer compatibility queries remain P12 ownership work. */
-extern u8   rdx_is_file_transfer_active(void);
-extern u8   rdx_is_file_sync_busy(void);
-
 static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv);
 static void rdx_device_service_emmc_poweroff_check_timer_start(void);
 
@@ -593,6 +589,8 @@ void rdx_device_service_emmc_poweroff_check_timer_stop(void)
 static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)
 {
     bool offline_active = rdx_record_service_is_offline_active();
+    int file_transfer_active = 0;
+    int file_sync_busy = 0;
     (void)priv;
     y_printf("=====> %s --> offline_active = %d \r", __func__, offline_active);
     if (offline_active) {
@@ -607,11 +605,13 @@ static void rdx_device_service_emmc_poweroff_check_timer_cb(void *priv)
         y_printf("emmc poweroff timer cb --> datFileInfo loading, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_is_file_transfer_active()) {
+    if (rdx_file_transfer_get_active(&file_transfer_active) == RDX_OK &&
+        file_transfer_active) {
         y_printf("emmc poweroff timer cb --> file transfer active, do not power off \r");
         EXCEPTION_THROW();
     }
-    if (rdx_is_file_sync_busy()) {
+    if (rdx_file_transfer_get_sync_busy(&file_sync_busy) == RDX_OK &&
+        file_sync_busy) {
         y_printf("emmc poweroff timer cb --> file sync busy, do not power off \r");
         EXCEPTION_THROW();
     }

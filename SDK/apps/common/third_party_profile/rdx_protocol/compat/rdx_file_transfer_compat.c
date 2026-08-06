@@ -49,6 +49,26 @@ rdx_err_t rdx_file_transfer_compat_get_status(
     return RDX_OK;
 }
 
+rdx_err_t rdx_file_transfer_compat_get_active(int *out)
+{
+    if (!out) {
+        return RDX_ERR_INVAL;
+    }
+
+    *out = rdx_is_file_transfer_active();
+    return RDX_OK;
+}
+
+rdx_err_t rdx_file_transfer_compat_get_sync_busy(int *out)
+{
+    if (!out) {
+        return RDX_ERR_INVAL;
+    }
+
+    *out = rdx_is_file_sync_busy();
+    return RDX_OK;
+}
+
 void rdx_file_transfer_compat_on_ble_connected(void)
 {
     rdx_protocol_send_buffer_reinit();

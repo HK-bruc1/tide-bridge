@@ -214,6 +214,15 @@ Assert-NoMatches 'file transfer legacy lifecycle operations stay behind owner an
         '\b(?:rdx_protocol_(?:uploadFileInfo_clean|file_sync_busy_timer_stop|prepared_data_clean|send_buffer_reinit)|rdx_uxfile_(?:recordFileData_send_finish|recordFileData_sendBuf_free|datFileInfo_sendBuf_free))\s*\(' `
         $fileTransferLifecycleOwnerFiles $true)
 
+$fileTransferLegacyQueryOwnerFiles = @(
+    'SDK/apps/common/third_party_profile/rdx_protocol/rdx_protocol.h',
+    'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c'
+)
+Assert-NoMatches 'file transfer legacy activity queries stay behind compat' `
+    (Get-Matches $allFiles `
+        '\brdx_is_file_(?:transfer_active|sync_busy)\s*\(' `
+        $fileTransferLegacyQueryOwnerFiles $true)
+
 Assert-NoMatches 'file transfer callers do not use WiFi ownership compatibility facade' `
     (Get-Matches $allFiles `
         '\brdx_wifi_service_(?:is_send_stopped|is_file_send_busy|retry_on_stuck)\s*\(' `

@@ -41,6 +41,16 @@ rdx_err_t rdx_file_transfer_domain_get_stopped(int *out)
     return RDX_OK;
 }
 
+rdx_err_t rdx_file_transfer_domain_get_active(int *out)
+{
+    return rdx_file_transfer_compat_get_active(out);
+}
+
+rdx_err_t rdx_file_transfer_domain_get_sync_busy(int *out)
+{
+    return rdx_file_transfer_compat_get_sync_busy(out);
+}
+
 void rdx_file_transfer_domain_on_ble_connected(void)
 {
     rdx_file_transfer_compat_on_ble_connected();
