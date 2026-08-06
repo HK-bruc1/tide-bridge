@@ -41,6 +41,11 @@ rdx_err_t rdx_file_transfer_domain_get_stopped(int *out)
     return RDX_OK;
 }
 
+void rdx_file_transfer_domain_on_ble_connected(void)
+{
+    rdx_file_transfer_compat_on_ble_connected();
+}
+
 rdx_err_t rdx_file_transfer_domain_cleanup_record_disconnect(void)
 {
     return rdx_file_transfer_compat_cleanup_record_disconnect();

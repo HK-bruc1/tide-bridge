@@ -180,6 +180,40 @@ Assert-NoMatches 'file transfer legacy state is confined to registered owners an
         '\b(?:rdx_protocol_get_uploadfileInfo\s*\(|ReqFileInfo\b)|->\s*file_send_busy\b' `
         $fileTransferLegacyOwnerFiles $true)
 
+$fileTransferLegacyFields = @(
+    'ack',
+    'file_num',
+    'is_first_pack',
+    'pack_num',
+    'orig_pack_num',
+    'sent_size',
+    'auto_del',
+    'file_offset',
+    'total_pack',
+    'chunk',
+    'block_cnt',
+    'file_send_busy',
+    'loop',
+    'interrupt',
+    'send_stop',
+    'ble_upload_cancel'
+)
+Assert-NoMatches 'file transfer legacy fields are interpreted only by file transfer compat' `
+    (Get-Matches $allFiles `
+        ('->\s*(?:{0})\b' -f ($fileTransferLegacyFields -join '|')) `
+        @('SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c') $true)
+
+$fileTransferLifecycleOwnerFiles = @(
+    'SDK/apps/common/third_party_profile/rdx_protocol/rdx_protocol.h',
+    'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c',
+    'SDK/apps/common/third_party_profile/rdx_protocol/rdx_uxfile.h',
+    'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c'
+)
+Assert-NoMatches 'file transfer legacy lifecycle operations stay behind owner and compat boundaries' `
+    (Get-Matches $allFiles `
+        '\b(?:rdx_protocol_(?:uploadFileInfo_clean|file_sync_busy_timer_stop|prepared_data_clean|send_buffer_reinit)|rdx_uxfile_(?:recordFileData_send_finish|recordFileData_sendBuf_free|datFileInfo_sendBuf_free))\s*\(' `
+        $fileTransferLifecycleOwnerFiles $true)
+
 Assert-NoMatches 'file transfer callers do not use WiFi ownership compatibility facade' `
     (Get-Matches $allFiles `
         '\brdx_wifi_service_(?:is_send_stopped|is_file_send_busy|retry_on_stuck)\s*\(' `

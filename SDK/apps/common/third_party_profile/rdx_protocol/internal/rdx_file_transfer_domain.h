@@ -6,6 +6,7 @@
 rdx_err_t rdx_file_transfer_domain_get_state(
     rdx_file_transfer_state_t *out);
 rdx_err_t rdx_file_transfer_domain_get_stopped(int *out);
+void rdx_file_transfer_domain_on_ble_connected(void);
 rdx_err_t rdx_file_transfer_domain_cleanup_record_disconnect(void);
 rdx_err_t rdx_file_transfer_domain_cleanup_ble_delayed(void);
 void rdx_file_transfer_domain_on_tx_done(

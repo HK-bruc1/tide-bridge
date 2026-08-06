@@ -105,7 +105,7 @@ static void rdx_record_on_ble_event(rdx_event_id_t event, void *payload, u32 len
 {
     (void)payload; (void)len; (void)user_ctx;
     if (event == RDX_EVENT_BLE_CONNECTED) {
-        rdx_protocol_send_buffer_reinit();
+        rdx_file_transfer_on_ble_connected();
         rdx_record_on_ble_conn_changed(1);
         rdx_record_stream_resume_delayed();
     } else if (event == RDX_EVENT_BLE_DISCONNECTED) {

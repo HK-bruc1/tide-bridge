@@ -1,6 +1,11 @@
 #include "rdx_file_transfer_service.h"
 #include "../internal/rdx_file_transfer_domain.h"
 
+void rdx_file_transfer_on_ble_connected(void)
+{
+    rdx_file_transfer_domain_on_ble_connected();
+}
+
 rdx_err_t rdx_file_transfer_cleanup_record_disconnect(void)
 {
     return rdx_file_transfer_domain_cleanup_record_disconnect();

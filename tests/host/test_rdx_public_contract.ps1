@@ -47,6 +47,35 @@ function Get-StructFields {
         ForEach-Object { $_.Groups['name'].Value })
 }
 
+function Get-StructFieldDeclarations {
+    param(
+        [string]$Text,
+        [string]$TypeName
+    )
+
+    $structMatch = [regex]::Match(
+        $Text,
+        "typedef\s+struct\s*\{(?<body>[^{}]*)\}\s*$TypeName\s*;",
+        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $structMatch.Success) {
+        return @()
+    }
+
+    $body = [regex]::Replace(
+        $structMatch.Groups['body'].Value,
+        '/\*.*?\*/',
+        ' ',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline)
+    $body = [regex]::Replace($body, '(?m)//.*$', ' ')
+
+    return @([regex]::Matches(
+        $body,
+        '\b(?<type>[A-Za-z_]\w*)\s+(?<name>[A-Za-z_]\w*)\s*;') |
+        ForEach-Object {
+            '{0} {1}' -f $_.Groups['type'].Value, $_.Groups['name'].Value
+        })
+}
+
 function Assert-FieldOrder {
     param(
         [string]$Name,
@@ -57,6 +86,24 @@ function Assert-FieldOrder {
 
     $actualFields = @(Get-StructFields $Text $TypeName)
     if (($actualFields -join ',') -eq ($ExpectedFields -join ',')) {
+        Write-Host "PASS: $Name"
+        return
+    }
+
+    $script:failures.Add($Name)
+    Write-Host "FAIL: $Name"
+}
+
+function Assert-FieldDeclarations {
+    param(
+        [string]$Name,
+        [string]$Text,
+        [string]$TypeName,
+        [string[]]$ExpectedDeclarations
+    )
+
+    $actualDeclarations = @(Get-StructFieldDeclarations $Text $TypeName)
+    if (($actualDeclarations -join ',') -eq ($ExpectedDeclarations -join ',')) {
         Write-Host "PASS: $Name"
         return
     }
@@ -99,6 +146,7 @@ function Assert-NoMatch {
 
 $recordHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.h'
 $appHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.h'
+$protocolHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_protocol.h'
 $uxfileHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_uxfile.h'
 $storagePortHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/port/jl/include/rdx_jl_storage.h'
 $bleHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_ble_server.h'
@@ -107,6 +155,7 @@ $fileTransferServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rd
 $wifiServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_wifi_service.h'
 $storageServiceHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/service/rdx_storage_service.h'
 $storageFormatHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_storage_format_compat.h'
+$fileTransferCompatSource = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_file_transfer_compat.c'
 $protocolAdapterHeader = Read-Source 'SDK/apps/common/third_party_profile/rdx_protocol/compat/rdx_record_protocol_adapter.h'
 
 Write-Host 'RDX public compatibility contract'
@@ -155,6 +204,27 @@ $reqFileInfoFields = @(
 Assert-FieldOrder 'ReqFileInfo field order remains compatible' `
     $uxfileHeader 'ReqFileInfo' $reqFileInfoFields
 
+$reqFileInfoDeclarations = @(
+    'int ack',
+    'int file_num',
+    'u8 is_first_pack',
+    'int pack_num',
+    'int orig_pack_num',
+    'int sent_size',
+    'int auto_del',
+    'int file_offset',
+    'u32 total_pack',
+    'u32 chunk',
+    'u32 block_cnt',
+    'u8 file_send_busy',
+    'u8 loop',
+    'u8 interrupt',
+    'u8 send_stop',
+    'u8 ble_upload_cancel'
+)
+Assert-FieldDeclarations 'ReqFileInfo field types and order remain compatible' `
+    $uxfileHeader 'ReqFileInfo' $reqFileInfoDeclarations
+
 $contracts = @(
     @{ Name = 'legacy record process signature remains available'; Text = $recordHeader; Pattern = 'void\s+rdx_record_process\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'legacy record status getter signature remains available'; Text = $recordHeader; Pattern = 'RecordStatus\s*\*\s*rdx_record_get_status\s*\(\s*void\s*\)\s*;' },
@@ -173,6 +243,7 @@ $contracts = @(
     @{ Name = 'file transfer state query exposes unavailable idle busy'; Text = $fileTransferServiceHeader; Pattern = 'typedef\s+enum\s*\{\s*RDX_FILE_TRANSFER_STATE_UNAVAILABLE\s*=\s*0\s*,\s*RDX_FILE_TRANSFER_STATE_IDLE\s*,\s*RDX_FILE_TRANSFER_STATE_BUSY\s*,?\s*\}\s*rdx_file_transfer_state_t\s*;' },
     @{ Name = 'file transfer state query remains available'; Text = $fileTransferServiceHeader; Pattern = 'rdx_err_t\s+rdx_file_transfer_get_state\s*\(\s*rdx_file_transfer_state_t\s*\*\s*out\s*\)\s*;' },
     @{ Name = 'file transfer stopped query remains available'; Text = $fileTransferServiceHeader; Pattern = 'rdx_err_t\s+rdx_file_transfer_get_stopped\s*\(\s*int\s*\*\s*out\s*\)\s*;' },
+    @{ Name = 'BLE connected transfer lifecycle command remains available'; Text = $fileTransferServiceHeader; Pattern = 'void\s+rdx_file_transfer_on_ble_connected\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'record disconnect cleanup command remains available'; Text = $fileTransferServiceHeader; Pattern = 'rdx_err_t\s+rdx_file_transfer_cleanup_record_disconnect\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'BLE delayed cleanup command remains available'; Text = $fileTransferServiceHeader; Pattern = 'rdx_err_t\s+rdx_file_transfer_cleanup_ble_delayed\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'file transfer timer control remains narrow'; Text = $fileTransferServiceHeader; Pattern = 'typedef\s+void\s*\(\s*\*\s*rdx_file_transfer_timer_control_t\s*\)\s*\(\s*rdx_file_transfer_timer_action_t\s+action\s*,\s*const\s+void\s*\*\s*ctx\s*\)\s*;' },
@@ -181,7 +252,13 @@ $contracts = @(
     @{ Name = 'WiFi stopped compatibility query remains available'; Text = $wifiServiceHeader; Pattern = 'int\s+rdx_wifi_service_is_send_stopped\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'WiFi file busy compatibility query remains available'; Text = $wifiServiceHeader; Pattern = 'int\s+rdx_wifi_service_is_file_send_busy\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'WiFi stuck retry compatibility command remains available'; Text = $wifiServiceHeader; Pattern = 'void\s+rdx_wifi_service_retry_on_stuck\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy upload info cleanup signature remains available'; Text = $protocolHeader; Pattern = 'void\s+rdx_protocol_uploadFileInfo_clean\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy file sync timer stop signature remains available'; Text = $protocolHeader; Pattern = 'void\s+rdx_protocol_file_sync_busy_timer_stop\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy prepared data cleanup signature remains available'; Text = $protocolHeader; Pattern = 'void\s+rdx_protocol_prepared_data_clean\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy send buffer reinit signature remains available'; Text = $protocolHeader; Pattern = 'void\s+rdx_protocol_send_buffer_reinit\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'legacy upload info getter signature remains available'; Text = $uxfileHeader; Pattern = 'ReqFileInfo\s*\*\s*rdx_protocol_get_uploadfileInfo\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy record send buffer free signature remains available'; Text = $uxfileHeader; Pattern = 'void\s+rdx_uxfile_recordFileData_sendBuf_free\s*\(\s*void\s*\)\s*;' },
+    @{ Name = 'legacy DAT send buffer free signature remains available'; Text = $uxfileHeader; Pattern = 'void\s+rdx_uxfile_datFileInfo_sendBuf_free\s*\(\s*void\s*\)\s*;' },
     @{ Name = 'legacy record file send finish signature remains available'; Text = $uxfileHeader; Pattern = 'void\s+rdx_uxfile_recordFileData_send_finish\s*\(\s*ReqFileInfo\s*\*\s*rf_info\s*\)\s*;' },
     @{ Name = 'legacy format callback keeps u8 result ABI'; Text = $storageFormatHeader; Pattern = 'typedef\s+void\s*\(\s*\*\s*rdx_storage_legacy_format_cb_t\s*\)\s*\(\s*u8\s+legacy_result\s*\)\s*;' },
     @{ Name = 'format result mapping keeps u8 ABI'; Text = $storageFormatHeader; Pattern = 'u8\s+rdx_storage_format_compat_result_is_ok\s*\(\s*u8\s+legacy_result\s*\)\s*;' },
@@ -190,6 +267,35 @@ $contracts = @(
 
 foreach ($contract in $contracts) {
     Assert-Match $contract.Name $contract.Text $contract.Pattern
+}
+
+$reqFileInfoAbiAssertions = @(
+    @{ Field = 'ack'; Offset = 0 },
+    @{ Field = 'file_num'; Offset = 4 },
+    @{ Field = 'is_first_pack'; Offset = 8 },
+    @{ Field = 'pack_num'; Offset = 12 },
+    @{ Field = 'orig_pack_num'; Offset = 16 },
+    @{ Field = 'sent_size'; Offset = 20 },
+    @{ Field = 'auto_del'; Offset = 24 },
+    @{ Field = 'file_offset'; Offset = 28 },
+    @{ Field = 'total_pack'; Offset = 32 },
+    @{ Field = 'chunk'; Offset = 36 },
+    @{ Field = 'block_cnt'; Offset = 40 },
+    @{ Field = 'file_send_busy'; Offset = 44 },
+    @{ Field = 'loop'; Offset = 45 },
+    @{ Field = 'interrupt'; Offset = 46 },
+    @{ Field = 'send_stop'; Offset = 47 },
+    @{ Field = 'ble_upload_cancel'; Offset = 48 }
+)
+Assert-Match 'ReqFileInfo production size assertion remains enabled' `
+    $fileTransferCompatSource `
+    'RDX_REQ_FILE_INFO_ABI_ASSERT\s*\(\s*size\s*,\s*sizeof\s*\(\s*ReqFileInfo\s*\)\s*==\s*52\s*\)\s*;'
+foreach ($abiAssertion in $reqFileInfoAbiAssertions) {
+    Assert-Match `
+        ("ReqFileInfo production offset assertion remains enabled: {0}" -f $abiAssertion.Field) `
+        $fileTransferCompatSource `
+        ("RDX_REQ_FILE_INFO_ABI_ASSERT\s*\(\s*{0}\s*,\s*offsetof\s*\(\s*ReqFileInfo\s*,\s*{0}\s*\)\s*==\s*{1}\s*\)\s*;" -f `
+            $abiAssertion.Field, $abiAssertion.Offset)
 }
 
 Assert-NoMatch 'storage port public API does not expose raw JL ids' `

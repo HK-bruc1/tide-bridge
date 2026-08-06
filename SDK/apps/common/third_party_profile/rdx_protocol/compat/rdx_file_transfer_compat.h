@@ -11,6 +11,7 @@ typedef struct {
 
 rdx_err_t rdx_file_transfer_compat_get_status(
     rdx_file_transfer_compat_status_t *out);
+void rdx_file_transfer_compat_on_ble_connected(void);
 rdx_err_t rdx_file_transfer_compat_cleanup_record_disconnect(void);
 rdx_err_t rdx_file_transfer_compat_cleanup_ble_delayed(void);
 void rdx_file_transfer_compat_on_tx_done(
