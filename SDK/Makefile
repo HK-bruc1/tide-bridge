@@ -1208,7 +1208,7 @@ LFLAGS := \
 	cpu/br28/liba/lwip_2_2_0.a \
 	cpu/br28/liba/earphone/release/websocket.a \
 	cpu/br28/liba/earphone/release/libmbedtls_3_4_0.a  \
-	apps/common/third_party_profile/rdx_protocol/librdxApp.a \
+	apps/common/third_party_profile/rdx_protocol/librdxApp_patched.a \
 	--end-group \
 	-Tcpu/br28/sdk.ld \
 	-M=cpu/br28/tools/sdk.map \

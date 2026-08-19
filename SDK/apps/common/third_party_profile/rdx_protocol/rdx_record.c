@@ -268,6 +268,24 @@ static void rdx_record_pending_cmd_clear(void)
     g_pending_record_token.transport_epoch = 0;
 }
 
+static u8 rdx_record_start_uses_local_storage(
+    const rdx_ble_async_token_t *token)
+{
+    return !(token && g_stream_only_start_pending &&
+             rdx_record_token_equal(token, &g_stream_only_start_token));
+}
+
+static u8 rdx_record_uxfile_is_busy(void)
+{
+#if defined(__UUX_FILE__)
+    return (rdx_uxfile_sync_is_in_progress() ||
+            rdx_uxfile_is_scan_active() ||
+            rdx_uxfile_is_formatting()) ? 1 : 0;
+#else
+    return 0;
+#endif
+}
+
 typedef struct {
     rdx_ble_async_token_t token;
 } rdx_record_state_request_t;
@@ -941,6 +959,9 @@ static void rdx_record_cmd_delay_cb(void *priv)
 {
     rdx_ble_async_token_t token = g_pending_record_token;
     u8 token_valid = g_pending_record_token_valid;
+    const rdx_ble_async_token_t *token_ptr = token_valid ? &token : NULL;
+    u8 stream_not_ready;
+    u8 uxfile_busy;
 
     g_record_cmd_delay_timer = 0;
 
@@ -949,20 +970,29 @@ static void rdx_record_cmd_delay_cb(void *priv)
         r_printf("[RDX_RECORD] drop stale delayed command\r");
         g_record_cmd_retry_cnt = 0;
         rdx_record_pending_cmd_clear();
+        rdx_record_stream_only_start_cancel();
         return;
     }
 
-    if(!rdx_ble_server_is_stream_tx_ready()) {
+    stream_not_ready = !rdx_ble_server_is_stream_tx_ready();
+    uxfile_busy =
+        (g_pending_record_info.cmd == (RECORD_STATE_START + 0x30) &&
+         rdx_record_start_uses_local_storage(token_ptr) &&
+         rdx_record_uxfile_is_busy());
+    if(stream_not_ready || uxfile_busy) {
         g_record_cmd_retry_cnt++;
         if(g_record_cmd_retry_cnt < RECORD_CMD_MAX_RETRY) {
-            r_printf("[REC_DELAY] stream_tx_ready=0, retry %d/%d\r", 
+            r_printf("[REC_DELAY] wait stream=%d uxfile=%d, retry %d/%d\r",
+                     stream_not_ready, uxfile_busy,
                      g_record_cmd_retry_cnt, RECORD_CMD_MAX_RETRY);
             g_record_cmd_delay_timer = sys_timeout_add(NULL, rdx_record_cmd_delay_cb, RECORD_CMD_DELAY_MS);
             return;
         } else {
-            r_printf("[REC_DELAY] Max retry reached, abort record cmd!\r");
+            r_printf("[REC_DELAY] Max retry reached, abort record cmd (stream=%d uxfile=%d)!\r",
+                     stream_not_ready, uxfile_busy);
             g_record_cmd_retry_cnt = 0;
             rdx_record_pending_cmd_clear();
+            rdx_record_stream_only_start_cancel();
             return;
         }
     }
@@ -1013,8 +1043,23 @@ static void rdx_record_cmd_handle_internal(
 
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
 
+    if (r_info->cmd == (RECORD_STATE_STOP + 0x30) &&
+        g_record_cmd_delay_timer &&
+        g_pending_record_info.cmd == (RECORD_STATE_START + 0x30)) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+        g_record_cmd_retry_cnt = 0;
+        rdx_record_pending_cmd_clear();
+        rdx_record_stream_only_start_cancel();
+        r_printf("[REC_DELAY] pending start cancelled by stop\r");
+    }
+
     if(r_info->cmd == (RECORD_STATE_START + 0x30)) {
-        if(!rdx_ble_server_is_stream_tx_ready()) {
+        u8 stream_not_ready = !rdx_ble_server_is_stream_tx_ready();
+        u8 uxfile_busy =
+            (rdx_record_start_uses_local_storage(token) &&
+             rdx_record_uxfile_is_busy());
+        if(stream_not_ready || uxfile_busy) {
             if(g_record_cmd_delay_timer) {
                 if (token && g_pending_record_token_valid &&
                     !rdx_record_rdx_token_is_current(
@@ -1037,7 +1082,8 @@ static void rdx_record_cmd_handle_internal(
                 rdx_record_pending_cmd_clear();
             }
             g_record_cmd_retry_cnt = 0;
-            r_printf("[REC_DELAY] stream_tx_ready=0, delay %dms\r", RECORD_CMD_DELAY_MS);
+            r_printf("[REC_DELAY] defer start: stream=%d uxfile=%d, delay %dms\r",
+                     stream_not_ready, uxfile_busy, RECORD_CMD_DELAY_MS);
             g_record_cmd_delay_timer = sys_timeout_add(NULL, rdx_record_cmd_delay_cb, RECORD_CMD_DELAY_MS);
             return;
         }
@@ -2222,12 +2268,14 @@ int rdx_record_run_init(void)
     }else{
         rdx_app_emmc_poweroff_check_timer_stop();
         rdx_app_emmc_poweron(0);
+#if !TCFG_SD_ALWAY_ONLINE_ENABLE
         int err = dev_manager_add("sd0");
         if (err != 0) {
             r_printf("sd add fail\n");
         }else{
             g_printf("====== %s --> sd add success \n", __func__);
         }
+#endif
 
         if(rp->run == RECORD_STATE_RESUME){
             y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
@@ -2449,12 +2497,14 @@ int rdx_record_run_init(void)
         //power on force online.
         rdx_app_emmc_poweroff_check_timer_stop();
         rdx_app_emmc_poweron(0);
+#if !TCFG_SD_ALWAY_ONLINE_ENABLE
         int err = dev_manager_add("sd0");
         if (err != 0) {
 		    r_printf("sd add fail\n");
         }else{
             g_printf("====== %s --> sd add success \n", __func__);
         }
+#endif
 
         // rdx_uxfile_mssg_1_generate(scene);
         rdx_uxfile_dat_1_gen(scene);

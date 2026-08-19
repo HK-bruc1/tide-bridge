@@ -1731,6 +1731,13 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
     if (run != RECORD_STATE_START && run != RECORD_STATE_STOP) {
         return -1;
     }
+    if (run == RECORD_STATE_START && !stream_only &&
+        (rdx_uxfile_sync_is_in_progress() ||
+         rdx_uxfile_is_scan_active() ||
+         rdx_uxfile_is_formatting())) {
+        r_printf("[RDX_RECORD] local start rejected: UXFILE is busy\r");
+        return -1;
+    }
     if(scene == RECORD_SCENE_CHAT){
         formate = RECORD_FORMATE_OPUS_16K_STERO; //会议模式用降噪算法，改为双声道
     }else if(scene == RECORD_SCENE_CALL){
