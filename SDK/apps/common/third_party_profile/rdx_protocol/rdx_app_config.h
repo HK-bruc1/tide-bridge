@@ -673,8 +673,8 @@
 #define WIFI_AP_SSID                           "Beanstalk RKB"
 #define WIFI_AP_PASSWORD                       "88888888"
 
-#define FIRMWARE_VERSION                       "1.0.0"
-#define FIRMWARE_VERSION_HEX                   0x00010000
+#define FIRMWARE_VERSION                       "1.0.1"
+#define FIRMWARE_VERSION_HEX                   0x00010001
 #define HARDWARE_VERSION                       "0.0.1"
 #define HARDWARE_VERSION_HEX                   0x00000001
 
