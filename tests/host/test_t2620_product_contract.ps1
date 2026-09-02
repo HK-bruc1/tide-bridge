@@ -21,6 +21,9 @@ $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_proto
 $RdxKey = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.c'
 $RdxKeyH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.h'
 $RdxRecord = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_record.c'
+$RdxLedCtrl = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.c'
+$RdxLedCtrlH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.h'
+$RdxLedCfg = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_cfg.h'
 $RdxServer = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.c'
 $RdxLibraryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp.ps1'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
@@ -83,6 +86,26 @@ $holdRecordTableOk = $RdxKeyH -match 'extern\s+u8\s+key_table_record_hold\s*\[KE
 Assert-Contract 'RDX_HOLD_RECORD_ACTION_TABLE' $holdRecordTableOk `
     'press-to-record must use a reusable action table with LONG start and UP stop mappings'
 
+$recordPlayToggleRoute = Get-SourceSlice $RdxApp `
+    'case APP_MSG_REC_PLAY_TOGGLE:' `
+    'case APP_MSG_TWS_START_PAIR:'
+$recordPlayToggleOk = $RdxKey -match '(?s)u8\s+key_table_io_num4_normal\s*\[KEY_ACTION_MAX\]\s*=\s*\{\s*APP_MSG_REC_PLAY_TOGGLE,' -and
+                      (Test-TokensInOrder $recordPlayToggleRoute @(
+                          'RECORD_STATE_START',
+                          'RECORD_STATE_RESUME',
+                          'rdx_record_add_mark(RDX_MARK_SOURCE_KEY)',
+                          'rdx_playback_toggle()'
+                      ))
+Assert-Contract 'RDX_RECORD_PLAY_KEY_STATE_DISPATCH' $recordPlayToggleOk `
+    'the offline record/play key must add a device mark while recording and otherwise retain playback toggle behavior'
+
+$recordMarkFeedbackOk = $recordPlayToggleRoute -match '(?s)rdx_record_add_mark\(RDX_MARK_SOURCE_KEY\)\s*==\s*RDX_RECMARK_RESULT_OK.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
+                        $RdxLedCtrlH -match 'RDX_LED_SCENE_RECORD_MARK' -and
+                        $RdxLedCfg -match '(?s)\[RDX_LED_SCENE_RECORD_MARK\]\s*=\s*RDX_LED_EFFECT_RECORD_MARK_YELLOW.*?\[RDX_LED_EFFECT_RECORD_MARK_YELLOW\]\s*=\s*\{.*?RDX_LED_MODE_SOLID_TIMEOUT.*?\.r\s*=\s*255\s*,\s*\.g\s*=\s*160\s*,\s*\.b\s*=\s*0.*?\.timeout_ms\s*=\s*2000' -and
+                        $RdxLedCtrl -match '(?s)g_current_scene\s*==\s*RDX_LED_SCENE_RECORD_MARK.*?_rdx_led_restore_system_state\(\)'
+Assert-Contract 'RDX_RECORD_MARK_LED_FEEDBACK' $recordMarkFeedbackOk `
+    'a successful offline key mark must show yellow for two seconds and then restore the automatically selected system scene'
+
 $ioKeyRouting = Get-SourceSlice $RdxApp `
     'static u8 rdx_app_rdx_key_route_ready(void)' `
     '// ---- KEY_POWER'
@@ -116,7 +139,7 @@ Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '271319DF37566E091C99E8A92563D91A04D4533E25159B03AA82AD23078FE570' -and
+                           $PatchedRdxArchiveHash -eq '533546C21E36B571B0874A1F880C531D762E8E4BBF4A0D04196F1CCF809CBAD2' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match "factory-new empty index fast path" -and
                            $RdxLibraryPatch -match "br i1 %25, label %221, label %219" -and
@@ -130,6 +153,16 @@ $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_pro
                            $RdxApp -match '(?s)run == RECORD_STATE_START && !stream_only.*?rdx_uxfile_sync_is_in_progress.*?local start rejected: UXFILE is busy'
 Assert-Contract 'RDX_UXFILE_STARTUP_RECOVERY' $uxfileStartupRecoveryOk `
     'the patched library must commit a missing DAT as an empty index without boot fscan, persist its marker, and serialize recording against recovery'
+
+$recordMarkPersistenceOk = $RdxLibraryPatch.Contains("'  %113 = sub i32 4, %105, !dbg !1146'") -and
+                           $RdxLibraryPatch.Contains("'  %113 = sub i32 248, %105, !dbg !1146'") -and
+                           $RdxLibraryPatch.Contains("'  %122 = icmp ugt i32 %121, 247, !dbg !1157'") -and
+                           $RdxLibraryPatch.Contains("'  %126 = icmp ult i32 %125, 248, !dbg !1165'") -and
+                           $RdxLibraryPatch.Contains("'  store i8 93, i8* getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 246), align 1, !dbg !1173, !tbaa !710'") -and
+                           $RdxLibraryPatch.Contains("'  %133 = phi i8* [ getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 247), %131 ], [ %130, %127 ]'") -and
+                           $RdxLibraryPatch -match 'record marks persistence buffer capacity'
+Assert-Contract 'RDX_RECORD_MARKS_PERSIST_TO_DAT' $recordMarkPersistenceOk `
+    'the UXFILE serializer must use the full 248-byte marks buffer for every append and closing boundary'
 
 $recordingEncoderPathOk = $Config -notmatch 'TCFG_STENC_OPUS_ENABLE' -and
                           $SdkUsedList -notmatch 'TCFG_STENC_OPUS_ENABLE|opus_stenc_plug' -and

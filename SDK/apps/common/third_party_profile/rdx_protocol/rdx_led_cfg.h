@@ -149,7 +149,8 @@ typedef enum {
     RDX_LED_EFFECT_CHARGE_HIGH_BREATH,
     RDX_LED_EFFECT_CHARGE_FULL,
     RDX_LED_EFFECT_LOW_BATTERY_BLINK,
-    RDX_LED_EFFECT_MAX,              /* 13 — 数组尺寸不变 */
+    RDX_LED_EFFECT_RECORD_MARK_YELLOW,
+    RDX_LED_EFFECT_MAX,              /* 14 */
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
 
@@ -163,6 +164,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     [RDX_LED_SCENE_BLE_DISCONNECTED] = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_BLE_FAST_ADV]     = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_RECORD_START]     = RDX_LED_EFFECT_RECORD_BREATH,
+    [RDX_LED_SCENE_RECORD_MARK]      = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     [RDX_LED_SCENE_RECORD_STOP]      = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
     [RDX_LED_SCENE_OTA_START]        = RDX_LED_EFFECT_OTA_DOUBLE_BLINK,
     [RDX_LED_SCENE_OTA_STOP]         = RDX_LED_EFFECT_BLE_ADV_BLINK,
@@ -200,9 +202,16 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
     },
     [RDX_LED_EFFECT_RECORD_BREATH] = {
         .mode        = RDX_LED_MODE_BREATH,
-        .r = 255, .g = 255, .b = 255,            /* 白色 */
+        .r = 170, .g = 100, .b = 255,            /* 白色 */
         .brightness  = 255,
         .cycle_ms    = 4000,
+    },
+    [RDX_LED_EFFECT_RECORD_MARK_YELLOW] = {
+        .mode        = RDX_LED_MODE_SOLID_TIMEOUT,
+        .r = 255, .g = 160, .b = 0,               /* 暖黄色，补偿绿光偏强 */
+        .brightness  = 255,
+        .on_ms       = 2000,
+        .timeout_ms  = 2000,
     },
     /* OTA升级: 黄色慢闪, 与未连接蓝牙时的紫灯慢闪时序一致 */
     [RDX_LED_EFFECT_OTA_DOUBLE_BLINK] = {

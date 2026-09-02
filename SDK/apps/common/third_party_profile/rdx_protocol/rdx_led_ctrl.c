@@ -590,7 +590,11 @@ void rdx_led_ctrl_update(void)
        通过set_scene()保持g_current_scene同步。 */
     if (g_active_effect->timeout_ms > 0
         && g_effect_elapsed_ms >= g_active_effect->timeout_ms) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        if (g_current_scene == RDX_LED_SCENE_RECORD_MARK) {
+            _rdx_led_restore_system_state();
+        } else {
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        }
     }
 }
 

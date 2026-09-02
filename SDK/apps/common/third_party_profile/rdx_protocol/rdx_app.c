@@ -2632,10 +2632,26 @@ int rdx_app_msg_handler(int *msg)
             break;
 
         case APP_MSG_REC_PLAY_TOGGLE:
-            log_info("=== %s ---> APP_MSG_REC_PLAY_TOGGLE \r", __FUNCTION__);
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            rdx_playback_toggle();
+            {
+                RecordStatus *rp = rdx_record_get_status();
+
+                log_info("=== %s ---> APP_MSG_REC_PLAY_TOGGLE, record state=%d \r",
+                         __FUNCTION__, rp ? rp->run : -1);
+
+                if (rp && (rp->run == RECORD_STATE_START ||
+                           rp->run == RECORD_STATE_RESUME)) {
+#if TDX_HAS_RECMARK_ABILITY
+                    if (rdx_record_add_mark(RDX_MARK_SOURCE_KEY) ==
+                        RDX_RECMARK_RESULT_OK) {
+                        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
+                    }
 #endif
+                } else {
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+                    rdx_playback_toggle();
+#endif
+                }
+            }
             ret = TRUE;
             break;
 

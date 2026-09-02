@@ -103,6 +103,32 @@ try {
         "  store i8 1, i8* @g_dat_vm_flag_written, align 1, !dbg !4911, !tbaa !972`n  store i1 false, i1* @g_dat_need_upgrade_rebuild, align 4" `
         'format runtime state'
 
+    # rdx_dat_cache_save() aliases its 248-byte marks buffer through a pointer,
+    # then uses sizeof(pointer) for every capacity/boundary expression.  On
+    # BR28 that becomes 4: even after fixing snprintf's capacity, the loop still
+    # exits when the first offset makes pos > 3 and closes the JSON as [].  Fix
+    # all four sizeof(pointer)-derived sites, including the full-buffer fallback.
+    $Ir = Replace-ExactlyOnce $Ir `
+        '  %113 = sub i32 4, %105, !dbg !1146' `
+        '  %113 = sub i32 248, %105, !dbg !1146' `
+        'record marks persistence buffer capacity'
+    $Ir = Replace-ExactlyOnce $Ir `
+        '  %122 = icmp ugt i32 %121, 3, !dbg !1157' `
+        '  %122 = icmp ugt i32 %121, 247, !dbg !1157' `
+        'record marks persistence append boundary'
+    $Ir = Replace-ExactlyOnce $Ir `
+        '  %126 = icmp ult i32 %125, 4, !dbg !1165' `
+        '  %126 = icmp ult i32 %125, 248, !dbg !1165' `
+        'record marks persistence closing boundary'
+    $Ir = Replace-ExactlyOnce $Ir `
+        '  store i8 93, i8* getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 2), align 1, !dbg !1173, !tbaa !710' `
+        '  store i8 93, i8* getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 246), align 1, !dbg !1173, !tbaa !710' `
+        'record marks persistence fallback closing bracket'
+    $Ir = Replace-ExactlyOnce $Ir `
+        '  %133 = phi i8* [ getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 3), %131 ], [ %130, %127 ]' `
+        '  %133 = phi i8* [ getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 247), %131 ], [ %130, %127 ]' `
+        'record marks persistence fallback terminator'
+
     $Ir = Replace-ExactlyOnce $Ir `
         '  %218 = phi i32 [ 0, %59 ], [ -1, %49 ], [ -1, %44 ], [ -2, %96 ], [ %88, %215 ], [ %88, %216 ], [ %88, %210 ]' `
         '  %218 = phi i32 [ 0, %59 ], [ -1, %49 ], [ -1, %44 ], [ -2, %96 ], [ %88, %215 ], [ -3, %216 ], [ %88, %210 ]' `
