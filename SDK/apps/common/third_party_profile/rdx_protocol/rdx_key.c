@@ -437,12 +437,11 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
 // ============================================================
 // IO NUM 映射表 — 5 个物理 IO 键 (KEY_IO_NUM0~4)
 // 格式与业务按键表对齐: 每个 KEY_ACTION 位置一行 + 中文注释
-// key scan 驱动对持续按下只产生 LONG/HOLD/UP, 不产生 CLICK;
-// 因此主要动作放在 LONG[1], CLICK[0] 留给多击场景
+// 短按抬起后经多击判定生成 CLICK/DOUBLE_CLICK；
+// 持续按下生成 LONG/HOLD，长按抬起生成 UP
 // ============================================================
 
-/* Reusable press-to-record behavior. Routing decides which physical key and
- * connection state select this table. */
+/* RDX 在线就绪时，KEY5 长按开始在线录音流，抬起停止。 */
 u8 key_table_record_hold[KEY_ACTION_MAX] = {
     APP_MSG_NULL,              // CLICK
     APP_MSG_RECORD_HOLD_START, // LONG
@@ -466,37 +465,13 @@ u8 key_table_record_hold[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM0 (KEY1 — PB2): 下一条录音文件, 长按快进, 双击播放
+// KEY_IO_NUM0: 单击上一条录音文件，长按快退；双击不分配动作
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
-    APP_MSG_REC_NEXT,          //短按 (CLICK: 多击场景用)
-    APP_MSG_REC_FF,            //长按 (LONG: 快进)
-    APP_MSG_NULL,              //hold
-    APP_MSG_NULL,              //长按抬起
-    APP_MSG_REC_PLAY,          //双击 (播放/恢复)
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
-
-// NUM1 (KEY2 — PG7): 上一条录音文件, 长按快退, 双击暂停
-u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_PREV,          //短按
     APP_MSG_REC_FR,            //长按 (LONG: 快退)
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
-    APP_MSG_REC_PAUSE,         //双击 (暂停)
+    APP_MSG_NULL,              //双击
     APP_MSG_NULL,              //三击
     APP_MSG_NULL,
     APP_MSG_NULL,              //五击
@@ -514,7 +489,31 @@ u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM2 (KEY3 — PB4): 音量加
+// KEY_IO_NUM1: 单击下一条录音文件，长按快进；双击不分配动作
+u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
+    APP_MSG_REC_NEXT,          //短按
+    APP_MSG_REC_FF,            //长按 (LONG: 快进)
+    APP_MSG_NULL,              //hold
+    APP_MSG_NULL,              //长按抬起
+    APP_MSG_NULL,              //双击
+    APP_MSG_NULL,              //三击
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //五击
+    APP_MSG_NULL,              //六击
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,              //index = 11
+    APP_MSG_NULL,              //长按3s
+    APP_MSG_NULL,              //长按5s
+    APP_MSG_NULL,              //长按8s
+    APP_MSG_NULL,              //长按10s
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
+// KEY_IO_NUM2: 单击音量加
 u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_VOL_UP,            //短按
     APP_MSG_NULL,              //长按
@@ -538,7 +537,7 @@ u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM3 (KEY4 — PG8): 音量减
+// KEY_IO_NUM3: 单击音量减
 u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
     APP_MSG_VOL_DOWN,          //短按
     APP_MSG_NULL,              //长按
@@ -562,10 +561,10 @@ u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// NUM4 (KEY5 — PC2): 录音开关
-// 触发链: LONG → APP_MSG_RECORD_SWITCH → flag=1, UP → APP_MSG_LONG_PRESS_HOLDUP → 启动录音
+// KEY_IO_NUM4: 离线单击切换播放/暂停，长按抬起后切换本地录音
+// 长按触发链: LONG → APP_MSG_RECORD_SWITCH → flag=1，UP → APP_MSG_LONG_PRESS_HOLDUP → 切换录音
 u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
-    APP_MSG_NULL,              //短按
+    APP_MSG_REC_PLAY_TOGGLE,   //短按 (离线播放/暂停切换)
     APP_MSG_RECORD_SWITCH,     //长按 (LONG: 录音开关)
     APP_MSG_NULL,              //hold
     APP_MSG_LONG_PRESS_HOLDUP, //长按抬起 (UP: 释放后真正触发录音)

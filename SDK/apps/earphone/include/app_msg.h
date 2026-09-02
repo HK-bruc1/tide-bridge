@@ -259,8 +259,7 @@ enum {
     APP_MSG_REC_NEXT,          // 下一个录音文件
     APP_MSG_REC_FR,            // 快退
     APP_MSG_REC_FF,            // 快进
-    APP_MSG_REC_PLAY,          // 播放/恢复录音
-    APP_MSG_REC_PAUSE,         // 暂停录音播放
+    APP_MSG_REC_PLAY_TOGGLE,   // 播放/暂停录音切换
     APP_MSG_BT_PAIR_SET_DEFAULT,
     APP_MSG_BLE_PAIR_SET_DEFAULT,
     APP_MSG_ANC_SET_TRANSPARENCY,

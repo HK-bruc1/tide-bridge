@@ -293,7 +293,7 @@
            "gpio"
           ],
           "saveWay": "code",
-          "defaultValue": "IO_PORTB_02",
+          "defaultValue": "id_1685018827481_10",
           "structProp": "key_io",
           "originValue": ""
          },
@@ -590,7 +590,7 @@
            "gpio"
           ],
           "saveWay": "code",
-          "defaultValue": "IO_PORTG_07",
+          "defaultValue": "id_1647485267192_76",
           "structProp": "key_io",
           "originValue": ""
          },
@@ -887,7 +887,7 @@
            "gpio"
           ],
           "saveWay": "code",
-          "defaultValue": "IO_PORTB_04",
+          "defaultValue": "id_1685018827801_11",
           "structProp": "key_io",
           "originValue": ""
          },
@@ -1184,7 +1184,7 @@
            "gpio"
           ],
           "saveWay": "code",
-          "defaultValue": "IO_PORTG_08",
+          "defaultValue": "id_1647485267192_78",
           "structProp": "key_io",
           "originValue": ""
          },

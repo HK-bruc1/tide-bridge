@@ -378,6 +378,8 @@ void rdx_app_set_power_ready_flag(void)
     poweron_ready_flag = true;
 }
 
+#define RDX_STORAGE_PLAYBACK_PREEMPT  2
+
 static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
                                            u8 allow_paused_playback)
 {
@@ -399,7 +401,8 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     pb_public_info_t playback = {0};
     rdx_playback_get_info(&playback);
-    if (playback.state != PB_STATE_UNREADY &&
+    if (allow_paused_playback != RDX_STORAGE_PLAYBACK_PREEMPT &&
+        playback.state != PB_STATE_UNREADY &&
         playback.state != PB_STATE_STOPPED &&
         !(allow_paused_playback && playback.state == PB_STATE_PAUSED)) {
         r_printf("[%s] busy: playback state=%d\n", log_tag, playback.state);
@@ -935,8 +938,8 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        /* KEY5 remains in the five-key HID keymap protocol, but its physical
-         * event is reserved for RDX online hold recording for now. */
+        /* KEY5 uses online hold recording while RDX is ready and the local
+         * key table while both BLE wrappers are idle. */
         if (num_idx == 4) {
             rdx_app_key5_remap(value, index, scene);
             return;
@@ -1523,7 +1526,6 @@ void rdx_app_normal_poweroff_cb(void* priv)
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
 
-    // PB4 已改为 WiFi CS 使用，不再设置为高阻态
     // PB5 已改为充满检测使用，不再设置为高阻态
 
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
@@ -1558,6 +1560,9 @@ void rdx_app_normal_poweroff(void)
     r_printf("------> %s \n", __func__);
 
     rdx_app_hold_record_reset();
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_STORAGE_UNAVAILABLE);
+#endif
 
     //close record.
     if(rp->run != RECORD_STATE_STOP){
@@ -2626,18 +2631,10 @@ int rdx_app_msg_handler(int *msg)
             ret = TRUE;
             break;
 
-        case APP_MSG_REC_PLAY:
-            log_info("=== %s ---> APP_MSG_REC_PLAY \r", __FUNCTION__);
+        case APP_MSG_REC_PLAY_TOGGLE:
+            log_info("=== %s ---> APP_MSG_REC_PLAY_TOGGLE \r", __FUNCTION__);
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            rdx_playback_play();
-#endif
-            ret = TRUE;
-            break;
-
-        case APP_MSG_REC_PAUSE:
-            log_info("=== %s ---> APP_MSG_REC_PAUSE \r", __FUNCTION__);
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            rdx_playback_pause();
+            rdx_playback_toggle();
 #endif
             ret = TRUE;
             break;
@@ -2797,6 +2794,7 @@ void rdx_app_playback_content_changed(void)
     /* A reused SN must not resolve through UXFILE's last-query metadata cache. */
     rdx_uxfile_invalidate_dat_cache();
     rdx_playback_invalidate_playlist(PB_PLAYLIST_CONTENT_CHANGED);
+    rdx_playback_on_record_created();
 }
 #endif
 
@@ -3163,7 +3161,6 @@ void rdx_app_emmc_poweroff(void)
         // sd_io_suspend("sd0", 0);
         sd_set_power(0);
 
-        // PB4 已改为 WiFi CS 使用，不再设置为高阻态
         // PB5 已改为充满检测使用，不再设置为高阻态
 
         gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
@@ -3405,6 +3402,167 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
     free(request);
 }
 
+typedef struct {
+    ProtocolFileDeleteParams params;
+    rdx_ble_async_token_t token;
+} rdx_app_file_delete_request_t;
+
+typedef struct {
+    rdx_ble_async_token_t token;
+} rdx_app_sd_format_request_t;
+
+typedef struct {
+    rdx_ble_async_token_t token;
+} rdx_app_bound_unbind_request_t;
+
+typedef struct {
+    ProtocolUnboundParams params;
+    rdx_ble_async_token_t token;
+} rdx_app_unbound_request_t;
+
+static void rdx_app_sd_format_on_app_core(
+    rdx_app_sd_format_request_t *request)
+{
+    u8 rejected = 1;
+
+    if (!request) {
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[APP CMD] drop stale sd_format command\r");
+        free(request);
+        return;
+    }
+
+    if (!rdx_app_storage_activity_is_busy(
+            "SD-FORMAT", RDX_STORAGE_PLAYBACK_PREEMPT) &&
+        rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        rdx_app_format_handle();
+        rejected = 0;
+    }
+
+    if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
+        g_protocol_ops) {
+        g_protocol_ops->sd_format_ack_indicate(rejected);
+    }
+    free(request);
+}
+
+static void rdx_app_bound_unbind_on_app_core(
+    rdx_app_bound_unbind_request_t *request)
+{
+    if (!request) {
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[APP CMD] drop stale bound-unbind command\r");
+        free(request);
+        return;
+    }
+    if (rdx_app_storage_activity_is_busy(
+            "BOUND-UNBIND", RDX_STORAGE_PLAYBACK_PREEMPT)) {
+        if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
+            g_protocol_ops) {
+            g_protocol_ops->bound_result_ack_indicate(1);
+        }
+        free(request);
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        free(request);
+        return;
+    }
+
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+#endif
+    if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
+        g_protocol_ops) {
+        g_protocol_ops->bound_result_ack_indicate(0);
+    }
+    free(request);
+    rdx_vm_unbound_handle();
+}
+
+static void rdx_app_unbound_on_app_core(rdx_app_unbound_request_t *request)
+{
+    ProtocolUnboundParams params;
+
+    if (!request) {
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[APP CMD] drop stale unbound command\r");
+        free(request);
+        return;
+    }
+    if (rdx_app_storage_activity_is_busy(
+            "UNBOUND", RDX_STORAGE_PLAYBACK_PREEMPT)) {
+        if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
+            g_protocol_ops) {
+            g_protocol_ops->unbound_ack_indicate(
+                1, rdx_vm_get_bound_status());
+        }
+        free(request);
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        free(request);
+        return;
+    }
+
+    params = request->params;
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (params.format_en == 1) {
+        rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
+    } else {
+        rdx_playback_stop();
+    }
+#endif
+    free(request);
+    rdx_vm_choose_to_unbound_handle(params.user_para, params.format_en);
+}
+
+static void rdx_app_file_delete_on_app_core(
+    rdx_app_file_delete_request_t *request)
+{
+    ProtocolFileDeleteParams *params;
+    int ret;
+
+    if (!request) {
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        r_printf("[APP CMD] drop stale file_delete command\r");
+        free(request);
+        return;
+    }
+
+    params = &request->params;
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    pb_public_info_t playback_info;
+    rdx_playback_get_info(&playback_info);
+    if (playback_info.current_sn == (u32)params->file_sn) {
+        rdx_playback_stop();
+    }
+#endif
+
+    ret = rdx_uxfile_recordFile_delete_handle(
+        params->file_sn, params->file_name);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    if (ret >= 0) {
+        rdx_playback_on_file_deleted((u32)params->file_sn);
+    }
+#endif
+
+    if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
+        g_protocol_ops) {
+        g_protocol_ops->file_delete_ack_indicate(
+            (ret < 0) ? 1 : 0, params->file_sn, params->file_name);
+    }
+    free(request);
+}
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3505,11 +3663,25 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 ops->sd_format_ack_indicate(1);
                 break;
             }
-            ops->sd_format_ack_indicate(0);
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
-#endif
-            rdx_uxfile_sd_format(NULL);
+            rdx_app_sd_format_request_t *request = malloc(sizeof(*request));
+            if (!request) {
+                ops->sd_format_ack_indicate(1);
+                break;
+            }
+            if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
+                ops->sd_format_ack_indicate(1);
+                free(request);
+                break;
+            }
+            int msg[3];
+            msg[0] = (int)rdx_app_sd_format_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)request;
+            if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+                ops->sd_format_ack_indicate(1);
+                r_printf("[APP CMD] sd_format app_core post err\r");
+                free(request);
+            }
             break;
         }
 
@@ -3568,8 +3740,25 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 rdx_vm_set_bound_status(1, 1);
                 ops->bound_result_ack_indicate(0);
             }else{
-                ops->bound_result_ack_indicate(0);
-                rdx_vm_unbound_handle();
+                rdx_app_bound_unbind_request_t *request =
+                    malloc(sizeof(*request));
+                if (!request) {
+                    ops->bound_result_ack_indicate(1);
+                    break;
+                }
+                if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
+                    ops->bound_result_ack_indicate(1);
+                    free(request);
+                    break;
+                }
+                int msg[3];
+                msg[0] = (int)rdx_app_bound_unbind_on_app_core;
+                msg[1] = 1;
+                msg[2] = (int)request;
+                if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+                    ops->bound_result_ack_indicate(1);
+                    free(request);
+                }
             }
             break;
         }
@@ -3587,7 +3776,25 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 break;
             }
             g_printf("[APP CMD] unbound user=%d format=%d\r", p->user_para, p->format_en);
-            rdx_vm_choose_to_unbound_handle(p->user_para, p->format_en);
+            rdx_app_unbound_request_t *request = malloc(sizeof(*request));
+            if (!request) {
+                ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
+                break;
+            }
+            request->params = *p;
+            if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
+                ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
+                free(request);
+                break;
+            }
+            int msg[3];
+            msg[0] = (int)rdx_app_unbound_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)request;
+            if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+                ops->unbound_ack_indicate(1, rdx_vm_get_bound_status());
+                free(request);
+            }
             break;
         }
 
@@ -3595,26 +3802,26 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             if(!data || len < sizeof(ProtocolFileDeleteParams)) break;
             ProtocolFileDeleteParams* p = (ProtocolFileDeleteParams*)data;
             g_printf("[APP CMD] file_delete sn=%d name=%s\r", p->file_sn, p->file_name);
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            pb_public_info_t playback_info;
-            rdx_playback_get_info(&playback_info);
-            if(playback_info.current_sn == (u32)p->file_sn){
-                rdx_playback_stop();
+            rdx_app_file_delete_request_t *request = malloc(sizeof(*request));
+            if (!request) {
+                ops->file_delete_ack_indicate(1, p->file_sn, p->file_name);
+                break;
             }
-#endif
-            int ret = rdx_uxfile_recordFile_delete_handle(p->file_sn, p->file_name);
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            if(ret >= 0){
-                /* Deletion is asynchronous: ret only confirms that UXFILE
-                 * accepted the work item.  Its worker still needs the DAT
-                 * cache to remove and persist the entry, so this layer must
-                 * not invalidate/free that cache before completion.  The
-                 * playback cache is independent and can be conservatively
-                 * invalidated as soon as the delete request is accepted. */
-                rdx_playback_on_file_deleted((u32)p->file_sn);
+            request->params = *p;
+            request->params.file_name[sizeof(request->params.file_name) - 1] = '\0';
+            if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
+                ops->file_delete_ack_indicate(1, p->file_sn, p->file_name);
+                free(request);
+                break;
             }
-#endif
-            ops->file_delete_ack_indicate((ret < 0) ? 1 : 0, p->file_sn, p->file_name);
+            int msg[3];
+            msg[0] = (int)rdx_app_file_delete_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)request;
+            if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+                ops->file_delete_ack_indicate(1, p->file_sn, p->file_name);
+                free(request);
+            }
             break;
         }
 
@@ -3775,6 +3982,9 @@ void rdx_app_tasks_init(void)
     /*----------------------------------------------------------------*/
 #if defined(__UUX_FILE__)
 	rdx_uxfile_init();
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_refresh_playlist();
+#endif
 #endif
 
     //rdx ble server initial.
@@ -4037,7 +4247,6 @@ static void rdx_app_idle_handle(void* priv)
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_01), PORT_HIGHZ);
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
 
-    // PB4 已改为 WiFi CS 使用，不再设置为高阻态
     // PB5 已改为充满检测使用，不再设置为高阻态
 
     gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);

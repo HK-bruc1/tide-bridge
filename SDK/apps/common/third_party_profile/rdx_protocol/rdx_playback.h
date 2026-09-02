@@ -70,9 +70,12 @@ typedef struct {
 } pb_public_info_t;
 
 void rdx_playback_init(void);
+void rdx_playback_refresh_playlist(void);
+void rdx_playback_on_record_created(void);
 bool rdx_playback_can_start(void);
 int rdx_playback_play(void);
 int rdx_playback_pause(void);
+int rdx_playback_toggle(void);
 int rdx_playback_prev(void);
 int rdx_playback_next(void);
 void rdx_playback_ff(void);
