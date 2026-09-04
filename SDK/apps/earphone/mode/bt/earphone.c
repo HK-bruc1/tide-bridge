@@ -40,6 +40,10 @@
 #include "tws_dual_share.h"
 #include "poweroff.h"
 
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_app_config.h"
+#endif
+
 #if TCFG_USER_TWS_ENABLE
 #include "tws_dual_conn.h"
 #else
@@ -1067,8 +1071,8 @@ int bt_mode_init()
     
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     //纠正频偏  dons++
-    extern void bt_osc_offset_save(s32 offset);
-    bt_osc_offset_save(10);//参数跟bt_osc_offset_set规则一致，特别注意此函数需要全擦才能清除
+    extern void bt_osc_offset_set(s32 offset);
+    bt_osc_offset_set(RDX_FREQUENCY_OFFSET);//参数跟bt_osc_offset_set规则一致，特别注意此函数需要全擦才能清除
 #endif
     btstack_init();
 //---------------------------------------------------------------------------------

@@ -91,6 +91,14 @@
 #define RDX_SEL_DEVICE									DEVICE_BEANSTALK_RKB_T2620
 #endif
 
+/*
+ * Bluetooth frequency offset default. A customer that needs calibration
+ * overrides it with #undef + #define in its own RDX_SEL_DEVICE block.
+ */
+#ifndef RDX_FREQUENCY_OFFSET
+#define RDX_FREQUENCY_OFFSET							(10)
+#endif
+
 //----------------------------------------------------------------------------
 // 产品形态分类宏 (由 RDX_SEL_DEVICE 派生, 与 PRODUCT_CODE 对应)
 //   - "601" : 耳机本体 (EP)              — DEVICE_*_EP_*
@@ -656,6 +664,10 @@
 
 //-------------------- device model --------------------
 #if (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
+
+/* Customer-specific frequency calibration overrides the shared default. */
+#undef  RDX_FREQUENCY_OFFSET
+#define RDX_FREQUENCY_OFFSET                   (15)
 
 #define PRODUCT_TYPE                           "K1"
 
