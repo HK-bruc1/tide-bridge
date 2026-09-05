@@ -92,6 +92,18 @@
 /* RDX 与 HOGP 功能                                                           */
 /* -------------------------------------------------------------------------- */
 
+/*
+ * T2620 外置功放使能：PE5 高有效。开机默认电平由板级配置保持为低，
+ * 运行时只允许 RDX/T2620 外设电源模块跟随 DAC 模拟电源生命周期驱动。
+ */
+#ifndef TCFG_T2620_AMP_POWER_ENABLE
+#define TCFG_T2620_AMP_POWER_ENABLE               1
+#endif
+
+#ifndef TCFG_T2620_AMP_ENABLE_IO
+#define TCFG_T2620_AMP_ENABLE_IO                   IO_PORTE_05
+#endif
+
 /* 在 RDX 复合 GATT Profile 中启用 HOGP 键盘。 */
 #ifndef TCFG_RDX_HOGP_ENABLE
 #define TCFG_RDX_HOGP_ENABLE                      1

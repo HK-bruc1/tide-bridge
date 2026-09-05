@@ -8,6 +8,15 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Get-HostTestRepoRoot
 $Config = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\t2620_project_config.h'
+$BoardJsonPath = Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'src') -Filter '*.json' |
+    Where-Object {
+        Select-String -LiteralPath $_.FullName -SimpleMatch 'TCFG_IO_CFG_AT_POWER_ON' -Quiet
+    } |
+    Select-Object -First 1
+if (-not $BoardJsonPath) {
+    throw 'Board JSON containing TCFG_IO_CFG_AT_POWER_ON was not found'
+}
+$BoardJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $BoardJsonPath.FullName
 $SdkConfigH = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\sdk_config.h'
 $SdkConfigC = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\sdk_config.c'
 $BoardConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\br28\board_ac701n_demo_cfg.h'
@@ -25,6 +34,9 @@ $RdxLedCtrl = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_p
 $RdxLedCtrlH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.h'
 $RdxLedCfg = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_cfg.h'
 $RdxServer = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.c'
+$RdxAppConfig = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app_config.h'
+$PeripheralPower = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.c'
+$PeripheralPowerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.h'
 $RdxLibraryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp.ps1'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
 $PatchedRdxArchivePath = Join-Path $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\librdxApp_patched.a'
@@ -45,6 +57,31 @@ $overlayOk = $Config -match '#define\s+TCFG_DIP_SWITCH_POWER_ENABLE\s+1' -and
              ($SdkConfigH + $SdkConfigC + $IoKey) -notmatch 'TCFG_DIP_SWITCH_POWER'
 Assert-Contract 'PRODUCT_CONFIG_OVERLAY' $overlayOk `
     'DIP power ownership must stay in the project overlay and out of generated board files'
+
+$ampPowerOnJsonOk = $BoardJson -match '(?s)"defaultValue"\s*:\s*"IO_PORTE_05".*?"defaultValue"\s*:\s*"PORT_OUTPUT_LOW".*?"enableUuid"\s*:\s*"TCFG_IO_CFG_AT_POWER_ON"'
+$ampGeneratedPowerOnOk = $SdkConfigC -match '(?s)g_io_cfg_at_poweron\s*\[\].*?\.gpio\s*=\s*IO_PORTE_05.*?\.mode\s*=\s*PORT_OUTPUT_LOW'
+$ampGeneratedPowerOffOk = $SdkConfigC -match '(?s)g_io_cfg_at_poweroff\s*\[\].*?\.gpio\s*=\s*IO_PORTE_05.*?\.mode\s*=\s*PORT_OUTPUT_LOW'
+Assert-Contract 'T2620_AMP_SAFE_BOOT_AND_POWEROFF' `
+    ($ampPowerOnJsonOk -and $ampGeneratedPowerOnOk -and $ampGeneratedPowerOffOk) `
+    'PE5 must be driven low by both the board source configuration and generated boot/power-off tables'
+
+$ampConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_AMP_POWER_ENABLE\s+1\s*$' -and
+               $Config -match '(?m)^\s*#define\s+TCFG_T2620_AMP_ENABLE_IO\s+IO_PORTE_05\s*$' -and
+               $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/rdx_peripheral_power\.c\s*\\\s*$'
+Assert-Contract 'T2620_AMP_PRODUCT_OWNERSHIP' $ampConfigOk `
+    'the PE5 amplifier policy must be enabled by the T2620 overlay and implemented in the RDX product module'
+
+$ampDacLifecycleOk = $PeripheralPowerH -match 'void\s+rdx_peripheral_power_amp_set\s*\(u8\s+enable\)' -and
+                     $PeripheralPower -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\).*?case\s+DAC_ANALOG_OPEN_FINISH\s*:.*?rdx_peripheral_power_amp_set\(1\).*?case\s+DAC_ANALOG_OPEN_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_FINISH\s*:.*?default\s*:.*?rdx_peripheral_power_amp_set\(0\)' -and
+                     $PeripheralPower -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_AMP_ENABLE_IO\)' -and
+                     $PeripheralPower -notmatch 'sys_timeout_add|sys_timer_add|os_time_dly'
+Assert-Contract 'T2620_AMP_FOLLOWS_DAC_LIFECYCLE' $ampDacLifecycleOk `
+    'PE5 must rise only after DAC analog open finishes and fall synchronously before/after DAC analog close'
+
+$ampPinConflictOk = $RdxAppConfig -match '(?m)^\s*#define\s+RDX_WIFI_ENABLE\s+\(0\)' -and
+                    $PeripheralPower -match '(?s)#if\s+TCFG_T2620_AMP_POWER_ENABLE\s*&&\s*RDX_WIFI_ENABLE.*?#error\s+"T2620 PE5 amplifier enable conflicts with the legacy RDX WiFi SPI CS assignment"'
+Assert-Contract 'T2620_AMP_PE5_CONFLICT_FAILS_CLOSED' $ampPinConflictOk `
+    'the current no-WiFi product may own PE5, and enabling the legacy PE5 SPI CS path must fail at compile time'
 
 $configOwnershipOk = $true
 foreach ($externallyOwnedMacro in @(

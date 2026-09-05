@@ -3366,7 +3366,7 @@
           "document": "https://element.eleme.cn/#/zh-CN/component/select",
           "formId": 497,
           "renderKey": "4971718962331419",
-          "defaultValue": "PORT_OUTPUT_HIGH",
+          "defaultValue": "PORT_OUTPUT_LOW",
           "eventField": [],
           "saveWay": "code",
           "structProp": "mode"
