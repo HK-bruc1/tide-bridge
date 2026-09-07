@@ -83,6 +83,7 @@
 #include "rdx_battery.h"
 #include "led_pt0807.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_peripheral_power.h"
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
@@ -2403,6 +2404,26 @@ int rdx_app_msg_handler(int *msg)
     /*----------------------------------------------------------------*/
     y_printf("\n ====== rdx_app_msg_handler event:0x%x \r", msg[0]);
     switch (msg[0]) {
+    case APP_MSG_RECORD_HOLD_START:
+    case APP_MSG_RECORD_CHAT_MODE:
+    case APP_MSG_RECORD_CALL_MODE:
+    case APP_MSG_RECORD_SWITCH:
+    case APP_MSG_REC_PREV:
+    case APP_MSG_REC_NEXT:
+    case APP_MSG_REC_FR:
+    case APP_MSG_REC_FF:
+    case APP_MSG_REC_PLAY_TOGGLE:
+        if (rdx_peripheral_power_vdd_ensure_on(
+                RDX_SHARED_VDD_WAKE_BUSINESS)) {
+            r_printf("[PWR] business_deferred msg=0x%x state=%u\n",
+                     msg[0], rdx_peripheral_power_vdd_state_get());
+            return true;
+        }
+        break;
+    default:
+        break;
+    }
+    switch (msg[0]) {
         case APP_MSG_BT_OPEN_PAGE_SCAN:
             rdx_app_earphone_state_set_page_scan_enable();
             break;
@@ -4043,21 +4064,49 @@ void rdx_app_tasks_init(void)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_led_hardware_init(void)
+int rdx_led_hardware_resume(void)
 {
     if (led_pt0807_config.initialized) {
-        return;
+        return 0;
     }
     if (led_pt0807_init(&led_pt0807_config, LED_PT0807_SPI1, LED_PT0807_DATA_PORT_IO, 1) == 0) {
         g_printf("===== %s --> LED PT0807 init success\r", __func__);
         if (rdx_led_ctrl_init(&led_pt0807_config) == 0) {
             g_printf("===== %s --> LED Ctrl init success\r", __func__);
+            return 0;
         } else {
             g_printf("===== %s --> LED Ctrl init failed\r", __func__);
+            led_pt0807_deinit(&led_pt0807_config);
         }
     } else {
         g_printf("===== %s --> LED PT0807 init failed\r", __func__);
     }
+    gpio_set_mode(IO_PORT_SPILT(LED_PT0807_DATA_PORT_IO), PORT_OUTPUT_LOW);
+    return -1;
+}
+
+void rdx_led_hardware_init(void)
+{
+    if (rdx_peripheral_power_vdd_ensure_on(
+            RDX_SHARED_VDD_WAKE_BUSINESS) == 0) {
+        (void)rdx_led_hardware_resume();
+    }
+}
+
+int rdx_led_hardware_deinit(void)
+{
+    int ret;
+
+    if (!led_pt0807_config.initialized) {
+        gpio_set_mode(IO_PORT_SPILT(LED_PT0807_DATA_PORT_IO), PORT_OUTPUT_LOW);
+        return 0;
+    }
+
+    /* Stop the 20 ms effect timer before closing SPI and freeing buffers. */
+    rdx_led_ctrl_deinit();
+    ret = led_pt0807_deinit(&led_pt0807_config);
+    gpio_set_mode(IO_PORT_SPILT(LED_PT0807_DATA_PORT_IO), PORT_OUTPUT_LOW);
+    return ret;
 }
 
 /**************************************************************************

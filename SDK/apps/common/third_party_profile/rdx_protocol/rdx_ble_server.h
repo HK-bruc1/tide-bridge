@@ -133,6 +133,8 @@ u8 rdx_ble_server_get_send_fail_cnt(void);
 void rdx_ble_server_reset_send_fail_cnt(void);
 
 u8 rdx_ble_server_has_active_link(void);
+/* Physical Peripheral ACL aggregate across both app_ble wrappers. */
+u8 rdx_ble_server_get_connected_count(void);
 u16 rdx_ble_server_get_conn_handle(void);
 u16 rdx_ble_server_get_mtu(void);
 u8 rdx_ble_server_is_stream_tx_ready(void);

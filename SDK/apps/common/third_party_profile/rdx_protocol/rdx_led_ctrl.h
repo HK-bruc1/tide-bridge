@@ -57,7 +57,7 @@ typedef enum {
 } rdx_led_state_e;
 
 /* BLE 未连接/断开后，蓝灯闪烁并维持快速广播的统一超时时间（ms） 之后同步进入慢广播与超时灯效 */
-#define RDX_LED_BLE_ADV_TIMEOUT_MS      (300 * 1000)
+#define RDX_LED_BLE_ADV_TIMEOUT_MS      (120 * 1000)
 
 /* LEGACY: 内部使用，业务代码请使用 rdx_led_scene_e + rdx_led_ctrl_set_scene() */
 

@@ -104,6 +104,37 @@
 #define TCFG_T2620_AMP_ENABLE_IO                   IO_PORTE_05
 #endif
 
+/*
+ * T2620 共享外设 VDD：PA4 高有效，同时给板载 SD NAND 与外置 RGB 供电。
+ * DRY_RUN 板测已经通过，当前进入 UNMOUNT_ONLY：执行 SD/RGB 安全停用与
+ * 恢复，但 PA4 仍保持高。该档实机回归通过后才允许切到 POWER_CUT。
+ */
+#define T2620_SHARED_VDD_MODE_DRY_RUN              0
+#define T2620_SHARED_VDD_MODE_UNMOUNT_ONLY         1
+#define T2620_SHARED_VDD_MODE_POWER_CUT            2
+
+#ifndef TCFG_T2620_SHARED_VDD_ENABLE
+#define TCFG_T2620_SHARED_VDD_ENABLE               1
+#endif
+
+#ifndef TCFG_T2620_SHARED_VDD_IO
+#define TCFG_T2620_SHARED_VDD_IO                   IO_PORTA_04
+#endif
+
+#ifndef TCFG_T2620_SHARED_VDD_MODE
+#define TCFG_T2620_SHARED_VDD_MODE                 T2620_SHARED_VDD_MODE_UNMOUNT_ONLY
+#endif
+
+/* PA4 真正断电后的 LDO/SD NAND 上电稳定窗口；1 个 OS tick 约 10 ms。 */
+#ifndef TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS
+#define TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS  1
+#endif
+
+#if (TCFG_T2620_SHARED_VDD_MODE < T2620_SHARED_VDD_MODE_DRY_RUN) || \
+    (TCFG_T2620_SHARED_VDD_MODE > T2620_SHARED_VDD_MODE_POWER_CUT)
+#error "Invalid T2620 shared VDD mode"
+#endif
+
 /* 在 RDX 复合 GATT Profile 中启用 HOGP 键盘。 */
 #ifndef TCFG_RDX_HOGP_ENABLE
 #define TCFG_RDX_HOGP_ENABLE                      1

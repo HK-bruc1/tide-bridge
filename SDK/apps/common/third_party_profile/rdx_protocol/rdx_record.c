@@ -51,6 +51,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
+#include "rdx_peripheral_power.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -642,6 +643,12 @@ void rdx_record_set_process_state_ready(void)
         record_status.process_state = REC_PROCESS_STATE_READY;
         log_info("%s --> record_status.process_state = %d \r", __FUNCTION__, record_status.process_state);
         rdx_record_process_state_timer_stop();
+    }
+    if (record_status.run == RECORD_STATE_STOP) {
+        /* run_exit has closed/flushed the active file before publishing READY.
+         * If slow advertising was already entered while recording, let the
+         * shared-domain manager retry its idle decision now. */
+        rdx_peripheral_power_vdd_business_changed_notify();
     }
 }
 

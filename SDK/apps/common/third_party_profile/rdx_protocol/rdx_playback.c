@@ -5,6 +5,7 @@
 #include "system/includes.h"
 #include "rdx_app.h"
 #include "rdx_record.h"
+#include "rdx_peripheral_power.h"
 #include "rdx_uxfile.h"
 #include "dev_flow_player.h"
 #include "fs/fs.h"
@@ -262,6 +263,10 @@ static void pb_finish_stop(bool clear_selection)
     }
     pb.state = pb.total_count ? PB_STATE_STOPPED : PB_STATE_UNREADY;
     pb.intent = PB_INTENT_NONE;
+    /* pb_close_track() has closed the file and audio stream. Notify only after
+     * the public state is terminal so the shared VDD snapshot cannot observe
+     * a false-idle window. */
+    rdx_peripheral_power_vdd_business_changed_notify();
 }
 
 static u32 pb_write_pending(void)

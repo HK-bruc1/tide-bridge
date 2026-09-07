@@ -31,6 +31,7 @@
 * Include files
 ******************************************************************************/
 #include "rdx_led_ctrl.h"
+#include "rdx_peripheral_power.h"
 #include "rdx_led_cfg.h"
 #include "system/includes.h"
 #include "rdx_ble_server.h"
@@ -274,7 +275,11 @@ static void _rdx_led_restore_system_state(void)
         return;
     }
 
-    if (rdx_ble_server_has_active_link()) {
+    /* A record/transfer completion may restore the system LED after the
+     * fast-to-slow transition already happened. Slow advertising must remain
+     * visually off; otherwise RGB_REQUIRED would keep the shared rail awake. */
+    if (rdx_ble_server_has_active_link() ||
+        rdx_peripheral_power_vdd_is_slow_adv()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     } else {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
@@ -427,7 +432,7 @@ void rdx_led_ctrl_deinit(void)
         g_led_update_timer = 0;
     }
     if (g_led_config && g_led_config->initialized) {
-        rdx_led_ctrl_off();
+        /* run_en is cleared before the synchronous black frame is sent. */
         led_pt0807_run_enable(g_led_config, 0);
     }
     g_led_config = NULL;
@@ -438,11 +443,21 @@ void rdx_led_ctrl_deinit(void)
 
 void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
 {
-    if (g_led_config == NULL || !g_led_initialized) {
-        return;
-    }
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
+    }
+    if (g_led_config == NULL || !g_led_initialized) {
+        if (scene == RDX_LED_SCENE_OFF) {
+            rdx_peripheral_power_vdd_business_changed_notify();
+            return;
+        }
+        if (rdx_peripheral_power_vdd_ensure_on(
+                RDX_SHARED_VDD_WAKE_BUSINESS)) {
+            return;
+        }
+        if (g_led_config == NULL || !g_led_initialized) {
+            return;
+        }
     }
 
     /* 低电告警最高优先级 — 只允许 关机/插入充电 打断 */
@@ -477,6 +492,9 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         return;
     }
     _rdx_led_apply_effect((rdx_led_effect_e)effect_idx);
+    if (scene == RDX_LED_SCENE_OFF) {
+        rdx_peripheral_power_vdd_business_changed_notify();
+    }
 }
 
 rdx_led_scene_e rdx_led_ctrl_get_scene(void)

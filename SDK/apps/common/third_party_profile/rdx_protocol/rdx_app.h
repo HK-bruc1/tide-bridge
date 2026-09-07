@@ -411,6 +411,8 @@ extern char* rdx_app_earphone_get_readchardata(void);
 extern RdxWifiInfo* rdx_app_get_wifi_info(void);
 
 extern void rdx_led_hardware_init(void);
+extern int rdx_led_hardware_resume(void);
+extern int rdx_led_hardware_deinit(void);
 extern void rdx_app_all_init(void);
 extern void rdx_app_all_exit(void);
 u8 rdx_pc_storage_is_busy(void);

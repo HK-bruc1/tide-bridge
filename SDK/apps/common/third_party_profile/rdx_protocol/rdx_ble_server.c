@@ -62,6 +62,7 @@
 #include "rdx_app_config.h"
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
+#include "rdx_peripheral_power.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -403,6 +404,11 @@ static u8 rdx_ble_server_phase0a_connected_count(void)
         }
     }
     return count;
+}
+
+u8 rdx_ble_server_get_connected_count(void)
+{
+    return rdx_ble_server_phase0a_connected_count();
 }
 
 static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
@@ -2134,6 +2140,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     multi_att_clear_ccc_config(con_handle);
     rdx_ble_server_disconnected_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
+    rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_adv_interval_change_timer_stop();
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
@@ -2181,6 +2188,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = hdl;
     rdx_ble_session_link_release(hdl, con_handle);
+    rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_phase0b_adv_token_capture(hdl);
     rdx_ble_server_disconnected_adv_restart_schedule();
 }
@@ -3308,6 +3316,7 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
        && !(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME))){
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     }
+    rdx_peripheral_power_vdd_slow_adv_notify();
 }
 
 /**************************************************************************
@@ -3366,6 +3375,11 @@ void rdx_ble_server_fast_adv_restart(void)
         return;
     }
     
+    if (rdx_peripheral_power_vdd_fast_adv_notify()) {
+        r_printf("[PWR] fast_adv_restart deferred until shared VDD restore\n");
+        return;
+    }
+
     // 停止当前定时器
     rdx_ble_server_adv_interval_change_timer_stop();
 
@@ -3452,6 +3466,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
         return 0;
     }
     if (enable) {
+        rdx_peripheral_power_vdd_fast_adv_notify();
         app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min, adv_type, adv_channel);
         len = rdx_ble_server_fill_adv_data(advData);
         if (len) {

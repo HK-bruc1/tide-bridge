@@ -30,13 +30,16 @@ $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_proto
 $RdxKey = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.c'
 $RdxKeyH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.h'
 $RdxRecord = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_record.c'
+$RdxPlayback = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_playback.c'
 $RdxLedCtrl = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.c'
 $RdxLedCtrlH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.h'
 $RdxLedCfg = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_cfg.h'
 $RdxServer = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.c'
+$RdxServerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.h'
 $RdxAppConfig = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app_config.h'
 $PeripheralPower = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.c'
 $PeripheralPowerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.h'
+$AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
 $RdxLibraryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp.ps1'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
 $PatchedRdxArchivePath = Join-Path $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\librdxApp_patched.a'
@@ -71,10 +74,13 @@ $ampConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_AMP_POWER_ENABLE\s+1
 Assert-Contract 'T2620_AMP_PRODUCT_OWNERSHIP' $ampConfigOk `
     'the PE5 amplifier policy must be enabled by the T2620 overlay and implemented in the RDX product module'
 
+$ampImplementation = Get-SourceSlice $PeripheralPower `
+    'static u8 g_rdx_amp_enabled;' `
+    '#else'
 $ampDacLifecycleOk = $PeripheralPowerH -match 'void\s+rdx_peripheral_power_amp_set\s*\(u8\s+enable\)' -and
-                     $PeripheralPower -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\).*?case\s+DAC_ANALOG_OPEN_FINISH\s*:.*?rdx_peripheral_power_amp_set\(1\).*?case\s+DAC_ANALOG_OPEN_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_FINISH\s*:.*?default\s*:.*?rdx_peripheral_power_amp_set\(0\)' -and
-                     $PeripheralPower -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_AMP_ENABLE_IO\)' -and
-                     $PeripheralPower -notmatch 'sys_timeout_add|sys_timer_add|os_time_dly'
+                     $ampImplementation -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\).*?case\s+DAC_ANALOG_OPEN_FINISH\s*:.*?rdx_peripheral_power_amp_set\(1\).*?case\s+DAC_ANALOG_OPEN_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_FINISH\s*:.*?default\s*:.*?rdx_peripheral_power_amp_set\(0\)' -and
+                     $ampImplementation -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_AMP_ENABLE_IO\)' -and
+                     $ampImplementation -notmatch 'sys_timeout_add|sys_timer_add|os_time_dly'
 Assert-Contract 'T2620_AMP_FOLLOWS_DAC_LIFECYCLE' $ampDacLifecycleOk `
     'PE5 must rise only after DAC analog open finishes and fall synchronously before/after DAC analog close'
 
@@ -82,6 +88,87 @@ $ampPinConflictOk = $RdxAppConfig -match '(?m)^\s*#define\s+RDX_WIFI_ENABLE\s+\(
                     $PeripheralPower -match '(?s)#if\s+TCFG_T2620_AMP_POWER_ENABLE\s*&&\s*RDX_WIFI_ENABLE.*?#error\s+"T2620 PE5 amplifier enable conflicts with the legacy RDX WiFi SPI CS assignment"'
 Assert-Contract 'T2620_AMP_PE5_CONFLICT_FAILS_CLOSED' $ampPinConflictOk `
     'the current no-WiFi product may own PE5, and enabling the legacy PE5 SPI CS path must fail at compile time'
+
+$sharedVddConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_ENABLE\s+1\s*$' -and
+                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_IO\s+IO_PORTA_04\s*$' -and
+                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_MODE\s+T2620_SHARED_VDD_MODE_UNMOUNT_ONLY\s*$' -and
+                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS\s+1\s*$'
+Assert-Contract 'T2620_SHARED_VDD_UNMOUNT_ONLY_CONFIG' $sharedVddConfigOk `
+    'PA4 shared SD/RGB power must advance to UNMOUNT_ONLY before physical cut is enabled'
+
+$sdPowerCallback = Get-SourceSlice $AppMain `
+    'void sd_set_power_user(u8 en)' `
+    'static struct app_mode *app_task_init()'
+$sharedVddEarlyOwnershipOk = $sdPowerCallback -match 'rdx_peripheral_power_vdd_ensure_on\(RDX_SHARED_VDD_WAKE_SD_DRIVER\)' -and
+                             $sdPowerCallback -notmatch 'gpio_set_mode|IO_PORTA_04' -and
+                             $AppMain -match '(?s)static struct app_mode \*app_task_init\(\).*?rdx_peripheral_power_vdd_early_init\(\).*?app_var_init\(\).*?sdfile_init\(\)' -and
+                             $PeripheralPower -match 'static void\s+rdx_peripheral_power_vdd_hw_set\s*\(u8\s+enable\)' -and
+                             $PeripheralPower -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_SHARED_VDD_IO\)' -and
+                             $RdxApp -notmatch 'gpio_set_mode\(IO_PORT_SPILT\(IO_PORTA_04\)'
+Assert-Contract 'T2620_SHARED_VDD_EARLY_SINGLE_WRITER' $sharedVddEarlyOwnershipOk `
+    'PA4 must be high before SD initialization, and the SD callback must delegate to the product power manager'
+
+$sharedVddQuiesceOk = $PeripheralPower -match 'T2620 PA4 shared VDD conflicts with the legacy RDX WiFi power assignment' -and
+                      $PeripheralPower -match 'T2620 PA4 shared VDD conflicts with the DLOG SPI CS assignment' -and
+                      $PeripheralPower -match 'T2620 PA4 shared VDD conflicts with the current RDEC0 assignment' -and
+                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop.*?dev_manager_takeover\("sd0"\).*?rdx_led_hardware_deinit\(\).*?FINAL_RECHECK' -and
+                      $PeripheralPower -match '(?s)T2620_SHARED_VDD_MODE_POWER_CUT.*?rdx_peripheral_power_vdd_storage_io_safe\(\).*?rdx_peripheral_power_vdd_hw_set\(0\).*?RDX_SHARED_VDD_STATE_OFF' -and
+                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_restore_idle_domain.*?dev_manager_restore\("sd0"\).*?rdx_led_hardware_resume\(\).*?RDX_SHARED_VDD_STATE_ON_READY' -and
+                      $PeripheralPower -match 'stale_idle_ignored' -and
+                      $RdxApp -match '(?s)int\s+rdx_led_hardware_deinit.*?rdx_led_ctrl_deinit\(\).*?led_pt0807_deinit' -and
+                      $Pc -match '(?s)pc_storage_prepare.*?rdx_peripheral_power_vdd_usb_prepare\(\).*?dev_manager_takeover\("sd0"\).*?rdx_peripheral_power_vdd_usb_takeover_complete\(1\)' -and
+                      $Pc -match '(?s)pc_storage_restore.*?dev_manager_restore\("sd0"\).*?rdx_peripheral_power_vdd_usb_restore_complete\(1\)'
+Assert-Contract 'T2620_SHARED_VDD_QUIESCE_AND_RESTORE' $sharedVddQuiesceOk `
+    'UNMOUNT_ONLY must exercise ordered SD/RGB quiesce, stale-event rejection, recovery and USB ownership handoff'
+
+$sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transition_mutex' -and
+                                      $PeripheralPower -match 'os_mutex_create\(&g_rdx_shared_vdd\.transition_mutex\)' -and
+                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_ensure_on.*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?rdx_peripheral_power_vdd_restore_idle_domain.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
+                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop\(u32\s+idle_epoch\).*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
+                                      $PeripheralPower -match 'g_rdx_shared_vdd\.slow_adv_epoch\s*=\s*\(u32\)epoch'
+Assert-Contract 'T2620_SHARED_VDD_TRANSITIONS_SERIALIZED' $sharedVddTransitionSerializationOk `
+    'stop/restore transitions must be mutex-serialized and revalidate the exact slow-advertising epoch'
+
+$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)A BLE topology change.*?raises wake_requested/wake_epoch.*?local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv;\s*if\s*\(!canceled\)' -and
+                                  $PeripheralPower -notmatch '(?s)local_irq_disable\(\);(?:(?!local_irq_enable\(\);).)*rdx_ble_server_get_connected_count\(\)'
+Assert-Contract 'T2620_SHARED_VDD_FINAL_RECHECK_IS_IRQ_SAFE' $sharedVddIrqSafeFinalRecheckOk `
+    'the IRQ-disabled final commit must use atomic wake facts and never call the mutex-backed JL BLE wrapper API'
+
+$sharedVddDualAclOk = $RdxServerH -match 'u8\s+rdx_ble_server_get_connected_count\s*\(void\)' -and
+                       $RdxServer -match '(?s)static u8\s+rdx_ble_server_phase0a_connected_count\s*\(void\).*?RDX_BLE_PHASE0A_WRAPPER_MAX.*?app_ble_get_hdl_con_handle' -and
+                       $RdxServer -match '(?s)u8\s+rdx_ble_server_get_connected_count\s*\(void\).*?return\s+rdx_ble_server_phase0a_connected_count\(\)' -and
+                       $RdxServer -match '(?s)rdx_ble_server_phase0a_link_connected.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
+                       $RdxServer -match '(?s)rdx_ble_server_phase0a_link_disconnected.*?rdx_ble_session_link_release.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
+                       $RdxServer -match '(?s)rdx_ble_server_adv_interval_change_timer_cb.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
+                       $RdxServer -match '(?s)rdx_ble_server_fast_adv_restart.*?rdx_peripheral_power_vdd_fast_adv_notify\(\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_BLE_ADV_START\)'
+Assert-Contract 'T2620_SHARED_VDD_USES_DUAL_ACL_AND_ADV_EVENTS' $sharedVddDualAclOk `
+    'shared VDD decisions must use both physical wrappers and receive slow/fast advertising lifecycle events'
+
+$sharedVddBusySnapshotOk = $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_BLE_LINK' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_RECORD' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_PLAYBACK' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_FILE_OP' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_USB_MSC' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY' -and
+                           $PeripheralPowerH -match 'RDX_SHARED_VDD_BUSY_RGB_REQUIRED' -and
+                           $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_busy_snapshot.*?rdx_ble_server_get_connected_count.*?record->run.*?playback.state.*?rdx_is_file_transfer_active.*?app_in_mode\(APP_MODE_PC\).*?rdx_uxfile_is_formatting.*?rdx_led_ctrl_get_scene' -and
+                           $PeripheralPower -match '(?s)os_taskq_post_type\("app_core",\s*Q_CALLBACK.*?event_post_failed' -and
+                           $PeripheralPower -match '(?s)RDX_SHARED_VDD_EVENT_SLOW_ADV.*?idle_request.*?rdx_peripheral_power_vdd_idle_evaluate'
+Assert-Contract 'T2620_SHARED_VDD_BUSY_SNAPSHOT' $sharedVddBusySnapshotOk `
+    'shared VDD must aggregate link, storage, PC, format and RGB facts and serialize decisions on app_core'
+
+$sharedVddBusinessCompletionOk = $PeripheralPower -match 'RDX_SHARED_VDD_IDLE_RECHECK_MS\s+\(1000u\)' -and
+                                  $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_recheck_schedule.*?sys_timeout_add\(.*?rdx_peripheral_power_vdd_idle_recheck_cb' -and
+                                  $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_recheck_cb.*?RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED.*?epoch' -and
+                                  $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_restore_idle_domain.*?last_would_off_generation\s*=\s*\(u32\)-1.*?restored reason=' -and
+                                  $PeripheralPower -match '(?s)case\s+RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED:.*?stale_business_ignored.*?rdx_peripheral_power_vdd_idle_evaluate' -and
+                                  $PeripheralPower -match '(?s)case\s+RDX_SHARED_VDD_EVENT_FAST_ADV:.*?rdx_peripheral_power_vdd_idle_recheck_cancel' -and
+                                  $RdxRecord -match '(?s)rdx_record_set_process_state_ready.*?record_status\.run\s*==\s*RECORD_STATE_STOP.*?rdx_peripheral_power_vdd_business_changed_notify' -and
+                                  $RdxPlayback -match '(?s)static void\s+pb_finish_stop.*?pb\.state\s*=.*?rdx_peripheral_power_vdd_business_changed_notify' -and
+                                  $RdxLedCtrl -match '(?s)void\s+rdx_led_ctrl_set_scene.*?scene\s*==\s*RDX_LED_SCENE_OFF.*?rdx_peripheral_power_vdd_business_changed_notify' -and
+                                  $RdxLedCtrl -match '(?s)static void\s+_rdx_led_restore_system_state.*?rdx_ble_server_has_active_link\(\)\s*\|\|\s*rdx_peripheral_power_vdd_is_slow_adv\(\).*?RDX_LED_SCENE_OFF'
+Assert-Contract 'T2620_SHARED_VDD_REEVALUATES_AFTER_BUSINESS' $sharedVddBusinessCompletionOk `
+    'slow advertising must retry after record/playback/RGB completion, with an epoch-bound fallback for opaque library activity'
 
 $configOwnershipOk = $true
 foreach ($externallyOwnedMacro in @(

@@ -23,6 +23,7 @@
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_app.h"
+#include "rdx_peripheral_power.h"
 #endif
 
 #if ((TCFG_CHARGESTORE_ENABLE || TCFG_TEST_BOX_ENABLE || TCFG_ANC_BOX_ENABLE) \
@@ -92,18 +93,31 @@ static int pc_storage_prepare(void)
         log_error("[PC-STORAGE] takeover rejected: device storage busy");
         return -1;
     }
+    if (rdx_peripheral_power_vdd_usb_prepare()) {
+        log_error("[PC-STORAGE] takeover rejected: shared VDD restore failed");
+        return -1;
+    }
 #endif
 
     if (!dev_manager_list_check_by_logo("sd0")) {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+        rdx_peripheral_power_vdd_usb_takeover_complete(0);
+#endif
         log_error("[PC-STORAGE] takeover rejected: sd0 is not registered");
         return -1;
     }
     if (dev_manager_takeover("sd0")) {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+        rdx_peripheral_power_vdd_usb_takeover_complete(0);
+#endif
         log_error("[PC-STORAGE] takeover failed: sd0 unmount error");
         return -1;
     }
 
     __this->storage_state = PC_STORAGE_HOST_OWNED;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_peripheral_power_vdd_usb_takeover_complete(1);
+#endif
     log_info("[PC-STORAGE] DEVICE_OWNED -> HOST_OWNED");
 #endif
     return 0;
@@ -119,11 +133,17 @@ static int pc_storage_restore(void)
     int err = dev_manager_restore("sd0");
     if (err) {
         __this->storage_state = PC_STORAGE_RESTORE_FAILED;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+        rdx_peripheral_power_vdd_usb_restore_complete(0);
+#endif
         log_error("[PC-STORAGE] HOST_OWNED -> RESTORE_FAILED, sd0 remains blocked");
         return err;
     }
 
     __this->storage_state = PC_STORAGE_DEVICE_OWNED;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_peripheral_power_vdd_usb_restore_complete(1);
+#endif
     log_info("[PC-STORAGE] HOST_OWNED -> DEVICE_OWNED, sd0 remount ok");
 #endif
     return 0;

@@ -44,6 +44,7 @@
 #include "rcsp_user_api.h"
 #include "pwm_led/led_ui_api.h"
 #include "dual_bank_updata_api.h"
+#include "rdx_peripheral_power.h"
 #if TCFG_AUDIO_WIDE_AREA_TAP_ENABLE
 #include "icsd_adt_app.h"
 #endif
@@ -385,20 +386,22 @@ static void app_version_check()
 void sd_set_power_user(u8 en)
 {
     if(en){
-        gpio_set_mode(IO_PORT_SPILT(IO_PORTA_04), PORT_OUTPUT_HIGH);
+        rdx_peripheral_power_vdd_ensure_on(RDX_SHARED_VDD_WAKE_SD_DRIVER);
 #if TCFG_SD0_DIAG_ENABLE
-        printf("[SD-PWR] PE05 on\n");
+        printf("[SD-PWR] PA4 shared VDD ensured on\n");
 #endif
     } else {
 #if TCFG_SD0_DIAG_ENABLE
-        /* 保持原始回调行为：默认不在驱动 power-off 请求里拉低 PE05，只记录请求。 */
-        printf("[SD-PWR] PE05 off request ignored by default callback\n");
+        /* SD 不是 PA4 的唯一负载，底层请求不得绕过共享 VDD 管理器关电。 */
+        printf("[SD-PWR] PA4 off request deferred to shared VDD manager\n");
 #endif
     }
 }
 
 static struct app_mode *app_task_init()
 {
+    /* Must precede every possible SD0 open/mount path. */
+    rdx_peripheral_power_vdd_early_init();
     app_var_init();
     app_version_check();
 
