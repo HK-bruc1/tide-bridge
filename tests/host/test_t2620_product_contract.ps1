@@ -288,6 +288,48 @@ $recordMarkPersistenceOk = $RdxLibraryPatch.Contains("'  %113 = sub i32 4, %105,
 Assert-Contract 'RDX_RECORD_MARKS_PERSIST_TO_DAT' $recordMarkPersistenceOk `
     'the UXFILE serializer must use the full 248-byte marks buffer for every append and closing boundary'
 
+$recordToneFinish = Get-SourceSlice $RdxRecord `
+    'static void rdx_record_start_tone_finish(' 'static void rdx_record_start_tone_complete('
+$recordToneValid = Get-SourceSlice $RdxRecord `
+    'static bool rdx_record_start_tone_is_current(' 'static void rdx_record_start_tone_finish('
+$recordToneCallback = Get-SourceSlice $RdxRecord `
+    'static int rdx_record_start_tone_callback(' 'static void rdx_record_start_tone_play('
+$recordToneWait = Get-SourceSlice $RdxRecord `
+    'static bool rdx_record_start_tone_wait(' 'static int rdx_record_stop_tone_callback('
+$recordUi = Get-SourceSlice $RdxRecord `
+    'void rdx_record_ui_notify(void)' 'void rdx_record_auto_run(' -Last
+$recordProcessBranches = [regex]::Matches($RdxRecord, '(?s)void rdx_record_process\(void\)\s*\{.*?(?=\r?\n\})')
+$recordToneOrderingOk = $recordProcessBranches.Count -eq 2
+foreach ($branch in $recordProcessBranches) {
+    $recordToneOrderingOk = $recordToneOrderingOk -and (Test-TokensInOrder $branch.Value @(
+        'rdx_record_start_tone_wait()', 'rdx_record_set_process_state_busy()', 'case RECORD_STATE_START:'
+    ))
+}
+Assert-Contract 'RDX_RECORD_START_WAITS_FOR_TONE' `
+    ($recordToneOrderingOk -and
+     $RdxRecord -match 'play_tone_file_with_completion\(get_tone_files\(\)->ding' -and
+     $recordToneFinish -match 'record_start_tone_completed != epoch' -and
+     $recordToneFinish -match 'rdx_record_start_tone_cancel\(\)' -and
+     $recordToneCallback -match 'os_taskq_post_type\("app_core"' -and
+     $recordToneCallback -notmatch 'rdx_record_process\(' -and
+     $recordToneValid -match 'epoch == record_start_tone_epoch' -and
+     $recordToneValid -match 'goto_poweroff_flag' -and
+     $recordToneValid -match 'rdx_app_get_poweroff_flag' -and
+     $recordToneValid -match 'rdx_record_online_session_is_current' -and
+     $recordToneWait -match '(?s)record_status.run != RECORD_STATE_START.*?rdx_record_start_tone_cancel' -and
+     $recordUi -notmatch 'tone_.*(?:post|play)\(') `
+    'both recording branches must wait for natural tone completion and reject stale, cancelled, or power-off starts'
+
+$recordTask = Get-SourceSlice $RdxRecord 'static void rdx_record_task(' 'int rdx_record_task_create('
+$recordStopTone = Get-SourceSlice $RdxRecord `
+    'static int rdx_record_stop_tone_callback(' 'static void rdx_record_stop_tone_play('
+Assert-Contract 'RDX_RECORD_STOP_TONE_AFTER_CAPTURE_CLOSE' `
+    ((Test-TokensInOrder $recordTask @('translation_ear_recoder_close_all();', 'rdx_record_stop_tone_post(tone_epoch);')) -and
+     $recordStopTone -match 'STREAM_EVENT_INIT' -and
+     $recordStopTone -match 'record_start_tone_epoch' -and
+     $recordStopTone -match 'record_status.run != RECORD_STATE_STOP') `
+    'the stop prompt must follow closure of both capture paths and be rejected if a new recording has started'
+
 $recordingEncoderPathOk = $Config -notmatch 'TCFG_STENC_OPUS_ENABLE' -and
                           $SdkUsedList -notmatch 'TCFG_STENC_OPUS_ENABLE|opus_stenc_plug' -and
                           $EffectDev2 -match 'get_opus_stenc_ops\s*\(\s*\)'

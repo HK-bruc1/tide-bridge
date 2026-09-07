@@ -18,8 +18,8 @@
       "vad": 0,
       "priority": 1
      },
-     "sizeKey": "c2e49d81",
-     "size": 3385,
+     "sizeKey": "e578335e",
+     "size": 760,
      "enable": true
     },
     {
@@ -54,7 +54,7 @@
     }
    ],
    "enableOutput": 1,
-   "size": 9136,
+   "size": 6512,
    "isOpen": true
   },
   {

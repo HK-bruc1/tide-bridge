@@ -34,6 +34,8 @@
 #include "effects/eq_config.h"
 #include "audio_config.h"
 #include "app_tone.h"
+#include "app_main.h"
+#include "tone_player.h"
 #include "vol_sync.h"
 #include "key_driver.h"
 #include "app_msg.h"
@@ -127,6 +129,10 @@ static BOOL record_keep = FALSE;
 static u8 heartbeat_timer_cnt = 0;
 static u8 stream_filter_cnt = 0;
 static bool record_tone_session_active = false;
+static u32 record_start_tone_epoch;
+static u32 record_start_tone_completed;
+static bool record_start_tone_pending;
+static bool record_start_tone_ready;
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
 
@@ -354,6 +360,7 @@ extern int translation_ear_recoder_open_all(u8 ch_mode);
 extern void translation_ear_recoder_close_all(void);
 extern void rdx_ble_server_auto_shut_down_enable(u8 enable);
 extern bool rdx_app_get_dut_status(void);
+extern bool rdx_app_get_poweroff_flag(void);
 extern void motor_run_by_time(u16 ms);
 extern void rdx_record_mode_active_check(bool show);
 extern void rdx_protocol_record_state_indicate(void);
@@ -677,6 +684,9 @@ void rdx_record_set_default(void)
     record_status.ui_notify = rdx_record_ui_notify;
     record_status.stream_discont = false;
     record_tone_session_active = false;
+    ++record_start_tone_epoch;
+    record_start_tone_pending = false;
+    record_start_tone_ready = false;
     /* V24: 暂停统计 / 录音标记缓冲在每次复位时一并清零，避免跨会话残留 */
     record_status.pause_start_ms = 0;
     record_status.paused_accumulated_ms = 0;
@@ -1256,21 +1266,171 @@ void rdx_record_start(void* priv)
     }
 }
 
-static void rdx_record_ding_tone_play(void)
+/* A pending START has not opened the recorder or created a recording file.
+ * Keep process_state READY so STOP (including key release) can cancel it. */
+static void rdx_record_start_tone_cancel(void)
 {
-    play_tone_file(get_tone_files()->ding);
+    record_start_tone_pending = false;
+    record_start_tone_ready = false;
+    ++record_start_tone_epoch;
+    record_status.run = RECORD_STATE_STOP;
+    record_status.key_trigger = false;
+    record_status.stream_discont = false;
+    record_status.pause_start_ms = 0;
+    g_stream_only_session_active = 0;
+    rdx_record_online_session_clear();
+    rdx_record_stream_only_start_cancel();
+    rdx_record_pause_timeout_stop();
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+    rdx_record_set_process_state_ready();
+    rdx_app_emmc_poweroff_check();
 }
 
-static void rdx_record_ding_tone_post(void)
+static bool rdx_record_start_tone_is_current(u32 epoch)
 {
-    int msg[2];
+    return record_start_tone_pending && epoch == record_start_tone_epoch &&
+           record_status.run == RECORD_STATE_START &&
+           !app_var.goto_poweroff_flag && !rdx_app_get_poweroff_flag() &&
+           (!g_record_session_token_valid || rdx_record_online_session_is_current());
+}
 
-    msg[0] = (int)rdx_record_ding_tone_play;
-    msg[1] = 0;
-    if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
-        log_info("%s record tone taskq post err \n", __func__);
+static void rdx_record_start_tone_finish(void *priv)
+{
+    u32 epoch = (u32)priv;
+
+    if (!record_start_tone_pending || epoch != record_start_tone_epoch) {
+        return;
     }
+    if (!rdx_record_start_tone_is_current(epoch) ||
+        record_start_tone_completed != epoch) {
+        rdx_record_start_tone_cancel();
+        return;
+    }
+    record_start_tone_pending = false;
+    record_start_tone_ready = true;
+    rdx_record_process();
+}
 
+static void rdx_record_start_tone_complete(void *priv)
+{
+    if (rdx_record_start_tone_is_current((u32)priv)) {
+        record_start_tone_completed = (u32)priv;
+    }
+}
+
+static int rdx_record_start_tone_callback(void *priv, enum stream_event event)
+{
+    int msg[3];
+
+    if (event == STREAM_EVENT_INIT &&
+        !rdx_record_start_tone_is_current((u32)priv)) {
+        return -1;
+    }
+    if (event == STREAM_EVENT_STOP) {
+        if (!record_start_tone_pending || (u32)priv != record_start_tone_epoch) {
+            return 0;
+        }
+        /* STOP also covers failure/preemption. Only complete marks success.
+         * Never open audio from this callback: the tone mutex is held. */
+        msg[0] = (int)rdx_record_start_tone_finish;
+        msg[1] = 1;
+        msg[2] = (int)priv;
+        if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+            log_error("record tone completion post failed\n");
+            /* Fail closed. Recovery may run outside app_core, so it must
+             * only cancel, never start audio there. This does not time the sound. */
+            record_start_tone_completed = 0;
+            if (!sys_timeout_add(priv, rdx_record_start_tone_finish, 1)) {
+                rdx_record_start_tone_cancel();
+            }
+        }
+    }
+    return 0;
+}
+
+static void rdx_record_start_tone_play(void *priv)
+{
+    if (!rdx_record_start_tone_is_current((u32)priv)) {
+        rdx_record_start_tone_finish(priv);
+        return;
+    }
+    if (play_tone_file_with_completion(get_tone_files()->ding, priv,
+                                      rdx_record_start_tone_callback,
+                                      rdx_record_start_tone_complete)) {
+        log_error("record start tone failed\n");
+        rdx_record_start_tone_finish(priv);
+    }
+}
+
+/* Shared by both product branches, before any START work or state upload. */
+static bool rdx_record_start_tone_wait(void)
+{
+    int msg[3];
+
+    if (record_start_tone_pending) {
+        if (record_status.run != RECORD_STATE_START) {
+            rdx_record_start_tone_cancel();
+        }
+        return true;
+    }
+    if (record_status.run != RECORD_STATE_START) {
+        record_start_tone_ready = false;
+        return false;
+    }
+    if (record_tone_session_active) {
+        return false;
+    }
+    if (record_start_tone_ready) {
+        record_start_tone_ready = false;
+        return false;
+    }
+    if (++record_start_tone_epoch == 0) {
+        ++record_start_tone_epoch;
+    }
+    record_start_tone_completed = 0;
+    record_start_tone_pending = true;
+    msg[0] = (int)rdx_record_start_tone_play;
+    msg[1] = 1;
+    msg[2] = (int)record_start_tone_epoch;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        log_error("record start tone post failed\n");
+        rdx_record_start_tone_cancel();
+    }
+    return true;
+}
+
+static int rdx_record_stop_tone_callback(void *priv, enum stream_event event)
+{
+    if (event == STREAM_EVENT_INIT &&
+        ((u32)priv != record_start_tone_epoch ||
+         record_status.run != RECORD_STATE_STOP || app_var.goto_poweroff_flag ||
+         rdx_app_get_poweroff_flag())) {
+        return -1;
+    }
+    return 0;
+}
+
+static void rdx_record_stop_tone_play(void *priv)
+{
+    if (rdx_record_stop_tone_callback(priv, STREAM_EVENT_INIT)) {
+        return;
+    }
+    if (play_tone_file_callback(get_tone_files()->ding, priv,
+                                rdx_record_stop_tone_callback)) {
+        log_error("record stop tone failed\n");
+    }
+}
+
+static void rdx_record_stop_tone_post(u32 epoch)
+{
+    int msg[3];
+
+    msg[0] = (int)rdx_record_stop_tone_play;
+    msg[1] = 1;
+    msg[2] = (int)epoch;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        log_error("record stop tone post failed\n");
+    }
 }
 
 /**************************************************************************
@@ -1295,7 +1455,6 @@ void rdx_record_ui_notify(void)
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
         if(rp->run == RECORD_STATE_START && !record_tone_session_active){
             record_tone_session_active = true;
-            rdx_record_ding_tone_post();
         }
         if(rp->key_trigger == false){
             rp->key_trigger = true;
@@ -1315,10 +1474,6 @@ void rdx_record_ui_notify(void)
         //motor twice.
         rdx_record_motor_twice();
     #endif
-        if(rp->run == RECORD_STATE_STOP && record_tone_session_active){
-            record_tone_session_active = false;
-            rdx_record_ding_tone_post();
-        }
     }
     //reset trigger.
     if(rp->key_trigger == true){
@@ -1383,6 +1538,10 @@ void rdx_record_process(void)
     //check record process state.
     if(rdx_record_process_is_busy_check()){
         r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
+        return;
+    }
+
+    if (rdx_record_start_tone_wait()) {
         return;
     }
 
@@ -1532,6 +1691,9 @@ void rdx_record_process(void)
     //check record process state.
     if(rdx_record_process_is_busy_check()){
         r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
+        return;
+    }
+    if (rdx_record_start_tone_wait()) {
         return;
     }
     //send record state to app.
@@ -1689,7 +1851,17 @@ static void rdx_record_task(void *arg)
                         if(msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME){
                             translation_ear_recoder_open_all(msg[2]);
                         }else if(msg[1] == RECORD_STATE_STOP || msg[1] == RECORD_STATE_PAUSE){
+                            bool play_stop_tone = msg[1] == RECORD_STATE_STOP &&
+                                                  record_tone_session_active;
+                            u32 tone_epoch = record_start_tone_epoch;
+                            if (msg[1] == RECORD_STATE_STOP) {
+                                record_tone_session_active = false;
+                            }
                             translation_ear_recoder_close_all();
+                            /* Both MIC and DAC paths are now closed. */
+                            if (play_stop_tone) {
+                                rdx_record_stop_tone_post(tone_epoch);
+                            }
                         }
 					}
 					break;
@@ -2123,6 +2295,9 @@ void rdx_record_on_ble_conn_changed(u8 connected)
 {
     if(!connected){
         rdx_record_stream_only_start_cancel();
+        if (record_start_tone_pending && g_record_session_token_valid) {
+            rdx_record_start_tone_cancel();
+        }
     }
 
     /* 仅 PAUSE 时参与决策; START/RESUME/STOP 一律 no-op, 保持原有 BLE 断开
