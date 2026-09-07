@@ -106,8 +106,10 @@
 
 /*
  * T2620 共享外设 VDD：PA4 高有效，同时给板载 SD NAND 与外置 RGB 供电。
- * DRY_RUN 板测已经通过，当前进入 UNMOUNT_ONLY：执行 SD/RGB 安全停用与
- * 恢复，但 PA4 仍保持高。该档实机回归通过后才允许切到 POWER_CUT。
+ * DRY_RUN 和 UNMOUNT_ONLY 已完成核心链路板测，当前进入 POWER_CUT：
+ * SD/RGB 安全停用后拉低 PA4，业务恢复时先拉高 PA4 再恢复外设。
+ * UNMOUNT_ONLY 未执行的播放、USB MSC 及多轮循环项已记入设计文档，
+ * 并移入 POWER_CUT 聚焦回归，不得将其记录为已通过。
  */
 #define T2620_SHARED_VDD_MODE_DRY_RUN              0
 #define T2620_SHARED_VDD_MODE_UNMOUNT_ONLY         1
@@ -122,7 +124,7 @@
 #endif
 
 #ifndef TCFG_T2620_SHARED_VDD_MODE
-#define TCFG_T2620_SHARED_VDD_MODE                 T2620_SHARED_VDD_MODE_UNMOUNT_ONLY
+#define TCFG_T2620_SHARED_VDD_MODE                 T2620_SHARED_VDD_MODE_POWER_CUT
 #endif
 
 /* PA4 真正断电后的 LDO/SD NAND 上电稳定窗口；1 个 OS tick 约 10 ms。 */

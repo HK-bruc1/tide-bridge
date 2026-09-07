@@ -89,12 +89,12 @@ $ampPinConflictOk = $RdxAppConfig -match '(?m)^\s*#define\s+RDX_WIFI_ENABLE\s+\(
 Assert-Contract 'T2620_AMP_PE5_CONFLICT_FAILS_CLOSED' $ampPinConflictOk `
     'the current no-WiFi product may own PE5, and enabling the legacy PE5 SPI CS path must fail at compile time'
 
-$sharedVddConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_ENABLE\s+1\s*$' -and
-                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_IO\s+IO_PORTA_04\s*$' -and
-                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_MODE\s+T2620_SHARED_VDD_MODE_UNMOUNT_ONLY\s*$' -and
-                     $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS\s+1\s*$'
-Assert-Contract 'T2620_SHARED_VDD_UNMOUNT_ONLY_CONFIG' $sharedVddConfigOk `
-    'PA4 shared SD/RGB power must advance to UNMOUNT_ONLY before physical cut is enabled'
+$sharedVddPowerCutConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_ENABLE\s+1\s*$' -and
+                             $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_IO\s+IO_PORTA_04\s*$' -and
+                             $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_MODE\s+T2620_SHARED_VDD_MODE_POWER_CUT\s*$' -and
+                             $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS\s+1\s*$'
+Assert-Contract 'T2620_SHARED_VDD_POWER_CUT_CONFIG' $sharedVddPowerCutConfigOk `
+    'PA4 shared SD/RGB rail must use the POWER_CUT path with a nonzero power-stable window'
 
 $sdPowerCallback = Get-SourceSlice $AppMain `
     'void sd_set_power_user(u8 en)' `
@@ -119,7 +119,7 @@ $sharedVddQuiesceOk = $PeripheralPower -match 'T2620 PA4 shared VDD conflicts wi
                       $Pc -match '(?s)pc_storage_prepare.*?rdx_peripheral_power_vdd_usb_prepare\(\).*?dev_manager_takeover\("sd0"\).*?rdx_peripheral_power_vdd_usb_takeover_complete\(1\)' -and
                       $Pc -match '(?s)pc_storage_restore.*?dev_manager_restore\("sd0"\).*?rdx_peripheral_power_vdd_usb_restore_complete\(1\)'
 Assert-Contract 'T2620_SHARED_VDD_QUIESCE_AND_RESTORE' $sharedVddQuiesceOk `
-    'UNMOUNT_ONLY must exercise ordered SD/RGB quiesce, stale-event rejection, recovery and USB ownership handoff'
+    'shared VDD must order SD/RGB quiesce, physical cut, stale-event rejection, recovery and USB ownership handoff'
 
 $sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transition_mutex' -and
                                       $PeripheralPower -match 'os_mutex_create\(&g_rdx_shared_vdd\.transition_mutex\)' -and
