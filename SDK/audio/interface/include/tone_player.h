@@ -36,6 +36,8 @@ struct tone_player {
 #if FILE_DEC_REPEAT_EN
     struct fixphase_repair_obj repair_buf;
 #endif
+    /* Natural EOF only; never called on cancel or failure. */
+    void (*complete_callback)(void *priv);
 };
 
 
@@ -65,6 +67,13 @@ int play_tone_file(const char *file_name);
  */
 int play_tone_file_callback(const char *file_name, void *priv,
                             tone_player_cb_t callback);
+
+/* Callbacks may run under the tone mutex: post follow-up playback to a task.
+ * callback retains INIT/START/STOP semantics; complete_callback runs only
+ * after natural completion, before the final STOP callback. */
+int play_tone_file_with_completion(const char *file_name, void *priv,
+                                  tone_player_cb_t callback,
+                                  void (*complete_callback)(void *priv));
 
 /*
  * 打断方式播放单个提示音文件
@@ -118,4 +127,3 @@ u16 tone_player_get_fname_uuid(const char *fname);
 int common_dec_repeat_set(struct jlstream *stream, struct fixphase_repair_obj *repair_buf); //设置对应数据流无缝循环播放
 
 #endif
-

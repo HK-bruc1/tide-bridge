@@ -61,6 +61,8 @@ struct tone_files {
     const char *Min_max_mut;
     const char *phone_pair;
     const char *ding;
+    const char *conn;
+    const char *plebind;
 };
 
 

@@ -21,10 +21,40 @@
      "sizeKey": "c2e49d81",
      "size": 3385,
      "enable": true
+    },
+    {
+     "name": "conn",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\device_connected.mp3",
+     "outputName": "conn",
+     "format": {
+      "value": "wts",
+      "simpleRate": "8000",
+      "bitRate": 16000,
+      "vad": 0,
+      "priority": 1
+     },
+     "sizeKey": "b954d912",
+     "size": 2358,
+     "enable": true
+    },
+    {
+     "name": "plebind",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\please_bind_device.mp3",
+     "outputName": "plebind",
+     "format": {
+      "value": "wts",
+      "simpleRate": "8000",
+      "bitRate": 16000,
+      "vad": 0,
+      "priority": 1
+     },
+     "sizeKey": "245dfd27",
+     "size": 3146,
+     "enable": true
     }
    ],
    "enableOutput": 1,
-   "size": 3520,
+   "size": 9136,
    "isOpen": true
   },
   {

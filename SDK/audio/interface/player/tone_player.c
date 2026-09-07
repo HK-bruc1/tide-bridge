@@ -150,6 +150,9 @@ __try_play_next_tone:
                 }
             }
 
+            if (event == STREAM_EVENT_STOP && player->complete_callback) {
+                player->complete_callback(player->priv);
+            }
             tone_player_free(player);
         }
 
@@ -404,6 +407,7 @@ int tone_player_init(struct tone_player *player, const char *file_name)
     player->player_id   = g_player_id++;
     player->fname_uuid  = fname_uuid;
     player->coexist     = STREAM_COEXIST_AUTO;
+    player->complete_callback = NULL;
     INIT_LIST_HEAD(&player->entry);
 
     return 0;
@@ -458,7 +462,9 @@ int play_tone_file(const char *file_name)
     return tone_player_add(player);
 }
 
-int play_tone_file_callback(const char *file_name, void *priv, tone_player_cb_t callback)
+int play_tone_file_with_completion(const char *file_name, void *priv,
+                                  tone_player_cb_t callback,
+                                  void (*complete_callback)(void *priv))
 {
     struct tone_player *player;
 #ifdef  CONFIG_FPGA_ENABLE
@@ -467,13 +473,21 @@ int play_tone_file_callback(const char *file_name, void *priv, tone_player_cb_t 
 
     player = tone_player_create(file_name);
     if (!player) {
-        callback(priv, STREAM_EVENT_STOP);
+        if (callback) {
+            callback(priv, STREAM_EVENT_STOP);
+        }
         return -ENOMEM;
     }
     player->priv        = priv;
     player->callback    = callback;
+    player->complete_callback = complete_callback;
 
     return tone_player_add(player);
+}
+
+int play_tone_file_callback(const char *file_name, void *priv, tone_player_cb_t callback)
+{
+    return play_tone_file_with_completion(file_name, priv, callback, NULL);
 }
 
 static struct tone_player *tone_files_create(const char *const file_name[], u8 file_num)
@@ -755,5 +769,3 @@ void multifile_play_demo(void)
 }
 
 __initcall(__tone_player_init);
-
-

@@ -43,6 +43,7 @@
 #include "user_cfg.h"
 #include "system/includes.h"
 #include "app_config.h"
+#include "app_tone.h"
 #include "power/power_manage.h"
 
 #include "rdx_ble_server.h"
@@ -55,6 +56,7 @@
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
+#include "rdx_vm.h"
 #include "clock.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
@@ -211,6 +213,7 @@ static rdx_ble_async_token_t g_rdx_ble_send_pending_token = {
 };
 static u16 g_rdx_ble_send_pending_count = 0;
 static u8 g_rdx_ble_send_retry_pending = 0;
+static u32 g_rdx_ble_conn_tone_epoch = 0;
 
 typedef struct {
     rdx_ble_async_token_t token;
@@ -2080,6 +2083,113 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
              link->supervision_timeout);
 }
 
+static u32 rdx_ble_server_conn_tone_epoch_advance(void)
+{
+    g_rdx_ble_conn_tone_epoch++;
+    if (!g_rdx_ble_conn_tone_epoch) {
+        g_rdx_ble_conn_tone_epoch = 1;
+    }
+    return g_rdx_ble_conn_tone_epoch;
+}
+
+static int rdx_ble_server_conn_tone_callback(void *priv,
+                                            enum stream_event event)
+{
+    /* INIT is also delivered when a queued tone finally reaches the head. */
+    if (event == STREAM_EVENT_INIT &&
+        ((u32)priv != g_rdx_ble_conn_tone_epoch ||
+         !rdx_ble_session_active_count() || app_var.goto_poweroff_flag)) {
+        return -1;
+    }
+    return 0;
+}
+
+static int rdx_ble_server_plebind_tone_callback(void *priv,
+                                               enum stream_event event)
+{
+    if (event == STREAM_EVENT_INIT) {
+        if (rdx_ble_server_conn_tone_callback(priv, event) ||
+            rdx_vm_get_bound_status()) {
+            r_printf("[RDX_BLE_LINK] queued please-bind tone cancelled\n");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void rdx_ble_server_plebind_tone_check(u32 tone_epoch)
+{
+    const char *tone_file;
+
+    if (tone_epoch != g_rdx_ble_conn_tone_epoch ||
+        !rdx_ble_session_active_count() || app_var.goto_poweroff_flag) {
+        r_printf("[RDX_BLE_LINK] stale please-bind tone skipped epoch=%u/%u active=%u\n",
+                 tone_epoch, g_rdx_ble_conn_tone_epoch,
+                 rdx_ble_session_active_count());
+        return;
+    }
+    if (rdx_vm_get_bound_status()) {
+        r_printf("[RDX_BLE_LINK] please-bind tone skipped: already bound\n");
+        return;
+    }
+
+    tone_file = get_tone_files()->plebind;
+    if (tone_file) {
+        if (play_tone_file_callback(tone_file, (void *)tone_epoch,
+                                    rdx_ble_server_plebind_tone_callback)) {
+            r_printf("[RDX_BLE_LINK] please-bind tone play failed\n");
+        }
+    }
+}
+
+static void rdx_ble_server_conn_tone_complete(void *priv)
+{
+    u32 tone_epoch = (u32)priv;
+    int msg[3];
+
+    /* Only natural EOF reaches here; STOP also includes cancel and failure. */
+    msg[0] = (int)rdx_ble_server_plebind_tone_check;
+    msg[1] = 1;
+    msg[2] = (int)tone_epoch;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        r_printf("[RDX_BLE_LINK] please-bind tone taskq post failed\n");
+    }
+}
+
+static void rdx_ble_server_conn_tone_play(u32 tone_epoch)
+{
+    const char *tone_file;
+
+    if (tone_epoch != g_rdx_ble_conn_tone_epoch ||
+        !rdx_ble_session_active_count() || app_var.goto_poweroff_flag) {
+        return;
+    }
+
+    tone_file = get_tone_files()->conn;
+
+    if (tone_file) {
+        if (play_tone_file_with_completion(
+                tone_file, (void *)tone_epoch,
+                rdx_ble_server_conn_tone_callback,
+                rdx_ble_server_conn_tone_complete)) {
+            r_printf("[RDX_BLE_LINK] connection tone play failed\n");
+        }
+    }
+}
+
+static void rdx_ble_server_conn_tone_post(void)
+{
+    u32 tone_epoch = rdx_ble_server_conn_tone_epoch_advance();
+    int msg[3];
+
+    msg[0] = (int)rdx_ble_server_conn_tone_play;
+    msg[1] = 1;
+    msg[2] = (int)tone_epoch;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        r_printf("[RDX_BLE_LINK] connection tone taskq post failed\n");
+    }
+}
+
 static void rdx_ble_server_phase0a_link_connected(void *hdl,
                                                   const u8 *packet,
                                                   u16 size,
@@ -2144,6 +2254,11 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     rdx_ble_server_adv_interval_change_timer_stop();
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
+    /* With two Peripheral ACL slots, announce only the aggregate 0 -> 1
+     * transition.  A second link must not replay the connection prompt. */
+    if (rdx_ble_session_active_count() == 1) {
+        rdx_ble_server_conn_tone_post();
+    }
     rdx_ble_server_dual_acl_sleep_policy_update("connect");
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
 }

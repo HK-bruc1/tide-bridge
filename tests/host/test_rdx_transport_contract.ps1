@@ -16,6 +16,9 @@ $Keyboard = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keyboard.c"
 $HogpConfig = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_config.h"
 $ProjectConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\t2620_project_config.h'
 $StackConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\log_config\lib_btstack_config.c'
+$ToneTable = Read-RepoFile $RepoRoot 'SDK\apps\earphone\audio\tone_table.c'
+$ToneHeader = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_tone.h'
+$TonePlayer = Read-RepoFile $RepoRoot 'SDK\audio\interface\player\tone_player.c'
 
 $InitBody = Get-SourceSlice $Server `
     'void rdx_ble_server_init(void)' `
@@ -44,6 +47,24 @@ $PacketHandlerBody = Get-SourceSlice $Server `
 $ConnParamBody = Get-SourceSlice $Server `
     'static u8 rdx_ble_server_request_connect_parameter_for_token(' `
     'static void rdx_ble_server_check_connetion_updata_deal(void)'
+$PlebindToneBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_plebind_tone_check(' `
+    'static void rdx_ble_server_conn_tone_complete('
+$ConnToneCallbackBody = Get-SourceSlice $Server `
+    'static int rdx_ble_server_conn_tone_callback(' `
+    'static int rdx_ble_server_plebind_tone_callback('
+$PlebindCallbackBody = Get-SourceSlice $Server `
+    'static int rdx_ble_server_plebind_tone_callback(' `
+    'static void rdx_ble_server_plebind_tone_check('
+$ConnToneCompleteBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_conn_tone_complete(' `
+    'static void rdx_ble_server_conn_tone_play('
+$ConnTonePlayBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_conn_tone_play(' `
+    'static void rdx_ble_server_conn_tone_post('
+$ConnTonePostBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_conn_tone_post(' `
+    'static void rdx_ble_server_phase0a_link_connected('
 
 $RuntimeText = $Server + $Session + $SessionHeader + $HogpConfig + $ProjectConfig
 Assert-Contract 'FIXED_DUAL_LINK_TOPOLOGY' `
@@ -91,6 +112,50 @@ Assert-Contract 'EVENTS_AND_DISCONNECT_ARE_SLOT_SCOPED' `
      $DisconnectBody -match 'rdx_ble_session_link_release\s*\(\s*hdl\s*,\s*con_handle\s*\)' -and
      $DisconnectBody -notmatch 'rdx_ble_session_transport_deinit') `
     'fan-out events must match wrapper and handle, and one disconnect must release only its slot'
+
+Assert-Contract 'BLE_CONNECTION_PROMPTS_ARE_ORDERED_AND_BOUND_AWARE' `
+    ($ToneHeader -match 'const\s+char\s+\*conn\s*;' -and
+     $ToneHeader -match 'const\s+char\s+\*plebind\s*;' -and
+     $ToneTable -match '\.conn\s*=\s*"tone_en/conn\.\*"' -and
+     $ToneTable -match '\.plebind\s*=\s*"tone_en/plebind\.\*"' -and
+     $ConnectBody -match '(?s)rdx_ble_session_active_count\s*\(\s*\)\s*==\s*1.*?rdx_ble_server_conn_tone_post\s*\(\s*\)' -and
+     $ConnTonePostBody -match 'rdx_ble_server_conn_tone_epoch_advance\s*\(\s*\)' -and
+     $ConnTonePostBody -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK' -and
+     $ConnTonePlayBody -match 'tone_epoch\s*!=\s*g_rdx_ble_conn_tone_epoch' -and
+     $ConnTonePlayBody -match '!rdx_ble_session_active_count\s*\(\s*\)' -and
+     $ConnTonePlayBody -match 'play_tone_file_with_completion\s*\(' -and
+     $ConnTonePlayBody -match 'rdx_ble_server_conn_tone_callback' -and
+     $ConnTonePlayBody -match 'rdx_ble_server_conn_tone_complete' -and
+     $ConnToneCompleteBody -match 'rdx_ble_server_plebind_tone_check' -and
+     $ConnToneCompleteBody -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK' -and
+     $PlebindToneBody -match 'tone_epoch\s*!=\s*g_rdx_ble_conn_tone_epoch' -and
+     $PlebindToneBody -match '!rdx_ble_session_active_count\s*\(\s*\)' -and
+     $PlebindToneBody -match 'rdx_vm_get_bound_status\s*\(\s*\)' -and
+     $PlebindToneBody -match 'play_tone_file_callback\s*\(\s*tone_file' -and
+     $PlebindToneBody -match 'rdx_ble_server_plebind_tone_callback' -and
+     ($PlebindToneBody + $ConnToneCallbackBody + $ConnTonePlayBody + $ConnTonePostBody) -notmatch 'tws_play_tone') `
+    'the aggregate first BLE link must play local conn first, then revalidate the epoch, link and RDX binding before plebind'
+
+$PlayerCallbackBody = Get-SourceSlice $TonePlayer `
+    'static void tone_player_callback(' 'static int tone_file_read('
+$PlayerFreeBody = Get-SourceSlice $TonePlayer `
+    'void tone_player_free(' 'static void tone_player_callback('
+$PlayerStopBody = Get-SourceSlice $TonePlayer `
+    'void tone_player_stop(' 'u16 tone_player_get_fname_uuid('
+Assert-Contract 'BLE_PROMPTS_CANCEL_ON_INTERRUPTION_AND_REVALIDATE_AT_START' `
+    ($PlayerCallbackBody -match '(?s)if\s*\(!file\).*?if\s*\(event\s*==\s*STREAM_EVENT_STOP\s*&&\s*player->complete_callback\)\s*\{\s*player->complete_callback\(player->priv\);' -and
+     ($PlayerFreeBody + $PlayerStopBody) -notmatch 'complete_callback' -and
+     $ConnToneCallbackBody -match 'event\s*==\s*STREAM_EVENT_INIT' -and
+     $ConnToneCallbackBody -match 'g_rdx_ble_conn_tone_epoch' -and
+     $ConnToneCallbackBody -match '!rdx_ble_session_active_count\s*\(\s*\)' -and
+     $ConnToneCallbackBody -match 'app_var.goto_poweroff_flag' -and
+     $ConnToneCallbackBody -match 'return -1' -and
+     $ConnToneCallbackBody -notmatch 'os_taskq_post_type' -and
+     $PlebindCallbackBody -match 'event\s*==\s*STREAM_EVENT_INIT' -and
+     $PlebindCallbackBody -match 'rdx_ble_server_conn_tone_callback\(priv, event\)' -and
+     $PlebindCallbackBody -match 'rdx_vm_get_bound_status\s*\(\s*\)' -and
+     $PlebindCallbackBody -match 'return -1') `
+    'only natural completion may chain prompts; queued prompts must reject stale links, shutdown and completed binding at INIT'
 
 Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
     (($Server + $Keyboard) -notmatch '(?m)^\s*(?!//)[^/\r\n]*\batt_(?:get|set)_ccc_config\s*\(' -and
