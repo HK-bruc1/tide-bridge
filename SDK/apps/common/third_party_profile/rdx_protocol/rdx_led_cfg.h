@@ -202,7 +202,7 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
     },
     [RDX_LED_EFFECT_RECORD_BREATH] = {
         .mode        = RDX_LED_MODE_BREATH,
-        .r = 170, .g = 100, .b = 255,            /* 白色 */
+        .r = 181, .g = 82, .b = 255,            /* 白色：按 800:1500:600 最大光强反比校准 */
         .brightness  = 255,
         .cycle_ms    = 4000,
     },
