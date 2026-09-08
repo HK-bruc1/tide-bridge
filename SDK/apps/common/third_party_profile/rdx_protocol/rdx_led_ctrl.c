@@ -8,7 +8,7 @@
     - BLE连接后：常亮1s后熄灭（青色）
     - BLE断开后：1s闪一次（蓝色）
     - 录音时：呼吸灯（红色）
-    - 充电灯效：按电量分段呼吸灯，充满绿色常亮
+    - 充电灯效：纯绿色呼吸灯，充满绿色常亮
 
     架构：表驱动引擎
     - 所有产品级颜色/时序/亮度参数在 rdx_led_cfg.h 中配置
@@ -38,11 +38,12 @@
 #include "rdx_record.h"
 #include "rdx_app.h"
 #include "rdx_charge.h"
-#include "rdx_uxfile.h"
+#include "app_main.h"
+#include "app_power_manage.h"
+#include "asm/charge.h"
 
 extern bool rdx_app_get_dut_status(void);
 extern u8 get_ota_status(void);
-extern ReqFileInfo* rdx_protocol_get_uploadfileInfo(void);
 
 /******************************************************************************
 * Macro Define Section
@@ -63,6 +64,8 @@ static u32 g_phase_elapsed_ms = 0;    /* 每周期重置 — 用于引擎处理 
 static u8 g_led_blink_state = 0;
 static u8 g_led_connected_on_done = 0;
 static u8 g_led_initialized = 0;
+/* Survives LED deinit while the shared rail sleeps between reminders. */
+static u16 g_low_battery_timer = 0;
 
 /******************************************************************************
 * Function Declaration Section
@@ -86,6 +89,76 @@ static void _rdx_led_restore_system_state(void);
 static bool _rdx_led_is_transfer_active(void);
 static bool _rdx_led_can_show_transfer_effect(void);
 static bool _rdx_led_refresh_transfer_scene(void);
+
+static bool _rdx_led_low_battery_reminder_needed(void)
+{
+    return !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+           !get_charge_online_flag() &&
+           rdx_app_get_charge_state() == RDX_CHARGE_OUT &&
+           get_vbat_percent() < RDX_LED_LOW_BATTERY_PERCENT;
+}
+
+/* Both manual queries and periodic reminders yield to these scenes. */
+static bool _rdx_led_can_show_battery(void)
+{
+    return !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+           !get_charge_online_flag() &&
+           rdx_app_get_charge_state() == RDX_CHARGE_OUT &&
+           !get_ota_status() && !rdx_app_get_dut_status() &&
+           g_current_scene != RDX_LED_SCENE_OTA_START &&
+           g_current_scene != RDX_LED_SCENE_DUT_ENTER &&
+           g_current_scene != RDX_LED_SCENE_CHARGE_PLUG_IN &&
+           g_current_scene != RDX_LED_SCENE_CHARGE_FULL;
+}
+
+void rdx_led_ctrl_show_battery(void)
+{
+    if (!_rdx_led_can_show_battery()) {
+        return;
+    }
+    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
+        /* Extend the visible red reminder without changing its repeat timer. */
+        g_effect_elapsed_ms = 0;
+        return;
+    }
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BATTERY_QUERY);
+}
+
+static void _rdx_led_low_battery_timer_cb(void *priv)
+{
+    if (!_rdx_led_low_battery_reminder_needed()) {
+        rdx_led_ctrl_update_low_battery();
+        return;
+    }
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
+}
+
+void rdx_led_ctrl_update_low_battery(void)
+{
+    if (!_rdx_led_low_battery_reminder_needed()) {
+        if (g_low_battery_timer) {
+            sys_timer_del(g_low_battery_timer);
+            g_low_battery_timer = 0;
+        }
+        if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
+            /* Release the temporary priority lock before restoring a scene. */
+            g_current_scene = RDX_LED_SCENE_OFF;
+            if (app_var.goto_poweroff_flag || get_vbat_need_shutdown()) {
+                rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+            } else {
+                _rdx_led_restore_system_state();
+            }
+        }
+        return;
+    }
+    if (!g_low_battery_timer) {
+        g_low_battery_timer = sys_timer_add(NULL,
+                _rdx_led_low_battery_timer_cb, RDX_LED_LOW_BATTERY_REMINDER_MS);
+        if (g_low_battery_timer) {
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
+        }
+    }
+}
 
 /******************************************************************************
 * Function Section — 基础LED操作
@@ -126,18 +199,16 @@ static void rdx_led_ctrl_update_timer_cb(void *priv)
 
 static bool _rdx_led_is_transfer_active(void)
 {
+    /* Only Wi-Fi transfer requests this effect. BLE file downloads are silent;
+     * firmware upgrades use the independent OTA scene and get_ota_status(). */
     RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    if (wifi_info && wifi_info->onoff == TRANSFER_BY_WIFI_ON) {
-        return true;
-    }
-
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
-    return rf_info && rf_info->file_send_busy == true;
+    return wifi_info && wifi_info->onoff == TRANSFER_BY_WIFI_ON;
 }
 
 static bool _rdx_led_can_show_transfer_effect(void)
 {
-    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
+    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY ||
+        g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) {
         return false;
     }
     if (rdx_app_get_dut_status() || get_ota_status()) {
@@ -182,6 +253,10 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
         return;
     }
     g_active_effect = &rdx_led_effect_cfg[effect];
+    g_printf("RDX LED effect: id=%u mode=%u rgb=%u,%u,%u cycle=%u\r\n",
+             (unsigned)effect, (unsigned)g_active_effect->mode,
+             (unsigned)g_active_effect->r, (unsigned)g_active_effect->g,
+             (unsigned)g_active_effect->b, (unsigned)g_active_effect->cycle_ms);
     g_effect_elapsed_ms = 0;
     g_phase_elapsed_ms = 0;
     g_led_blink_state = 0;
@@ -224,19 +299,8 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
 
 static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
 {
-    rdx_led_effect_e effect;
-#if RDX_LED_CHARGE_POLICY == RDX_LED_CHARGE_POLICY_RAINBOW
-    effect = RDX_LED_EFFECT_CHARGE_RAINBOW_BREATH;
-#else
-    if (battery_percent < RDX_LED_CHARGE_THRESHOLD_LOW) {
-        effect = RDX_LED_EFFECT_CHARGE_LOW_BREATH;
-    } else if (battery_percent < RDX_LED_CHARGE_THRESHOLD_MID) {
-        effect = RDX_LED_EFFECT_CHARGE_MID_BREATH;
-    } else {
-        effect = RDX_LED_EFFECT_CHARGE_HIGH_BREATH;
-    }
-#endif
-    _rdx_led_apply_effect(effect);
+    (void)battery_percent;
+    _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_GREEN_BREATH);
 
     g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;
 }
@@ -446,6 +510,13 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
+    /* Gate before waking the shared rail. Skipping a reminder does not
+     * restart its ten-minute schedule. */
+    if ((scene == RDX_LED_SCENE_LOW_BATTERY ||
+         scene == RDX_LED_SCENE_BATTERY_QUERY) &&
+        !_rdx_led_can_show_battery()) {
+        return;
+    }
     if (g_led_config == NULL || !g_led_initialized) {
         if (scene == RDX_LED_SCENE_OFF) {
             rdx_peripheral_power_vdd_business_changed_notify();
@@ -460,10 +531,13 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         }
     }
 
-    /* 低电告警最高优先级 — 只允许 关机/插入充电 打断 */
+    /* The temporary warning must yield immediately to critical status LEDs. */
     if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY
         && scene != RDX_LED_SCENE_OFF
-        && scene != RDX_LED_SCENE_CHARGE_PLUG_IN) {
+        && scene != RDX_LED_SCENE_CHARGE_PLUG_IN
+        && scene != RDX_LED_SCENE_CHARGE_FULL
+        && scene != RDX_LED_SCENE_OTA_START
+        && scene != RDX_LED_SCENE_DUT_ENTER) {
         return;
     }
 
@@ -471,14 +545,18 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     g_current_scene = scene;
 
     switch (scene) {
+    case RDX_LED_SCENE_BATTERY_QUERY:
+        _rdx_led_apply_effect(get_vbat_percent() < RDX_LED_LOW_BATTERY_PERCENT ?
+                RDX_LED_EFFECT_LOW_BATTERY_SOLID : RDX_LED_EFFECT_BATTERY_GREEN);
+        return;
+
     case RDX_LED_SCENE_RECORD_STOP:
     case RDX_LED_SCENE_CHARGE_PLUG_OUT:
         _rdx_led_restore_system_state();
         return;
 
     case RDX_LED_SCENE_CHARGE_PLUG_IN:
-        /* 充电刚插入 — 使用默认充电效果。
-           调用者应随后调用 set_charge_state_by_battery(实际电量%) */
+        /* 充电中统一绿色呼吸，电量参数仅保留兼容。 */
         _rdx_led_set_charge_effect_by_battery(80);
         return;
 
@@ -514,9 +592,6 @@ void rdx_led_ctrl_set_state(rdx_led_state_e state)
     case LED_STATE_OFF:
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
         break;
-    /* LEGACY FIXED-STATE: CHARGE_LOW/MID/HIGH 直接调 _rdx_led_apply_effect(),
-       不经过 set_scene()。g_current_scene 设为 best-effort 值。
-       仅存的调用者 rdx_app.c:1594 需要此路径。 */
 
     case LED_STATE_BLE_ADV_BLINK:
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
@@ -540,16 +615,9 @@ void rdx_led_ctrl_set_state(rdx_led_state_e state)
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
         break;
     case LED_STATE_CHARGE_LOW_BREATH:
-        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_LOW_BREATH);
-        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
-        break;
     case LED_STATE_CHARGE_MID_BREATH:
-        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_MID_BREATH);
-        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
-        break;
     case LED_STATE_CHARGE_HIGH_BREATH:
-        _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_HIGH_BREATH);
-        g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;  /* best-effort — legacy固定调用 */
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
         break;
     case LED_STATE_CHARGE_FULL:
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
@@ -608,7 +676,11 @@ void rdx_led_ctrl_update(void)
        通过set_scene()保持g_current_scene同步。 */
     if (g_active_effect->timeout_ms > 0
         && g_effect_elapsed_ms >= g_active_effect->timeout_ms) {
-        if (g_current_scene == RDX_LED_SCENE_RECORD_MARK) {
+        if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY ||
+            g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) {
+            g_current_scene = RDX_LED_SCENE_OFF;
+            _rdx_led_restore_system_state();
+        } else if (g_current_scene == RDX_LED_SCENE_RECORD_MARK) {
             _rdx_led_restore_system_state();
         } else {
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
@@ -649,7 +721,7 @@ void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness)
 ******************************************************************************/
 
 /**
- * @brief 根据电池电量设置充电灯效
+ * @brief 设置充电中绿色呼吸灯效（保留电量参数兼容调用者）
  * @param battery_percent 电池电量百分比 (0-100)
  */
 void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)

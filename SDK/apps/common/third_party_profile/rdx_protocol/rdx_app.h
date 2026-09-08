@@ -113,6 +113,8 @@ typedef struct{
 }RdxWifiInfo;
 
 
+void rdx_app_online_key_down(u8 key_value);
+
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
 
 struct RDX_SYNC_INFO {

@@ -144,6 +144,11 @@ static int app_power_event_handler(int *msg)
 {
     int ret = false;
 
+    if (msg[0] == POWER_EVENT_PERCENT_UPDATE) {
+        rdx_led_ctrl_update_low_battery();
+        return ret;
+    }
+
 #if(TCFG_SYS_LVD_EN == 1)
     switch (msg[0]) {
     case POWER_EVENT_POWER_NORMAL:
@@ -153,7 +158,6 @@ static int app_power_event_handler(int *msg)
         if (lowpower_timer == 0) {
             lowpower_timer = sys_timer_add(NULL, power_warning_timer, LOW_POWER_WARN_TIME);
         }
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
         break;
     case POWER_EVENT_POWER_LOW:
         r_printf(" POWER_EVENT_POWER_LOW");
@@ -448,6 +452,9 @@ void vbat_check(void *priv)
         }
     }
     cur_battery_level = battery_value_to_phone_level();
+
+    /* LED policy runs on app_core, never in the fast ADC timer context. */
+    batmgr_send_msg(POWER_EVENT_PERCENT_UPDATE, 0);
 
     /*log_info("cur_voltage: %d mV, tmp_percent: %d, cur_percent: %d, cur_level: %d\n",
              cur_battery_voltage, tmp_percent, cur_battery_percent, cur_battery_level);*/

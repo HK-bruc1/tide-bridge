@@ -899,6 +899,29 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
     }
 }
 
+static void rdx_app_online_key_battery_cb(void *priv)
+{
+    bool online = rdx_app_rdx_key_route_ready();
+#if TCFG_RDX_HOGP_ENABLE
+    online = online || rdx_hogp_keyboard_is_ready();
+#endif
+    if (online &&
+        !app_in_mode(APP_MODE_PC) && !rdx_uxfile_sd_format_status_check()) {
+        rdx_led_ctrl_show_battery();
+    }
+}
+
+void rdx_app_online_key_down(u8 key_value)
+{
+    if (key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM3) {
+        /* The scan callback must not operate the shared LED rail directly. */
+        int msg[3] = {(int)rdx_app_online_key_battery_cb, 1, 0};
+        if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+            y_printf("[KEY] battery indication queue full\n");
+        }
+    }
+}
+
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
     /*----------------------------------------------------------------*/

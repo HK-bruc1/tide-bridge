@@ -396,7 +396,8 @@ void rdx_app_charge_full(void)
     // 充满电：绿色常亮
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
 
-#if (TCFG_CHARGE_POWERON_ENABLE == 0)
+    /* Keep the full indicator on: the legacy timeout cuts PC1 and PA4. */
+#if (TCFG_CHARGE_POWERON_ENABLE == 0) && !RDX_PRODUCT_IS_CHARGE_CASE
     // rdx_app_charge_full_timeout_stop();
     //timer to poweroff.
     rdx_app_charge_full_timer_to_poweroff();

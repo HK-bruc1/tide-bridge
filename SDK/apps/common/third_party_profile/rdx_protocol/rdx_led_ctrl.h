@@ -47,12 +47,12 @@ typedef enum {
     LED_STATE_BLE_CONNECTED,        /* BLE已连：蓝灯长亮5秒后熄灭 */
     LED_STATE_BLE_DISCONNECTED,     /* BLE断开：蓝灯闪烁，超时后熄灭 */
     LED_STATE_RECORD_BREATH,        /* 录音中：白灯呼吸 */
-    LED_STATE_OTA_BLINK,            /* OTA升级中：3s闪两次（100ms间隔） */
+    LED_STATE_OTA_BLINK,            /* 兼容旧接口名，OTA升级中：黄色常亮 */
     LED_STATE_DUT_BLINK,            /* DUT模式：黄灯1s一次闪烁 */
     LED_STATE_WIFI_BLINK,           /* BLE/WiFi传输：黄灯慢闪 */
-    LED_STATE_CHARGE_LOW_BREATH,    /* 充电中电量<20%：红色呼吸灯 */
-    LED_STATE_CHARGE_MID_BREATH,    /* 充电中电量20-80%：黄色呼吸灯 */
-    LED_STATE_CHARGE_HIGH_BREATH,   /* 充电中电量80-100%：绿色呼吸灯 */
+    LED_STATE_CHARGE_LOW_BREATH,    /* Legacy alias: green breathing while charging */
+    LED_STATE_CHARGE_MID_BREATH,    /* Legacy alias: green breathing while charging */
+    LED_STATE_CHARGE_HIGH_BREATH,    /* Legacy alias: green breathing while charging */
     LED_STATE_CHARGE_FULL,          /* 充满电：绿色常亮 */
 } rdx_led_state_e;
 
@@ -78,10 +78,11 @@ typedef enum {
     RDX_LED_SCENE_CHARGE_PLUG_OUT,  /* 充电拔出 */
     RDX_LED_SCENE_CHARGE_FULL,      /* 充电充满 */
     RDX_LED_SCENE_CASE_DISCHARGE,   /* 仓给耳机充电：无灯效 */
-    RDX_LED_SCENE_LOW_BATTERY,      /* 充电仓低电 */
+    RDX_LED_SCENE_LOW_BATTERY,      /* 低于10%：每十分钟红灯常亮2秒后恢复业务灯效 */
     RDX_LED_SCENE_WIFI_START,       /* WiFi传输开始 */
     RDX_LED_SCENE_WIFI_STOP,        /* WiFi传输结束 */
     RDX_LED_SCENE_RECORD_MARK,      /* 录音标记成功：黄灯单次提示 */
+    RDX_LED_SCENE_BATTERY_QUERY,
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 
@@ -124,6 +125,12 @@ rdx_led_scene_e rdx_led_ctrl_get_scene(void);
  */
 void rdx_led_ctrl_update(void);
 
+/* Refresh the <10% reminder policy on app_core after a battery sample. */
+void rdx_led_ctrl_update_low_battery(void);
+
+/* Show the sampled battery level for two seconds, then restore SMART. */
+void rdx_led_ctrl_show_battery(void);
+
 /**
  * @brief 立即刷新LED显示
  */
@@ -147,8 +154,8 @@ void rdx_led_ctrl_set_custom_color(u8 r, u8 g, u8 b);
 void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness);
 
 /**
- * @brief 根据电池电量设置充电灯效
- * @param battery_percent 电池电量百分比 (0-100)
+ * @brief 设置充电中绿色呼吸灯效
+ * @param battery_percent 兼容参数，不参与灯效选择；充满由 CHARGE_FULL 场景控制
  */
 void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent);
 

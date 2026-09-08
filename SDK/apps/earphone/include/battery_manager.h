@@ -17,6 +17,7 @@ enum battery_msg {
     POWER_EVENT_POWER_CHANGE,
     POWER_EVENT_SYNC_TWS_VBAT_LEVEL,
     POWER_EVENT_POWER_CHARGE,
+    POWER_EVENT_PERCENT_UPDATE,
 };
 
 void batmgr_send_msg(enum battery_msg msg, int arg);

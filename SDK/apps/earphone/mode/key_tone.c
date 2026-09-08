@@ -8,6 +8,9 @@
 #include "app_main.h"
 #include "app_tone.h"
 #include "key_driver.h"
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_app.h"
+#endif
 
 #if TCFG_KEY_TONE_NODE_ENABLE
 
@@ -51,6 +54,9 @@ APP_MSG_HANDLER(key_tone_msg_entry) = {
 #if TCFG_IOKEY_ENABLE
 void key_down_event_handler(u8 key_value)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_app_online_key_down(key_value);
+#endif
 #if TCFG_KEY_TONE_NODE_ENABLE
     if (g_have_key_tone_file == 1) {
         app_send_message(APP_MSG_KEY_TONE, 0);

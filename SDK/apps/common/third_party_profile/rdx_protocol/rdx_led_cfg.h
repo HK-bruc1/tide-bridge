@@ -11,7 +11,7 @@
    │ rdx_ble_server.c │       │ Scene→Effect 映射 │        │ 6 种模式处理器        │
    │ rdx_record.c     │──┐    │ Effect 参数表     │    ┌─→ │ OFF / SOLID /         │
    │ rdx_dut.c        │  │    │ 呼吸亮度查表      │    │   │ SOLID_TIMEOUT /       │
-   │ rdx_ota.c        │  └───→│ 充电策略/阈值     │────┘   │ BLINK / BREATH /       │
+   │ rdx_ota.c        │  └───→│ 充电灯效配置      │────┘   │ BLINK / BREATH /       │
    │ rdx_charge.c     │set_   │ 引擎更新间隔      │        │ DOUBLE_BLINK      │
    │ rdx_app.c        │scene()└──────────────────┘        └──────────────────────┘
    └──────────────────┘
@@ -25,7 +25,7 @@
    rdx_led_ctrl_set_scene(scene)               — 主入口：指定业务场景
       典型调用: rdx_ble_server.c / rdx_record.c / rdx_dut.c / rdx_ota.c
 
-   rdx_led_ctrl_set_charge_state_by_battery(%)  — 充电中按电量更新灯效
+   rdx_led_ctrl_set_charge_state_by_battery(%)  — 充电中绿色呼吸，电量参数仅保留兼容
       典型调用: rdx_charge.c:418/584
 
    rdx_led_ctrl_restore_system_state()          — 拔出充电后恢复系统灯效
@@ -36,8 +36,6 @@
  ============================================================================
 
    Engine update interval       (第95-96行)   引擎定时器周期 20ms
-   Charge battery policy        (第98-101行)  充电灯效策略编译开关
-   Charge battery thresholds    (第103-105行) 电量分段阈值
    Breath table size            (第107-108行) 呼吸亮度表尺寸 100 级
    rdx_led_mode_e               (第110-118行) 6 种灯效执行模式
    rdx_led_effect_cfg_t         (第120-129行) 效果参数结构体 (RGB/时序/亮度)
@@ -66,9 +64,7 @@
       1. rdx_led_ctrl.h 的 rdx_led_scene_e 加新场景值
       2. 本文件 Scene→Effect 映射 加该场景→效果关联
 
-   [切换充电策略] → 改第 99 行:
-      当前: RDX_LED_CHARGE_POLICY_RAINBOW     (USB充电中七彩呼吸灯)
-      未来: RDX_LED_CHARGE_POLICY_BY_PERCENT   (按电量 3 段式)
+   Charging: pure green breathing; fully charged: solid green.
 
    [增加新运行模式] → 需要动引擎 (当前 6 种已覆盖所有产品需求)
       1. rdx_led_mode_e 加新模式
@@ -94,14 +90,10 @@
 /* ===== Engine update interval ===== */
 #define RDX_LED_UPDATE_INTERVAL_MS          (20)
 
-/* ===== Charge battery policy ===== */
-#define RDX_LED_CHARGE_POLICY_RAINBOW       0   /* USB充电中：七彩呼吸灯 */
-#define RDX_LED_CHARGE_POLICY_BY_PERCENT    1   /* 未来：按电量3段式 */
-#define RDX_LED_CHARGE_POLICY               RDX_LED_CHARGE_POLICY_RAINBOW
-
-/* ===== Charge battery level thresholds (only used when POLICY == BY_PERCENT) ===== */
-#define RDX_LED_CHARGE_THRESHOLD_LOW        20
-#define RDX_LED_CHARGE_THRESHOLD_MID        80
+/* Battery indication policy: >= threshold is green, otherwise red. */
+#define RDX_LED_LOW_BATTERY_PERCENT         (10)
+#define RDX_LED_LOW_BATTERY_REMINDER_MS     (10 * 60 * 1000UL)
+#define RDX_LED_BATTERY_INDICATION_MS       (2000)
 
 /* ===== Breath brightness table size ===== */
 #define RDX_LED_BREATH_TABLE_SIZE           (80)
@@ -140,17 +132,15 @@ typedef enum {
     RDX_LED_EFFECT_BLE_ADV_BLINK,
     RDX_LED_EFFECT_BLE_CONNECTED,
     RDX_LED_EFFECT_RECORD_BREATH,
-    RDX_LED_EFFECT_OTA_DOUBLE_BLINK,
+    RDX_LED_EFFECT_OTA_YELLOW_SOLID,
     RDX_LED_EFFECT_DUT_BLINK,
     RDX_LED_EFFECT_TRANSFER_YELLOW_BLINK,
-    RDX_LED_EFFECT_CHARGE_RAINBOW_BREATH,
-    RDX_LED_EFFECT_CHARGE_LOW_BREATH,
-    RDX_LED_EFFECT_CHARGE_MID_BREATH,
-    RDX_LED_EFFECT_CHARGE_HIGH_BREATH,
+    RDX_LED_EFFECT_CHARGE_GREEN_BREATH,
     RDX_LED_EFFECT_CHARGE_FULL,
-    RDX_LED_EFFECT_LOW_BATTERY_BLINK,
+    RDX_LED_EFFECT_LOW_BATTERY_SOLID,
     RDX_LED_EFFECT_RECORD_MARK_YELLOW,
-    RDX_LED_EFFECT_MAX,              /* 14 */
+    RDX_LED_EFFECT_BATTERY_GREEN,
+    RDX_LED_EFFECT_MAX,
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
 
@@ -158,6 +148,7 @@ typedef enum {
    每个 rdx_led_scene_e 在此显式映射到 rdx_led_effect_e。
    值为 RDX_LED_EFFECT_SMART 表示该场景由 set_scene() 内部 switch 处理。 */
 static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
+    [RDX_LED_SCENE_BATTERY_QUERY]    = RDX_LED_EFFECT_SMART,
     [RDX_LED_SCENE_OFF]              = RDX_LED_EFFECT_OFF,
     [RDX_LED_SCENE_BLE_ADV_START]    = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_BLE_CONNECTED]    = RDX_LED_EFFECT_BLE_CONNECTED,
@@ -166,7 +157,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     [RDX_LED_SCENE_RECORD_START]     = RDX_LED_EFFECT_RECORD_BREATH,
     [RDX_LED_SCENE_RECORD_MARK]      = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     [RDX_LED_SCENE_RECORD_STOP]      = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
-    [RDX_LED_SCENE_OTA_START]        = RDX_LED_EFFECT_OTA_DOUBLE_BLINK,
+    [RDX_LED_SCENE_OTA_START]        = RDX_LED_EFFECT_OTA_YELLOW_SOLID,
     [RDX_LED_SCENE_OTA_STOP]         = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_DUT_ENTER]        = RDX_LED_EFFECT_DUT_BLINK,
     [RDX_LED_SCENE_DUT_EXIT]         = RDX_LED_EFFECT_OFF,
@@ -174,7 +165,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     [RDX_LED_SCENE_CHARGE_PLUG_OUT]  = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
     [RDX_LED_SCENE_CHARGE_FULL]      = RDX_LED_EFFECT_CHARGE_FULL,
     [RDX_LED_SCENE_CASE_DISCHARGE]   = RDX_LED_EFFECT_OFF,
-    [RDX_LED_SCENE_LOW_BATTERY]      = RDX_LED_EFFECT_LOW_BATTERY_BLINK,
+    [RDX_LED_SCENE_LOW_BATTERY]      = RDX_LED_EFFECT_LOW_BATTERY_SOLID,
     [RDX_LED_SCENE_WIFI_START]       = RDX_LED_EFFECT_TRANSFER_YELLOW_BLINK,
     [RDX_LED_SCENE_WIFI_STOP]        = RDX_LED_EFFECT_OFF,
 };
@@ -183,6 +174,12 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
 /* 所有产品级LED颜色、时序、亮度都在此定义。
    rdx_led_ctrl.c中的引擎不硬编码任何这些值。 */
 static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
+    [RDX_LED_EFFECT_BATTERY_GREEN] = {
+        .mode = RDX_LED_MODE_SOLID,
+        .r = 0, .g = 255, .b = 0,
+        .brightness = 200,
+        .timeout_ms = RDX_LED_BATTERY_INDICATION_MS,
+    },
     [RDX_LED_EFFECT_OFF] = {
         .mode = RDX_LED_MODE_OFF,
     },
@@ -213,13 +210,11 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .on_ms       = 2000,
         .timeout_ms  = 2000,
     },
-    /* OTA升级: 黄色慢闪, 与未连接蓝牙时的紫灯慢闪时序一致 */
-    [RDX_LED_EFFECT_OTA_DOUBLE_BLINK] = {
-        .mode        = RDX_LED_MODE_BLINK,
-        .r = 255, .g = 255, .b = 0,             /* 黄色 */
+    /* OTA升级: 黄色常亮，直到升级结束 */
+    [RDX_LED_EFFECT_OTA_YELLOW_SOLID] = {
+        .mode        = RDX_LED_MODE_SOLID,
+        .r = 255, .g = 160, .b = 0,             /* 暖黄色，补偿绿光偏强 */
         .brightness  = 200,
-        .on_ms       = 200,
-        .interval_ms = 1000,
         .timeout_ms  = 0,
     },
     [RDX_LED_EFFECT_DUT_BLINK] = {
@@ -234,27 +229,9 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .on_ms       = 200,
         .interval_ms = 1000,
     },
-    [RDX_LED_EFFECT_CHARGE_RAINBOW_BREATH] = {
-        .mode        = RDX_LED_MODE_RAINBOW_BREATH,
-        .brightness  = 255,
-        .interval_ms = 4000,                    /* 完整七彩循环周期 */
-        .cycle_ms    = 4000,
-    },
-    [RDX_LED_EFFECT_CHARGE_LOW_BREATH] = {
+    [RDX_LED_EFFECT_CHARGE_GREEN_BREATH] = {
         .mode        = RDX_LED_MODE_BREATH,
-        .r = 255, .g = 0, .b = 0,               /* 红色 */
-        .brightness  = 255,
-        .cycle_ms    = 4000,
-    },
-    [RDX_LED_EFFECT_CHARGE_MID_BREATH] = {
-        .mode        = RDX_LED_MODE_BREATH,
-        .r = 255, .g = 128, .b = 0,             /* 橙色 */
-        .brightness  = 255,
-        .cycle_ms    = 4000,
-    },
-    [RDX_LED_EFFECT_CHARGE_HIGH_BREATH] = {
-        .mode        = RDX_LED_MODE_BREATH,
-        .r = 128, .g = 0, .b = 128,             /* 紫色 */
+        .r = 0, .g = 255, .b = 0,               /* Pure green */
         .brightness  = 255,
         .cycle_ms    = 4000,
     },
@@ -263,12 +240,11 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .r = 0, .g = 255, .b = 0,               /* 绿色 */
         .brightness  = 255,
     },
-    [RDX_LED_EFFECT_LOW_BATTERY_BLINK] = {
-        .mode        = RDX_LED_MODE_BLINK,
+    [RDX_LED_EFFECT_LOW_BATTERY_SOLID] = {
+        .mode        = RDX_LED_MODE_SOLID,
         .r = 255, .g = 0, .b = 0,               /* 红色 */
         .brightness  = 200,
-        .on_ms       = 200,
-        .interval_ms = 1000,
+        .timeout_ms  = RDX_LED_BATTERY_INDICATION_MS,
     },
 };
 
