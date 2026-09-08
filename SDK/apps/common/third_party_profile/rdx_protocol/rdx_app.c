@@ -136,6 +136,13 @@ extern struct ble_task_param ble_task;
 * Local variables Section
 *******************************************************************************/
 static bool rdx_app_init_flag = FALSE;
+/* Sticky until CPU reset: BLE exit does not drain library file workers. */
+static bool rdx_business_started;
+
+u8 rdx_app_business_started(void)
+{
+    return rdx_business_started;
+}
 
 static RecordStatus set_rp;
 
@@ -2416,6 +2423,9 @@ void rdx_app_dut_show(void)
  **************************************************************************/
 int rdx_app_msg_handler(int *msg)
 {
+    if (!rdx_app_business_started()) {
+        return false;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
@@ -2785,6 +2795,9 @@ SHUTOFF);
  **************************************************************************/
 int rdx_app_key_msg_handler(int *msg)
 {
+    if (!rdx_app_business_started()) {
+        return true;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
@@ -4140,6 +4153,7 @@ int rdx_led_hardware_deinit(void)
  **************************************************************************/
 void rdx_app_all_init(void)
 {
+    rdx_business_started = true;
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/

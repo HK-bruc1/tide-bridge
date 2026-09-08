@@ -7,6 +7,9 @@
 #include "app_main.h"
 #include "init.h"
 #include "app_config.h"
+#include "rdx_dip_switch.h"
+#include "idle.h"
+#include "rdx_app.h"
 #include "app_default_msg_handler.h"
 #include "dev_status.h"
 #include "audio_config.h"
@@ -240,6 +243,11 @@ int app_common_device_event_handler(int *msg)
             extern int pc_device_event_handler(int *msg);
             ret = pc_device_event_handler(msg);
             if (ret == 1) {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+                if (!rdx_dip_switch_pc_allowed()) {
+                    break;
+                }
+#endif
                 if (true != app_in_mode(APP_MODE_PC)) {
                     app = APP_MODE_PC;
                     y_printf("========== app = APP_MODE_PC    \n");
@@ -252,8 +260,12 @@ int app_common_device_event_handler(int *msg)
                     //------------------------------------------------------
                 }
             } else if (ret == 2) {
-                y_printf("========== ret == 2 , APP_MSG_GOTO_NEXT_MODE  \n");
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+                y_printf("[PC-STORAGE] USB removed -> charge idle\n");
+                app_send_message(APP_MSG_GOTO_MODE, APP_MODE_IDLE | (IDLE_MODE_CHARGE << 8));
+#else
                 app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+#endif
             }
 #endif
             break;
@@ -344,6 +356,20 @@ static void app_common_app_event_handler(int *msg)
     case APP_MSG_POWER_OFF:
         break;
     case APP_MSG_REQUEST_POWEROFF:
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        if (rdx_dip_switch_cold_service()) {
+            /* Cold USB service has no BT stack to detach. PC already stopped
+             * USB; the native idle path performs final poweroff. */
+            app_var.goto_poweroff_flag = 1;
+            if (!app_in_mode(APP_MODE_IDLE)) {
+                app_send_message(APP_MSG_GOTO_MODE, APP_MODE_IDLE | (IDLE_MODE_POWEROFF << 8));
+            }
+            /* Also covers an earlier queued transition to charge idle: a
+             * same-mode GOTO would otherwise discard the poweroff argument. */
+            app_send_message(APP_MSG_SOFT_POWEROFF, 0);
+            break;
+        }
+#endif
         sys_enter_soft_poweroff((enum poweroff_reason)msg[1]);
         break;
 #if TCFG_AUDIO_ANC_ENABLE

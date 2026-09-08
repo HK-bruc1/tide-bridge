@@ -331,10 +331,10 @@ Assert-Contract 'RDX_RECORD_STOP_TONE_AFTER_CAPTURE_CLOSE' `
     'the stop prompt must follow closure of both capture paths and be rejected if a new recording has started'
 
 $recordingEncoderPathOk = $Config -notmatch 'TCFG_STENC_OPUS_ENABLE' -and
-                          $SdkUsedList -notmatch 'TCFG_STENC_OPUS_ENABLE|opus_stenc_plug' -and
+                          $SdkUsedList -match '(?s)#if TCFG_STENC_OPUS_ENABLE\s+opus_stenc_plug\s+#endif' -and
                           $EffectDev2 -match 'get_opus_stenc_ops\s*\(\s*\)'
 Assert-Contract 'RDX_RECORDING_USES_EFFECT_DEV2_ENCODER' $recordingEncoderPathOk `
-    'RDX recording must use the effect_dev2 encoder path without the legacy opus_stenc_plug gate'
+    'RDX recording must use effect_dev2; the native legacy registration stays behind its disabled gate'
 
 $usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s+1\s*$' -and
                 $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#if\s+!TCFG_SD0_ENABLE.*?#if\s+!TCFG_USB_SLAVE_MSD_ENABLE.*?#define\s+TCFG_APP_PC_EN\s+1' -and
@@ -370,12 +370,12 @@ $formatSafetyOk = $BoardConfig -match '(?m)^\s*#define\s+TCFG_SD0_FORMAT_ON_BOOT
 Assert-Contract 'STORAGE_FORMATS_ON_MOUNT_FAILURE' $formatSafetyOk `
     'SD0 mount failure must format for either first-time initialization or filesystem recovery'
 
-$entryGatesOk = $Pc -match '(?s)static int pc_mode_try_enter.*?get_power_on_status\(\).*?rdx_pc_storage_is_busy\(\)' -and
-                $Dip -match '(?s)rdx_dip_switch_request_pc_if_usb_online.*?usb_otg_online\(0\).*?APP_MODE_PC' -and
+$entryGatesOk = $Pc -match '(?s)static int pc_mode_try_enter.*?rdx_dip_switch_pc_allowed\(\).*?rdx_pc_storage_is_busy\(\)' -and
+                $Dip -match '(?s)int rdx_dip_switch_pc_allowed.*?!get_power_on_status\(\).*?usb_otg_online\(0\) == SLAVE_MODE.*?rdx_dip_switch_cold_service\(\)' -and
                 $RdxApp -match '(?s)u8 rdx_pc_storage_is_busy.*?rdx_app_storage_activity_is_busy\s*\(\s*"PC-STORAGE"\s*,\s*0\s*\)' -and
                 $RdxApp -match '(?s)static u8 rdx_app_storage_activity_is_busy.*?RECORD_STATE_STOP.*?rdx_record_process_is_busy_check.*?rdx_is_file_transfer_active.*?rdx_is_file_sync_busy'
-Assert-Contract 'PC_ENTRY_REQUIRES_POWER_AND_IDLE_STORAGE' $entryGatesOk `
-    'DIP power must permit PC mode and recording/file activity must block storage takeover'
+Assert-Contract 'PC_ENTRY_REQUIRES_OFF_HOST_AND_IDLE_STORAGE' $entryGatesOk `
+    'Only OFF with a confirmed host and a fresh RDX runtime may export; storage activity still blocks takeover'
 
 $takeoverOk = $DevManager -match '(?s)static int __dev_manager_mount.*?if \(dev->mount_blocked\).*?return -1;' -and
               $DevManager -match '(?s)void dev_manager_list_check_mount.*?if \(dev->mount_blocked\).*?continue;' -and
@@ -404,8 +404,61 @@ Assert-Contract 'USB_STOP_PRECEDES_STORAGE_RESTORE' $restoreOk `
 $poweroffOk = $Dip -match 'app_send_message\(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL\)' -and
               $Dip -notmatch 'sys_enter_soft_poweroff\(' -and
               $Pc -match '(?s)case APP_MSG_REQUEST_POWEROFF:.*?pc_task_stop\(\).*?app_default_msg_handler\(msg\)' -and
+              $Pc -match '(?s)case APP_MSG_REQUEST_POWEROFF:.*?poweroff blocked.*?return 1;' -and
+              $Pc -match '(?s)if \(pc_app_msg_handler\(msg \+ 1\)\).*?continue;' -and
               $AppDefault -match '(?s)case APP_MSG_REQUEST_POWEROFF:.*?sys_enter_soft_poweroff'
 Assert-Contract 'POWEROFF_USES_MODE_CLEANUP' $poweroffOk `
     'DIP power-off must request normal application shutdown so PC storage is released first'
+
+$Charge = Read-RepoFile $RepoRoot 'SDK\apps\earphone\battery\charge.c'
+$RdxCharge = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_charge.c'
+$Charger = Read-RepoFile $RepoRoot 'SDK\apps\common\device\charge\sk4558.c'
+$AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
+$PcDevice = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\device\task_pc.c'
+
+Assert-Contract 'PC_REVALIDATES_BEFORE_USB_START' (
+    $Pc -match '(?s)static int pc_task_start.*?rdx_dip_switch_pc_allowed\(\).*?USBSTACK_START' -and
+    $Pc -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\s+if \(r == SLAVE_MODE\)' -and
+    $PcDevice -match '(?s)if \(!rdx_dip_switch_pc_allowed\(\)\).*?MSC disabled.*?return false' -and
+    $AppDefault -match '(?s)if \(ret == 1\).*?!rdx_dip_switch_pc_allowed\(\).*?break;'
+) 'Both OTG entry and delayed MSC start must enforce the exclusive OFF/host policy'
+
+Assert-Contract 'COLD_PC_HAS_NO_RDX_BUSINESS' (
+    $AppMain -match '(?s)dev_manager_init\(\);.*?rdx_dip_switch_init\(\);.*?struct app_mode \*mode' -and
+    $RdxApp -match '(?s)void rdx_app_all_init.*?rdx_business_started = true;' -and
+    $RdxApp -notmatch 'rdx_business_started = (?:false|0)' -and
+    $Dip -match 'return !s_business_mode_entered && !rdx_app_business_started\(\)' -and
+    $Dip -notmatch 's_business_mode_entered = (?:false|0)' -and
+    $AppMain -match '(?s)app_goto_mode.*?APP_MODE_BT.*?APP_MODE_POWERON.*?rdx_dip_switch_note_business_mode\(\)' -and
+    $RdxApp -match '(?s)int rdx_app_msg_handler.*?!rdx_app_business_started\(\).*?return false;' -and
+    $RdxApp -match '(?s)int rdx_app_key_msg_handler.*?!rdx_app_business_started\(\).*?return true;'
+) 'Independent DIP startup and sticky business latch must prevent cold PC business access and warm takeover'
+
+Assert-Contract 'CHARGE_SERVICE_IS_NONBLOCKING_AND_USB_SAFE' (
+    $Charge -match '(?s)app_charge_wait_otg_role.*?#if TCFG_DIP_SWITCH_POWER_ENABLE.*?return usb_otg_online\(0\);.*?#else' -and
+    $Charger -match '(?s)#if \(RDX_BJ_VERSION != BJ_BOARD_VERSION_03\)\s+usb_iomode\(1\);\s+#endif' -and
+    $RdxCharge -match '(?s)if \(rdx_app_business_started\(\)\).*?rdx_protocol_update_dev_battery_level' -and
+    $RdxCharge -match '(?s)void rdx_app_charge_stop.*?sys_timer_del\(incharge_full_check_timer\);.*?incharge_full_check_timer = 0;' -and
+    $RdxCharge -match 'cur_charge_state == RDX_CHARGE_IN && incharge_full_check_timer == 0'
+) 'OTG must not block app_core; cold charging must avoid protocol access, USB pin takeover and stale timers'
+
+Assert-Contract 'PC_FAILURE_CANNOT_FALL_BACK_TO_BLE_WHILE_OFF' (
+    $Pc -match '(?s)static void pc_start_failed.*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\s+app_send_message\(APP_MSG_GOTO_MODE, APP_MODE_IDLE \| \(IDLE_MODE_CHARGE << 8\)\);\s+#else\s+app_send_message\(APP_MSG_GOTO_NEXT_MODE' -and
+    $AppMain -match '(?s)!get_power_on_status\(\).*?next_mode->name != APP_MODE_PC.*?next_mode->name != APP_MODE_IDLE.*?app_get_mode_by_name\(APP_MODE_IDLE\)' -and
+    $AppDefault -match '(?s)case APP_MSG_REQUEST_POWEROFF:.*?rdx_dip_switch_cold_service\(\).*?IDLE_MODE_POWEROFF'
+) 'OFF fallback and cold poweroff must stay in native idle after PC cleanup, without BT initialization'
+
+Assert-Contract 'PC_RETRY_IS_BOUNDED_AND_REVALIDATED' (
+    $Dip -match '#define DIP_SERVICE_MAX_ATTEMPTS 3' -and
+    $Dip -match '(?s)on != s_last_on \|\| usb != s_last_usb \|\| vbus != s_last_vbus.*?s_attempts = 0;.*?s_retry_ticks = 0;' -and
+    $Dip -match '(?s)if \(s_attempts >= DIP_SERVICE_MAX_ATTEMPTS\).*?return;.*?rdx_dip_switch_pc_allowed\(\).*?target = APP_MODE_PC;' -and
+    $Dip -match '(?s)if \(target >= 0\).*?\+\+s_attempts;.*?s_retry_ticks = DIP_SERVICE_RETRY_TICKS;.*?app_send_message\(APP_MSG_GOTO_MODE, target\)' -and
+    $AppMain -match '(?s)if \(err != 0\).*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?next_mode->name == APP_MODE_PC \|\| app_in_mode\(APP_MODE_PC\).*?return NULL;.*?#endif.*?sys_timeout_add'
+) 'Rejected or failed PC entry must be reconsidered with bounded requests; native timers must not replay stale PC targets'
+
+Assert-Contract 'PC_GENERIC_FALLBACK_IS_PRESERVED' (
+    $AppDefault -match '(?s)else if \(ret == 2\).*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?IDLE_MODE_CHARGE.*?#else\s+app_send_message\(APP_MSG_GOTO_NEXT_MODE' -and
+    $PcDevice -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\s+if \(!rdx_dip_switch_pc_allowed\(\)\)'
+) 'Product USB policy must be shared and generic USB removal fallback preserved'
 
 Write-Host 'T2620 product contracts passed.'

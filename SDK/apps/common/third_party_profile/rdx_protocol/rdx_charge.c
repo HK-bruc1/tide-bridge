@@ -422,7 +422,9 @@ void rdx_app_incharge_full_check_timer_cb(void* priv)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    rdx_protocol_update_dev_battery_level();
+    if (rdx_app_business_started()) {
+        rdx_protocol_update_dev_battery_level();
+    }
     cur_bat = rdx_battery_get_percent();
     full_check = charge_check_is_full();
     if(full_check == TRUE){
@@ -464,7 +466,7 @@ void rdx_app_charge_start_handle(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if(incharge_full_check_timer == 0){
+    if(cur_charge_state == RDX_CHARGE_IN && incharge_full_check_timer == 0){
         incharge_full_check_timer = sys_timer_add(NULL, rdx_app_incharge_full_check_timer_cb, RDX_APP_INCHARGE_FULL_CHECK_TIMEOUT);
     }
 }
@@ -477,6 +479,10 @@ void rdx_app_charge_start_handle(void)
  **************************************************************************/
 void rdx_app_charge_stop(void)
 {
+    if (incharge_full_check_timer) {
+        sys_timer_del(incharge_full_check_timer);
+        incharge_full_check_timer = 0;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -565,7 +571,7 @@ void rdx_app_charge_start(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if(cur_charge_state == RDX_CHARGE_IN){
+    if(cur_charge_state != RDX_CHARGE_OUT){
         return;
     }
     //use LDO.
@@ -584,7 +590,9 @@ void rdx_app_charge_start(void)
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0)
     //ldo gpio init.
-    rdx_app_emmc_poweron(0);
+    if (rdx_app_business_started()) {
+        rdx_app_emmc_poweron(0);
+    }
 
 #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
     //oled show task init.
@@ -668,6 +676,28 @@ int rdx_app_battery_msg_handler(int *msg)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     g_printf("rdx_app_battery_msg_handler :0x%x\n", msg[0]);
+
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (msg[0] == CHARGE_EVENT_LDO5V_OFF) {
+        rdx_app_charge_stop();
+        /* Native handler requests mode cleanup; never call the legacy RDX
+         * poweroff callback that directly releases shared PA4 here. */
+        return false;
+    }
+    if (!rdx_app_business_started()) {
+        /* OFF cold boot: charging only uses board, battery and LED services. */
+        switch (msg[0]) {
+        case CHARGE_EVENT_LDO5V_IN:
+        case CHARGE_EVENT_LDO5V_KEEP:
+            rdx_app_charge_start();
+            break;
+        case CHARGE_EVENT_LDO5V_OFF:
+            rdx_app_charge_stop();
+            break;
+        }
+        return false;
+    }
+#endif
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0)
     switch (msg[0]) {

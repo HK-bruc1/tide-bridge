@@ -22,6 +22,7 @@
 #include "app_charge.h"
 #include "asm/charge.h"
 #include "app_main.h"
+#include "rdx_dip_switch.h"
 
 #if TCFG_USB_SLAVE_ENABLE
 #if  USB_PC_NO_APP_MODE == 0
@@ -396,9 +397,9 @@ int pc_device_event_handler(int *msg)
         log_debug("usb event : %d DEVICE_EVENT_FROM_OTG %s", msg[1], usb_msg);
         if (msg[1] == DEVICE_EVENT_IN) {
             log_info("usb %c online", usb_msg[2]);
-#if TCFG_DIP_SWITCH_POWER_ENABLE
-            if (!get_power_on_status()) {
-                log_info("[PC-STORAGE] USB online with DIP OFF: charge only");
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+            if (!rdx_dip_switch_pc_allowed()) {
+                log_info("[PC-STORAGE] product policy: MSC disabled");
                 return false;
             }
 #endif

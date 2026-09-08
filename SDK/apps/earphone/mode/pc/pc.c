@@ -20,6 +20,8 @@
 #include "app_main.h"
 #include "app_default_msg_handler.h"
 #include "dev_manager.h"
+#include "rdx_dip_switch.h"
+#include "idle.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_app.h"
@@ -73,8 +75,11 @@ static int app_pc_check(void)
 
     u32 r = usb_otg_online(0);
     log_info("pc_app_check %d", r);
-    if ((r == SLAVE_MODE) ||
-        (r == SLAVE_MODE_WAIT_CONFIRMATION)) {
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    if (r == SLAVE_MODE) {
+#else
+    if (r == SLAVE_MODE || r == SLAVE_MODE_WAIT_CONFIRMATION) {
+#endif
         return true;
     }
     return false;
@@ -154,6 +159,11 @@ static int pc_storage_restore(void)
  */
 static int pc_task_start(void)
 {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (!rdx_dip_switch_pc_allowed()) {
+        return -1;
+    }
+#endif
     if (__this->onoff) {
         log_info("PC is start ");
         return 0;
@@ -216,6 +226,15 @@ static int pc_task_stop(void)
     return pc_storage_restore();
 }
 
+static void pc_start_failed(void)
+{
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    app_send_message(APP_MSG_GOTO_MODE, APP_MODE_IDLE | (IDLE_MODE_CHARGE << 8));
+#else
+    app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+#endif
+}
+
 static int pc_tone_play_end_callback(void *priv, enum stream_event event)
 {
     if (false == app_in_mode(APP_MODE_PC)) {
@@ -228,7 +247,7 @@ static int pc_tone_play_end_callback(void *priv, enum stream_event event)
     case STREAM_EVENT_NONE:
     case STREAM_EVENT_STOP:
         if (pc_task_start()) {
-            app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+            pc_start_failed();
         }
         break;
     default:
@@ -243,7 +262,7 @@ static int pc_mode_init()
     if (pc_storage_prepare()) {
         __this->pc_is_active = 0;
         log_error("[PC-STORAGE] PC mode init aborted");
-        app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+        pc_start_failed();
         return -1;
     }
 
@@ -256,7 +275,7 @@ static int pc_mode_init()
         dac_try_power_on_thread();//dac初始化耗时有120ms,此处提前将dac指定到独立任务内做初始化，优化PC通路启动的耗时，减少时间戳超时的情况
 #endif
         if (pc_task_start()) {
-            app_send_message(APP_MSG_GOTO_NEXT_MODE, 0);
+            pc_start_failed();
         }
     }
     app_send_message(APP_MSG_ENTER_MODE, APP_MODE_PC);
@@ -370,12 +389,13 @@ static void pc_call_reject_or_hand_up()
 #endif
 
 
-static void pc_app_msg_handler(int *msg)
+static int pc_app_msg_handler(int *msg)
 {
     switch (msg[0]) {
     case APP_MSG_REQUEST_POWEROFF:
         if (pc_task_stop()) {
-            log_error("[PC-STORAGE] poweroff continues with sd0 blocked");
+            log_error("[PC-STORAGE] poweroff blocked: USB/storage cleanup failed");
+            return 1;
         }
         __this->pc_is_active = 0;
         break;
@@ -398,13 +418,14 @@ static void pc_app_msg_handler(int *msg)
 #endif
     }
 
+    return 0;
 }
 
 static int pc_mode_try_enter(int arg)
 {
 #if TCFG_DIP_SWITCH_POWER_ENABLE
-    if (!get_power_on_status()) {
-        log_info("[PC-STORAGE] PC mode rejected: DIP OFF (charge only)");
+    if (!rdx_dip_switch_pc_allowed()) {
+        log_info("[PC-STORAGE] PC requires OFF, confirmed host and fresh business runtime");
         return 1;
     }
 #endif
@@ -458,7 +479,9 @@ struct app_mode *app_enter_pc_mode(int arg)
 
         switch (msg[0]) {
         case MSG_FROM_APP:
-            pc_app_msg_handler(msg + 1);
+            if (pc_app_msg_handler(msg + 1)) {
+                continue;
+            }
             break;
         case MSG_FROM_DEVICE:
             break;

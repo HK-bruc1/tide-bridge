@@ -7,6 +7,7 @@
 #include "system/includes.h"
 #include "btstack/btstack_task.h"
 #include "app_config.h"
+#include "rdx_dip_switch.h"
 #include "app_action.h"
 #include "gpadc.h"
 #include "app_tone.h"
@@ -444,6 +445,9 @@ static struct app_mode *app_task_init()
     do_late_initcall();
 
     dev_manager_init();
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    rdx_dip_switch_init();
+#endif
 
 
     int update = 0;
@@ -456,7 +460,7 @@ static struct app_mode *app_task_init()
 
     int msg[4] = { MSG_FROM_APP, APP_MSG_GOTO_MODE, 0, 0 };
 
-    if (get_charge_online_flag()) {
+    if (get_charge_online_flag() || !get_power_on_status()) {
 #if(TCFG_SYS_LVD_EN == 1)
         vbat_check_init();
 #endif
@@ -597,6 +601,18 @@ struct app_mode *app_mode_switch_handler(int *msg)
     default:
         return NULL;
     }
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (!get_power_on_status() && next_mode &&
+        next_mode->name != APP_MODE_PC && next_mode->name != APP_MODE_IDLE) {
+        next_mode = app_get_mode_by_name(APP_MODE_IDLE);
+        arg = IDLE_MODE_CHARGE;
+    }
+#endif
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (next_mode && next_mode->name == APP_MODE_PC && !rdx_dip_switch_pc_allowed()) {
+        return NULL;
+    }
+#endif
     g_mode_switch_arg = arg;
 
 #if TCFG_APP_BT_EN && TCFG_BT_BACKGROUND_ENABLE
@@ -623,6 +639,14 @@ struct app_mode *app_mode_switch_handler(int *msg)
         if (app_try_enter_mode(next_mode, arg)) {
             break;
         }
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        if (!get_power_on_status()) {
+            next_mode = app_get_mode_by_name(APP_MODE_IDLE);
+            arg = IDLE_MODE_CHARGE;
+            g_mode_switch_arg = arg;
+            break;
+        }
+#endif
         next_mode = app_next_mode(next_mode);
     } while (next_mode);
 
@@ -630,9 +654,19 @@ struct app_mode *app_mode_switch_handler(int *msg)
         return NULL;
     }
 
+    if (!next_mode || (app_var.goto_poweroff_flag && next_mode->name != APP_MODE_IDLE)) {
+        return NULL;
+    }
     err = app_goto_mode(next_mode->name, arg);
 
     if (err != 0) {
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+        /* The product monitor retries PC transitions against current inputs.
+         * Do not accumulate native timers replaying an obsolete target. */
+        if (next_mode->name == APP_MODE_PC || app_in_mode(APP_MODE_PC)) {
+            return NULL;
+        }
+#endif
         g_mode_switch_msg[0] = msg[1];
         g_mode_switch_msg[1] = msg[2];
         if (!sys_timeout_add(NULL, retry_goto_mode, 100)) {
@@ -640,6 +674,12 @@ struct app_mode *app_mode_switch_handler(int *msg)
         }
         return NULL;
     } else {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        /* Latch before any BT/RDX initialization callback can run. */
+        if (next_mode->name == APP_MODE_BT || next_mode->name == APP_MODE_POWERON) {
+            rdx_dip_switch_note_business_mode();
+        }
+#endif
         return next_mode;
     }
 }

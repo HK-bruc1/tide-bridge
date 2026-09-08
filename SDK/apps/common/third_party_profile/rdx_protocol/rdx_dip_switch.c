@@ -2,82 +2,117 @@
 #include "rdx_dip_switch.h"
 
 #if TCFG_DIP_SWITCH_POWER_ENABLE
-
 #include "system/includes.h"
-#include "gpio.h"
-#include "power/power_wakeup.h"
 #include "poweroff.h"
 #include "app_main.h"
 #include "app_msg.h"
+#include "idle.h"
+#include "asm/charge.h"
 #include "usb/otg.h"
+#include "rdx_app.h"
 
-#ifndef TCFG_DIP_SWITCH_POWER_IO
-#define TCFG_DIP_SWITCH_POWER_IO    IO_PORTB_01
-#endif
+static bool s_init_done;
+static bool s_business_mode_entered;
 
-static bool s_init_done = false;
-
-static void rdx_dip_switch_request_pc_if_usb_online(void)
+void rdx_dip_switch_note_business_mode(void)
 {
-#if TCFG_APP_PC_EN
-    u32 usb_state = usb_otg_online(0);
-    if (usb_state == SLAVE_MODE ||
-        usb_state == SLAVE_MODE_WAIT_CONFIRMATION) {
-        r_printf("[DIP] ON with USB connected -> request PC mode\n");
-        app_send_message(APP_MSG_GOTO_MODE, APP_MODE_PC);
-    }
+    s_business_mode_entered = true;
+}
+
+int rdx_dip_switch_cold_service(void)
+{
+    return !s_business_mode_entered && !rdx_app_business_started();
+}
+static int s_last_on = -1;
+static int s_sample_on = -1;
+static u32 s_last_usb = (u32)-1;
+static int s_last_vbus = -1;
+/* Bounded reconciliation also covers rejected entry and asynchronous MSC
+ * startup failure. Input changes open a new attempt window. */
+static u8 s_attempts;
+static u8 s_retry_ticks;
+#define DIP_SERVICE_MAX_ATTEMPTS 3
+#define DIP_SERVICE_RETRY_TICKS 10
+
+/* OFF USB service never requires BLE initialization. */
+int rdx_dip_switch_pc_allowed(void)
+{
+#if TCFG_T2620_PC_STORAGE_ENABLE
+    return !get_power_on_status() && get_charge_online_flag() &&
+           usb_otg_online(0) == SLAVE_MODE &&
+           rdx_dip_switch_cold_service() && !app_var.goto_poweroff_flag;
+#else
+    return false;
 #endif
 }
 
 static void rdx_dip_switch_deferred_handle(void *priv)
 {
+    int on = get_power_on_status();
+    u32 usb = usb_otg_online(0);
+    int vbus = get_charge_online_flag();
     (void)priv;
-
-    // Debounce
-    os_time_dly(2);
-
-    int level = gpio_read(TCFG_DIP_SWITCH_POWER_IO);
-
-    if (level == 1) {
-        // OFF: switch toggled to HIGH -- initiate shutdown
-        r_printf("[DIP] OFF -> powering down\n");
-
-        // Switch edge to FALLING_EDGE so OFF (HIGH) state won't self-wakeup,
-        // but keep wakeup ENABLED so ON (HIGH->LOW) can still wake the device.
-        p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, FALLING_EDGE);
-
-        // Ensure stable pull-up for clean wakeup edge
-        gpio_set_mode(IO_PORT_SPILT(TCFG_DIP_SWITCH_POWER_IO), PORT_INPUT_PULLUP_10K);
-
-        // Final confirmation after short delay
-        os_time_dly(1);
-
-        if (gpio_read(TCFG_DIP_SWITCH_POWER_IO) == 1) {
-            app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
-        } else {
-            // User flipped back to ON quickly
-            p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
-            r_printf("[DIP] aborted, back ON\n");
+    /* Require two matching samples before reacting to a mechanical edge. */
+    if (on != s_sample_on) {
+        s_sample_on = on;
+        return;
+    }
+    p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO,
+                       on ? RISING_EDGE : FALLING_EDGE);
+    if (on != s_last_on || usb != s_last_usb || vbus != s_last_vbus) {
+        s_attempts = 0;
+        s_retry_ticks = 0;
+    }
+    s_last_on = on;
+    s_last_usb = usb;
+    s_last_vbus = vbus;
+    if (app_var.goto_poweroff_flag) {
+        return;
+    }
+    if (s_retry_ticks) {
+        --s_retry_ticks;
+        return;
+    }
+    if (s_attempts >= DIP_SERVICE_MAX_ATTEMPTS) {
+        return;
+    }
+    /* Count requests, never pretend an enqueued transition has succeeded. */
+    int target = -1;
+    if (on) {
+        /* PC try_exit must stop USB and restore SD before BT starts. */
+        if (app_in_mode(APP_MODE_PC) || app_in_mode(APP_MODE_IDLE)) {
+            target = APP_MODE_BT;
         }
-    } else {
-        // ON: switch toggled to LOW -- flip edge to detect next OFF
-        p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
-        rdx_dip_switch_request_pc_if_usb_online();
+    } else if (!rdx_dip_switch_cold_service() || !vbus) {
+        /* BLE exit alone cannot drain library workers. Only a fresh boot may
+         * export; retain the normal shutdown path for an existing business. */
+        app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
+        ++s_attempts;
+        s_retry_ticks = DIP_SERVICE_RETRY_TICKS;
+    } else if (rdx_dip_switch_pc_allowed()) {
+        if (!app_in_mode(APP_MODE_PC)) {
+            r_printf("[DIP] OFF + confirmed host -> PC, BLE disabled\n");
+            target = APP_MODE_PC;
+        }
+    } else if (app_in_mode(APP_MODE_PC)) {
+        target = APP_MODE_IDLE | (IDLE_MODE_CHARGE << 8);
+    }
+    if (target >= 0) {
+        ++s_attempts;
+        s_retry_ticks = DIP_SERVICE_RETRY_TICKS;
+        r_printf("[DIP] request mode=%d attempt=%d/%d\n", target,
+                 s_attempts, DIP_SERVICE_MAX_ATTEMPTS);
+        app_send_message(APP_MSG_GOTO_MODE, target);
+        if (s_attempts == DIP_SERVICE_MAX_ATTEMPTS) {
+            r_printf("[DIP] final automatic attempt; input change permits retry\n");
+        }
     }
 }
 
-// P33 ISR callback: post deferred handler to app_core
 void rdx_dip_switch_p33_irq(P33_IO_WKUP_EDGE edge)
 {
-    int msg[2];
-
-    if (!s_init_done) {
-        return;
-    }
-
-    msg[0] = (int)rdx_dip_switch_deferred_handle;
-    msg[1] = 0;
-    os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
+    /* Sampling runs on app_core, never block in the ISR. */
+    (void)edge;
 }
 
 void rdx_dip_switch_init(void)
@@ -85,25 +120,11 @@ void rdx_dip_switch_init(void)
     if (s_init_done) {
         return;
     }
+    gpio_set_mode(IO_PORT_SPILT(TCFG_DIP_SWITCH_POWER_IO), PORT_INPUT_PULLUP_10K);
+    /* Also observes OTG identification after cold boot. Each callback reads
+     * current inputs; queued USB events cannot select an obsolete mode. */
+    u16 timer = sys_timer_add(NULL, rdx_dip_switch_deferred_handle, 100);
+    ASSERT(timer != 0);
     s_init_done = true;
-
-    os_time_dly(2);
-
-    int level = gpio_read(TCFG_DIP_SWITCH_POWER_IO);
-
-    // Set edge to opposite of current level so next flip is detected
-    if (level == 1) {
-        // Currently OFF -- keep FALLING_EDGE for wakeup, then shutdown
-        r_printf("[DIP] init OFF -> shutting down\n");
-        p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, FALLING_EDGE);
-        gpio_set_mode(IO_PORT_SPILT(TCFG_DIP_SWITCH_POWER_IO), PORT_INPUT_PULLUP_10K);
-        app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
-    } else {
-        // Currently ON -- set RISING_EDGE to detect next OFF
-        r_printf("[DIP] init ON\n");
-        p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, RISING_EDGE);
-        rdx_dip_switch_request_pc_if_usb_online();
-    }
 }
-
-#endif // TCFG_DIP_SWITCH_POWER_ENABLE
+#endif

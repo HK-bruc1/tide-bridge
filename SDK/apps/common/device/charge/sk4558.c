@@ -652,7 +652,9 @@ bool charge_check_is_full(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+#if (RDX_BJ_VERSION != BJ_BOARD_VERSION_03)
     usb_iomode(1);
+#endif
     gpio_set_mode(IO_PORT_SPILT(CHARGE_FULL_CHECK_IO), PORT_INPUT_PULLUP_100K);
     int d = gpio_read(CHARGE_FULL_CHECK_IO);
     if(d == 0){

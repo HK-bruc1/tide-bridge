@@ -23,6 +23,7 @@
 #include "app_charge.h"
 #include "gpadc.h"
 #include "update.h"
+#include "rdx_app.h"
 #include "dual_bank_updata_api.h"
 
 #define LOG_TAG_CONST       APP_CHARGE
@@ -101,6 +102,11 @@ static void charge_close_deal(void)
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
 static u8 app_charge_wait_otg_role(const char *charge_event)
 {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    /* Product policy samples OTG asynchronously; never wait on app_core. */
+    (void)charge_event;
+    return usb_otg_online(0);
+#else
     u8 otg_status = IDLE_MODE;
     u8 otg_last_status = 0xff;
     u8 check_done = 0;
@@ -154,25 +160,24 @@ static u8 app_charge_wait_otg_role(const char *charge_event)
     log_info("[PC-STORAGE] %s: OTG role=%d\n",
              charge_event, otg_status);
     return otg_status;
+#endif
 }
 
 static u8 app_charge_allow_usb_pc_poweron(u8 otg_status)
 {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    /* CPU permission for charge/OTG service, not permission to start MSC. */
+    set_charge_poweron_en(1);
+    return otg_status == SLAVE_MODE;
+#else
     if (otg_status != SLAVE_MODE) {
         return false;
     }
 
-#if TCFG_DIP_SWITCH_POWER_ENABLE
-    if (!get_power_on_status()) {
-        set_charge_poweron_en(0);
-        log_info("[PC-STORAGE] USB slave detected with DIP OFF: charge only\n");
-        return false;
-    }
-#endif
-
     set_charge_poweron_en(1);
     log_info("[PC-STORAGE] USB slave detected with DIP ON: keep power for PC mode\n");
     return true;
+#endif
 }
 #endif
 
@@ -432,7 +437,9 @@ static int app_charge_event_handler(int *msg)
             #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
             //rdx charge prepare. dons++
             extern void rdx_app_charge_prepare(void);
-            rdx_app_charge_prepare();
+            if (rdx_app_business_started()) {
+                rdx_app_charge_prepare();
+            }
             #endif
             //---------------------------------------------
 
@@ -444,6 +451,13 @@ static int app_charge_event_handler(int *msg)
         }
         break;
     case CHARGE_EVENT_LDO5V_OFF:
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        if (!get_power_on_status()) {
+            /* Route through PC cleanup instead of direct power_set_soft_poweroff. */
+            app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
+            break;
+        }
+#endif
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
         otg_status = usb_otg_online(0);
 #endif
