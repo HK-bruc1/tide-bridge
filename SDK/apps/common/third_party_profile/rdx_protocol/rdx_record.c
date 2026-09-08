@@ -821,6 +821,10 @@ static int rdx_record_add_mark_internal(
 
     s_cur_marks[s_cur_mark_count++] = offset_ms;
 
+    /* All successful marks share local feedback, including APP and keys.
+     * Rejected/deduplicated marks return above without a success indication. */
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
+
     y_printf("[RECMARK] added: sn=%lu, name=%s, idx=%u, off=%lums, src=%u \r",
              (unsigned long)sn, fname,
              s_cur_mark_count, (unsigned long)offset_ms, source);

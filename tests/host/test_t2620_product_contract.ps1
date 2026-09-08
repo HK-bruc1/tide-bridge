@@ -223,12 +223,14 @@ $recordPlayToggleOk = $RdxKey -match '(?s)u8\s+key_table_io_num4_normal\s*\[KEY_
 Assert-Contract 'RDX_RECORD_PLAY_KEY_STATE_DISPATCH' $recordPlayToggleOk `
     'the offline record/play key must add a device mark while recording and otherwise retain playback toggle behavior'
 
-$recordMarkFeedbackOk = $recordPlayToggleRoute -match '(?s)rdx_record_add_mark\(RDX_MARK_SOURCE_KEY\)\s*==\s*RDX_RECMARK_RESULT_OK.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
+$markSuccessPath = Get-SourceSlice $RdxRecord 'static int rdx_record_add_mark_internal(' 'int rdx_record_add_mark(u8 source)'
+$recordMarkFeedbackOk = $markSuccessPath -match '(?s)return RDX_RECMARK_RESULT_BUSY;.*?s_cur_marks\[s_cur_mark_count\+\+\] = offset_ms;\s*/\*.*?\*/\s*rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
+                        $recordPlayToggleRoute -notmatch 'rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
                         $RdxLedCtrlH -match 'RDX_LED_SCENE_RECORD_MARK' -and
                         $RdxLedCfg -match '(?s)\[RDX_LED_SCENE_RECORD_MARK\]\s*=\s*RDX_LED_EFFECT_RECORD_MARK_YELLOW.*?\[RDX_LED_EFFECT_RECORD_MARK_YELLOW\]\s*=\s*\{.*?RDX_LED_MODE_SOLID_TIMEOUT.*?\.r\s*=\s*255\s*,\s*\.g\s*=\s*160\s*,\s*\.b\s*=\s*0.*?\.timeout_ms\s*=\s*2000' -and
                         $RdxLedCtrl -match '(?s)g_current_scene\s*==\s*RDX_LED_SCENE_RECORD_MARK.*?_rdx_led_restore_system_state\(\)'
 Assert-Contract 'RDX_RECORD_MARK_LED_FEEDBACK' $recordMarkFeedbackOk `
-    'a successful offline key mark must show yellow for two seconds and then restore the automatically selected system scene'
+    'successful APP and key marks must share two-second yellow feedback after validation, without duplicate key feedback, then restore the system scene'
 
 $ioKeyRouting = Get-SourceSlice $RdxApp `
     'static u8 rdx_app_rdx_key_route_ready(void)' `
@@ -460,5 +462,43 @@ Assert-Contract 'PC_GENERIC_FALLBACK_IS_PRESERVED' (
     $AppDefault -match '(?s)else if \(ret == 2\).*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?IDLE_MODE_CHARGE.*?#else\s+app_send_message\(APP_MSG_GOTO_NEXT_MODE' -and
     $PcDevice -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\s+if \(!rdx_dip_switch_pc_allowed\(\)\)'
 ) 'Product USB policy must be shared and generic USB removal fallback preserved'
+
+$chargePrepare = Get-SourceSlice $RdxCharge 'void rdx_app_charge_prepare(void)' 'int rdx_app_battery_msg_handler(int *msg)'
+$productPrepare = Get-SourceSlice $chargePrepare '#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#else'
+$chargeEvents = Get-SourceSlice $RdxCharge 'int rdx_app_battery_msg_handler(int *msg)' 'APP_MSG_PROB_HANDLER(rdx_app_battery_msg_entry)'
+$productChargeEvents = Get-SourceSlice $chargeEvents `
+    '#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#elif TCFG_DIP_SWITCH_POWER_ENABLE'
+Assert-Contract 'ON_USB_PRESERVES_RECORDING_AND_STORAGE' (
+    $productPrepare -match 'return;' -and
+    $productPrepare -notmatch 'rdx_record_process|rdx_ota_stop|rdx_app_wifi_handle|rdx_app_emmc_power' -and
+    $productChargeEvents -match '(?s)case CHARGE_EVENT_LDO5V_IN:.*?case CHARGE_EVENT_LDO5V_KEEP:.*?rdx_app_charge_start\(\)' -and
+    $productChargeEvents -notmatch 'rdx_record_process\(|rdx_app_emmc_poweroff\(|rdx_app_normal_poweroff\(' -and
+    $RdxCharge -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 0\) &&\s*\\\s*!\(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?rdx_app_emmc_poweron\(0\)'
+) 'Product USB insertion must maintain charge state without stopping recording, transfers or storage power'
+
+$Poweroff = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\bt\poweroff.c'
+$autoShutdown = Get-SourceSlice $Poweroff 'void sys_auto_shut_down_enable(void)' 'static void sys_auto_shut_down_deal(void *priv)'
+Assert-Contract 'ON_USB_CHARGE_LIFECYCLE' (
+    $productChargeEvents -match '(?s)rdx_app_charge_start\(\).*?rdx_app_business_started\(\).*?rdx_ble_server_auto_shut_down_enable\(0\)' -and
+    $productChargeEvents -match '(?s)case CHARGE_EVENT_LDO5V_OFF:.*?rdx_app_charge_stop\(\).*?rdx_app_business_started\(\) && get_power_on_status\(\) &&.*?!app_var.goto_poweroff_flag.*?rdx_ble_server_auto_shut_down_enable\(1\)' -and
+    $autoShutdown -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?if \(get_charge_online_flag\(\)\).*?sys_auto_shut_down_disable\(\);.*?return;' -and
+    $RdxApp -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 1\) \|\|\s*\\\s*\(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?get_charge_online_flag\(\).*?rdx_app_charge_start\(\)' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_OFF:.*?if \(!get_power_on_status\(\)\).*?APP_MSG_REQUEST_POWEROFF.*?charge_ldo5v_off_deal\(\)'
+) 'USB power including FULL must inhibit inactivity shutdown; ON removal restores the normal business-aware timer policy'
+
+$usbLedPolicy = Get-SourceSlice $RdxLedCtrl 'static bool _rdx_led_on_usb_charge(void)' 'static void _rdx_led_restore_system_state(void)'
+$ledSceneEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_scene(' 'rdx_led_scene_e rdx_led_ctrl_get_scene('
+$ledChargeEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_charge_state_by_battery(' 'void rdx_led_ctrl_restore_system_state('
+Assert-Contract 'ON_CHARGE_LED_BUSINESS_PRIORITY' (
+    $usbLedPolicy -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?get_power_on_status\(\) && rdx_app_business_started\(\).*?get_charge_online_flag\(\).*?RDX_CHARGE_OUT.*?!app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\)' -and
+    (Test-TokensInOrder $usbLedPolicy @('RECORD_STATE_START', 'RDX_LED_SCENE_RECORD_MARK', 'RDX_LED_SCENE_RECORD_START', 'RDX_LED_SCENE_DUT_ENTER', 'RDX_LED_SCENE_OTA_START', 'RDX_LED_SCENE_WIFI_START', 'RDX_LED_SCENE_CHARGE_FULL')) -and
+    $ledSceneEntry -match '(?s)if \(on_usb_charge\).*?_rdx_led_resolve_on_usb_charge\(scene\).*?scene == g_current_scene && g_active_effect && !new_mark.*?return;' -and
+    $ledChargeEntry -match '(?s)if \(_rdx_led_on_usb_charge\(\)\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_CHARGE_PLUG_IN\);.*?return;.*?_rdx_led_set_charge_effect_by_battery'
+) 'Only normal ON USB charging arbitrates business above charge/FULL; charge updates share scene entry and preserve effect phase'
+Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
+    $usbLedPolicy -match 'g_effect_elapsed_ms < g_active_effect->timeout_ms' -and
+    $RdxLedCtrl -match '(?s)void rdx_led_ctrl_update\(void\).*?_rdx_led_on_usb_charge\(\).*?_rdx_led_resolve_on_usb_charge\(RDX_LED_SCENE_OFF\) != g_current_scene.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\)' -and
+    $ledSceneEntry -match '!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY'
+) 'The existing LED tick reconciles silent OTA exits and expired marks without restarting unchanged effects or retaining a stale warning lock'
 
 Write-Host 'T2620 product contracts passed.'

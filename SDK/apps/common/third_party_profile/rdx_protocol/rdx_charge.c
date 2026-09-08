@@ -397,7 +397,8 @@ void rdx_app_charge_full(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
 
     /* Keep the full indicator on: the legacy timeout cuts PC1 and PA4. */
-#if (TCFG_CHARGE_POWERON_ENABLE == 0) && !RDX_PRODUCT_IS_CHARGE_CASE
+#if (TCFG_CHARGE_POWERON_ENABLE == 0) && !RDX_PRODUCT_IS_CHARGE_CASE && \
+    !(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     // rdx_app_charge_full_timeout_stop();
     //timer to poweroff.
     rdx_app_charge_full_timer_to_poweroff();
@@ -588,7 +589,8 @@ void rdx_app_charge_start(void)
 
     rdx_battery_incharge_batLevel_reset();
 
-#if (TCFG_CHARGE_POWERON_ENABLE == 0)
+#if (TCFG_CHARGE_POWERON_ENABLE == 0) && \
+    !(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     //ldo gpio init.
     if (rdx_app_business_started()) {
         rdx_app_emmc_poweron(0);
@@ -627,6 +629,12 @@ void rdx_app_charge_start(void)
  **************************************************************************/
 void rdx_app_charge_prepare(void)
 {
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    /* USB insertion only changes charging. DIP shutdown owns business
+     * cleanup; it must never be triggered by the charging preparation hook. */
+    y_printf("[CHARGE] USB inserted: preserve running business\n");
+    return;
+#else
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -658,6 +666,7 @@ void rdx_app_charge_prepare(void)
     rdx_rtc_restore_timer_stop();
     rdx_rtc_restore_timer_start();
 #endif
+#endif
 }
 
 /**************************************************************************
@@ -677,7 +686,28 @@ int rdx_app_battery_msg_handler(int *msg)
     /*----------------------------------------------------------------*/
     g_printf("rdx_app_battery_msg_handler :0x%x\n", msg[0]);
 
-#if TCFG_DIP_SWITCH_POWER_ENABLE
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    /* Both cold USB service and normal ON business share charging state.
+     * Neither insertion nor removal may stop recording or touch SD power. */
+    switch (msg[0]) {
+    case CHARGE_EVENT_LDO5V_IN:
+    case CHARGE_EVENT_LDO5V_KEEP:
+        rdx_app_charge_start();
+        if (rdx_app_business_started()) {
+            rdx_ble_server_auto_shut_down_enable(0);
+        }
+        break;
+    case CHARGE_EVENT_LDO5V_OFF:
+        rdx_app_charge_stop();
+        if (rdx_app_business_started() && get_power_on_status() &&
+            !app_var.goto_poweroff_flag) {
+            rdx_ble_server_auto_shut_down_enable(1);
+        }
+        break;
+    }
+    /* Native handler keeps ON running and routes OFF through mode cleanup. */
+    return false;
+#elif TCFG_DIP_SWITCH_POWER_ENABLE
     if (msg[0] == CHARGE_EVENT_LDO5V_OFF) {
         rdx_app_charge_stop();
         /* Native handler requests mode cleanup; never call the legacy RDX

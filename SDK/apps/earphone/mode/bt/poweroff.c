@@ -67,6 +67,15 @@ void sys_auto_shut_down_disable(void)
 void sys_auto_shut_down_enable(void)
 {
 #if TCFG_AUTO_SHUT_DOWN_TIME
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    /* All callers (including native BT events) must respect USB power,
+     * also after FULL. Explicit DIP shutdown and low-battery protection
+     * remain separate from this inactivity timer. */
+    if (get_charge_online_flag()) {
+        sys_auto_shut_down_disable();
+        return;
+    }
+#endif
 #if ((TCFG_LE_AUDIO_APP_CONFIG & (LE_AUDIO_UNICAST_SINK_EN | LE_AUDIO_JL_UNICAST_SINK_EN)))
     if (is_cig_phone_conn() || is_cig_other_phone_conn()) {
         printf("is_cig_phone_conn not auto shut down");

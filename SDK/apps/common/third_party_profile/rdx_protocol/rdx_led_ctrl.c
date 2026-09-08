@@ -12,7 +12,7 @@
 
     架构：表驱动引擎
     - 所有产品级颜色/时序/亮度参数在 rdx_led_cfg.h 中配置
-    - rdx_led_ctrl.c 只包含执行引擎，不硬编码任何产品级颜色常量
+    - rdx_led_ctrl.c 集中仲裁场景并执行灯效，不硬编码产品级颜色常量
     - 业务层通过 rdx_led_ctrl_set_scene(RDX_LED_SCENE_*) 控制灯效
 
     适配新的SPI模式LED PT0807驱动:
@@ -305,6 +305,44 @@ static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
     g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;
 }
 
+static bool _rdx_led_on_usb_charge(void)
+{
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    return get_power_on_status() && rdx_app_business_started() &&
+           get_charge_online_flag() &&
+           rdx_app_get_charge_state() != RDX_CHARGE_OUT &&
+           !app_var.goto_poweroff_flag && !get_vbat_need_shutdown();
+#else
+    return false;
+#endif
+}
+
+/* Resolve from live business state, never from a saved previous scene.
+ * Keep the existing restore order; only ON USB charging uses this policy. */
+static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+        if (requested == RDX_LED_SCENE_RECORD_MARK ||
+            (g_current_scene == RDX_LED_SCENE_RECORD_MARK && g_active_effect &&
+             g_effect_elapsed_ms < g_active_effect->timeout_ms)) {
+            return RDX_LED_SCENE_RECORD_MARK;
+        }
+        return RDX_LED_SCENE_RECORD_START;
+    }
+    if (rdx_app_get_dut_status()) {
+        return RDX_LED_SCENE_DUT_ENTER;
+    }
+    if (get_ota_status()) {
+        return RDX_LED_SCENE_OTA_START;
+    }
+    if (_rdx_led_is_transfer_active() && _rdx_led_can_show_transfer_effect()) {
+        return RDX_LED_SCENE_WIFI_START;
+    }
+    return rdx_app_get_charge_state() == RDX_CHARGE_FULL ?
+           RDX_LED_SCENE_CHARGE_FULL : RDX_LED_SCENE_CHARGE_PLUG_IN;
+}
+
 static void _rdx_led_restore_system_state(void)
 {
     RecordStatus* rp = rdx_record_get_status();
@@ -510,6 +548,16 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
+    bool on_usb_charge = _rdx_led_on_usb_charge();
+    if (on_usb_charge) {
+        bool new_mark = scene == RDX_LED_SCENE_RECORD_MARK;
+        scene = _rdx_led_resolve_on_usb_charge(scene);
+        /* Repeated battery/BLE events must not restart the visible effect.
+         * An explicit new recording mark may restart its short indication. */
+        if (scene == g_current_scene && g_active_effect && !new_mark) {
+            return;
+        }
+    }
     /* Gate before waking the shared rail. Skipping a reminder does not
      * restart its ten-minute schedule. */
     if ((scene == RDX_LED_SCENE_LOW_BATTERY ||
@@ -532,7 +580,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     }
 
     /* The temporary warning must yield immediately to critical status LEDs. */
-    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY
+    if (!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY
         && scene != RDX_LED_SCENE_OFF
         && scene != RDX_LED_SCENE_CHARGE_PLUG_IN
         && scene != RDX_LED_SCENE_CHARGE_FULL
@@ -640,6 +688,13 @@ void rdx_led_ctrl_update(void)
     if (!g_led_config->run_en) {
         return;
     }
+    /* Reconcile silent aborts/state changes using the existing LED tick.
+     * OFF is a neutral request here, not a new recording-mark event. */
+    if (_rdx_led_on_usb_charge() &&
+        _rdx_led_resolve_on_usb_charge(RDX_LED_SCENE_OFF) != g_current_scene) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        return;
+    }
     if (_rdx_led_refresh_transfer_scene()) {
         return;
     }
@@ -726,6 +781,10 @@ void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness)
  */
 void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
 {
+    if (_rdx_led_on_usb_charge()) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
+        return;
+    }
     if (g_led_config == NULL || !g_led_initialized) {
         return;
     }

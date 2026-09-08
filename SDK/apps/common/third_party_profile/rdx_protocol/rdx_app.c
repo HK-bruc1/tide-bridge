@@ -2695,10 +2695,7 @@ int rdx_app_msg_handler(int *msg)
                 if (rp && (rp->run == RECORD_STATE_START ||
                            rp->run == RECORD_STATE_RESUME)) {
 #if TDX_HAS_RECMARK_ABILITY
-                    if (rdx_record_add_mark(RDX_MARK_SOURCE_KEY) ==
-                        RDX_RECMARK_RESULT_OK) {
-                        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
-                    }
+                    rdx_record_add_mark(RDX_MARK_SOURCE_KEY);
 #endif
                 } else {
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
@@ -4080,7 +4077,8 @@ void rdx_app_tasks_init(void)
     rdx_wifi_event_register(rdx_app_wifi_event_handle);
 #endif
 
-#if (TCFG_CHARGE_POWERON_ENABLE == 1)
+#if (TCFG_CHARGE_POWERON_ENABLE == 1) || \
+    (TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     if (get_charge_online_flag()) {
         rdx_app_charge_start();
         rdx_ble_server_auto_shut_down_enable(0);
