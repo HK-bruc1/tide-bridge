@@ -586,6 +586,30 @@ u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
+/* KEY5 在 DUT 场景下保留八击退出，普通业务动作保持禁用。 */
+static u8 key_table_io_num4_dut[KEY_ACTION_MAX] = {
+    APP_MSG_NULL,              // 单击
+    APP_MSG_NULL,              // 长按
+    APP_MSG_NULL,              // 持续按住
+    APP_MSG_NULL,              // 长按抬起
+    APP_MSG_NULL,              // 双击
+    APP_MSG_NULL,              // 三击
+    APP_MSG_NULL,              // 四击
+    APP_MSG_NULL,              // 五击
+    APP_MSG_NULL,              // 六击
+    APP_MSG_NULL,              // 七击
+    APP_MSG_DUT,               // 八击退出 DUT
+    APP_MSG_NULL,
+    APP_MSG_NULL,              // 长按3秒
+    APP_MSG_NULL,              // 长按5秒
+    APP_MSG_NULL,              // 长按8秒
+    APP_MSG_NULL,              // 长按10秒
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+    APP_MSG_NULL,
+};
+
 static u8 *g_num_normal_tables[] = {
 	key_table_io_num0_normal,
 	key_table_io_num1_normal,
@@ -601,7 +625,8 @@ u8 *rdx_key_get_io_num_table(int num_idx, int scene)
 	}
 	// scene: 0=IDLE, 1=NORMAL, 2=RECORDING, 3=WIFI, 4=DUT, 5=OTA
 	switch (scene) {
-	case 4:  // DUT  — 物理按键不应干扰测试
+	case 4:  // DUT — KEY5 保留八击退出
+		return num_idx == 4 ? key_table_io_num4_dut : NULL;
 	case 5:  // OTA — 物理按键不应干扰升级
 		return NULL;
 	default:
