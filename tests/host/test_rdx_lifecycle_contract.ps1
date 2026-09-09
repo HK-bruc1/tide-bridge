@@ -146,4 +146,21 @@ $isolationOk = ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_protocol_
 Assert-Contract 'RUNTIME_REUSE_PRESERVES_HID' $isolationOk `
     'reconnect must reuse the audited singleton without resetting an independent HID owner'
 
+$Control = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_session_control.c"
+$Release = Get-SourceSlice $Session 'u8 rdx_ble_session_release_rdx(' 'u8 rdx_ble_session_rdx_runtime_begin_quiesce('
+Assert-Contract 'LOGICAL_RELEASE_PRESERVES_PHYSICAL_LINK' (
+    $Release -match 'capability\s*&=\s*~RDX_BLE_CAPABILITY_RDX' -and
+    $Release -match 's_rdx_rdx_link_index\s*=\s*RDX_BLE_LINK_INVALID_INDEX' -and
+    $Release -notmatch 'link_release|generation_advance|link_clear|s_rdx_hid_link_index\s*=' -and
+    $Release -notmatch 'link->(connected|con_handle|slot_generation|encrypted|mtu_size|peer_identity)\s*=' -and
+    (Test-TokensInOrder $Detach @('rdx_ble_session_rdx_runtime_begin_quiesce(link)', 'rdx_ble_session_release_rdx(link, link->slot_generation)', 'rdx_session_control_reset()', 'rdx_protocol_packet_recv(barrier_packet, barrier_packet_len)'))
+) 'logical close clears only RDX and still uses the common FIFO cleanup'
+Assert-Contract 'SINGLE_COMMAND_RELEASE' (
+    $Control -match 'strcmp\(value, "1"\)' -and
+    $Control -match '\*token = ingress' -and
+    $Control -match 'rdx_ble_session_rdx_token_resolve\(token, 1\)' -and
+    $Control -match 'os_taskq_post_type\("btstack", Q_CALLBACK' -and
+    $App -match 'rdx_session_control_handle_custom\(value\)'
+) 'one custom command carries an internal epoch to the serialized cleanup'
+
 Write-Host 'RDX lifecycle contracts passed.'

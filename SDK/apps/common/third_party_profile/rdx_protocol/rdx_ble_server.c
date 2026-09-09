@@ -52,6 +52,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
+#include "rdx_session_control.h"
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_protocol.h"
@@ -150,6 +151,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable);
 static void rdx_ble_server_phase0a_connect_adv_restart_cancel(void);
 static void rdx_ble_server_phase0a_connect_adv_restart_schedule(void);
 static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link);
+static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link, enum rdx_detach_cause cause);
 #if TCFG_RDX_HOGP_ENABLE
 static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link);
 #endif
@@ -2799,6 +2801,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     g_rdx_ble_server_info.ccc_configured = FALSE;
     g_rdx_ble_server_info.stream_tx_ready = FALSE;
     rdx_ble_server_reset_send_fail_cnt();
+    rdx_session_control_attach(link);
     rdx_ble_server_rdx_connected_handle();
     if (had_hid_owner) {
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=HID+RDX\n",
@@ -2812,6 +2815,20 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
 
 static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
 {
+    rdx_ble_server_rdx_detach_common(link, RDX_DETACH_PHYSICAL);
+}
+
+void rdx_ble_server_session_detach(const rdx_ble_async_token_t *token,
+                                 enum rdx_detach_cause cause)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 0);
+    if (cause != RDX_DETACH_LOGICAL_COMMAND) return;
+    rdx_ble_server_rdx_detach_common(link, cause);
+}
+
+static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link,
+                                           enum rdx_detach_cause cause)
+{
     char barrier_packet[RDX_LIFECYCLE_BARRIER_PACKET_SIZE];
     int barrier_packet_len;
 
@@ -2821,6 +2838,17 @@ static void rdx_ble_server_phase2_rdx_detach(rdx_ble_link_state_t *link)
     if (!rdx_ble_session_rdx_runtime_begin_quiesce(link)) {
         return;
     }
+    if (cause != RDX_DETACH_PHYSICAL) {
+        u8 capability = link->capability;
+        if (!rdx_ble_session_release_rdx(link, link->slot_generation)) {
+            rdx_ble_session_rdx_runtime_fail_closed();
+            rdx_session_control_reset();
+            return;
+        }
+        printf("[RDX_BLE_SESSION] logical detach cause=%u con=0x%04x capability=%u->%u\n",
+               cause, link->con_handle, capability, link->capability);
+    }
+    rdx_session_control_reset();
     rdx_ble_server_syn_data_timers_cancel();
     rdx_ble_server_rdx_send_pending_reset();
     rdx_ble_server_reset_send_fail_cnt();
@@ -2902,6 +2930,13 @@ static int rdx_ble_server_phase2_rdx_write(
     if (!link || offset != 0 || !buffer) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
+    if (rdx_ble_session_rdx_runtime_state_get() == RDX_BLE_RUNTIME_RESETTING) {
+        rdx_ble_server_rdx_runtime_try_rearm();
+    }
+    if (rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_ACTIVE &&
+        rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_READY) {
+        return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+    }
     if (att_handle ==
             ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE ||
         att_handle ==
@@ -2940,6 +2975,9 @@ static int rdx_ble_server_phase2_rdx_write(
         attach_error = rdx_ble_server_phase2_rdx_attach(link);
         if (attach_error) {
             return attach_error;
+        }
+        if (rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_ACTIVE) {
+            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
         }
         rdx_protocol_ota_handle(buffer, buffer_size);
         return 0;
@@ -4232,6 +4270,7 @@ void rdx_ble_server_exit(void)
     rdx_ble_server_syn_data_timers_cancel();
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     rdx_ble_server_rdx_send_pending_reset();
+    rdx_session_control_reset();
     rdx_ble_session_transport_deinit();
     g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
 
