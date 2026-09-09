@@ -77,7 +77,8 @@ typedef struct{
 *******************************************************************************/
 void rdx_vm_init(void);
 u8 rdx_vm_get_bound_status(void);
-void rdx_vm_set_bound_status(u8 d, u8 show_en);
+/* Returns 0 after persistence succeeds, -1 on write failure. */
+int rdx_vm_set_bound_status(u8 d, u8 show_en);
 void rdx_vm_bound_status_check(void);
 u8 rdx_vm_is_unbouding(void);
 void rdx_vm_unbound_cb(u8 result);

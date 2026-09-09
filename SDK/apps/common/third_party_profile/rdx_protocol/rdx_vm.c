@@ -185,9 +185,9 @@ u8 rdx_vm_get_bound_status(void)
  * description: 设置设备绑定状态
  * param (u8) d - 要设置的绑定状态
  * param (bool) show_en - 是否显示状态
- * return (*)
+ * return 0 on success, -1 on persistence failure
  **************************************************************************/
-void rdx_vm_set_bound_status(u8 d, u8 show_en)
+int rdx_vm_set_bound_status(u8 d, u8 show_en)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
@@ -198,13 +198,17 @@ void rdx_vm_set_bound_status(u8 d, u8 show_en)
     /*----------------------------------------------------------------*/
     g_printf("rdx_vm_set_bound_status :%d, is show: %d \n", d, show_en);
 
-    //set value.
+    /* Publish the new state only after the complete byte is persisted. */
+    if (syscfg_write(VM_RDX_NOTTA_BOUND_STATUS, &d, sizeof(d)) != sizeof(d)) {
+        r_printf("[RDX_VM] bound status write failed\n");
+        return -1;
+    }
     rdx_bound_info.bound_state = d;
-    syscfg_write(VM_RDX_NOTTA_BOUND_STATUS, &rdx_bound_info.bound_state, 1);
 
     if(show_en){
         // OLED 功能已删除
     }
+    return 0;
 }
 
 /**************************************************************************
@@ -298,7 +302,11 @@ void rdx_vm_unbound_cb(u8 result)
         rdx_record_mic_gain_set_default();
 
         //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
+        if (rdx_vm_set_bound_status(0, 0)) {
+            rdx_protocol_bound_result_indicate(1);
+            unbounding = false;
+            return;
+        }
 
         rdx_protocol_bound_result_indicate(0);
 
@@ -355,7 +363,11 @@ void rdx_vm_choose_to_unbound_cb(u8 result)
         y_printf("rdx_vm_choose_to_unbound_cb --> format sd card ok! \r");
         
         //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
+        if (rdx_vm_set_bound_status(0, 0)) {
+            rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_bound_info.bound_state);
+            unbounding = false;
+            return;
+        }
 
         rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
         unbounding = false;
@@ -413,7 +425,11 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
         rdx_uxfile_sd_format(rdx_vm_choose_to_unbound_cb);
     }else{
         //set unbound, do not show bound status on oled.
-        rdx_vm_set_bound_status(0, 0);
+        if (rdx_vm_set_bound_status(0, 0)) {
+            rdx_protocol_choose_to_unbound_ack_indicate(1, rdx_bound_info.bound_state);
+            unbounding = false;
+            return;
+        }
 
         rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
         unbounding = false;

@@ -3643,6 +3643,27 @@ static void rdx_app_file_delete_on_app_core(
     free(request);
 }
 
+static int rdx_app_bound_tone_callback(void *priv, enum stream_event event)
+{
+    if (event == STREAM_EVENT_INIT &&
+        (app_var.goto_poweroff_flag || !rdx_vm_get_bound_status())) {
+        return -1;
+    }
+    return 0;
+}
+
+static void rdx_app_bound_tone_play(void)
+{
+    if (app_var.goto_poweroff_flag || !rdx_vm_get_bound_status()) {
+        return;
+    }
+    const char *tone_file = get_tone_files()->conn;
+    if (tone_file && play_tone_file_callback(tone_file, NULL,
+                                            rdx_app_bound_tone_callback)) {
+        r_printf("[RDX_APP] binding success tone play failed\n");
+    }
+}
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
@@ -3820,8 +3841,21 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             ProtocolBoundParams* p = (ProtocolBoundParams*)data;
             g_printf("[APP CMD] bound cmd=%d\r", p->cmd);
             if(p->cmd == 1){
-                rdx_vm_set_bound_status(1, 1);
+                u8 was_bound = rdx_vm_get_bound_status();
+                if (!was_bound && rdx_vm_set_bound_status(1, 1)) {
+                    ops->bound_result_ack_indicate(1);
+                    break;
+                }
                 ops->bound_result_ack_indicate(0);
+                /* Best-effort prompt for persisted 0 -> 1 only; no retry. */
+                if (!was_bound) {
+                    int msg[2];
+                    msg[0] = (int)rdx_app_bound_tone_play;
+                    msg[1] = 0;
+                    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
+                        r_printf("[RDX_APP] binding success tone taskq post failed\n");
+                    }
+                }
             }else{
                 rdx_app_bound_unbind_request_t *request =
                     malloc(sizeof(*request));
@@ -4158,6 +4192,27 @@ int rdx_led_hardware_deinit(void)
     return ret;
 }
 
+static int rdx_app_poweron_bind_tone_callback(void *priv, enum stream_event event)
+{
+    if (event == STREAM_EVENT_INIT &&
+        (app_var.goto_poweroff_flag || rdx_vm_get_bound_status())) {
+        return -1;
+    }
+    return 0;
+}
+
+static void rdx_app_poweron_bind_tone_check(void *priv)
+{
+    if (app_var.goto_poweroff_flag || rdx_vm_get_bound_status()) {
+        return;
+    }
+    const char *tone_file = get_tone_files()->plebind;
+    if (tone_file && play_tone_file_callback(tone_file, NULL,
+                                            rdx_app_poweron_bind_tone_callback)) {
+        r_printf("[RDX_APP] power-on please-bind tone play failed\n");
+    }
+}
+
 /**************************************************************************
  * function: rdx_app_all_init
  * description:
@@ -4196,6 +4251,11 @@ void rdx_app_all_init(void)
 
     //auth info init.
     rdx_vm_auth_info_init();
+
+    /* Check binding at boot, independently of BLE connection state. */
+    if (!sys_timeout_add(NULL, rdx_app_poweron_bind_tone_check, 1)) {
+        r_printf("[RDX_APP] power-on binding check schedule failed\n");
+    }
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
     //load paired earphone info from VM (耳机仓 配对, 603 专用).
