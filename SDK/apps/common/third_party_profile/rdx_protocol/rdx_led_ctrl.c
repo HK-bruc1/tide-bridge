@@ -37,6 +37,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_record.h"
 #include "rdx_app.h"
+#include "rdx_dip_switch.h"
 #include "rdx_charge.h"
 #include "app_main.h"
 #include "app_power_manage.h"
@@ -548,7 +549,15 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
-    bool on_usb_charge = _rdx_led_on_usb_charge();
+    int transition = rdx_dip_switch_transition_led();
+    bool on_usb_charge = !transition && _rdx_led_on_usb_charge();
+    if (transition) {
+        scene = transition == 2 ? RDX_LED_SCENE_USB_SWITCH_FAILED :
+                                  RDX_LED_SCENE_USB_SWITCH_WAIT;
+        if (scene == g_current_scene && g_active_effect) {
+            return;
+        }
+    }
     if (on_usb_charge) {
         bool new_mark = scene == RDX_LED_SCENE_RECORD_MARK;
         scene = _rdx_led_resolve_on_usb_charge(scene);
@@ -580,7 +589,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     }
 
     /* The temporary warning must yield immediately to critical status LEDs. */
-    if (!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY
+    if (!transition && !on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY
         && scene != RDX_LED_SCENE_OFF
         && scene != RDX_LED_SCENE_CHARGE_PLUG_IN
         && scene != RDX_LED_SCENE_CHARGE_FULL
@@ -688,14 +697,23 @@ void rdx_led_ctrl_update(void)
     if (!g_led_config->run_en) {
         return;
     }
+    int transition = rdx_dip_switch_transition_led();
+    if (transition) {
+        rdx_led_scene_e desired = transition == 2 ?
+            RDX_LED_SCENE_USB_SWITCH_FAILED : RDX_LED_SCENE_USB_SWITCH_WAIT;
+        if (desired != g_current_scene) {
+            rdx_led_ctrl_set_scene(desired);
+            return;
+        }
+    }
     /* Reconcile silent aborts/state changes using the existing LED tick.
      * OFF is a neutral request here, not a new recording-mark event. */
-    if (_rdx_led_on_usb_charge() &&
+    if (!transition && _rdx_led_on_usb_charge() &&
         _rdx_led_resolve_on_usb_charge(RDX_LED_SCENE_OFF) != g_current_scene) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
         return;
     }
-    if (_rdx_led_refresh_transfer_scene()) {
+    if (!transition && _rdx_led_refresh_transfer_scene()) {
         return;
     }
     if (g_active_effect == NULL) {

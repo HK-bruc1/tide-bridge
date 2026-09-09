@@ -83,6 +83,8 @@ typedef enum {
     RDX_LED_SCENE_WIFI_STOP,        /* WiFi传输结束 */
     RDX_LED_SCENE_RECORD_MARK,      /* 录音标记成功：黄灯单次提示 */
     RDX_LED_SCENE_BATTERY_QUERY,
+    RDX_LED_SCENE_USB_SWITCH_WAIT,
+    RDX_LED_SCENE_USB_SWITCH_FAILED,
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 

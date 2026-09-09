@@ -193,6 +193,10 @@ void rdx_record_pause_timeout_stop(void);
 
 void rdx_record_on_ble_conn_changed(u8 connected);
 
+/* app_core requests; record worker closes streams and acknowledges the ticket. */
+int rdx_record_usb_quiesce_request(u32 ticket);
+int rdx_record_usb_quiesce_poll(u32 ticket);
+
 
 #ifdef __cplusplus
 }

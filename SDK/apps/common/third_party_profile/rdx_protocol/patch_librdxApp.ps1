@@ -76,6 +76,7 @@ try {
     $ObjectPath = Join-Path $TempDir 'rdx_uxfile.c.o'
     $OriginalIrPath = Join-Path $TempDir 'rdx_uxfile.original.ll'
     $PatchedIrPath = Join-Path $TempDir 'rdx_uxfile.patched.ll'
+    $CandidateArchive = Join-Path $TempDir 'librdxApp_patched.a'
 
     Push-Location $TempDir
     try {
@@ -185,6 +186,9 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
 '@
     $Ir = Replace-ExactlyOnce $Ir $OldScanActive $NewScanActive 'scan activity state query'
 
+    . (Join-Path $PSScriptRoot 'patch_librdxApp_storage.ps1')
+    $Ir = Update-RdxStorageIr $Ir
+
     $Utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [IO.File]::WriteAllText($PatchedIrPath, $Ir, $Utf8NoBom)
 
@@ -194,15 +198,15 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
         throw 'Patched rdx_uxfile.c.o is not LLVM bitcode.'
     }
 
-    Copy-Item -LiteralPath $InputArchive -Destination $OutputArchive -Force
+    Copy-Item -LiteralPath $InputArchive -Destination $CandidateArchive -Force
     Push-Location $TempDir
     try {
-        Invoke-CheckedTool $Ar @('r', $OutputArchive, 'rdx_uxfile.c.o')
+        Invoke-CheckedTool $Ar @('r', $CandidateArchive, 'rdx_uxfile.c.o')
     } finally {
         Pop-Location
     }
 
-    $Members = @(& $Ar 't' $OutputArchive)
+    $Members = @(& $Ar 't' $CandidateArchive)
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to list patched archive members.'
     }
@@ -217,10 +221,21 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
         throw "Patched archive member list is unexpected: $($Members -join ', ')"
     }
 
-    $Symbols = @(& $Nm '--defined-only' $OutputArchive)
-    if ($LASTEXITCODE -ne 0 -or ($Symbols -join "`n") -notmatch '\brdx_uxfile_is_scan_active\b') {
+    $Symbols = @(& $Nm '--defined-only' $CandidateArchive)
+    if ($LASTEXITCODE -ne 0) {
         throw 'Patched archive symbol verification failed.'
     }
+    foreach ($Symbol in @('rdx_uxfile_is_scan_active', 'rdx_uxfile_finish_record',
+                          'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll',
+                          'rdx_uxfile_pc_returned', 'rdx_uxfile_pc_refresh_status',
+                          'rdx_uxfile_storage_status')) {
+        if (($Symbols -join "`n") -notmatch ('\b' + $Symbol + '\b')) {
+            throw "Patched archive missing ABI symbol: $Symbol"
+        }
+    }
+
+    # Publish only after the candidate compiles and its ABI/members verify.
+    Copy-Item -LiteralPath $CandidateArchive -Destination $OutputArchive -Force
 
     $OutputHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputArchive).Hash
     Write-Host "Created patched RDX archive: $OutputArchive"

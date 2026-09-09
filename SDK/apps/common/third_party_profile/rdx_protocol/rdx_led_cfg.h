@@ -140,6 +140,7 @@ typedef enum {
     RDX_LED_EFFECT_LOW_BATTERY_SOLID,
     RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     RDX_LED_EFFECT_BATTERY_GREEN,
+    RDX_LED_EFFECT_USB_SWITCH_FAILED,
     RDX_LED_EFFECT_MAX,
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
@@ -148,6 +149,8 @@ typedef enum {
    每个 rdx_led_scene_e 在此显式映射到 rdx_led_effect_e。
    值为 RDX_LED_EFFECT_SMART 表示该场景由 set_scene() 内部 switch 处理。 */
 static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
+    [RDX_LED_SCENE_USB_SWITCH_WAIT] = RDX_LED_EFFECT_TRANSFER_YELLOW_BLINK,
+    [RDX_LED_SCENE_USB_SWITCH_FAILED] = RDX_LED_EFFECT_USB_SWITCH_FAILED,
     [RDX_LED_SCENE_BATTERY_QUERY]    = RDX_LED_EFFECT_SMART,
     [RDX_LED_SCENE_OFF]              = RDX_LED_EFFECT_OFF,
     [RDX_LED_SCENE_BLE_ADV_START]    = RDX_LED_EFFECT_BLE_ADV_BLINK,
@@ -174,6 +177,13 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
 /* 所有产品级LED颜色、时序、亮度都在此定义。
    rdx_led_ctrl.c中的引擎不硬编码任何这些值。 */
 static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
+    [RDX_LED_EFFECT_USB_SWITCH_FAILED] = {
+        .mode = RDX_LED_MODE_BLINK,
+        .r = 255, .g = 0, .b = 0,
+        .brightness = 200,
+        .on_ms = 200,
+        .interval_ms = 1000,
+    },
     [RDX_LED_EFFECT_BATTERY_GREEN] = {
         .mode = RDX_LED_MODE_SOLID,
         .r = 0, .g = 255, .b = 0,

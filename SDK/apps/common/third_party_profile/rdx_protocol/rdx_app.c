@@ -931,6 +931,10 @@ void rdx_app_online_key_down(u8 key_value)
 
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        *value = APP_MSG_NULL;
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1758,6 +1762,9 @@ void rdx_app_record_state_upload_timer_start(void)
 
 static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
 {
+    if (run == RECORD_STATE_START && rdx_dip_switch_business_blocked()) {
+        return -1;
+    }
     u8 formate = 0;
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
@@ -2113,6 +2120,9 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     if (strcmp(cmd, RDX_LIFECYCLE_CUSTOM_CMD) == 0 &&
         rdx_ble_server_rdx_lifecycle_barrier_match(value)) {
         rdx_ble_server_rdx_lifecycle_barrier_complete();
+        return;
+    }
+    if (rdx_dip_switch_business_blocked()) {
         return;
     }
     if (rdx_ble_session_rdx_runtime_state_get() !=
@@ -3642,6 +3652,9 @@ static void rdx_app_file_delete_on_app_core(
  */
 static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        return;
+    }
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
     if(!ops) return;
     if (rdx_ble_session_rdx_runtime_state_get() !=
@@ -4053,7 +4066,9 @@ void rdx_app_tasks_init(void)
 #if defined(__UUX_FILE__)
 	rdx_uxfile_init();
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-    rdx_playback_refresh_playlist();
+    if (!rdx_dip_switch_business_blocked()) {
+        rdx_playback_refresh_playlist();
+    }
 #endif
 #endif
 

@@ -144,6 +144,19 @@ u32 rdx_uxfile_get_wifi_pack_size(void);
 void rdx_uxfile_read_buffer_free(void);
 int rdx_uxfile_flush_cache(void);  // 【对齐CC】返回 int，空闲时保存 dirty 缓存到文件
 
+/* Hash-pinned storage patch ABI. Errors remain latched until reboot.
+ * finish_record: 0 saved/no open file, 1 discarded by short-file policy, <0 error.
+ * Fence: app_core sole owner, once per boot, after external producers stop.
+ * Library timers stop at request; successful completion freezes its worker.
+ * poll: 0 complete, -1 failed, -2 pending/wrong ticket. Never a busy snapshot.
+ */
+int rdx_uxfile_finish_record(void);
+int rdx_uxfile_storage_status(void);
+int rdx_uxfile_fence_request(u32 ticket);
+int rdx_uxfile_fence_poll(u32 ticket);
+void rdx_uxfile_pc_returned(void);
+int rdx_uxfile_pc_refresh_status(void);
+
 // 【对齐CC】同步状态管理
 bool rdx_uxfile_sync_is_in_progress(void);      // 检查同步是否正在进行
 void rdx_uxfile_sync_request_pause(void);        // 请求暂停同步

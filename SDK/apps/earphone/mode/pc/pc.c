@@ -150,6 +150,10 @@ static int pc_storage_restore(void)
     rdx_peripheral_power_vdd_usb_restore_complete(1);
 #endif
     log_info("[PC-STORAGE] HOST_OWNED -> DEVICE_OWNED, sd0 remount ok");
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+    /* First BLE startup must reconcile PC changes before opening admission. */
+    rdx_dip_switch_pc_returned();
+#endif
 #endif
     return 0;
 }

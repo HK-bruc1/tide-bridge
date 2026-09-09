@@ -54,6 +54,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_dip_switch.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -133,6 +134,9 @@ static u32 record_start_tone_epoch;
 static u32 record_start_tone_completed;
 static bool record_start_tone_pending;
 static bool record_start_tone_ready;
+static volatile u32 usb_record_done;
+static volatile int usb_record_result;
+#define RDX_RECORD_USB_FENCE 0x52445852
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
 
@@ -1052,6 +1056,10 @@ static void rdx_record_cmd_handle_internal(
     if (!r_info) {
         return;
     }
+    if (rdx_dip_switch_business_blocked() &&
+        r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
+        return;
+    }
     if (token && !rdx_record_rdx_token_is_current(token)) {
         r_printf("[RDX_RECORD] drop stale command\r");
         return;
@@ -1245,6 +1253,9 @@ void rdx_record_stop(void)
  **************************************************************************/
 void rdx_record_start(void* priv)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1290,9 +1301,35 @@ static void rdx_record_start_tone_cancel(void)
     rdx_app_emmc_poweroff_check();
 }
 
+int rdx_record_usb_quiesce_request(u32 ticket)
+{
+    if (!ticket || !is_record_task_created) {
+        return -1;
+    }
+    if (g_record_cmd_delay_timer) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+        g_pending_record_token_valid = 0;
+    }
+    if (record_start_tone_pending) {
+        rdx_record_start_tone_cancel();
+    }
+    rdx_record_pause_timeout_stop();
+    record_status.run = RECORD_STATE_STOP;
+    usb_record_done = 0;
+    usb_record_result = -2;
+    return os_taskq_post_msg(RECORD_TASK_NAME, 2, RDX_RECORD_USB_FENCE, ticket);
+}
+
+int rdx_record_usb_quiesce_poll(u32 ticket)
+{
+    return ticket && usb_record_done == ticket ? usb_record_result : -2;
+}
+
 static bool rdx_record_start_tone_is_current(u32 epoch)
 {
     return record_start_tone_pending && epoch == record_start_tone_epoch &&
+           !rdx_dip_switch_business_blocked() &&
            record_status.run == RECORD_STATE_START &&
            !app_var.goto_poweroff_flag && !rdx_app_get_poweroff_flag() &&
            (!g_record_session_token_valid || rdx_record_online_session_is_current());
@@ -1530,6 +1567,10 @@ void rdx_record_auto_run(RecordStatus* rp)
  **************************************************************************/
 void rdx_record_process(void)
 {
+    if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
+        record_status.run = RECORD_STATE_STOP;
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1683,6 +1724,10 @@ void rdx_record_process(void)
  **************************************************************************/
 void rdx_record_process(void)
 {
+    if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
+        record_status.run = RECORD_STATE_STOP;
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1852,6 +1897,22 @@ static void rdx_record_task(void *arg)
             switch (msg[0]) {
 				case Q_MSG:
 					{
+                        if (msg[1] == RDX_RECORD_USB_FENCE) {
+                            record_status.run = RECORD_STATE_STOP;
+                            translation_ear_recoder_close_all();
+                            /* PAUSE has no live stream but still owns an open
+                             * recording context. Commit that context as well. */
+                            int saved = rdx_uxfile_finish_record();
+                            usb_record_result = saved < 0 ? -1 : 0;
+                            rdx_record_set_process_state_ready();
+                            usb_record_done = (u32)msg[2];
+                            continue;
+                        }
+                        if (rdx_dip_switch_business_blocked() &&
+                            (msg[1] == RECORD_STATE_START ||
+                             msg[1] == RECORD_STATE_RESUME)) {
+                            continue;
+                        }
                         if(msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME){
                             translation_ear_recoder_open_all(msg[2]);
                         }else if(msg[1] == RECORD_STATE_STOP || msg[1] == RECORD_STATE_PAUSE){
@@ -2603,7 +2664,10 @@ int rdx_record_run_exit(void)
     }
 
     if(!rdx_record_stream_only_session_is_active()){
-        rdx_uxfile_dat_1_save_gen();
+        int saved = rdx_uxfile_finish_record();
+        if (saved < 0) {
+            r_printf("[RECORD] save failed; USB handoff blocked\n");
+        }
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
         if(rp->run == RECORD_STATE_STOP){
             rdx_record_notify_playback_content_changed();
@@ -2818,7 +2882,10 @@ int rdx_record_run_exit(void)
     y_printf("%s --> con_hdl = %d, rp->mode = %d \r", __FUNCTION__, con_hdl, rp->mode);
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
         // rdx_uxfile_mssg_1_save();
-        rdx_uxfile_dat_1_save_gen();
+        int saved = rdx_uxfile_finish_record();
+        if (saved < 0) {
+            r_printf("[RECORD] save failed; USB handoff blocked\n");
+        }
         /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻 */
         if(rp->run == RECORD_STATE_STOP){
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE

@@ -258,14 +258,14 @@ $holdRecordStorageOk = $RdxApp -match '(?s)request->stream_only\s*&&.*?request->
                        $RdxRecord -match '(?s)rdx_record_stream_only_start_consume\(token\);.*?rdx_record_online_session_bind\(token\);' -and
                        $RdxRecord -match '(?s)if\(rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_operate_file_init\(\);.*?else\s*\{.*?rdx_uxfile_dat_1_gen\(rp->scene\);' -and
                        $RdxRecord -match '(?s)//local save\..*?if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_raw_write' -and
-                       $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_dat_1_save_gen\(\);' -and
+                       $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
                        $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;'
 Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `
     'only hold-triggered online recording may report empty identity and skip local persistence'
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '533546C21E36B571B0874A1F880C531D762E8E4BBF4A0D04196F1CCF809CBAD2' -and
+                           $PatchedRdxArchiveHash -eq '2D844D806F0F26B03BE03C8ACE7495A456CB8A4D19E381E4423C50FDA7518C64' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match "factory-new empty index fast path" -and
                            $RdxLibraryPatch -match "br i1 %25, label %221, label %219" -and
@@ -500,5 +500,36 @@ Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
     $RdxLedCtrl -match '(?s)void rdx_led_ctrl_update\(void\).*?_rdx_led_on_usb_charge\(\).*?_rdx_led_resolve_on_usb_charge\(RDX_LED_SCENE_OFF\) != g_current_scene.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\)' -and
     $ledSceneEntry -match '!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY'
 ) 'The existing LED tick reconciles silent OTA exits and expired marks without restarting unchanged effects or retaining a stale warning lock'
+
+$StoragePatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_storage.ps1'
+$StorageIr = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_patch.ll'
+$DipSwitch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
+Assert-Contract 'USB_HOT_SWITCH_REQUIRES_REAL_COMPLETION' (
+    $DipSwitch -match '(?s)s_usb_switch = USB_SWITCH_DRAIN.*?rdx_record_usb_quiesce_request' -and
+    (Test-TokensInOrder $DipSwitch @('rdx_record_usb_quiesce_poll', 'rdx_ble_server_usb_quiesce', 'saved == 0 && ble_idle', 'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll', 'else if (!result)', 'rdx_cpu_reset()')) -and
+    $DipSwitch -match '(?s)rdx_usb_switch_fail\(.*?USB_SWITCH_FAILED.*?no export/reset' -and
+    $DipSwitch -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag' -and
+    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_dip_switch_shutdown_deferred\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
+    $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_USB_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?usb_record_done = ' -and
+    $RdxServer -match '(?s)int rdx_ble_server_usb_quiesce\(void\).*?app_ble_disconnect.*?rdx_ble_server_rdx_runtime_try_rearm\(\)'
+) 'Hot switch must close recording, drain real BLE lifecycle and freeze UXFILE before reset; cold export and failure protection remain intact'
+Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
+    (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'HOST_OWNED -> DEVICE_OWNED', 'rdx_dip_switch_pc_returned()')) -and
+    $DipSwitch -match '(?s)rdx_dip_switch_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
+    $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_dip_switch_business_blocked\(\).*?enable = 0;' -and
+    $RdxRecord -match '(?s)void rdx_record_process\(void\).*?rdx_dip_switch_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
+    $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_dip_switch_business_blocked' -and
+    $StoragePatch -match 'rdx_storage_boot_refresh_post' -and
+    $StorageIr -match '(?s)rdx_storage_boot_reconcile.*?rdx_uxfile_sync_files_with_dat.*?store volatile i32 %state, i32\* @rdx_storage_refresh'
+) 'PC return must stop USB/remount before reconciliation and gate BLE, recording and playback until completion'
+Assert-Contract 'UXFILE_PATCH_QUIET_AND_ERROR_BOUNDARY' (
+    $Makefile -match '(?m)^\$\(OUT_ELF\): apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a Makefile \| pre_build' -and
+    $RdxLibraryPatch -match 'Update-RdxStorageIr' -and
+    $StoragePatch -match 'retain dirty on storage I/O failure' -and
+    $StoragePatch -match 'raw open failure cannot bypass safe shutdown' -and
+    $StoragePatch -match 'freeze file worker after successful fence' -and
+    $StorageIr -match '(?s)rdx_storage_fwrite.*?mul i32 %size, %count.*?icmp eq i32 %written, %expected' -and
+    (Test-TokensInOrder $StorageIr @('define internal void @rdx_storage_fence_arrive', 'rdx_uxfile_process_delete_queue', 'rdx_uxfile_close_read_file_handle', 'rdx_uxfile_flush_cache', 'rdx_storage_f_flush_wbuf', 'store volatile i32 %quiet', 'store volatile i32 %ticket, i32* @rdx_storage_fence_done'))
+) 'The pinned patch must retain I/O errors, stop library producers, and publish the matching completion only after flush and worker freeze'
 
 Write-Host 'T2620 product contracts passed.'

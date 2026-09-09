@@ -21,4 +21,15 @@ void rdx_dip_switch_note_business_mode(void);
 
 #endif // TCFG_DIP_SWITCH_POWER_ENABLE
 
+#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+int rdx_dip_switch_business_blocked(void);
+int rdx_dip_switch_transition_led(void);
+int rdx_dip_switch_shutdown_deferred(void);
+void rdx_dip_switch_pc_returned(void);
+#else
+static inline int rdx_dip_switch_business_blocked(void) { return 0; }
+static inline int rdx_dip_switch_transition_led(void) { return 0; }
+static inline int rdx_dip_switch_shutdown_deferred(void) { return 0; }
+#endif
+
 #endif // __RDX_DIP_SWITCH_H__

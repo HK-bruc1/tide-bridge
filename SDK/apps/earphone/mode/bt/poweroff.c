@@ -17,6 +17,8 @@
 #include "app_charge.h"
 #include "bt_slience_detect.h"
 #include "poweroff.h"
+#include "app_power_manage.h"
+#include "rdx_dip_switch.h"
 #include "bt_background.h"
 #include "usb/otg.h"
 #include "btstack/le/le_user.h"
@@ -237,6 +239,13 @@ static void wait_exit_btstack_flag(void *_reason)
 
 void sys_enter_soft_poweroff(enum poweroff_reason reason)
 {
+    /* Unplugging while OFF can request normal poweroff independently of DIP.
+     * Let an in-progress product handoff finish; low-voltage protection wins. */
+    if (reason == POWEROFF_NORMAL && rdx_dip_switch_shutdown_deferred() &&
+        !get_vbat_need_shutdown()) {
+        log_info("[USB-SWITCH] defer normal poweroff until storage is quiet");
+        return;
+    }
     log_info("===> sys_enter_soft_poweroff: %d, app_var.goto_poweroff_flag: %d\n", reason, app_var.goto_poweroff_flag);
 
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))

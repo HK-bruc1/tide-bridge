@@ -114,6 +114,8 @@ typedef struct {
 ******************************************************************************/ 
 int rdx_ble_server_adv_enable(u8 enable);
 void rdx_ble_server_app_disconnect(void);
+/* Disconnect real ACLs and wait for the existing protocol FIFO lifecycle. */
+int rdx_ble_server_usb_quiesce(void);
 void rdx_ble_server_auto_shut_down_enable(u8 enable);
 int rdx_ble_server_send(u8 *data, u32 len);
 int rdx_ble_server_ota_send(u8 *data, u32 len);

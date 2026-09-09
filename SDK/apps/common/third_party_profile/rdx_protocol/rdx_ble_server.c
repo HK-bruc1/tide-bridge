@@ -48,6 +48,7 @@
 
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
+#include "rdx_dip_switch.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
@@ -2770,6 +2771,9 @@ static u8 rdx_ble_server_phase2_claim_to_att_error(
 
 static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+    }
     rdx_ble_claim_result_t claim_result;
     u8 had_hid_owner;
 
@@ -3128,6 +3132,9 @@ static void rdx_ble_server_app_rx_ascii_dump(const u8 *buffer, u16 buffer_size)
  **************************************************************************/
 static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, uint16_t offset, uint8_t *buffer, uint16_t buffer_size)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
@@ -3621,6 +3628,9 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
 
 int rdx_ble_server_adv_enable(u8 enable)
 {
+    if (enable && rdx_dip_switch_business_blocked()) {
+        enable = 0;
+    }
     u8 index;
     int ret = 0;
     void *target;
@@ -3936,6 +3946,27 @@ void rdx_ble_server_app_disconnect(void)
     rdx_ble_server_disconnect(NULL);
 }
 
+int rdx_ble_server_usb_quiesce(void)
+{
+    void *handles[2] = {g_rdx_ble_server_info.rdx_ble_server_hdl,
+                        g_rdx_ble_secondary_hdl};
+    int connected = 0;
+    rdx_ble_server_adv_enable(0);
+    for (int i = 0; i < 2; ++i) {
+        if (handles[i] && app_ble_get_hdl_con_handle(handles[i])) {
+            app_ble_disconnect(handles[i]);
+            connected = 1;
+        }
+    }
+    if (connected) {
+        return 0;
+    }
+    /* No fabricated disconnect or SD owner in the BLE registry. This follows
+     * real disconnect events through the existing receive FIFO barrier. */
+    return rdx_ble_server_rdx_runtime_try_rearm() &&
+           rdx_app_rdx_rebind_is_idle();
+}
+
 /**************************************************************************
  * function: rdx_ble_server_auto_shut_down_enable
  * description: 
@@ -4053,6 +4084,9 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
 ***************************************************************************/
 static u8 rdx_ble_server_broadcast_suppressed(void)
 {
+    if (rdx_dip_switch_business_blocked()) {
+        return 1;
+    }
     RdxWifiInfo* k = rdx_app_get_wifi_info();
     bool rdx_uxfile_sd_format_status_check(void);
 

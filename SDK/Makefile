@@ -1282,6 +1282,10 @@ clean:
 
 
 
+# Updating the checked-in RDX patch must relink even if no C object changed.
+# pre_build regenerates sdk.ld: never run the linker while it is being replaced.
+$(OUT_ELF): apps/common/third_party_profile/rdx_protocol/librdxApp_patched.a Makefile | pre_build
+
 ifeq ($(LINK_AT), 1)
 $(OUT_ELF): $(OBJS)
 	$(info +LINK $@)
