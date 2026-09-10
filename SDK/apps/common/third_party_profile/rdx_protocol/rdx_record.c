@@ -1657,6 +1657,9 @@ void rdx_record_process(void)
                 g_printf("====== %s --> RECORD PAUSE \r", __FUNCTION__);
                 rdx_record_set_filter_cnt(0);
 
+                // Pause keeps the session open but restores the system LED scene.
+                rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+
             #ifdef RECORD_HEARTBEAT_SUPPORT
                 //stop record alive check timer.
                 rdx_record_keep_alive_check_stop();

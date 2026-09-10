@@ -53,7 +53,7 @@
 #define TCFG_DEBUG_UART_ENABLE                    1                // 调试串口
 #if TCFG_DEBUG_UART_ENABLE
 #define TCFG_DEBUG_UART_TX_PIN                    IO_PORTA_03      // 输出IO
-#define TCFG_DEBUG_UART_BAUDRATE                  1000000          // 波特率
+#define TCFG_DEBUG_UART_BAUDRATE                  2000000          // 波特率
 #define TCFG_EXCEPTION_LOG_ENABLE                 1                // 打印异常信息
 #define TCFG_EXCEPTION_RESET_ENABLE               1                // 异常自动复位
 #endif // TCFG_DEBUG_UART_ENABLE
