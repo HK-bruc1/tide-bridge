@@ -80,6 +80,7 @@ static int rdx_usb_switch_service(int on, int vbus)
     if (s_pc_refresh_pending && !refresh && on &&
         s_usb_switch == USB_SWITCH_IDLE && rdx_app_business_started()) {
         s_pc_refresh_pending = 0;
+        r_printf("[USB-SWITCH] storage reconciliation complete; enabling business, supply stability unverified\n");
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
         rdx_playback_refresh_playlist();
 #endif

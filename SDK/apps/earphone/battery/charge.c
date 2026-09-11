@@ -286,7 +286,7 @@ void charge_ldo5v_in_deal(void)
             goto _check_reset;
         }
     } else {
-        log_info("%s --> 关闭内置充电, reset\n", __FUNCTION__);
+        log_info("%s: internal charging disabled; checking pending poweroff\n", __FUNCTION__);
         // charge_start(); //dons++ 关闭内置充电
         
         goto _check_reset;
@@ -297,6 +297,7 @@ _check_reset:
     //防止耳机低电时,插拔充电有几率出现关机不充电问题
     r_printf("$$$$$$ app_var.goto_poweroff_flag = %d \r", app_var.goto_poweroff_flag);
     if (app_var.goto_poweroff_flag) {
+        log_info("[CHARGE] controlled reset: USB inserted during pending poweroff");
         cpu_reset();
     }
 }

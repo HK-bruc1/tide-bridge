@@ -468,7 +468,12 @@ int __dev_manager_add(char *logo, u8 need_mount)
 			}
 #endif
 
-#if (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
+#if (TCFG_SD0_ENABLE && TCFG_T2620_STORAGE_PRESERVE_ON_BOOT)
+			if (!strcmp(logo, "sd0")) {
+				printf("[SD-FMT] sd0 mount %s; boot format prohibited, data preserved\n",
+				       dev->fmnt ? "ok" : "failed");
+			}
+#elif (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)
 			if (!strcmp(logo, "sd0")) {
 				static u8 _sd0_fmt_done = 0;
 				if (!_sd0_fmt_done) {

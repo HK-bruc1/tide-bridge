@@ -46,6 +46,7 @@
 #include "pwm_led/led_ui_api.h"
 #include "dual_bank_updata_api.h"
 #include "rdx_peripheral_power.h"
+#include "power/power_reset.h"
 #if TCFG_AUDIO_WIDE_AREA_TAP_ENABLE
 #include "icsd_adt_app.h"
 #endif
@@ -401,6 +402,14 @@ void sd_set_power_user(u8 en)
 
 static struct app_mode *app_task_init()
 {
+#if TCFG_T2620_PC_STORAGE_ENABLE
+    /* Reset-source evidence is historical, not a live supply-ready signal.
+     * JL also reports LVD on power-on; do not latch business off from it. */
+    log_info("[BOOT-POWER] vddio_lvd_or_poweron=%d vddio_por=%d soft=%d; supply stability unverified",
+             is_reset_source(P33_VDDIO_LVD_RST),
+             is_reset_source(P33_VDDIO_POR_RST),
+             is_reset_source(P33_SOFT_RST));
+#endif
     /* Must precede every possible SD0 open/mount path. */
     rdx_peripheral_power_vdd_early_init();
     app_var_init();

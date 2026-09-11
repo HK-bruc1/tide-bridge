@@ -171,7 +171,7 @@ Current overlay rules:
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
 - `TCFG_T2620_PC_STORAGE_ENABLE` owns the T2620 PC-storage configuration group: it requires tool-configured SD0 + USB MSC, enables PC mode, and disables the mutually exclusive USB HID/UAC classes
 - Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay
-- PC storage forces the soldered SD NAND always-online policy in `t2620_project_config.h`; mount-failure formatting remains in `board_ac701n_demo_cfg.h`, where the VM marker distinguishes first-time initialization from filesystem recovery and both paths format
+- PC storage forces the soldered SD NAND always-online policy in `t2620_project_config.h`; `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` bypasses automatic and forced boot formatting, including mount failure with a missing VM marker. Initial provisioning/recovery requires an explicit format operation; the board header retains only the generic fallback policy.
 - Do **not** add `TCFG_DIP_SWITCH_POWER*` macros to `sdk_config.h`, `sdk_config.c`, or `iokey_config.c`
 
 ### GPIO / key configuration

@@ -365,12 +365,15 @@ foreach ($defaultDisabledClass in @(
 Assert-Contract 'USB_MSC_PRODUCT_PROFILE' $usbProfileOk `
     'the product USB profile must expose only MSC over the soldered always-online storage'
 
-$formatSafetyOk = $BoardConfig -match '(?m)^\s*#define\s+TCFG_SD0_FORMAT_ON_BOOT\s+ENABLE_THIS_MOUDLE\s*$' -and
-                  $BoardConfig -match '(?m)^\s*#define\s+TCFG_SD0_FORCE_FORMAT_ON_BOOT\s+DISABLE_THIS_MOUDLE\s*$' -and
-                  $DevManager -notmatch 'TCFG_SD0_AUTO_FORMAT_ON_MOUNT_FAIL_ENABLE' -and
-                  $DevManager -match '(?s)if \(dev->fmnt\).*?skip format on boot.*?else.*?if \(vm_formatted\).*?recover by format.*?else.*?first boot or vm cleared.*?f_format\('
-Assert-Contract 'STORAGE_FORMATS_ON_MOUNT_FAILURE' $formatSafetyOk `
-    'SD0 mount failure must format for either first-time initialization or filesystem recovery'
+$bootPreserve = Get-SourceSlice $DevManager `
+    '#if (TCFG_SD0_ENABLE && TCFG_T2620_STORAGE_PRESERVE_ON_BOOT)' `
+    '#elif (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)'
+$formatSafetyOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_STORAGE_PRESERVE_ON_BOOT\s+1\s*$' -and
+                  $bootPreserve -match 'boot format prohibited, data preserved' -and
+                  $bootPreserve -notmatch 'f_format\(|syscfg_write\(|dev->fmnt\s*=' -and
+                  $DevManager -match 'dev->valid = \(dev->fmnt \? 1 : 0\)'
+Assert-Contract 'STORAGE_BOOT_PRESERVES_DATA_ON_MOUNT_FAILURE' $formatSafetyOk `
+    'T2620 must bypass all automatic/forced boot formatting, preserve mount failure and never infer blank media from VM'
 
 $entryGatesOk = $Pc -match '(?s)static int pc_mode_try_enter.*?rdx_dip_switch_pc_allowed\(\).*?rdx_pc_storage_is_busy\(\)' -and
                 $Dip -match '(?s)int rdx_dip_switch_pc_allowed.*?!get_power_on_status\(\).*?usb_otg_online\(0\) == SLAVE_MODE.*?rdx_dip_switch_cold_service\(\)' -and
@@ -415,6 +418,11 @@ Assert-Contract 'POWEROFF_USES_MODE_CLEANUP' $poweroffOk `
 $Charge = Read-RepoFile $RepoRoot 'SDK\apps\earphone\battery\charge.c'
 $RdxCharge = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_charge.c'
 $Charger = Read-RepoFile $RepoRoot 'SDK\apps\common\device\charge\sk4558.c'
+Assert-Contract 'POWER_RESET_EVIDENCE_IS_NOT_SUPPLY_READY' `
+    ($AppMain -match '(?s)BOOT-POWER.*?is_reset_source\(P33_VDDIO_LVD_RST\).*?is_reset_source\(P33_VDDIO_POR_RST\).*?is_reset_source\(P33_SOFT_RST\)' -and
+     $Dip -match 'storage reconciliation complete; enabling business, supply stability unverified' -and
+     $Charge -match '(?s)if \(app_var.goto_poweroff_flag\) \{\s*log_info\("\[CHARGE\] controlled reset: USB inserted during pending poweroff"\);\s*cpu_reset\(\);') `
+    'Keep historical reset evidence separate from supply readiness and identify the actual charge-triggered reset branch'
 $AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
 $PcDevice = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\device\task_pc.c'
 

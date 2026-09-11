@@ -58,6 +58,11 @@
 #define TCFG_T2620_PC_STORAGE_ENABLE               1
 #endif
 
+/* Mount failure (including a missing VM marker) is not proof of an empty
+ * disk. Preserve user data on every boot, including charger-only/PC boots.
+ * Provisioning/recovery must use an explicit formatting operation. */
+#define TCFG_T2620_STORAGE_PRESERVE_ON_BOOT         1
+
 #if TCFG_T2620_PC_STORAGE_ENABLE
 #if !TCFG_SD0_ENABLE
 #error "T2620 PC storage requires SD0"
