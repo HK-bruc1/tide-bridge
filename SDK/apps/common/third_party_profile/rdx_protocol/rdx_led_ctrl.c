@@ -331,6 +331,9 @@ static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
         }
         return RDX_LED_SCENE_RECORD_START;
     }
+    if (requested == RDX_LED_SCENE_DUT_LED_TEST) {
+        return RDX_LED_SCENE_DUT_LED_TEST;
+    }
     if (rdx_app_get_dut_status()) {
         return RDX_LED_SCENE_DUT_ENTER;
     }
@@ -594,7 +597,8 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         && scene != RDX_LED_SCENE_CHARGE_PLUG_IN
         && scene != RDX_LED_SCENE_CHARGE_FULL
         && scene != RDX_LED_SCENE_OTA_START
-        && scene != RDX_LED_SCENE_DUT_ENTER) {
+        && scene != RDX_LED_SCENE_DUT_ENTER
+        && scene != RDX_LED_SCENE_DUT_LED_TEST) {
         return;
     }
 
@@ -709,6 +713,7 @@ void rdx_led_ctrl_update(void)
     /* Reconcile silent aborts/state changes using the existing LED tick.
      * OFF is a neutral request here, not a new recording-mark event. */
     if (!transition && _rdx_led_on_usb_charge() &&
+        g_current_scene != RDX_LED_SCENE_DUT_LED_TEST &&
         _rdx_led_resolve_on_usb_charge(RDX_LED_SCENE_OFF) != g_current_scene) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
         return;

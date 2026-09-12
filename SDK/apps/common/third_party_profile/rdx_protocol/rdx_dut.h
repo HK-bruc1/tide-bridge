@@ -43,13 +43,18 @@ extern "C" {
 ******************************************************************************/ 
 #define FT_DUT                  "ft_dut"
 #define FT_OLED                 "ft_oled"
+#define FT_LED_CYCLE            "ft_led_cycle"
 #define FT_MOTOR                "ft_motor"
+#define FT_VIBRATE              "ft_vibrate"
 #define FT_REC                  "ft_rec"
+#define FT_REC_CHAT             "ft_rec_chat"
+#define FT_REC_CALL             "ft_rec_call"
 #define FT_WIFI                 "ft_wifi"
 #define FT_FORMAT               "ft_format"
 #define FT_POWEROFF             "ft_poweroff"
 #define FT_FINALPACK_END        "ft_finalpack_end"
 #define FT_KEY_DUT_ENABLE       "ft_key_dut_enable"
+#define FT_KEY_DUT_DISABLED     "ft_key_dut_disabled"
 
 #define KEY_DUT_DISABLED_FLAG       (0xAA)
 
@@ -61,6 +66,7 @@ typedef enum {
     DUT_FUNC_OLED,
     DUT_FUNC_MOTOR,
     DUT_FUNC_REC,
+    DUT_FUNC_REC_CALL,
     DUT_FUNC_WIFI,
     DUT_FUNC_FORMAT,
     DUT_FUNC_MAX
@@ -99,6 +105,10 @@ void rdx_dut_rec_start(void);
 void rdx_dut_rec_stop(void);
 bool rdx_dut_rec_is_running(void);
 
+void rdx_dut_rec_call_start(void);
+void rdx_dut_rec_call_stop(void);
+bool rdx_dut_rec_call_is_running(void);
+
 void rdx_dut_wifi_start(void);
 void rdx_dut_wifi_stop(void);
 bool rdx_dut_wifi_is_running(void);
@@ -109,6 +119,7 @@ void rdx_dut_poweroff(void);
 
 void rdx_dut_finalpack_end(void);
 void rdx_dut_key_dut_enable(void);
+void rdx_dut_key_dut_disable(void);
 bool rdx_dut_is_key_dut_disabled(void);
 void rdx_dut_finalpack_end_format_cb(u8 result);
 
@@ -131,6 +142,11 @@ void rdx_dut_msg_handle(void);
 * Function Section - DUT显示处理
 ******************************************************************************/ 
 void rdx_dut_show_refresh(void);
+
+/******************************************************************************
+* Function Section - DUT state query
+******************************************************************************/ 
+bool rdx_dut_is_formatting(void);
 
 
 #ifdef __cplusplus

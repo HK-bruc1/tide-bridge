@@ -141,6 +141,7 @@ typedef enum {
     RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     RDX_LED_EFFECT_BATTERY_GREEN,
     RDX_LED_EFFECT_USB_SWITCH_FAILED,
+    RDX_LED_EFFECT_DUT_LED_TEST,
     RDX_LED_EFFECT_MAX,
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
@@ -164,6 +165,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     [RDX_LED_SCENE_OTA_STOP]         = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_DUT_ENTER]        = RDX_LED_EFFECT_DUT_BLINK,
     [RDX_LED_SCENE_DUT_EXIT]         = RDX_LED_EFFECT_OFF,
+    [RDX_LED_SCENE_DUT_LED_TEST]     = RDX_LED_EFFECT_DUT_LED_TEST,
     [RDX_LED_SCENE_CHARGE_PLUG_IN]   = RDX_LED_EFFECT_SMART,   /* set_charge_effect_by_battery() */
     [RDX_LED_SCENE_CHARGE_PLUG_OUT]  = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
     [RDX_LED_SCENE_CHARGE_FULL]      = RDX_LED_EFFECT_CHARGE_FULL,
@@ -226,6 +228,11 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .r = 255, .g = 160, .b = 0,             /* 暖黄色，补偿绿光偏强 */
         .brightness  = 200,
         .timeout_ms  = 0,
+    },
+    [RDX_LED_EFFECT_DUT_LED_TEST] = {
+        .mode        = RDX_LED_MODE_SOLID,
+        .r = 0, .g = 255, .b = 0,             /* green solid until LED test stop */
+        .brightness  = 200,
     },
     [RDX_LED_EFFECT_DUT_BLINK] = {
         .mode        = RDX_LED_MODE_SOLID,

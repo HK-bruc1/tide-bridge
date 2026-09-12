@@ -104,11 +104,13 @@ typedef enum {
     DUT_CMD_OLED,
     DUT_CMD_MOTOR,
     DUT_CMD_REC,
+    DUT_CMD_REC_CALL,
     DUT_CMD_WIFI,
     DUT_CMD_FORMAT,
     DUT_CMD_POWEROFF,
     DUT_CMD_FINALPACK_END,
     DUT_CMD_KEY_DUT_ENABLE,
+    DUT_CMD_KEY_DUT_DISABLE,
 } DUT_CMD_TYPE;
 
 /******************************************************************************
@@ -152,6 +154,14 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
             }
             break;
             
+        case DUT_CMD_REC_CALL:
+            if(onoff == 1) {
+                rdx_dut_rec_call_start();
+            } else {
+                rdx_dut_rec_call_stop();
+            }
+            break;
+            
         case DUT_CMD_WIFI:
             if(onoff == 1) {
                 rdx_dut_wifi_start();
@@ -178,6 +188,10 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
             
         case DUT_CMD_KEY_DUT_ENABLE:
             rdx_dut_key_dut_enable();
+            break;
+            
+        case DUT_CMD_KEY_DUT_DISABLE:
+            rdx_dut_key_dut_disable();
             break;
             
         default:
@@ -231,6 +245,7 @@ static const char* rdx_dut_get_current_func_name(void)
         case DUT_FUNC_OLED:     return "LED";
         case DUT_FUNC_MOTOR:    return "MOTOR";
         case DUT_FUNC_REC:      return "REC";
+        case DUT_FUNC_REC_CALL: return "REC_CALL";
         case DUT_FUNC_WIFI:     return "WIFI";
         case DUT_FUNC_FORMAT:   return "FORMAT";
         default:                return "NONE";
@@ -251,6 +266,9 @@ void rdx_dut_close_current_func(void)
             break;
         case DUT_FUNC_REC:
             rdx_dut_rec_stop();
+            break;
+        case DUT_FUNC_REC_CALL:
+            rdx_dut_rec_call_stop();
             break;
         case DUT_FUNC_WIFI:
             rdx_dut_wifi_stop();
@@ -292,8 +310,8 @@ void rdx_dut_oled_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_OLED;
     
-    /* PIN: LED全亮白色作为灯光测试 */
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
+    /* Factory LED test: green solid 1s, then off. */
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_LED_TEST);
 }
 
 /**************************************************************************
@@ -421,8 +439,10 @@ void rdx_dut_rec_start(void)
     RecordStatus* rp = rdx_record_get_status();
     DUT_LOG("RecordStatus: run = %d, scene = %d\r", rp->run, rp->scene);
     if(rp->run == RECORD_STATE_STOP){
-        u8 scene = (rp->scene == RECORD_SCENE_CALL) ? RECORD_SCENE_CALL : RECORD_SCENE_CHAT;
-        rdx_app_device_record_handle(scene);
+        rp->run = RECORD_STATE_START;
+        rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
+        rp->scene = RECORD_SCENE_CHAT;
+        rdx_record_process();
     }
 }
 
@@ -433,15 +453,18 @@ void rdx_dut_rec_stop(void)
 {
     DUT_LOG("Record test STOP\r");
     
+    if(rdx_dut_info.current_func != DUT_FUNC_REC){
+        DUT_LOG("Chat record not running, skip\r");
+        return;
+    }
+    
     RecordStatus* rp = rdx_record_get_status();
     if(rp->run != RECORD_STATE_STOP){
         rp->run = RECORD_STATE_STOP;
         rdx_record_process();
     }
     
-    if(rdx_dut_info.current_func == DUT_FUNC_REC){
-        rdx_dut_info.current_func = DUT_FUNC_NONE;
-    }
+    rdx_dut_info.current_func = DUT_FUNC_NONE;
     
     rdx_dut_show();
 }
@@ -452,6 +475,65 @@ void rdx_dut_rec_stop(void)
 bool rdx_dut_rec_is_running(void)
 {
     return (rdx_dut_info.current_func == DUT_FUNC_REC);
+}
+
+/******************************************************************************
+* Function Section - 3b. Call recording test
+******************************************************************************/ 
+
+/**************************************************************************
+ * function: rdx_dut_rec_call_start
+ **************************************************************************/
+void rdx_dut_rec_call_start(void)
+{
+    DUT_LOG("Record CALL test START\r");
+    
+    if(rdx_dut_info.current_func != DUT_FUNC_NONE){
+        DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
+        return;
+    }
+    
+    rdx_dut_info.current_func = DUT_FUNC_REC_CALL;
+    
+    RecordStatus* rp = rdx_record_get_status();
+    DUT_LOG("RecordStatus: run = %d, scene = %d\r", rp->run, rp->scene);
+    if(rp->run == RECORD_STATE_STOP){
+        rp->run = RECORD_STATE_START;
+        rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
+        rp->scene = RECORD_SCENE_CALL;
+        rdx_record_process();
+    }
+}
+
+/**************************************************************************
+ * function: rdx_dut_rec_call_stop
+ **************************************************************************/
+void rdx_dut_rec_call_stop(void)
+{
+    DUT_LOG("Record CALL test STOP\r");
+    
+    if(rdx_dut_info.current_func != DUT_FUNC_REC_CALL){
+        DUT_LOG("Call record not running, skip\r");
+        return;
+    }
+    
+    RecordStatus* rp = rdx_record_get_status();
+    if(rp->run != RECORD_STATE_STOP){
+        rp->run = RECORD_STATE_STOP;
+        rdx_record_process();
+    }
+    
+    rdx_dut_info.current_func = DUT_FUNC_NONE;
+    
+    rdx_dut_show();
+}
+
+/**************************************************************************
+ * function: rdx_dut_rec_call_is_running
+ **************************************************************************/
+bool rdx_dut_rec_call_is_running(void)
+{
+    return (rdx_dut_info.current_func == DUT_FUNC_REC_CALL);
 }
 
 /******************************************************************************
@@ -647,6 +729,20 @@ void rdx_dut_key_dut_enable(void)
 }
 
 /**************************************************************************
+ * function: rdx_dut_key_dut_disable
+ **************************************************************************/
+void rdx_dut_key_dut_disable(void)
+{
+    DUT_LOG("Key DUT DISABLED\r");
+    
+    rdx_dut_info.key_dut_disabled = true;
+    
+    u8 vm_value = KEY_DUT_DISABLED_FLAG;
+    syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+    DUT_LOG("Saved to VM: key_dut_disabled = 1 (set flag)\r");
+}
+
+/**************************************************************************
  * function: rdx_dut_is_key_dut_disabled
  **************************************************************************/
 bool rdx_dut_is_key_dut_disabled(void)
@@ -695,7 +791,8 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         return;
     }
     
-    p = strstr(cmd, FT_OLED);
+    p = strstr(cmd, FT_LED_CYCLE);
+    if(!p) p = strstr(cmd, FT_OLED);
     if(p){
         u8 onoff = atoi(value);
         DUT_LOG("LED cmd, onoff: %d\r", onoff);
@@ -708,11 +805,12 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         if(ret) {
             DUT_LOG("LED taskq post err: %d\r", ret);
         }
-        rdx_protocol_custom_msg_indicate(FT_OLED, (char*)value);
+        rdx_protocol_custom_msg_indicate(FT_LED_CYCLE, (char*)value);
         return;
     }
     
-    p = strstr(cmd, FT_MOTOR);
+    p = strstr(cmd, FT_VIBRATE);
+    if(!p) p = strstr(cmd, FT_MOTOR);
     if(p){
         u8 onoff = atoi(value);
         DUT_LOG("Motor cmd, onoff: %d\r", onoff);
@@ -725,14 +823,32 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         if(ret) {
             DUT_LOG("Motor taskq post err: %d\r", ret);
         }
-        rdx_protocol_custom_msg_indicate(FT_MOTOR, (char*)value);
+        rdx_protocol_custom_msg_indicate(FT_VIBRATE, (char*)value);
         return;
     }
     
-    p = strstr(cmd, FT_REC);
+    p = strstr(cmd, FT_REC_CALL);
     if(p){
         u8 onoff = atoi(value);
-        DUT_LOG("Record cmd, onoff: %d\r", onoff);
+        DUT_LOG("Record CALL cmd, onoff: %d\r", onoff);
+        
+        msg[0] = (int)rdx_dut_cmd_async_handle;
+        msg[1] = 2;
+        msg[2] = DUT_CMD_REC_CALL;
+        msg[3] = onoff;
+        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        if(ret) {
+            DUT_LOG("Record CALL taskq post err: %d\r", ret);
+        }
+        rdx_protocol_custom_msg_indicate(FT_REC_CALL, (char*)value);
+        return;
+    }
+    
+    p = strstr(cmd, FT_REC_CHAT);
+    if(!p) p = strstr(cmd, FT_REC);
+    if(p){
+        u8 onoff = atoi(value);
+        DUT_LOG("Record CHAT cmd, onoff: %d\r", onoff);
         
         msg[0] = (int)rdx_dut_cmd_async_handle;
         msg[1] = 2;
@@ -740,9 +856,9 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         msg[3] = onoff;
         ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
         if(ret) {
-            DUT_LOG("Record taskq post err: %d\r", ret);
+            DUT_LOG("Record CHAT taskq post err: %d\r", ret);
         }
-        rdx_protocol_custom_msg_indicate(FT_REC, (char*)value);
+        rdx_protocol_custom_msg_indicate(FT_REC_CHAT, (char*)value);
         return;
     }
     
@@ -807,6 +923,22 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
         if(ret) {
             DUT_LOG("Finalpack end taskq post err: %d\r", ret);
+        }
+        return;
+    }
+    
+    p = strstr(cmd, FT_KEY_DUT_DISABLED);
+    if(p){
+        DUT_LOG("Key DUT disable cmd\r");
+        rdx_protocol_custom_msg_indicate(FT_KEY_DUT_DISABLED, "0");
+        
+        msg[0] = (int)rdx_dut_cmd_async_handle;
+        msg[1] = 2;
+        msg[2] = DUT_CMD_KEY_DUT_DISABLE;
+        msg[3] = 0;
+        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        if(ret) {
+            DUT_LOG("Key DUT disable taskq post err: %d\r", ret);
         }
         return;
     }
@@ -965,10 +1097,7 @@ void rdx_dut_msg_handle(void)
         
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
         
-        /* DUT suppresses the single unified advertising entry. */
-        rdx_ble_server_app_disconnect();
-        rdx_ble_server_adv_enable(0);
-        
+        /* Keep BLE advertising/connection alive for the factory APP while classic BT SPP is initialized below. */
         rdx_ble_server_auto_shut_down_enable(0);
         DUT_LOG("Auto shutdown disabled!\r");
         
@@ -979,7 +1108,12 @@ void rdx_dut_msg_handle(void)
     }else{
         /*--- 退出DUT模式 ---*/
         DUT_LOG("【 Exit DUT mode! 】\r");
-        
+
+        if(g_finalpack_end_pending == true){
+            DUT_LOG("Finalpack end pending, skip exit\r");
+            return;
+        }
+
         rdx_dut_info.dut_mode = FALSE;
         
         rdx_dut_close_current_func();
@@ -988,7 +1122,7 @@ void rdx_dut_msg_handle(void)
         rdx_spp_exit();
         rdx_app_bt_shutdown();
         
-        /* Restore the single unified advertising entry after DUT. */
+        /* Refresh the unified advertising data after DUT. */
         rdx_ble_server_adv_data_changed();
         
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
@@ -1023,10 +1157,23 @@ void rdx_dut_show_refresh(void)
         case DUT_FUNC_MOTOR:
         case DUT_FUNC_OLED:
         case DUT_FUNC_REC:
+        case DUT_FUNC_REC_CALL:
         case DUT_FUNC_WIFI:
             break;
         default:
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
             break;
     }
+}
+
+/******************************************************************************
+* Function Section - DUT state query
+******************************************************************************/ 
+
+/**************************************************************************
+ * function: rdx_dut_is_formatting
+ **************************************************************************/
+bool rdx_dut_is_formatting(void)
+{
+    return (rdx_dut_info.current_func == DUT_FUNC_FORMAT);
 }

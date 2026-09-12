@@ -85,6 +85,7 @@ typedef enum {
     RDX_LED_SCENE_BATTERY_QUERY,
     RDX_LED_SCENE_USB_SWITCH_WAIT,
     RDX_LED_SCENE_USB_SWITCH_FAILED,
+    RDX_LED_SCENE_DUT_LED_TEST,   /* DUT LED test */
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 
