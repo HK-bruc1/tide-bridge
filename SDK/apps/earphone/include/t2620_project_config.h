@@ -89,6 +89,23 @@
 #endif
 
 /* -------------------------------------------------------------------------- */
+/* Factory USB: stage 1A enumeration only; enable explicitly for bench builds. */
+/* -------------------------------------------------------------------------- */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#define TCFG_T2620_FACTORY_USB_CDC_ENABLE          0
+#endif
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#undef TCFG_USB_CDC_BACKGROUND_RUN
+#define TCFG_USB_CDC_BACKGROUND_RUN               1
+/* CDC and MSC enumerate separately; use BR28 hardware endpoints 1/2. */
+#define CDC_DATA_EP_IN                            1
+#define CDC_DATA_EP_OUT                           1
+#define CDC_INTR_EP_IN                            2
+#define CDC_INTR_EP_ENABLE                        1
+#endif
+
+/* -------------------------------------------------------------------------- */
 /* RDX 与 HOGP 功能                                                           */
 /* -------------------------------------------------------------------------- */
 

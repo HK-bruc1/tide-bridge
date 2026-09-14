@@ -49,6 +49,8 @@
 #include "poweroff.h"
 #include "rdx_led_ctrl.h"
 #include "syscfg_id.h"
+#include "rdx_dip_switch.h"
+#include "usb/device/usb_factory.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -81,6 +83,47 @@ extern void rdx_app_normal_poweroff(void);
 /******************************************************************************
 * Function Declaration Section
 ******************************************************************************/ 
+static volatile u8 factory_key_dut_ready;
+
+int rdx_dut_factory_usb_ready(void)
+{
+    /* RDX owns product admission; USB retains cable/role/resource checks. */
+    return factory_key_dut_ready && rdx_dut_is_in_mode() &&
+        get_power_on_status() && rdx_app_business_started() &&
+        !app_var.goto_poweroff_flag && !rdx_dip_switch_business_blocked() &&
+        !rdx_dip_switch_shutdown_deferred();
+}
+
+static void rdx_dut_factory_usb_revoke(void)
+{
+    factory_key_dut_ready = 0;
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    usb_factory_service();
+#endif
+}
+
+/* Only the physical-key dispatcher calls this entry. BLE entry cannot expose USB. */
+void rdx_dut_key_mode_handle(void)
+{
+#if !TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    rdx_dut_msg_handle();
+#else
+    u8 entering = !rdx_dut_is_in_mode();
+    if (entering && (rdx_dut_is_key_dut_disabled() ||
+        !get_power_on_status() || !rdx_app_business_started() ||
+        app_var.goto_poweroff_flag || rdx_dip_switch_business_blocked() ||
+        rdx_dip_switch_shutdown_deferred())) {
+        return;
+    }
+    rdx_dut_msg_handle();
+    if (entering && rdx_dut_is_in_mode()) {
+        factory_key_dut_ready = 1;
+        DUT_LOG("Factory key entry complete; CDC admission ready\r");
+    }
+    usb_factory_service();
+#endif
+}
+
 static void rdx_dut_motor_timer_cb(void *priv);
 static void rdx_dut_show(void);
 static void rdx_dut_format_stop(void);
@@ -192,6 +235,7 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
  **************************************************************************/
 void rdx_dut_init(void)
 {
+    factory_key_dut_ready = 0;
     u8 vm_value = 0xFF;
     int ret = syscfg_read(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
     
@@ -560,6 +604,7 @@ void rdx_dut_poweroff(void)
 {
     DUT_LOG("Power off (ship mode)\r");
     
+    rdx_dut_factory_usb_revoke();
     rdx_dut_close_current_func();
     rdx_dut_info.dut_mode = FALSE;
     
@@ -980,6 +1025,7 @@ void rdx_dut_msg_handle(void)
         /*--- 退出DUT模式 ---*/
         DUT_LOG("【 Exit DUT mode! 】\r");
         
+        rdx_dut_factory_usb_revoke();
         rdx_dut_info.dut_mode = FALSE;
         
         rdx_dut_close_current_func();

@@ -2759,7 +2759,7 @@ int rdx_app_msg_handler(int *msg)
                     r_printf("====== %s --> file uploading... \r", __func__);
                     rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
                 }
-                rdx_dut_msg_handle();
+                rdx_dut_key_mode_handle();
             }
             break;
     #endif

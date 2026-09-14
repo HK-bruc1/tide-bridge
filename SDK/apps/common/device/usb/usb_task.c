@@ -17,8 +17,12 @@
 #include "usb/usb_config.h"
 #include "usb/usb_task.h"
 #include "usb/device/usb_stack.h"
+#include "usb/device/usb_factory.h"
 #include "usb/host/usb_host.h"
 #include "usb/otg.h"
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !(TCFG_OTG_MODE & OTG_SLAVE_MODE)
+#error "T2620 factory CDC requires OTG slave detection"
+#endif
 #include "usb/host/uac_host.h"
 
 #if TCFG_USB_SLAVE_MSD_ENABLE
@@ -141,6 +145,12 @@ static void usb_task(void *p)
                         }
 #endif
                     } else if (event == DEVICE_EVENT_OUT) {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+                        /* CDC is outside PC; do not depend on mode dispatch. */
+                        if (usb_factory_cdc_started()) {
+                            usb_stop(usb_id);
+                        }
+#endif
 #if   USB_PC_NO_APP_MODE
                         usb_stop(usb_id);
 #else
@@ -173,11 +183,15 @@ static void usb_task(void *p)
 #if TCFG_USB_SLAVE_ENABLE
         case USBSTACK_START:
             usb_id = msg[2];
-#if TCFG_USB_CDC_BACKGROUND_RUN
+#if TCFG_USB_CDC_BACKGROUND_RUN && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
             usb_stop(usb_id);
 #endif
             usb_start(usb_id);
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+            usb_stack_message_complete(msg[3], usb_factory_msc_started() ? OS_NO_ERR : -1);
+#else
             usb_stack_message_complete(msg[3], OS_NO_ERR);
+#endif
             break;
 
         case USBSTACK_PAUSE:
@@ -197,6 +211,11 @@ static void usb_task(void *p)
 
 #if TCFG_USB_SLAVE_MSD_ENABLE
         case USBSTACK_MSD_RUN:
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+            if (!usb_factory_msc_started()) {
+                break; /* A queued MSC wakeup cannot touch released resources. */
+            }
+#endif
             msd_in_task = 1;
 #if TCFG_USB_APPLE_DOCK_EN
             apple_mfi_link((void *)msg[2]);
@@ -221,7 +240,11 @@ static void usb_task(void *p)
         case USBSTACK_CDC_BACKGROUND:
             usb_id = msg[2];
             usb_cdc_background_run(usb_id);
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+            usb_stack_message_complete(msg[3], usb_factory_cdc_started() ? OS_NO_ERR : -1);
+#else
             usb_stack_message_complete(msg[3], OS_NO_ERR);
+#endif
             break;
 #endif
 #endif

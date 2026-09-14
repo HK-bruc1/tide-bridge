@@ -44,6 +44,8 @@ struct usb_cdc_gadget {
 
 static struct usb_cdc_gadget *cdc_hdl;
 
+int cdc_is_registered(void) { return cdc_hdl != NULL; }
+
 #if USB_MALLOC_ENABLE
 
 #else
@@ -159,6 +161,21 @@ static u32 cdc_setup(struct usb_device_t *usb_device, struct usb_ctrlrequest *ct
     int recip_type;
     u32 len;
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* Stage 1A only implements line coding and control lines. Reject unknown
+     * or malformed control payloads before touching the shared EP0 buffer. */
+    if (!cdc_hdl || !(
+        (ctrl_req->bRequestType == 0x21 &&
+         ctrl_req->bRequest == USB_CDC_REQ_SET_LINE_CODING && ctrl_req->wLength == 7) ||
+        (ctrl_req->bRequestType == 0xa1 &&
+         ctrl_req->bRequest == USB_CDC_REQ_GET_LINE_CODING && ctrl_req->wLength <= 7) ||
+        (ctrl_req->bRequestType == 0x21 &&
+         ctrl_req->bRequest == USB_CDC_REQ_SET_CONTROL_LINE_STATE && ctrl_req->wLength == 0))) {
+        usb_set_setup_phase(usb_device, USB_EP0_SET_STALL);
+        return 0;
+    }
+#endif
+
     recip_type = ctrl_req->bRequestType & USB_TYPE_MASK;
 
     switch (recip_type) {
@@ -242,6 +259,13 @@ static u32 cdc_setup_rx(struct usb_device_t *usb_device, struct usb_ctrlrequest 
     u32 len;
     u8 *read_ep = usb_get_setup_buffer(usb_device);
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (!cdc_hdl || ctrl_req->bRequestType != 0x21 ||
+        ctrl_req->bRequest != USB_CDC_REQ_SET_LINE_CODING || ctrl_req->wLength != 7) {
+        return USB_EP0_SET_STALL;
+    }
+#endif
+
     len = ctrl_req->wLength;
     usb_read_ep0(usb_id, read_ep, len);
     recip_type = ctrl_req->bRequestType & USB_TYPE_MASK;
@@ -301,6 +325,11 @@ u32 cdc_desc_config(const usb_dev usb_id, u8 *ptr, u32 *itf)
 
     tptr = ptr;
     memcpy(tptr, cdc_virtual_comport_desc, sizeof(cdc_virtual_comport_desc));
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* No encapsulated AT/call-management or comm-feature requests. */
+    tptr[8 + 9 + 5 + 3] = 0;
+    tptr[8 + 9 + 5 + 5 + 3] = 2;
+#endif
     //iad interface number
     tptr[2] = *itf;
     //control interface number
@@ -385,10 +414,18 @@ static void cdc_endpoint_init(struct usb_device_t *usb_device, u32 itf)
     usb_g_ep_config(usb_id, CDC_DATA_EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_BULK,
                     0, cdc_hdl->bulk_ep_in_buffer, MAXP_SIZE_CDC_BULKIN);
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* Enumeration-only: leave received packets pending, hardware applies NAK
+     * when its buffers fill. No RX interrupt/consumer or unbounded queue. */
+    usb_g_ep_config(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, USB_ENDPOINT_XFER_BULK,
+                    0, cdc_hdl->bulk_ep_out_buffer, MAXP_SIZE_CDC_BULKOUT);
+    usb_clr_intr_rxe(usb_id, CDC_DATA_EP_OUT);
+#else
     usb_g_ep_config(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, USB_ENDPOINT_XFER_BULK,
                     1, cdc_hdl->bulk_ep_out_buffer, MAXP_SIZE_CDC_BULKOUT);
     /* usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_intrrx); */
     usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_wakeup_handler);
+#endif
     usb_enable_ep(usb_id, CDC_DATA_EP_IN);
 
 #if CDC_INTR_EP_ENABLE
@@ -514,6 +551,14 @@ void cdc_register(const usb_dev usb_id)
         cdc_hdl->intr_ep_in_buffer = usb_alloc_ep_dmabuffer(usb_id, CDC_INTR_EP_IN | USB_DIR_IN, MAXP_SIZE_CDC_INTRIN);
 #endif
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        if (!cdc_hdl->bulk_ep_in_buffer || !cdc_hdl->bulk_ep_out_buffer ||
+            !cdc_hdl->intr_ep_in_buffer) {
+            cdc_release(usb_id);
+            return;
+        }
+#endif
+
     }
     return;
 __exit_err:
@@ -532,6 +577,14 @@ void cdc_release(const usb_dev usb_id)
 {
     /* log_info("%s() %d", __func__, __LINE__); */
     if (cdc_hdl) {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        /* Stage 1A has no application I/O; USB interrupts are masked by
+         * usb_pause before release. Return OS objects on every enumeration. */
+        os_mutex_del(&cdc_hdl->mutex_data, 0);
+#if CDC_INTR_EP_ENABLE
+        os_mutex_del(&cdc_hdl->mutex_intr, 0);
+#endif
+#endif
         if (cdc_hdl->bulk_ep_in_buffer) {
             usb_free_ep_dmabuffer(usb_id, cdc_hdl->bulk_ep_in_buffer);
             cdc_hdl->bulk_ep_in_buffer = NULL;

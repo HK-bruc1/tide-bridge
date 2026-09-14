@@ -126,6 +126,8 @@ void rdx_dut_key_handle(int key_msg);
 * Function Section - DUT消息处理
 ******************************************************************************/ 
 void rdx_dut_msg_handle(void);
+void rdx_dut_key_mode_handle(void);
+int rdx_dut_factory_usb_ready(void);
 
 /******************************************************************************
 * Function Section - DUT显示处理

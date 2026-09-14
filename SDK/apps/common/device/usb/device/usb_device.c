@@ -194,6 +194,12 @@ int usb_device_mode(const usb_dev usb_id, const u32 class)
         log_info("add desc cdc");
         usb_add_desc_config(usb_id, class_index++, cdc_desc_config);
         cdc_register(usb_id);
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        if (!cdc_is_registered()) {
+            usb_add_desc_config(usb_id, MAX_INTERFACE_NUM, NULL);
+            return -1;
+        }
+#endif
     }
 #endif
 

@@ -532,4 +532,10 @@ Assert-Contract 'UXFILE_PATCH_QUIET_AND_ERROR_BOUNDARY' (
     (Test-TokensInOrder $StorageIr @('define internal void @rdx_storage_fence_arrive', 'rdx_uxfile_process_delete_queue', 'rdx_uxfile_close_read_file_handle', 'rdx_uxfile_flush_cache', 'rdx_storage_f_flush_wbuf', 'store volatile i32 %quiet', 'store volatile i32 %ticket, i32* @rdx_storage_fence_done'))
 ) 'The pinned patch must retain I/O errors, stop library producers, and publish the matching completion only after flush and worker freeze'
 
+# Execute the actual factory USB coordinator with mocked hardware boundaries.
+& python (Join-Path $PSScriptRoot 'test_factory_usb.py')
+if ($LASTEXITCODE -ne 0) {
+    throw 'Factory USB behavioral harness failed (requires JL clang and Python llvmlite)'
+}
+
 Write-Host 'T2620 product contracts passed.'
