@@ -146,6 +146,13 @@ void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
 u8 rdx_record_online_session_token_capture(rdx_ble_async_token_t *token);
 u8 rdx_record_online_session_token_is_current(
     const rdx_ble_async_token_t *token);
+/* Bind the current live RDX link as the online record session, mirroring
+ * what rdx_record_cmd_handle_from_rdx() does for an App-issued record
+ * command.  Non-APP start paths (e.g. DUT factory tests) call this before
+ * starting so the recorder takes the online branch (online stream +
+ * local save + record state indications).  Returns 0 when no live RDX
+ * runtime-active link exists, leaving the caller in offline behavior. */
+u8 rdx_record_online_session_bind_current(void);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);

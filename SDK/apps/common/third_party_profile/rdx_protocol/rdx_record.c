@@ -271,6 +271,17 @@ static u8 rdx_record_online_session_accepts(
     return rdx_record_token_equal(token, &g_record_session_token);
 }
 
+u8 rdx_record_online_session_bind_current(void)
+{
+    rdx_ble_async_token_t token;
+
+    if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
+        return 0;
+    }
+    rdx_record_online_session_bind(&token);
+    return 1;
+}
+
 static void rdx_record_pending_cmd_clear(void)
 {
     g_pending_record_token_valid = 0;

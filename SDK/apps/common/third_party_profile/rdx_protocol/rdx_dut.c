@@ -439,6 +439,13 @@ void rdx_dut_rec_start(void)
     RecordStatus* rp = rdx_record_get_status();
     DUT_LOG("RecordStatus: run = %d, scene = %d\r", rp->run, rp->scene);
     if(rp->run == RECORD_STATE_STOP){
+        /* 与APP下发record指令保持一致: 绑定当前RDX会话为在线录音会话,
+         * 走在线流+本地落盘+状态上报; 无RDX连接时维持原离线落盘行为 */
+        if(rdx_record_online_session_bind_current()){
+            DUT_LOG("Chat record online session bound (stream + local save)\r");
+        }else{
+            DUT_LOG("No live RDX link, chat record falls back to offline\r");
+        }
         rp->run = RECORD_STATE_START;
         rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
         rp->scene = RECORD_SCENE_CHAT;
@@ -498,6 +505,13 @@ void rdx_dut_rec_call_start(void)
     RecordStatus* rp = rdx_record_get_status();
     DUT_LOG("RecordStatus: run = %d, scene = %d\r", rp->run, rp->scene);
     if(rp->run == RECORD_STATE_STOP){
+        /* 与APP下发record指令保持一致: 绑定当前RDX会话为在线录音会话,
+         * 走在线流+本地落盘+状态上报; 无RDX连接时维持原离线落盘行为 */
+        if(rdx_record_online_session_bind_current()){
+            DUT_LOG("Call record online session bound (stream + local save)\r");
+        }else{
+            DUT_LOG("No live RDX link, call record falls back to offline\r");
+        }
         rp->run = RECORD_STATE_START;
         rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
         rp->scene = RECORD_SCENE_CALL;
