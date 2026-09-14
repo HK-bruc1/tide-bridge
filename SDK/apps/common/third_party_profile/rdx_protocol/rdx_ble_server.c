@@ -902,6 +902,7 @@ static u8 rdx_ble_server_local_name_copy(char *dst, const char *src, u8 len)
 
 static u8 rdx_ble_server_default_local_name_build(char *name)
 {
+#if RDX_BLE_NAME_AUTH_SUFFIX_ENABLE
     DevBaseInfo *p = rdx_app_get_dev_base_info();
     u8 suffix[5] = {0};
 
@@ -910,7 +911,9 @@ static u8 rdx_ble_server_default_local_name_build(char *name)
     }
     if (suffix[0]) {
         snprintf(name, BLE_LOCAL_NAME_MAX_LEN + 1, "%s %s", BLE_LOCAL_NAME, suffix);
-    } else {
+    } else
+#endif
+    {
         snprintf(name, BLE_LOCAL_NAME_MAX_LEN + 1, "%s", BLE_LOCAL_NAME);
     }
     name[BLE_LOCAL_NAME_MAX_LEN] = '\0';

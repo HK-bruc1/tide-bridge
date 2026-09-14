@@ -201,6 +201,14 @@
 #define WIFI_AP_SSID_SUFFIX_MODE						WIFI_AP_SSID_SUFFIX_MAC_TAIL3
 
 //=======================================================================================
+/* 仅控制默认 BLE 名称生成，保留 VM 中已保存的名称及用户自定义名称。
+ * 可在客户对应的 RDX_AI_SEL_APP 分支中通过 #undef + #define 覆盖：
+ * 1 = 认证码有效时追加空格及后四位；0 = 仅使用 BLE_LOCAL_NAME。
+ */
+#ifndef RDX_BLE_NAME_AUTH_SUFFIX_ENABLE
+#define RDX_BLE_NAME_AUTH_SUFFIX_ENABLE          (1)
+#endif
+
 #if (RDX_AI_SEL_APP & APP_NEVIEW_EN)
 //-------------------- device model --------------------
 #if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403)
@@ -662,6 +670,10 @@
 //=========================================================================================
 #elif (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN)
 
+/* 客户 BLE 名称配置：设为 0 可关闭认证码后四位后缀。 */
+#undef RDX_BLE_NAME_AUTH_SUFFIX_ENABLE
+#define RDX_BLE_NAME_AUTH_SUFFIX_ENABLE          (0)
+
 //-------------------- device model --------------------
 #if (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
 
@@ -674,19 +686,19 @@
 //AI translate.
 #define RDX_AI_TRANSLATE_SUPPORT               (0)
 //BLE advertise messages.
-#define BT_NAME                                "Beanstalk RKB"
-#define BLE_LOCAL_NAME                         "Beanstalk RKB"
+#define BT_NAME                                "GensparkVoicePad"
+#define BLE_LOCAL_NAME                         "GensparkVoicePad"
 //firmware & hardware version.
-#define FACTORY_CODE                           "BEANTK"
+#define FACTORY_CODE                           "GSPKHW"
 #define FACTORY_CODE_SIZE                      strlen(FACTORY_CODE)
 #define PRODUCT_CODE                           "607"
 #define PRODUCT_CODE_SIZE                      strlen(PRODUCT_CODE)
 //wifi information.
-#define WIFI_AP_SSID                           "Beanstalk RKB"
+#define WIFI_AP_SSID                           "GensparkVoicePad"
 #define WIFI_AP_PASSWORD                       "88888888"
 
-#define FIRMWARE_VERSION                       "1.0.3"
-#define FIRMWARE_VERSION_HEX                   0x00010003
+#define FIRMWARE_VERSION                       "1.0.4"
+#define FIRMWARE_VERSION_HEX                   0x00010004
 #define HARDWARE_VERSION                       "0.0.1"
 #define HARDWARE_VERSION_HEX                   0x00000001
 

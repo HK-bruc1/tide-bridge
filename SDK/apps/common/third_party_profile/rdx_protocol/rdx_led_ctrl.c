@@ -424,6 +424,11 @@ static void _rdx_led_engine_blink(const rdx_led_effect_cfg_t *cfg)
 
 static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg)
 {
+    /* 配置遗漏呼吸周期时保持初始熄灯状态，避免除零导致异常复位。 */
+    if (cfg->cycle_ms == 0) {
+        return;
+    }
+
     u32 cycle_pos = g_phase_elapsed_ms % cfg->cycle_ms;
     u32 table_index = (cycle_pos * RDX_LED_BREATH_TABLE_SIZE) / cfg->cycle_ms;
     if (table_index >= RDX_LED_BREATH_TABLE_SIZE) {

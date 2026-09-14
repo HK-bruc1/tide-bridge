@@ -235,9 +235,10 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .brightness  = 200,
     },
     [RDX_LED_EFFECT_DUT_BLINK] = {
-        .mode        = RDX_LED_MODE_SOLID,
-        .r = 0, .g = 0, .b = 255,             /* 蓝色常亮 */
+        .mode        = RDX_LED_MODE_BREATH,
+        .r = 255, .g = 160, .b = 0,             /* 暖黄色，补偿绿光偏强 */
         .brightness  = 200,
+        .cycle_ms    = 4000,                    /* 黄色呼吸周期为 4 秒 */
     },
     [RDX_LED_EFFECT_TRANSFER_YELLOW_BLINK] = {
         .mode        = RDX_LED_MODE_BLINK,
