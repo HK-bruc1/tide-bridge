@@ -18,6 +18,7 @@
 #include "usb/usb_task.h"
 #include "usb/device/usb_stack.h"
 #include "usb/device/usb_factory.h"
+#include "usb/device/usb_factory_cdc_internal.h"
 #include "usb/host/usb_host.h"
 #include "usb/otg.h"
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !(TCFG_OTG_MODE & OTG_SLAVE_MODE)
@@ -125,6 +126,9 @@ static void usb_task(void *p)
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
         case USBSTACK_FACTORY_SHUTDOWN:
             usb_factory_shutdown_process();
+            break;
+        case USBSTACK_FACTORY_CDC_IO:
+            usb_factory_cdc_poll();
             break;
 #endif
         case USBSTACK_OTG_MSG:

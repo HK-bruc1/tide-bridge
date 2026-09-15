@@ -12,6 +12,11 @@ five small source-level contracts that protect the product boundaries:
 Most checks are static PowerShell assertions. The product contract also runs
 `test_factory_usb.py`: it compiles the actual factory USB coordinator with hardware
 stubs, executes its LLVM IR, and checks the real SDK's final CDC configurations.
+The same harness checks CDC queues, session invalidation, bounded DMA I/O and
+summary logging. The optional board tool runs only four short echo checks:
+`python tests/board/factory_cdc_bytes.py --port COM6`.
+Board instructions and acceptance records live in
+`docs/8.厂测USB通信协议设计.md`; no serial port is opened by the host suite.
 This requires Python with `llvmlite` (`python -m pip install llvmlite`) and the JL
 compiler at `C:/JL/pi32/bin/clang.exe`, in addition to Windows PowerShell 5.1.
 Missing dependencies fail the suite rather than silently skipping these checks.

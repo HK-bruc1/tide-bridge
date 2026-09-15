@@ -24,6 +24,7 @@
 #include "app_main.h"
 #include "rdx_dip_switch.h"
 #include "usb/device/usb_factory.h"
+#include "usb/device/usb_factory_cdc_internal.h"
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
 #include "rdx_dut.h"
 #include "usb/otg.h"
@@ -100,9 +101,18 @@ enum { FACTORY_USB_NONE, FACTORY_USB_MSC, FACTORY_USB_CDC, FACTORY_USB_STOPPING 
 static volatile u8 factory_cdc_requested;
 static volatile u8 factory_usb_state;
 static volatile u8 factory_usb_shutdown;
+static u32 factory_cdc_retry_at;
+static u8 factory_cdc_retry_wait;
 
 static int factory_cdc_allowed(void)
 {
+    if (factory_cdc_retry_wait) {
+        if ((int)(sys_timer_get_ms() - factory_cdc_retry_at) < 0) return 0;
+        factory_cdc_retry_wait = 0;
+    }
+    /* requested schedules reconciliation; it is not an authorization token.
+     * RDX owns the live, read-only admission query. Recheck at execution so
+     * queued work cannot revive DUT after its owner revokes it. */
     return factory_cdc_requested && rdx_dut_factory_usb_ready() &&
            !factory_usb_shutdown &&
            get_charge_online_flag() && usb_otg_online(0) == SLAVE_MODE &&
@@ -125,6 +135,22 @@ void usb_factory_service(void)
 int usb_factory_msc_started(void) { return factory_usb_state == FACTORY_USB_MSC; }
 int usb_factory_cdc_started(void) { return factory_usb_state == FACTORY_USB_CDC; }
 
+void usb_factory_cdc_poll(void)
+{
+    /* Consume stale notifications even after stop. No resource pointer is
+     * carried by the message. Recheck product admission before each I/O. */
+    if (usb_factory_cdc_started() && !factory_cdc_allowed()) {
+        usb_stop(0);
+    }
+    factory_cdc_process();
+    if (usb_factory_cdc_started() && factory_cdc_needs_restart()) {
+        usb_stop(0);
+        factory_cdc_retry_at = sys_timer_get_ms() + 300;
+        factory_cdc_retry_wait = 1;
+        log_info("[FACTORY-USB] session closed; reenumerate after 300 ms");
+    }
+}
+
 /* Notification only: CDC cannot veto system poweroff/reset. No wait, timer,
  * hardware access or resource release on the caller's task. MSC remains owned
  * by the existing PC/storage shutdown path. */
@@ -132,6 +158,7 @@ void usb_factory_shutdown(void)
 {
     factory_usb_shutdown = 1;
     factory_cdc_requested = 0;
+    factory_cdc_quiesce();
     if (factory_usb_state == FACTORY_USB_CDC) {
         /* Best effort. Already queued CDC work also observes admission closed.
          * Queue failure must never delay system shutdown. */
@@ -388,8 +415,11 @@ void usb_pause(const usb_dev usbfd)
     log_info("usb pause");
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (factory_usb_state == FACTORY_USB_CDC) {
+        factory_cdc_stop();
+    }
     factory_usb_state = FACTORY_USB_STOPPING;
-    /* No application I/O in stage 1A. Mask device interrupt sources before
+    /* I/O and stop execute on usb_stack. Mask device interrupts before
      * releasing control state or DMA; no task waits inside this section. */
     local_irq_disable();
     usb_write_intr_usbe(usbfd, 0);
@@ -461,9 +491,15 @@ void usb_cdc_background_run(const usb_dev usbfd)
     if (!factory_cdc_allowed()) {
         return;
     }
+    if (factory_cdc_start()) {
+        factory_cdc_stop();
+        return; /* app_core policy tick retries a failed timer allocation */
+    }
     if (!usb_device_mode(usbfd, CDC_CLASS)) {
         factory_usb_state = FACTORY_USB_CDC;
-        log_info("[FACTORY-USB] CDC enumeration only; bulk OUT backpressure");
+        log_info("[FACTORY-USB] CDC byte transport, test=%d", TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE);
+    } else {
+        factory_cdc_stop();
     }
 #else
     g_printf("CDC is running in the background");

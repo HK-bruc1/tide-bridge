@@ -89,10 +89,26 @@
 #endif
 
 /* -------------------------------------------------------------------------- */
-/* Factory USB: stage 1A enumeration only; enable explicitly for bench builds. */
+/* Factory USB: enable explicitly for bench builds. */
 /* -------------------------------------------------------------------------- */
 #ifndef TCFG_T2620_FACTORY_USB_CDC_ENABLE
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE          0
+#endif
+
+/* Raw echo and unsolicited 00..FF pattern; never enable with stage-3 protocol. */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+#define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE     0
+#endif
+/* COM3: 0=off, 1=1s RX/TX-completed summaries + lifecycle, 2=bounded packet hex. */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
+#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
+#endif
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL < 0 || TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL > 2
+#error "Factory CDC log level must be 0, 1 or 2"
+#endif
+
+#if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#error "Factory CDC byte test requires factory CDC"
 #endif
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
