@@ -428,6 +428,21 @@ u32 rdx_ble_session_rdx_runtime_epoch_get(void)
     return s_rdx_runtime_epoch;
 }
 
+u8 rdx_ble_session_release_rdx(rdx_ble_link_state_t *link, u32 expected_slot_generation)
+{
+    if (!rdx_ble_session_link_is_rdx(link) ||
+        link->slot_generation != expected_slot_generation ||
+        s_rdx_runtime_state != RDX_BLE_RUNTIME_QUIESCING) return 0;
+    link->capability &= ~RDX_BLE_CAPABILITY_RDX;
+    link->rdx_runtime_active = 0;
+    link->rdx_ccc_configured = 0;
+    link->rdx_stream_tx_ready = 0;
+    s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
+    memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
+    return 1;
+}
+
 u8 rdx_ble_session_rdx_runtime_begin_quiesce(rdx_ble_link_state_t *link)
 {
     if (s_rdx_runtime_state != RDX_BLE_RUNTIME_ACTIVE ||

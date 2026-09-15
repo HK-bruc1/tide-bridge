@@ -71,6 +71,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_keymap_config.h"
+#include "rdx_session_control.h"
 #include "rdx_protocol.h"
 #include "xxpUart.h"
 #include "rdx_key.h"
@@ -2123,6 +2124,10 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
         return;
     }
     if (rdx_dip_switch_business_blocked()) {
+        return;
+    }
+    if (strcmp(cmd, RDX_SESSION_CUSTOM_CMD) == 0) {
+        rdx_session_control_handle_custom(value);
         return;
     }
     if (rdx_ble_session_rdx_runtime_state_get() !=

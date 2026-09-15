@@ -99,6 +99,11 @@ The host test runner keeps a five-contract core suite covering:
 - `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, cross-peer handoff after full reset, and fail-closed behavior.
 - `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
 
+The lifecycle group includes source checks for the single-command RDX release
+and preservation of the shared HID/physical link. Host checks require only
+PowerShell 5.1; there is no additional C compiler dependency.
+See `tests/host/README.md` for coverage and on-device validation limits.
+
 The former phase-specific, playback, and split configuration scripts were
 historical evidence or inactive product checks and are no longer part of the
 daily host framework.
@@ -154,7 +159,7 @@ Key points:
 - One RDX owner and one HID owner are allowed globally. They may occupy separate links or the same link as a composite `RDX_HID` owner.
 - RDX access claims the current link; online keyboard routing is independently gated by `Input CCC enabled && encrypted && !suspended`
 - Bonded HID subscription intent is persisted per SM peer identity so a Windows reconnect can restore ready state without leaking CCC state to another peer
-- RDX ownership is currently sticky to the physical ACL. Closing the PC App does not release RDX while Windows keeps the same ACL for HOGP; the pending explicit logical-release design is tracked in `docs/5-3.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md`.
+- Firmware supports the single custom command `*APP#custom#rdxclose#1#` to release RDX through the existing FIFO/worker cleanup while preserving HID and the physical ACL. No OPEN or close handshake is required. PC App integration and on-device acceptance remain pending. See `docs/3-5.PC_APP_rdxsession_v1_固件对接说明.md` (filename retained for existing links).
 
 ### T2620 project config overlay
 
@@ -198,7 +203,8 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `tests/host/test_rdx_transport_contract.ps1` - dual-link transport and advertising contract
 - `tests/host/test_rdx_lifecycle_contract.ps1` - reconnect lifecycle contract
 - `tests/host/test_rdx_keymap_contract.ps1` - online keymap transaction contract
-- `docs/5-3.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md` - blocked PC-App logical RDX release boundary and planned acceptance criteria
+- `docs/3-4.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md` - PC-App logical RDX release design and acceptance criteria
+- `docs/3-5.PC_APP_rdxsession_v1_固件对接说明.md` - single-command firmware interface and BLE tool acceptance
 
 - `SDK/Makefile` — build system; source file list, defines, includes, libraries
 - `SDK/.vscode/tasks.json` — source of truth for VS Code build/test commands

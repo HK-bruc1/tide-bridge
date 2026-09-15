@@ -103,6 +103,8 @@ rdx_ble_link_state_t *rdx_ble_session_rdx_token_resolve(
     u8 require_runtime_active);
 rdx_ble_runtime_state_t rdx_ble_session_rdx_runtime_state_get(void);
 u32 rdx_ble_session_rdx_runtime_epoch_get(void);
+
+u8 rdx_ble_session_release_rdx(rdx_ble_link_state_t *link, u32 expected_slot_generation);
 u8 rdx_ble_session_rdx_runtime_begin_quiesce(
     rdx_ble_link_state_t *link);
 u8 rdx_ble_session_rdx_runtime_barrier_arrive(void);
