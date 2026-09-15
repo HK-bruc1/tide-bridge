@@ -81,7 +81,30 @@ typedef struct {
 /*******************************************************************************
 * Local variables Section
 *******************************************************************************/
-static rdx_bound_info_t rdx_bound_info = {
+static volatile u32 bound_epoch = 1;
+/* Aligned single-word authorization snapshot: zero means unbound. */
+static volatile u32 bound_token;
+static OS_MUTEX bound_transition_mutex;
+static u8 bound_transition_ready;
+
+int rdx_vm_bound_transition_lock(void)
+{
+    if (!bound_transition_ready) {
+        return -1;
+    }
+    return os_mutex_pend(&bound_transition_mutex, 0);
+}
+
+void rdx_vm_bound_transition_unlock(void)
+{
+    os_mutex_post(&bound_transition_mutex);
+}
+
+u32 rdx_vm_get_bound_token(void)
+{
+    return bound_token;
+}
+static volatile rdx_bound_info_t rdx_bound_info = {
     .bound_state = 0
 };
 
@@ -150,7 +173,20 @@ void rdx_vm_init(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if (!bound_transition_ready) {
+        if (os_mutex_create(&bound_transition_mutex)) {
+            return; /* Static zero authorization remains fail-closed. */
+        }
+        bound_transition_ready = 1;
+    }
     rdx_bound_info.bound_state = 0;
+    u8 bound = 0;
+    if (syscfg_read(VM_RDX_NOTTA_BOUND_STATUS, &bound, sizeof(bound)) == sizeof(bound) &&
+        bound == RDX_BOUND_STATE_BOUND) {
+        rdx_bound_info.bound_state = RDX_BOUND_STATE_BOUND;
+    }
+    ++bound_epoch;
+    bound_token = rdx_bound_info.bound_state ? bound_epoch : 0;
     
     memset(&rdx_vm_info_modify, 0, sizeof(rdx_vm_info_modify_t));
     
@@ -174,9 +210,6 @@ u8 rdx_vm_get_bound_status(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    syscfg_read(VM_RDX_NOTTA_BOUND_STATUS, &rdx_bound_info.bound_state, 1);
-    g_printf("rdx_vm_get_bound_status: %d\r", rdx_bound_info.bound_state);
-
     return rdx_bound_info.bound_state;
 }
 
@@ -198,12 +231,31 @@ int rdx_vm_set_bound_status(u8 d, u8 show_en)
     /*----------------------------------------------------------------*/
     g_printf("rdx_vm_set_bound_status :%d, is show: %d \n", d, show_en);
 
+    if (d != RDX_BOUND_STATE_UNBOUND && d != RDX_BOUND_STATE_BOUND) {
+        return -1;
+    }
+    if (rdx_vm_bound_transition_lock()) {
+        return -1;
+    }
     /* Publish the new state only after the complete byte is persisted. */
     if (syscfg_write(VM_RDX_NOTTA_BOUND_STATUS, &d, sizeof(d)) != sizeof(d)) {
+        rdx_vm_bound_transition_unlock();
         r_printf("[RDX_VM] bound status write failed\n");
         return -1;
     }
-    rdx_bound_info.bound_state = d;
+    if (rdx_bound_info.bound_state != d) {
+        ++bound_epoch;
+        if (!bound_epoch) {
+            ++bound_epoch;
+        }
+        rdx_bound_info.bound_state = d;
+        bound_token = d ? bound_epoch : 0;
+        if (d == RDX_BOUND_STATE_UNBOUND) {
+            rdx_record_binding_revoke();
+        }
+    }
+
+    rdx_vm_bound_transition_unlock();
 
     if(show_en){
         // OLED 功能已删除

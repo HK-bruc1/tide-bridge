@@ -102,6 +102,7 @@ void rdx_dut_motor_stop(void);
 bool rdx_dut_motor_is_running(void);
 
 void rdx_dut_rec_start(void);
+void rdx_dut_record_reset(void);
 void rdx_dut_rec_stop(void);
 bool rdx_dut_rec_is_running(void);
 

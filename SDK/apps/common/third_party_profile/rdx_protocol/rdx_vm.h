@@ -77,6 +77,11 @@ typedef struct{
 *******************************************************************************/
 void rdx_vm_init(void);
 u8 rdx_vm_get_bound_status(void);
+u32 rdx_vm_get_bound_token(void);
+/* Task context only. Serializes binding persistence/publication with audio open.
+ * Data callbacks must never acquire this mutex. */
+int rdx_vm_bound_transition_lock(void);
+void rdx_vm_bound_transition_unlock(void);
 /* Returns 0 after persistence succeeds, -1 on write failure. */
 int rdx_vm_set_bound_status(u8 d, u8 show_en);
 void rdx_vm_bound_status_check(void);

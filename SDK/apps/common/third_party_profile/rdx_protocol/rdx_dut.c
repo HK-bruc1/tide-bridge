@@ -425,8 +425,20 @@ bool rdx_dut_motor_is_running(void)
 /**************************************************************************
  * function: rdx_dut_rec_start
  **************************************************************************/
+/* Called on app_core when recording is revoked or audio startup fails. */
+void rdx_dut_record_reset(void)
+{
+    if (rdx_dut_info.current_func == DUT_FUNC_REC ||
+        rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
+        rdx_dut_info.current_func = DUT_FUNC_NONE;
+    }
+}
+
 void rdx_dut_rec_start(void)
 {
+    if (!rdx_record_binding_allowed()) {
+        return;
+    }
     DUT_LOG("Record test START\r");
     
     if(rdx_dut_info.current_func != DUT_FUNC_NONE){
@@ -493,6 +505,9 @@ bool rdx_dut_rec_is_running(void)
  **************************************************************************/
 void rdx_dut_rec_call_start(void)
 {
+    if (!rdx_record_binding_allowed()) {
+        return;
+    }
     DUT_LOG("Record CALL test START\r");
     
     if(rdx_dut_info.current_func != DUT_FUNC_NONE){

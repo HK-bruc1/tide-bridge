@@ -1,4 +1,4 @@
-#include "sdk_config.h"
+#include "app_config.h"
 #include "jlstream.h"
 #include "encoder_node.h"
 #include "st_opus_enc/opus_stenc_api.h"
@@ -6,6 +6,9 @@
 
  
 #include "rdx_app_config.h"
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_record.h"
+#endif
 
 
 #include "audio_dac.h"
@@ -54,8 +57,13 @@ void set_global_ch_mode(u8 mode)
  * @param ai_type 固定为0
  * @return int 
  */
-int translation_ear_recoder_open(stream_type enc_type, u16 source_uuid, u32 code_type, u8 ai_type)
+static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uuid, u32 code_type, u8 ai_type)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (!rdx_record_binding_allowed()) {
+        return -1;
+    }
+#endif
     int err = 0;
     struct stream_fmt fmt;
     struct encoder_fmt enc_fmt;
@@ -187,6 +195,22 @@ __exit0:
  * 
  * @param type MIC or DAC
  */
+/* Task mutex serializes audio start with binding changes; callbacks stay lock-free. */
+int translation_ear_recoder_open(stream_type enc_type, u16 source_uuid, u32 code_type, u8 ai_type)
+{
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    u32 token = rdx_record_binding_token_capture();
+    if (rdx_record_audio_start_enter(token)) {
+        return -1;
+    }
+    int ret = translation_ear_recoder_open_impl(enc_type, source_uuid, code_type, ai_type);
+    rdx_record_audio_start_exit(ret);
+    return ret;
+#else
+    return translation_ear_recoder_open_impl(enc_type, source_uuid, code_type, ai_type);
+#endif
+}
+
 void translation_ear_recoder_close(u8 type)
 {
     u8 idx = 0;
@@ -228,11 +252,16 @@ void translation_ear_recoder_close_all(void)
  * @param ch_mode 见stream_type
  * @return int 0：成功；其他：失败
  */
-int translation_ear_recoder_open_all(u8 ch_mode)
+static int translation_ear_recoder_open_all_impl(u8 ch_mode)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (!rdx_record_binding_allowed()) {
+        return -1;
+    }
+#endif
     translation_ear_recoder_close_all();
     int ret = 0;
-    clock_alloc("translation_ear", 24 * 1000000UL);
+
     u8 ch = AUDIO_CH_LR;
 
     switch (ch_mode)
@@ -260,13 +289,43 @@ int translation_ear_recoder_open_all(u8 ch_mode)
     default:
         return -1;
     }
-    set_global_ch_mode(ch);//先设置声道
-    // if(ch_mode & MIC){
-        ret += translation_ear_recoder_open(MIC|(AUDIO_CH_NUM(ch_mode) << 4), NODE_UUID_ADC, AUDIO_CODING_OPUS, 0);
-    // }
-    ret += translation_ear_recoder_open(DAC|(AUDIO_CH_NUM(ch_mode) << 4), NODE_UUID_SOURCE_DEV1, AUDIO_CODING_OPUS, 0);
-
+    clock_alloc("translation_ear", 24 * 1000000UL);
+    set_global_ch_mode(ch);
+    /* During an eSCO call the call path supplies MIC audio itself. */
+    if (!esco_player_runing()) {
+        ret = translation_ear_recoder_open_impl(MIC|(AUDIO_CH_NUM(ch_mode) << 4), NODE_UUID_ADC, AUDIO_CODING_OPUS, 0);
+        if (ret) {
+            goto fail;
+        }
+    }
+    ret = translation_ear_recoder_open_impl(DAC|(AUDIO_CH_NUM(ch_mode) << 4), NODE_UUID_SOURCE_DEV1, AUDIO_CODING_OPUS, 0);
+    if (!ret) {
+        return 0;
+    }
+fail:
+    translation_ear_recoder_close_all();
     return ret;
+}
+
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+int translation_ear_recoder_open_all_bound(u8 ch_mode, u32 token)
+{
+    if (rdx_record_audio_start_enter(token)) {
+        return -1;
+    }
+    int ret = translation_ear_recoder_open_all_impl(ch_mode);
+    rdx_record_audio_start_exit(ret);
+    return ret;
+}
+#endif
+
+int translation_ear_recoder_open_all(u8 ch_mode)
+{
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    return translation_ear_recoder_open_all_bound(ch_mode, rdx_record_binding_token_capture());
+#else
+    return translation_ear_recoder_open_all_impl(ch_mode);
+#endif
 }
 
 #include "system/includes.h"
@@ -278,5 +337,4 @@ REGISTER_LP_TARGET(ai_target) = {
     .name = "ai",
     .is_idle = ai_idle_query,
 };
-
 

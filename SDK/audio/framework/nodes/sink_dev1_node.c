@@ -21,6 +21,7 @@
 #if TCFG_SINK_DEV1_NODE_ENABLE
 
 struct sink_dev1_hdl {
+    u8 started;
     struct stream_fmt fmt;		//节点参数
 };
 
@@ -101,10 +102,12 @@ static int sink_dev1_init(struct sink_dev1_hdl *hdl)
     // printf("sink_dev1_init,ch_num=%x,sr=%d,coding_type=%x\n", ch_num, sample_rate, coding_type);
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-#if (RDX_AI_SEL_APP & APP_TINGNAO_EN) || (RDX_AI_SEL_APP & APP_AITIR_EN) || (RDX_AI_SEL_APP & APP_TURING_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN)
-    //do init record run.
-    rdx_record_run_init();
-#endif
+    /* Single session initialization point, paired with sink_dev1_exit().
+     * This also covers direct recorder opens and both RDX process variants. */
+    int err = rdx_record_run_init();
+    if (err) {
+        return err;
+    }
 
     //set gain.
     rdx_record_mic_gain_check();
@@ -242,14 +245,23 @@ static int sink_dev1_ioc_fmt_nego(struct stream_iport *iport)
 static int sink_dev1_ioc_start(struct sink_dev1_hdl *hdl)
 {
     printf("sink_dev1_ioc_start");
-    sink_dev1_init(hdl);
-    return 0;
+    if (hdl->started) {
+        return 0;
+    }
+    int err = sink_dev1_init(hdl);
+    if (!err) {
+        hdl->started = 1;
+    }
+    return err;
 }
 
 static int sink_dev1_ioc_stop(struct sink_dev1_hdl *hdl)
 {
     printf("sink_dev1_ioc_stop");
-    sink_dev1_exit(hdl);
+    if (hdl->started) {
+        hdl->started = 0;
+        return sink_dev1_exit(hdl);
+    }
     return 0;
 }
 
@@ -262,8 +274,7 @@ static int sink_dev1_ioctl(struct stream_iport *iport, int cmd, int arg)
         sink_dev1_open_iport(iport);
         break;
     case NODE_IOC_START:
-        sink_dev1_ioc_start(hdl);
-        break;
+        return sink_dev1_ioc_start(hdl);
     case NODE_IOC_STOP:
         sink_dev1_ioc_stop(hdl);
         break;
@@ -291,6 +302,7 @@ static int sink_dev1_ioctl(struct stream_iport *iport, int cmd, int arg)
 static void sink_dev1_release(struct stream_node *node)
 {
     printf("sink_dev1_release");
+    sink_dev1_ioc_stop((struct sink_dev1_hdl *)node->private_data);
 }
 
 REGISTER_STREAM_NODE_ADAPTER(sink_dev1_adapter) = {

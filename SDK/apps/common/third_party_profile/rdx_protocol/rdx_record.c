@@ -31,6 +31,7 @@
 
 #include "app_config.h"
 #include "rdx_record.h"
+#include "rdx_vm.h"
 #include "effects/eq_config.h"
 #include "audio_config.h"
 #include "app_tone.h"
@@ -137,6 +138,62 @@ static bool record_start_tone_ready;
 static volatile u32 usb_record_done;
 static volatile int usb_record_result;
 #define RDX_RECORD_USB_FENCE 0x52445852
+#define RDX_RECORD_BIND_FENCE 0x52445842
+static volatile u8 record_binding_revoke_pending;
+static volatile int record_binding_cleanup_error;
+
+/* Recording request generation; binding persistence has its own version.
+ * Writers hold the VM transition mutex; callbacks only read snapshots. */
+static volatile u32 record_binding_generation = 1;
+/* Business session identity is independent of audio-node lifetimes.
+ * app_core advances it on an accepted START; the audio path owns initialization. */
+static u32 record_session_generation = 1;
+static u32 record_initialized_generation;
+
+
+static u32 pending_binding_token;
+static u32 tone_binding_token;
+
+u8 rdx_record_binding_allowed(void)
+{
+    return rdx_record_binding_token_capture() != 0;
+}
+
+u32 rdx_record_binding_token_capture(void)
+{
+    u32 binding = rdx_vm_get_bound_token();
+    u32 token = record_binding_generation;
+    return binding && !record_binding_revoke_pending &&
+           binding == rdx_vm_get_bound_token() &&
+           token == record_binding_generation ? token : 0;
+}
+
+u8 rdx_record_binding_token_is_current(u32 token)
+{
+    return token && token == rdx_record_binding_token_capture();
+}
+
+/* A successful enter must be paired with exit in the same task.
+ * Keep binding publication serialized through the actual JL audio open. */
+int rdx_record_audio_start_enter(u32 token)
+{
+    if (!token || rdx_vm_bound_transition_lock()) {
+        return -1;
+    }
+    if (!rdx_record_binding_token_is_current(token)) {
+        rdx_vm_bound_transition_unlock();
+        return -1;
+    }
+    return 0;
+}
+
+void rdx_record_audio_start_exit(int result)
+{
+    if (result) {
+        rdx_record_binding_revoke();
+    }
+    rdx_vm_bound_transition_unlock();
+}
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
 
@@ -372,6 +429,7 @@ extern void anc_mode_switch(u8 mode, u8 tone_play);
 extern void rdx_tx_speed_cal_timer_stop(void);
 extern void rdx_tx_speed_cal_timer_start(void);
 extern int translation_ear_recoder_open_all(u8 ch_mode);
+extern int translation_ear_recoder_open_all_bound(u8 ch_mode, u32 token);
 extern void translation_ear_recoder_close_all(void);
 extern void rdx_ble_server_auto_shut_down_enable(u8 enable);
 extern bool rdx_app_get_dut_status(void);
@@ -1001,6 +1059,13 @@ static void rdx_record_cmd_delay_cb(void *priv)
 
     g_record_cmd_delay_timer = 0;
 
+    if (!rdx_record_binding_token_is_current(pending_binding_token)) {
+        g_record_cmd_retry_cnt = 0;
+        rdx_record_pending_cmd_clear();
+        rdx_record_stream_only_start_cancel();
+        return;
+    }
+
     if (g_pending_record_token_valid &&
         !rdx_record_rdx_token_is_current(&g_pending_record_token)) {
         r_printf("[RDX_RECORD] drop stale delayed command\r");
@@ -1079,6 +1144,15 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] drop command for another session\r");
         return;
     }
+    if (r_info->cmd != (RECORD_STATE_STOP + 0x30) &&
+        !rdx_record_binding_allowed()) {
+        r_printf("[RDX_RECORD] command rejected: device not bound\r");
+        /* Existing protocol exposes state, not a recording error code. */
+        if (token && rdx_record_rdx_token_is_current(token)) {
+            rdx_protocol_record_state_indicate();
+        }
+        return;
+    }
     info_type = r_info->type - 0x30;
 
     y_printf("------ %s, r_info->cmd = %c, r_info->formate = %c, r_info->type = %c \r", __FUNCTION__, r_info->cmd, r_info->formate, r_info->type);
@@ -1115,6 +1189,7 @@ static void rdx_record_cmd_handle_internal(
                 }
             }
             memcpy(&g_pending_record_info, r_info, sizeof(Record_info));
+            pending_binding_token = rdx_record_binding_token_capture();
             if (token) {
                 g_pending_record_token = *token;
                 g_pending_record_token_valid = 1;
@@ -1146,6 +1221,9 @@ static void rdx_record_cmd_handle_internal(
         // g_printf("====== %s --> record START", __FUNCTION__);
         rdx_record_stream_only_start_consume(token);
         rdx_record_online_session_bind(token);
+        if (++record_session_generation == 0) {
+            ++record_session_generation;
+        }
         record_status.run = RECORD_STATE_START;
         if(info_type == RECORD_SCENE_CHAT){
             record_status.formate = RECORD_FORMATE_OPUS_16K_STERO; 
@@ -1264,7 +1342,7 @@ void rdx_record_stop(void)
  **************************************************************************/
 void rdx_record_start(void* priv)
 {
-    if (rdx_dip_switch_business_blocked()) {
+    if (!rdx_record_binding_allowed() || rdx_dip_switch_business_blocked()) {
         return;
     }
     /*----------------------------------------------------------------*/
@@ -1292,6 +1370,13 @@ void rdx_record_start(void* priv)
     }
 }
 
+static void rdx_record_restart_if_bound(void *priv)
+{
+    if (rdx_record_binding_token_is_current((u32)priv)) {
+        rdx_record_start(NULL);
+    }
+}
+
 /* A pending START has not opened the recorder or created a recording file.
  * Keep process_state READY so STOP (including key release) can cancel it. */
 static void rdx_record_start_tone_cancel(void)
@@ -1310,6 +1395,67 @@ static void rdx_record_start_tone_cancel(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
     rdx_record_set_process_state_ready();
     rdx_app_emmc_poweroff_check();
+}
+
+extern void rdx_app_record_binding_reset(void);
+extern void rdx_dut_record_reset(void);
+static void rdx_record_binding_revoke_post(void *priv);
+
+static void rdx_record_binding_revoke_on_app_core(void)
+{
+    rdx_app_record_binding_reset();
+    rdx_dut_record_reset();
+    if (g_record_cmd_delay_timer) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+    }
+    g_record_cmd_retry_cnt = 0;
+    rdx_record_pending_cmd_clear();
+    rdx_record_stream_only_start_cancel();
+    if (stream_resume_timer) {
+        sys_timeout_del(stream_resume_timer);
+        stream_resume_timer = 0;
+    }
+    g_stream_resume_token_valid = 0;
+    record_start_tone_pending = false;
+    record_start_tone_ready = false;
+    ++record_start_tone_epoch;
+    record_status.rerun = false;
+    record_status.key_trigger = false;
+    rdx_record_pause_timeout_stop();
+    record_status.run = RECORD_STATE_STOP;
+    if (!is_record_task_created) {
+        rdx_record_set_process_state_ready();
+        record_binding_revoke_pending = 0;
+    } else if (os_taskq_post_msg(RECORD_TASK_NAME, 1, RDX_RECORD_BIND_FENCE)) {
+        /* Remain closed until the FIFO cleanup has actually completed. */
+        if (!sys_timeout_add(NULL, rdx_record_binding_revoke_post, 10)) {
+            record_binding_cleanup_error = -2;
+            r_printf("[RDX_RECORD] binding cleanup retry failed; gate closed\r");
+        }
+    }
+}
+
+static void rdx_record_binding_revoke_post(void *priv)
+{
+    int msg[2] = {(int)rdx_record_binding_revoke_on_app_core, 0};
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg) &&
+        !sys_timeout_add(NULL, rdx_record_binding_revoke_post, 10)) {
+        record_binding_cleanup_error = -2;
+        r_printf("[RDX_RECORD] binding cleanup post failed; gate closed\r");
+    }
+}
+
+void rdx_record_binding_revoke(void)
+{
+    if (!record_binding_revoke_pending) {
+        record_binding_cleanup_error = 0;
+        record_binding_revoke_pending = 1;
+        if (!++record_binding_generation) {
+            ++record_binding_generation;
+        }
+        rdx_record_binding_revoke_post(NULL);
+    }
 }
 
 int rdx_record_usb_quiesce_request(u32 ticket)
@@ -1340,6 +1486,7 @@ int rdx_record_usb_quiesce_poll(u32 ticket)
 static bool rdx_record_start_tone_is_current(u32 epoch)
 {
     return record_start_tone_pending && epoch == record_start_tone_epoch &&
+           rdx_record_binding_token_is_current(tone_binding_token) &&
            !rdx_dip_switch_business_blocked() &&
            record_status.run == RECORD_STATE_START &&
            !app_var.goto_poweroff_flag && !rdx_app_get_poweroff_flag() &&
@@ -1440,6 +1587,7 @@ static bool rdx_record_start_tone_wait(void)
         ++record_start_tone_epoch;
     }
     record_start_tone_completed = 0;
+    tone_binding_token = rdx_record_binding_token_capture();
     record_start_tone_pending = true;
     msg[0] = (int)rdx_record_start_tone_play;
     msg[1] = 1;
@@ -1552,14 +1700,14 @@ void rdx_record_auto_run(RecordStatus* rp)
     /*----------------------------------------------------------------*/
     y_printf("====== %s --> rp->run = %d, rp->scene = %d \r", __FUNCTION__, rp->run, rp->scene);
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        //record init.
-        rdx_record_run_init();
+        /* The sink node initializes the session exactly once when audio starts.
+         * Queuing a request must not allocate a file identity or announce START. */
         //do start or resume during record scene.
         if(rp->scene == RECORD_SCENE_CHAT){
-            os_taskq_post_msg(RECORD_TASK_NAME, 2, rp->run, MIC_TO_MONO_OPUS);
+            os_taskq_post_msg(RECORD_TASK_NAME, 3, rp->run, MIC_TO_MONO_OPUS, rdx_record_binding_token_capture());
             rdx_app_set_record_mode(RDX_RECORD_CHANNAL_DUAL);
         }else if(rp->scene == RECORD_SCENE_CALL){
-            os_taskq_post_msg(RECORD_TASK_NAME, 2, rp->run, MIC_DAC_TO_STERO_OPUS);
+            os_taskq_post_msg(RECORD_TASK_NAME, 3, rp->run, MIC_DAC_TO_STERO_OPUS, rdx_record_binding_token_capture());
             rdx_app_set_record_mode(RDX_RECORD_CHANNAL_DUAL);
         }
     }else{
@@ -1578,6 +1726,13 @@ void rdx_record_auto_run(RecordStatus* rp)
  **************************************************************************/
 void rdx_record_process(void)
 {
+    if (!rdx_record_binding_allowed() &&
+        (record_status.run == RECORD_STATE_START || record_status.run == RECORD_STATE_RESUME)) {
+        if (!record_binding_revoke_pending) {
+            rdx_record_start_tone_cancel();
+        }
+        return;
+    }
     if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
         record_status.run = RECORD_STATE_STOP;
         return;
@@ -1738,6 +1893,13 @@ void rdx_record_process(void)
  **************************************************************************/
 void rdx_record_process(void)
 {
+    if (!rdx_record_binding_allowed() &&
+        (record_status.run == RECORD_STATE_START || record_status.run == RECORD_STATE_RESUME)) {
+        if (!record_binding_revoke_pending) {
+            rdx_record_start_tone_cancel();
+        }
+        return;
+    }
     if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
         record_status.run = RECORD_STATE_STOP;
         return;
@@ -1783,9 +1945,9 @@ void rdx_record_process(void)
             #endif
 
                 if(record_status.scene == RECORD_SCENE_CHAT){
-                    os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_TO_MONO_OPUS);      
+                    os_taskq_post_msg(RECORD_TASK_NAME, 3, record_status.run, MIC_TO_MONO_OPUS, rdx_record_binding_token_capture());
                 }else if(record_status.scene == RECORD_SCENE_CALL){
-                    os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_DAC_TO_STERO_OPUS); 
+                    os_taskq_post_msg(RECORD_TASK_NAME, 3, record_status.run, MIC_DAC_TO_STERO_OPUS, rdx_record_binding_token_capture());
                 }
             #ifdef RECORD_HEARTBEAT_SUPPORT
                 //start timer to check record is running well.
@@ -1809,10 +1971,10 @@ void rdx_record_process(void)
             #endif
 
                 if(record_status.scene == RECORD_SCENE_CHAT){
-                    os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_TO_MONO_OPUS);  //MIC_TO_MONO_OPUS
+                    os_taskq_post_msg(RECORD_TASK_NAME, 3, record_status.run, MIC_TO_MONO_OPUS, rdx_record_binding_token_capture());  //MIC_TO_MONO_OPUS
                 }
                 else if(record_status.scene == RECORD_SCENE_CALL){
-                    os_taskq_post_msg(RECORD_TASK_NAME, 2, record_status.run, MIC_DAC_TO_STERO_OPUS); 
+                    os_taskq_post_msg(RECORD_TASK_NAME, 3, record_status.run, MIC_DAC_TO_STERO_OPUS, rdx_record_binding_token_capture());
                 }
             #ifdef RECORD_HEARTBEAT_SUPPORT
                 //start timer to check record is running well.
@@ -1911,12 +2073,40 @@ static void rdx_record_task(void *arg)
             switch (msg[0]) {
 				case Q_MSG:
 					{
+                        if (msg[1] == RDX_RECORD_BIND_FENCE) {
+                            record_status.run = RECORD_STATE_STOP;
+                            translation_ear_recoder_close_all();
+                            int saved = rdx_uxfile_finish_record();
+                            record_initialized_generation = 0;
+                            record_tone_session_active = false;
+                            g_stream_only_session_active = 0;
+                            rdx_record_online_session_clear();
+                            rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+                            rdx_record_set_process_state_ready();
+                            rdx_ble_server_auto_shut_down_enable(1);
+                            if (saved < 0) {
+                                record_binding_cleanup_error = -1;
+                                r_printf("[RDX_RECORD] unbind save failed; gate closed\r");
+                            } else {
+                                record_binding_cleanup_error = 0;
+                                record_binding_revoke_pending = 0;
+                            }
+                            int notify[2] = {(int)rdx_protocol_record_state_indicate, 0};
+                            os_taskq_post_type("app_core", Q_CALLBACK, 2, notify);
+                            continue;
+                        }
+                        if ((msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME) &&
+                            !rdx_record_binding_token_is_current((u32)msg[3])) {
+                            /* The binding fence owns cleanup, after earlier FIFO work. */
+                            continue;
+                        }
                         if (msg[1] == RDX_RECORD_USB_FENCE) {
                             record_status.run = RECORD_STATE_STOP;
                             translation_ear_recoder_close_all();
                             /* PAUSE has no live stream but still owns an open
                              * recording context. Commit that context as well. */
                             int saved = rdx_uxfile_finish_record();
+                            record_initialized_generation = 0;
                             usb_record_result = saved < 0 ? -1 : 0;
                             rdx_record_set_process_state_ready();
                             usb_record_done = (u32)msg[2];
@@ -1928,7 +2118,8 @@ static void rdx_record_task(void *arg)
                             continue;
                         }
                         if(msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME){
-                            translation_ear_recoder_open_all(msg[2]);
+                            /* The RDX audio guard owns failure invalidation/cleanup. */
+                            translation_ear_recoder_open_all_bound(msg[2], (u32)msg[3]);
                         }else if(msg[1] == RECORD_STATE_STOP || msg[1] == RECORD_STATE_PAUSE){
                             bool play_stop_tone = msg[1] == RECORD_STATE_STOP &&
                                                   record_tone_session_active;
@@ -1937,6 +2128,16 @@ static void rdx_record_task(void *arg)
                                 record_tone_session_active = false;
                             }
                             translation_ear_recoder_close_all();
+                            /* A paused session has no live sink to finalize it. */
+                            if (msg[1] == RECORD_STATE_STOP) {
+                                int saved = rdx_uxfile_finish_record();
+                                if (saved < 0) {
+                                    r_printf("[RECORD] stop save failed; USB handoff blocked\n");
+                                }
+                                record_initialized_generation = 0;
+                                g_stream_only_session_active = 0;
+                                rdx_record_online_session_clear();
+                            }
                             /* Both MIC and DAC paths are now closed. */
                             if (play_stop_tone) {
                                 rdx_record_stop_tone_post(tone_epoch);
@@ -2488,7 +2689,10 @@ void rdx_record_stream_resume_delayed(void)
  * return (*)
  **************************************************************************/
 int rdx_record_run_init(void)
-{ 
+{
+    if (!rdx_record_binding_allowed()) {
+        return -1;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2523,7 +2727,7 @@ int rdx_record_run_init(void)
     }
     // 现在 RECORD_SCENE_xxx 与 COMMAND_RECORD_SCENE_xxx 值一致，无需映射
     if(rdx_record_stream_only_session_is_active()){
-        if(rp->run == RECORD_STATE_START){
+        if(record_initialized_generation != record_session_generation){
             rdx_uxfile_operate_file_init();
         }
     }else{
@@ -2538,7 +2742,7 @@ int rdx_record_run_init(void)
         }
 #endif
 
-        if(rp->run == RECORD_STATE_RESUME){
+        if(record_initialized_generation == record_session_generation){
             y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
                      (unsigned)rdx_uxfile_get_operateFile_info()->sn,
                      rdx_uxfile_get_operateFile_info()->filename,
@@ -2565,6 +2769,7 @@ int rdx_record_run_init(void)
 
     //start max record time.
     rdx_record_max_timer_start();
+    record_initialized_generation = record_session_generation;
 
     return 0;
 }
@@ -2578,6 +2783,9 @@ int rdx_record_run_init(void)
  **************************************************************************/
 int rdx_record_run_data_handle(u8* d, u32 len)
 {
+    if (!rdx_record_binding_allowed()) {
+        return 0;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2668,7 +2876,7 @@ int rdx_record_run_exit(void)
 
     y_printf("%s --> con_hdl = %d, rp->mode = %d \r", __FUNCTION__, con_hdl, rp->mode);
 
-    if(rp->run == RECORD_STATE_PAUSE){
+    if(rp->run != RECORD_STATE_STOP){
         y_printf("[PAUSE_EXIT] keep open: sn=%u name='%s', will resume append same raw\r",
                  (unsigned)rdx_uxfile_get_operateFile_info()->sn,
                  rdx_uxfile_get_operateFile_info()->filename);
@@ -2709,6 +2917,7 @@ int rdx_record_run_exit(void)
     rdx_app_emmc_poweroff_check();
 
     rdx_uxfile_operate_file_init();
+    record_initialized_generation = 0;
 
     rp->stream_discont = false;
     if (rp->run == RECORD_STATE_STOP) {
@@ -2727,7 +2936,10 @@ int rdx_record_run_exit(void)
  * return (*)
  **************************************************************************/
 int rdx_record_run_init(void)
-{ 
+{
+    if (!rdx_record_binding_allowed()) {
+        return -1;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2771,7 +2983,9 @@ int rdx_record_run_init(void)
 #endif
 
         // rdx_uxfile_mssg_1_generate(scene);
-        rdx_uxfile_dat_1_gen(scene);
+        if (record_initialized_generation != record_session_generation) {
+            rdx_uxfile_dat_1_gen(scene);
+        }
 
         /* V24: begin_time 只在初始 START 时设置, RESUME 不重置 */
         if(rp->begin_time == 0){
@@ -2788,6 +3002,7 @@ int rdx_record_run_init(void)
 
     //start max record time.
     rdx_record_max_timer_start();
+    record_initialized_generation = record_session_generation;
 
     return 0;
 }
@@ -2801,6 +3016,9 @@ int rdx_record_run_init(void)
  **************************************************************************/
 int rdx_record_run_data_handle(u8* d, u32 len)
 {
+    if (!rdx_record_binding_allowed()) {
+        return 0;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2894,6 +3112,11 @@ int rdx_record_run_exit(void)
 	rdx_record_set_filter_cnt(0);
 	
     y_printf("%s --> con_hdl = %d, rp->mode = %d \r", __FUNCTION__, con_hdl, rp->mode);
+    if (rp->run != RECORD_STATE_STOP) {
+        rdx_record_set_process_state_ready();
+        rp->stream_discont = false;
+        return 0;
+    }
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
         // rdx_uxfile_mssg_1_save();
         int saved = rdx_uxfile_finish_record();
@@ -2920,12 +3143,13 @@ int rdx_record_run_exit(void)
         rp->rerun = false;
         // rp->run = RECORD_STATE_START;
         // rdx_record_process();
-        sys_timeout_add(NULL, rdx_record_start, 1000);
+        sys_timeout_add((void *)rdx_record_binding_token_capture(), rdx_record_restart_if_bound, 1000);
     }else{
         rdx_app_emmc_poweroff_check();
     }
 
     rdx_uxfile_operate_file_init();
+    record_initialized_generation = 0;
 
     if (rp->run == RECORD_STATE_STOP) {
         rdx_record_online_session_clear();

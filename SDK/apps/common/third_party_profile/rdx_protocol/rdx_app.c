@@ -233,6 +233,7 @@ static const RdxWifiCfg wifi_cfg = {
 ******************************************************************************/ 
 extern u8 get_remote_dev_company(void);
 extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
+extern void rdx_protocol_record_state_indicate(void);
 #if RDX_WIFI_ENABLE
 extern void xxp_esp32_wifi_close(void);
 extern void xxp_esp32_wifi_control(void);
@@ -319,6 +320,7 @@ void xxp_wifi_tcp_file_stop_indicate(void);
 
 typedef struct {
     RecordStatus status;
+    u32 binding_token;
     rdx_ble_async_token_t token;
     u8 factor;
     u8 stream_only;
@@ -332,6 +334,11 @@ static void rdx_app_record_trigger_on_app_core(
     }
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale record trigger indication\r");
+        free(request);
+        return;
+    }
+    if (request->status.run == RECORD_STATE_START &&
+        !rdx_record_binding_token_is_current(request->binding_token)) {
         free(request);
         return;
     }
@@ -359,6 +366,7 @@ static int rdx_app_record_trigger_post(
     if (!request) {
         return -1;
     }
+    request->binding_token = rdx_record_binding_token_capture();
     request->status = *status;
     request->token = *token;
     request->factor = factor;
@@ -778,6 +786,13 @@ static void rdx_app_hold_record_reset(void)
     key5_online_hold_routed = 0;
 }
 
+void rdx_app_record_binding_reset(void)
+{
+    key_press_record_ready_flag = 0;
+    rdx_app_hold_record_reset();
+    rdx_app_record_state_upload_timer_stop();
+}
+
 static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
 {
     if (rp->process_state != REC_PROCESS_STATE_BUSY) {
@@ -799,6 +814,10 @@ static void rdx_app_hold_record_pump(void)
     RecordStatus *rp = rdx_record_get_status();
     int ret;
 
+    if (hold_record_pressed && !rdx_record_binding_allowed()) {
+        rdx_app_hold_record_reset();
+        return;
+    }
     if (!hold_record_pressed) {
         if (!hold_record_session_active) {
             rdx_app_hold_record_retry_cancel();
@@ -1763,7 +1782,8 @@ void rdx_app_record_state_upload_timer_start(void)
 
 static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
 {
-    if (run == RECORD_STATE_START && rdx_dip_switch_business_blocked()) {
+    if (run == RECORD_STATE_START &&
+        (!rdx_record_binding_allowed() || rdx_dip_switch_business_blocked())) {
         return -1;
     }
     u8 formate = 0;
@@ -2623,6 +2643,12 @@ int rdx_app_msg_handler(int *msg)
             break;
 
         case APP_MSG_RECORD_SWITCH:
+            if (!rdx_record_binding_allowed() &&
+                rdx_record_get_status()->run == RECORD_STATE_STOP) {
+                key_press_record_ready_flag = 0;
+                ret = TRUE;
+                break;
+            }
             if(poweroff_ready_flag == 1){
                 break;
             }
@@ -3459,6 +3485,7 @@ static void rdx_app_wifi_event_handle(RdxWifiEvent event, void *data, u32 len)
 
 typedef struct {
     Record_info info;
+    u32 binding_token;
     rdx_ble_async_token_t token;
 } rdx_app_record_cmd_request_t;
 
@@ -3473,6 +3500,13 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
 
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale app_core command\r");
+        free(request);
+        return;
+    }
+
+    if (info.cmd != (RECORD_STATE_STOP + 0x30) &&
+        !rdx_record_binding_token_is_current(request->binding_token)) {
+        rdx_protocol_record_state_indicate();
         free(request);
         return;
     }
@@ -4045,6 +4079,7 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 r_printf("[RDX_RECORD] command allocation failed\r");
                 break;
             }
+            request->binding_token = rdx_record_binding_token_capture();
             memcpy(&request->info, info, sizeof(request->info));
             if (!rdx_ble_session_rdx_token_capture(&request->token, 1)) {
                 r_printf("[RDX_RECORD] drop command without active RDX owner\r");

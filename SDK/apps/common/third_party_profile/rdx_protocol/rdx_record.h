@@ -135,6 +135,17 @@ typedef struct {
 * Function Section
 ******************************************************************************/ 
 void rdx_record_process(void);
+/* Product binding, independent of BLE pairing/connection. Zero tokens deny. */
+u8 rdx_record_binding_allowed(void);
+u32 rdx_record_binding_token_capture(void);
+u8 rdx_record_binding_token_is_current(u32 token);
+/* Internal binding publisher/audio guard: transition mutex must be held. */
+void rdx_record_binding_revoke(void);
+/* Task-only audio guard. Pair successful enter with exit(result) in the
+ * same task; failure schedules FIFO cleanup before releasing authorization.
+ * Never call from an audio data callback. */
+int rdx_record_audio_start_enter(u32 token);
+void rdx_record_audio_start_exit(int result);
 void rdx_record_cmd_handle(Record_info *r_info);
 /* App-originated commands carry the RDX link token captured by the protocol
  * callback.  A stale token must never be allowed to mutate recording state. */

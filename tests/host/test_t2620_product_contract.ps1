@@ -540,4 +540,82 @@ Assert-Contract 'UXFILE_PATCH_QUIET_AND_ERROR_BOUNDARY' (
     (Test-TokensInOrder $StorageIr @('define internal void @rdx_storage_fence_arrive', 'rdx_uxfile_process_delete_queue', 'rdx_uxfile_close_read_file_handle', 'rdx_uxfile_flush_cache', 'rdx_storage_f_flush_wbuf', 'store volatile i32 %quiet', 'store volatile i32 %ticket, i32* @rdx_storage_fence_done'))
 ) 'The pinned patch must retain I/O errors, stop library producers, and publish the matching completion only after flush and worker freeze'
 
+$BindingVm = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_vm.c'
+$BindingDut = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dut.c'
+$BindingRecorder = Read-RepoFile $RepoRoot 'SDK\audio\interface\recoder\translation_ear_recoder.c'
+$BindingInit = Get-SourceSlice $BindingVm 'void rdx_vm_init(void)' 'u8 rdx_vm_get_bound_status(void)'
+$BindingRead = Get-SourceSlice $BindingVm 'u8 rdx_vm_get_bound_status(void)' 'int rdx_vm_set_bound_status('
+Assert-Contract 'RECORD_BINDING_FAIL_CLOSED_VM' (
+    $BindingInit -match '(?s)bound_state = 0;.*?syscfg_read\(VM_RDX_NOTTA_BOUND_STATUS.*?== sizeof\(bound\).*?bound == RDX_BOUND_STATE_BOUND' -and
+    $BindingRead -notmatch 'syscfg_read' -and
+    $RdxRecord -match 'return rdx_record_binding_token_capture\(\) != 0;' -and
+    $BindingVm -match 'bound_token = d \? bound_epoch : 0;'
+) 'Recording must require a validated persistent product binding, with a cached fail-closed runtime gate independent of BLE pairing'
+
+$BindingCommand = Get-SourceSlice $RdxApp 'static void rdx_app_record_cmd_on_app_core(' 'typedef struct {'
+$BindingDevice = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)' 'void rdx_app_device_record_handle('
+Assert-Contract 'RECORD_BINDING_ENTRY_AND_ASYNC_GATES' (
+    (Test-TokensInOrder $BindingCommand @('rdx_ble_session_rdx_token_resolve', 'info.cmd != (RECORD_STATE_STOP + 0x30)', 'rdx_record_binding_token_is_current(request->binding_token)', 'rdx_playback_stop()', 'rdx_record_cmd_handle_from_rdx')) -and
+    $BindingDevice -match '(?s)run == RECORD_STATE_START &&\s*\(!rdx_record_binding_allowed\(\)' -and
+    $RdxApp -match 'hold_record_pressed && !rdx_record_binding_allowed\(\)' -and
+    $RdxApp -match '(?s)case APP_MSG_RECORD_SWITCH:.*?!rdx_record_binding_allowed\(\).*?key_press_record_ready_flag = 0;' -and
+    $RdxRecord -match 'rdx_record_binding_token_is_current\(pending_binding_token\)' -and
+    $RdxRecord -match 'rdx_record_binding_token_is_current\(tone_binding_token\)' -and
+    $RdxRecord -match 'sys_timeout_add\(\(void \*\)rdx_record_binding_token_capture\(\), rdx_record_restart_if_bound, 1000\)'
+) 'Keys and App commands must be gated before side effects; STOP remains available and delayed starts cannot survive unbind/rebind'
+
+Assert-Contract 'RECORD_BINDING_LOW_LEVEL_COVERAGE' (
+    $BindingRecorder -match '#include "app_config.h"' -and
+    ([regex]::Matches($RdxRecord, 'void rdx_record_process\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($RdxRecord, 'int rdx_record_run_init\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($BindingDut, 'void rdx_dut_rec(?:_call)?_start\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($BindingRecorder, 'int translation_ear_recoder_open(?:_all)?_impl\([^\n]+\)\s*\{\s*#if[^\n]+\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
+    $RdxRecord -match 'rdx_record_binding_token_is_current\(\(u32\)msg\[3\]\)'
+) 'Both recorder variants, DUT, direct SDK audio entry points and queued worker starts must enforce product binding'
+
+$BindingFence = Get-SourceSlice $RdxRecord 'if (msg[1] == RDX_RECORD_BIND_FENCE)' 'if (msg[1] == RDX_RECORD_USB_FENCE)'
+$BindingRevoke = Get-SourceSlice $RdxRecord 'static void rdx_record_binding_revoke_on_app_core(void)' 'int rdx_record_usb_quiesce_request('
+Assert-Contract 'RECORD_UNBIND_DRAINS_BEFORE_REARM' (
+    (Test-TokensInOrder $BindingFence @('translation_ear_recoder_close_all()', 'rdx_uxfile_finish_record()', 'rdx_record_set_process_state_ready()', 'if (saved < 0)', 'record_binding_revoke_pending = 0')) -and
+    (Test-TokensInOrder $BindingRevoke @('rdx_app_record_binding_reset()', 'sys_timeout_del(g_record_cmd_delay_timer)', '++record_start_tone_epoch', 'record_status.rerun = false', 'RDX_RECORD_BIND_FENCE')) -and
+    $BindingVm -match '(?s)\+\+bound_epoch;.*?rdx_bound_info.bound_state = d;.*?rdx_record_binding_revoke\(\)'
+) 'Unbinding must cancel producers and close/save through the recording FIFO before rearming; storage failure keeps the gate closed'
+
+
+
+Assert-Contract 'RECORD_BINDING_SERIALIZED_AUDIO_START' (
+    (Test-TokensInOrder $BindingVm @('int rdx_vm_set_bound_status(', 'rdx_vm_bound_transition_lock()', 'syscfg_write(VM_RDX_NOTTA_BOUND_STATUS', 'bound_token = d ? bound_epoch : 0;', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
+    (Test-TokensInOrder $BindingRecorder @('int translation_ear_recoder_open_all_bound(', 'rdx_record_audio_start_enter(token)', 'translation_ear_recoder_open_all_impl(ch_mode)', 'rdx_record_audio_start_exit(ret)')) -and
+    $RdxRecord -match 'translation_ear_recoder_open_all_bound\(msg\[2\], \(u32\)msg\[3\]\)' -and
+    (Test-TokensInOrder $RdxRecord @('int rdx_record_audio_start_enter(', 'rdx_vm_bound_transition_lock()', 'rdx_record_binding_token_is_current(token)', 'void rdx_record_audio_start_exit(', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
+    $BindingRecorder -notmatch 'rdx_vm_'
+) 'Binding publication and actual audio open must serialize, preserving the original queued token'
+Assert-Contract 'RECORD_START_FAILURE_ROLLBACK' (
+    (Test-TokensInOrder $BindingRecorder @('if (!esco_player_runing())', 'ret = translation_ear_recoder_open_impl(MIC', 'goto fail;', 'ret = translation_ear_recoder_open_impl(DAC', 'fail:', 'translation_ear_recoder_close_all()', 'return ret;')) -and
+    $RdxRecord -match '(?s)void rdx_record_audio_start_exit\(int result\).*?if \(result\).*?rdx_record_binding_revoke\(\);' -and
+    $RdxRecord -match '\+\+record_binding_generation' -and
+    $BindingVm -notmatch 'rdx_vm_invalidate_bound_requests' -and
+    $RdxRecord -match 'record_binding_cleanup_error = -1;' -and
+    $RdxRecord -match 'record_binding_cleanup_error = -2;'
+) 'Partial opens must unwind, call recording may skip MIC, and worker failure must drain before rearm'
+
+$RecordSink = Read-RepoFile $RepoRoot 'SDK/audio/framework/nodes/sink_dev1_node.c'
+Assert-Contract 'RECORD_SESSION_INIT_SINGLE_OWNER' (
+    ([regex]::Matches($RdxRecord, 'rdx_record_run_init\(\);').Count -eq 0) -and
+    ([regex]::Matches($RecordSink, 'rdx_record_run_init\(\);').Count -eq 1) -and
+    (Test-TokensInOrder $RecordSink @('static int sink_dev1_init(', 'int err = rdx_record_run_init();', 'if (err)', 'return err;', 'rdx_record_mic_gain_check()')) -and
+    (Test-TokensInOrder $RecordSink @('if (hdl->started)', 'int err = sink_dev1_init(hdl);', 'if (!err)', 'hdl->started = 1;', 'return err;')) -and
+    $RecordSink -match '(?s)case NODE_IOC_START:\s*return sink_dev1_ioc_start\(hdl\);'
+) 'Only the sink initializes each recording session; failed initialization propagates to audio rollback'
+
+
+Assert-Contract 'RECORD_SESSION_LIFETIME' (
+    $RdxRecord -match 'if \(\+\+record_session_generation == 0\)' -and
+    ([regex]::Matches($RdxRecord, 'record_initialized_generation = record_session_generation;').Count -eq 2) -and
+    ([regex]::Matches($RdxRecord, 'record_initialized_generation != record_session_generation').Count -eq 2) -and
+    $RdxRecord -match 'record_initialized_generation == record_session_generation' -and
+    (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
+    $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
+) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
+
 Write-Host 'T2620 product contracts passed.'
