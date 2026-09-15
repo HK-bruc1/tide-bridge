@@ -8,7 +8,9 @@
 void usb_factory_service(void);
 int usb_factory_msc_started(void);
 int usb_factory_cdc_started(void);
-int usb_factory_shutdown(void);
+/* Notification only: close CDC admission without delaying poweroff/reset. */
+void usb_factory_shutdown(void);
+void usb_factory_shutdown_process(void); /* usb_stack only */
 /* PC owner publishes only after successful SD takeover. */
 int pc_storage_usb_ready(void);
 #endif

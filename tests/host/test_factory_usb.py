@@ -26,6 +26,7 @@ typedef unsigned char usb_dev;
 #define SLAVE_MODE 1
 #define USBSTACK_CDC_BACKGROUND 1
 #define USBSTACK_STOP 2
+#define USBSTACK_FACTORY_SHUTDOWN 3
 #define MASSSTORAGE_CLASS 1
 #define CDC_CLASS 2
 #define log_info(...) ((void)0)
@@ -49,6 +50,7 @@ int pc_storage_usb_ready(void) { return host_owned && pc; }
 void usb_stop(usb_dev id);
 int usb_message_to_stack(int msg, void *arg, int sync) {
     ++posts;
+    if (sync) violation=10;
     if (post_fail) return -1;
     if (sync && msg == USBSTACK_STOP) usb_stop(0);
     return 0;
@@ -134,10 +136,23 @@ int test_all(void) {
     boot(); usb_factory_service(); usb_cdc_background_run(0);
     deferred=1; usb_cdc_background_run(0); CHECK(!hw_class);
     boot(); usb_factory_service(); usb_cdc_background_run(0);
-    post_fail=1; CHECK(usb_factory_shutdown()!=0);
-    post_fail=0; CHECK(usb_factory_shutdown()==0 && !hw_class);
+    post_fail=1; usb_factory_shutdown(); CHECK(hw_class==CDC_CLASS);
+    post_fail=0; usb_factory_shutdown();
+    usb_factory_shutdown_process(); CHECK(!hw_class);
     usb_factory_service(); usb_cdc_background_run(0);
     CHECK(!hw_class && !violation); /* shutdown is latched */
+    boot(); vbus=role=0;
+    usb_factory_shutdown(); CHECK(!posts && !stops);
+    usb_factory_shutdown_process(); CHECK(!posts && !stops);
+    usb_cdc_background_run(0); CHECK(!hw_class);
+    boot(); usb_factory_service(); /* start queued before shutdown */
+    usb_factory_shutdown(); usb_cdc_background_run(0);
+    CHECK(!hw_class && !stops);
+    boot(); on=business=0; pc=host_owned=1;
+    usb_start(0); CHECK(hw_class==MASSSTORAGE_CLASS);
+    int old_stops=stops;
+    usb_factory_shutdown(); usb_factory_shutdown_process();
+    CHECK(hw_class==MASSSTORAGE_CLASS && stops==old_stops);
     boot(); usb_factory_service(); usb_cdc_background_run(1); CHECK(!hw_class);
     return 0;
 }
@@ -195,9 +210,37 @@ int test_key_entry(void) {
         assert body.index('rdx_dut_factory_usb_revoke();') < body.index('rdx_dut_info.dut_mode = FALSE;')
     app = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c').read_text(encoding='utf-8')
     assert 'rdx_dut_key_mode_handle();' in app
+    # Execute the real poweroff gate with a delayed USB worker, not a synchronous stub.
+    gates = []
+    for filename in ('poweroff.c', 'tws_poweroff.c'):
+        text = (ROOT / 'SDK/apps/earphone/mode/bt' / filename).read_text(encoding='utf-8')
+        start = text.index('    extern void usb_factory_shutdown(void);')
+        gates.append(text[start:text.index('#endif', start)])
+    assert gates[0] == gates[1], 'TWS and non-TWS shutdown gates diverged'
+    gate_tests = r'''
+static int gate_continued;
+static void real_poweroff_gate(int reason) {
+GATE_BODY
+    ++gate_continued;
+}
+int test_poweroff_gate(void) {
+    boot(); vbus=role=0; gate_continued=0;
+    real_poweroff_gate(1);
+    CHECK(gate_continued==1 && !posts && !stops && !violation);
+    boot(); usb_factory_service(); usb_cdc_background_run(0);
+    gate_continued=0;
+    real_poweroff_gate(0); /* worker never acknowledges */
+    CHECK(gate_continued==1 && hw_class==CDC_CLASS);
+    boot(); usb_factory_service(); usb_cdc_background_run(0);
+    gate_continued=0; post_fail=1;
+    real_poweroff_gate(1); /* queue full */
+    CHECK(gate_continued==1 && factory_usb_shutdown && !violation);
+    return 0;
+}
+'''.replace('GATE_BODY', gates[0])
     c_path.write_text(STUBS + policy + functions + TESTS + lifecycle_stubs +
                      key_entry.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready') +
-                     lifecycle_tests.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready'), encoding='utf-8')
+                     lifecycle_tests.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready') + gate_tests, encoding='utf-8')
     result = subprocess.run(['C:/JL/pi32/bin/clang.exe', '-target', 'pi32v2', '-mcpu=r3',
                              '-O0', '-S', '-emit-llvm', str(c_path), '-o', str(ir_path)],
                             capture_output=True, text=True)
@@ -217,6 +260,9 @@ int test_key_entry(void) {
     assert result == 0, f'Factory USB scenario failed at generated C line {result}: {c_path}'
     result = ctypes.CFUNCTYPE(ctypes.c_int)(engine.get_function_address('test_key_entry'))()
     assert result == 0, f'Key DUT admission failed at generated C line {result}'
+    result = ctypes.CFUNCTYPE(ctypes.c_int)(engine.get_function_address('test_poweroff_gate'))()
+    assert result == 0, f'Poweroff gate failed at generated C line {result}'
+    print('PASS: shutdown continues without USB, worker ACK or queue capacity; MSC preserved; TWS matches')
     print('PASS: real key entry completion, failed entry, disabled key, OFF/storage rejection, BLE cannot grant CDC')
     print('PASS: actual factory USB C: SD ownership, stale requests, retry, idempotence, IRQ-before-release and shutdown')
     check_final_config(audit)

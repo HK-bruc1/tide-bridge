@@ -125,13 +125,27 @@ void usb_factory_service(void)
 int usb_factory_msc_started(void) { return factory_usb_state == FACTORY_USB_MSC; }
 int usb_factory_cdc_started(void) { return factory_usb_state == FACTORY_USB_CDC; }
 
-int usb_factory_shutdown(void)
+/* Notification only: CDC cannot veto system poweroff/reset. No wait, timer,
+ * hardware access or resource release on the caller's task. MSC remains owned
+ * by the existing PC/storage shutdown path. */
+void usb_factory_shutdown(void)
 {
     factory_usb_shutdown = 1;
     factory_cdc_requested = 0;
-    /* USB stop never waits for app_core. A timeout must block poweroff. */
-    return usb_message_to_stack(USBSTACK_STOP, 0, 1);
+    if (factory_usb_state == FACTORY_USB_CDC) {
+        /* Best effort. Already queued CDC work also observes admission closed.
+         * Queue failure must never delay system shutdown. */
+        usb_message_to_stack(USBSTACK_FACTORY_SHUTDOWN, 0, 0);
+    }
 }
+
+void usb_factory_shutdown_process(void)
+{
+    if (factory_usb_shutdown && factory_usb_state == FACTORY_USB_CDC) {
+        usb_stop(0);
+    }
+}
+
 #endif
 
 

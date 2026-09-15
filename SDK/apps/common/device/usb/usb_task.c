@@ -122,6 +122,11 @@ static void usb_task(void *p)
             continue;
         }
         switch (msg[1]) {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        case USBSTACK_FACTORY_SHUTDOWN:
+            usb_factory_shutdown_process();
+            break;
+#endif
         case USBSTACK_OTG_MSG:
             from = msg[2];
             event = msg[3];
