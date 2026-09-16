@@ -170,6 +170,8 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 #endif
 
 static u16 record_state_upload_timer = 0;
+static u32 record_state_upload_generation;
+static u8 hold_record_stop_queued;
 static rdx_ble_async_token_t record_state_upload_token;
 static u8 record_state_upload_token_valid = 0;
 static RdxWifiInfo wifiInfo;
@@ -342,11 +344,15 @@ static void rdx_app_record_trigger_on_app_core(
         free(request);
         return;
     }
-    if (request->stream_only &&
-        request->status.run == RECORD_STATE_START) {
-        rdx_record_stream_only_start_arm(&request->token);
+    if (request->stream_only && request->status.run == RECORD_STATE_START &&
+        rdx_record_stream_only_is_releasing()) {
+        free(request);
+        return;
     }
     rdx_protocol_record_trigger_indicate(&request->status, request->factor);
+    if (request->stream_only && request->status.run == RECORD_STATE_STOP) {
+        rdx_record_stream_only_release_complete();
+    }
     free(request);
 }
 
@@ -779,6 +785,7 @@ static void rdx_app_hold_record_retry_cancel(void)
 
 static void rdx_app_hold_record_reset(void)
 {
+    hold_record_stop_queued = 0;
     rdx_app_hold_record_retry_cancel();
     hold_record_pressed = 0;
     hold_record_session_active = 0;
@@ -823,7 +830,18 @@ static void rdx_app_hold_record_pump(void)
             rdx_app_hold_record_retry_cancel();
             return;
         }
-        if (rdx_app_hold_record_wait_until_ready(rp)) {
+        if (hold_record_stop_queued) {
+            if (rdx_record_stream_only_is_releasing()) {
+                rdx_app_hold_record_retry_schedule();
+                return;
+            }
+            hold_record_stop_queued = 0;
+            hold_record_session_active = 0;
+            rdx_app_hold_record_retry_cancel();
+            return;
+        }
+        if (!rdx_record_stream_only_release()) {
+            rdx_app_hold_record_retry_schedule();
             return;
         }
 
@@ -831,9 +849,11 @@ static void rdx_app_hold_record_pump(void)
             hold_record_scene, RECORD_STATE_STOP, 1);
         if (ret != 0) {
             r_printf("[RDX_HOLD_RECORD] stop request rejected\r");
+            rdx_app_hold_record_retry_schedule();
+            return;
         }
-        hold_record_session_active = 0;
-        rdx_app_hold_record_retry_cancel();
+        hold_record_stop_queued = 1;
+        rdx_app_hold_record_retry_schedule();
         return;
     }
 
@@ -1693,6 +1713,9 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
     rdx_ble_async_token_t token = record_state_upload_token;
     u8 token_valid = record_state_upload_token_valid;
 
+    if ((u32)priv != record_state_upload_generation) {
+        return;
+    }
     rdx_app_record_state_upload_timer_stop();
 
     if (!token_valid ||
@@ -1738,6 +1761,7 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
  **************************************************************************/
 void rdx_app_record_state_upload_timer_stop(void)
 {
+    ++record_state_upload_generation;
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1762,6 +1786,7 @@ void rdx_app_record_state_upload_timer_stop(void)
  **************************************************************************/
 void rdx_app_record_state_upload_timer_start(void)
 {
+    rdx_app_record_state_upload_timer_stop();
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1776,7 +1801,7 @@ void rdx_app_record_state_upload_timer_start(void)
     }
     record_state_upload_token_valid = 1;
     if(record_state_upload_timer == 0){
-        record_state_upload_timer = sys_timeout_add(NULL, rdx_app_record_state_upload_timer_cb, 3000);
+        record_state_upload_timer = sys_timeout_add((void *)record_state_upload_generation, rdx_app_record_state_upload_timer_cb, 3000);
     }
 }
 
@@ -1858,6 +1883,10 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
         u8 factor = 0;
         int ret = rdx_app_record_trigger_post(
             &set_rp, factor, &rdx_token, stream_only);
+        if (!ret && stream_only && run == RECORD_STATE_START) {
+            /* Arm before queued triggers/replies can execute on app_core. */
+            rdx_record_stream_only_start_arm(&rdx_token);
+        }
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }
@@ -2588,6 +2617,11 @@ int rdx_app_msg_handler(int *msg)
             break;
 
         case APP_MSG_RECORD_HOLD_START:
+            if (hold_record_session_active && !hold_record_pressed) {
+                /* Finish the previous release before accepting a new hold. */
+                ret = TRUE;
+                break;
+            }
             hold_record_pressed = 1;
             rdx_app_hold_record_pump();
             ret = TRUE;

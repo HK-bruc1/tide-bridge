@@ -167,6 +167,10 @@ u8 rdx_record_online_session_bind_current(void);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);
+/* app_core: latch release, cancel pending start, and drain owned recording. */
+u8 rdx_record_stream_only_release(void);
+void rdx_record_stream_only_release_complete(void);
+u8 rdx_record_stream_only_is_releasing(void);
 int rdx_record_task_create(void);
 int rdx_record_task_free(void);
 RecordStatus* rdx_record_get_status(void);

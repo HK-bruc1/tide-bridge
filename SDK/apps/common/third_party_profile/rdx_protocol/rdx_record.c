@@ -139,6 +139,7 @@ static volatile u32 usb_record_done;
 static volatile int usb_record_result;
 #define RDX_RECORD_USB_FENCE 0x52445852
 #define RDX_RECORD_BIND_FENCE 0x52445842
+#define RDX_RECORD_HOLD_FENCE 0x52445848
 static volatile u8 record_binding_revoke_pending;
 static volatile int record_binding_cleanup_error;
 
@@ -224,6 +225,13 @@ static u8 g_stream_resume_token_valid = 0;
 static rdx_ble_async_token_t g_stream_only_start_token;
 static u8 g_stream_only_start_pending = 0;
 static u8 g_stream_only_session_active = 0;
+/* The legacy wire command has no request id. Keep a released hold fenced
+ * until its owner acknowledges STOP or explicitly starts another key hold. */
+static u8 g_stream_only_hold_released = 0;
+static u8 g_stream_only_release_started = 0;
+static u32 g_hold_release_ticket;
+static volatile u32 g_hold_release_done;
+static u8 g_hold_release_posted;
 
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
@@ -253,6 +261,8 @@ void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token)
     }
     g_stream_only_start_token = *token;
     g_stream_only_start_pending = 1;
+    g_stream_only_hold_released = 0;
+    g_stream_only_release_started = 0;
 }
 
 void rdx_record_stream_only_start_cancel(void)
@@ -1144,6 +1154,14 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] drop command for another session\r");
         return;
     }
+    if (token && g_stream_only_hold_released &&
+        rdx_record_token_equal(token, &g_stream_only_start_token)) {
+        if (r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
+            r_printf("[RDX_HOLD_RECORD] released hold rejects late command\r");
+            rdx_protocol_record_state_indicate();
+            return;
+        }
+    }
     if (r_info->cmd != (RECORD_STATE_STOP + 0x30) &&
         !rdx_record_binding_allowed()) {
         r_printf("[RDX_RECORD] command rejected: device not bound\r");
@@ -1395,6 +1413,56 @@ static void rdx_record_start_tone_cancel(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
     rdx_record_set_process_state_ready();
     rdx_app_emmc_poweroff_check();
+}
+
+/* app_core only. Return success only after the owned recording is closed.
+ * A release is authoritative locally; the App notification is advisory. */
+u8 rdx_record_stream_only_release(void)
+{
+    if (!g_stream_only_release_started) {
+        g_stream_only_release_started = 1;
+        g_stream_only_hold_released = 1;
+        if (!++g_hold_release_ticket) {
+            ++g_hold_release_ticket;
+        }
+        g_hold_release_posted = 0;
+        rdx_app_record_state_upload_timer_stop();
+    }
+    if (g_record_cmd_delay_timer && g_pending_record_token_valid &&
+        rdx_record_token_equal(&g_pending_record_token,
+                               &g_stream_only_start_token)) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+        g_record_cmd_retry_cnt = 0;
+        rdx_record_pending_cmd_clear();
+    }
+    rdx_record_stream_only_start_cancel();
+    if (record_start_tone_pending) {
+        rdx_record_start_tone_cancel();
+        rdx_protocol_record_state_indicate();
+    }
+    if (!is_record_task_created) {
+        return 1;
+    }
+    record_status.run = RECORD_STATE_STOP;
+    if (!g_hold_release_posted) {
+        if (os_taskq_post_msg(RECORD_TASK_NAME, 2,
+                              RDX_RECORD_HOLD_FENCE, g_hold_release_ticket)) {
+            return 0;
+        }
+        g_hold_release_posted = 1;
+    }
+    return g_hold_release_done == g_hold_release_ticket;
+}
+
+void rdx_record_stream_only_release_complete(void)
+{
+    g_stream_only_hold_released = 0;
+}
+
+u8 rdx_record_stream_only_is_releasing(void)
+{
+    return g_stream_only_hold_released;
 }
 
 extern void rdx_app_record_binding_reset(void);
@@ -2073,6 +2141,26 @@ static void rdx_record_task(void *arg)
             switch (msg[0]) {
 				case Q_MSG:
 					{
+                        if (msg[1] == RDX_RECORD_HOLD_FENCE) {
+                            bool play_stop_tone = record_tone_session_active;
+                            u32 tone_epoch = record_start_tone_epoch;
+                            record_status.run = RECORD_STATE_STOP;
+                            translation_ear_recoder_close_all();
+                            rdx_uxfile_finish_record();
+                            record_initialized_generation = 0;
+                            record_tone_session_active = false;
+                            g_stream_only_session_active = 0;
+                            rdx_record_online_session_clear();
+                            rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+                            rdx_record_set_process_state_ready();
+                            rdx_ble_server_auto_shut_down_enable(1);
+                            if (play_stop_tone) {
+                                rdx_record_stop_tone_post(tone_epoch);
+                            }
+                            /* Publish only after MIC, DAC and clock cleanup. */
+                            g_hold_release_done = (u32)msg[2];
+                            continue;
+                        }
                         if (msg[1] == RDX_RECORD_BIND_FENCE) {
                             record_status.run = RECORD_STATE_STOP;
                             translation_ear_recoder_close_all();

@@ -253,7 +253,7 @@ $defaultMeetingSceneOk = $RdxRecord -match '(?s)void rdx_record_set_default\(voi
 Assert-Contract 'RDX_DEFAULT_RECORD_SCENE_IS_MEETING' $defaultMeetingSceneOk `
     'BLE state synchronization must preserve the default meeting scene instead of forcing call mode'
 
-$holdRecordStorageOk = $RdxApp -match '(?s)request->stream_only\s*&&.*?request->status\.run\s*==\s*RECORD_STATE_START.*?rdx_record_stream_only_start_arm\(&request->token\)' -and
+$holdRecordStorageOk = $RdxApp -match '(?s)!ret && stream_only && run == RECORD_STATE_START.*?rdx_record_stream_only_start_arm\(&rdx_token\)' -and
                        $RdxApp -match 'rdx_app_device_record_set\(scene, run, 0\)' -and
                        $RdxRecord -match '(?s)rdx_record_stream_only_start_consume\(token\);.*?rdx_record_online_session_bind\(token\);' -and
                        $RdxRecord -match '(?s)if\(rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_operate_file_init\(\);.*?else\s*\{.*?rdx_uxfile_dat_1_gen\(rp->scene\);' -and
@@ -262,6 +262,22 @@ $holdRecordStorageOk = $RdxApp -match '(?s)request->stream_only\s*&&.*?request->
                        $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;'
 Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `
     'only hold-triggered online recording may report empty identity and skip local persistence'
+
+$holdRelease = Get-SourceSlice $RdxRecord 'u8 rdx_record_stream_only_release(void)' 'extern void rdx_app_record_binding_reset(void);'
+$holdPump = Get-SourceSlice $RdxApp 'static void rdx_app_hold_record_pump(void)' '/* HOGP key action execution'
+Assert-Contract 'RDX_HOLD_RELEASE_CANCELS_PENDING_START' (
+    $holdRelease -match '(?s)g_record_cmd_delay_timer.*?rdx_record_token_equal.*?sys_timeout_del.*?rdx_record_pending_cmd_clear' -and
+    $holdRelease -match '(?s)record_start_tone_pending.*?rdx_record_start_tone_cancel\(\)' -and
+    $holdRelease -match '(?s)os_taskq_post_msg.*?RDX_RECORD_HOLD_FENCE.*?return 0;.*?g_hold_release_done == g_hold_release_ticket'
+) 'release must cancel delayed/tone starts and stop active audio locally, without an App reply'
+Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
+    $holdPump -match '(?s)!rdx_record_stream_only_release\(\).*?rdx_app_hold_record_retry_schedule\(\);.*?return;' -and
+    $holdPump -match '(?s)stop request rejected.*?rdx_app_hold_record_retry_schedule\(\);.*?return;.*?hold_record_stop_queued = 1;' -and
+    $RdxRecord -match '(?s)token && g_stream_only_hold_released.*?rdx_record_token_equal.*?RECORD_STATE_STOP.*?released hold rejects late command' -and
+    $RdxApp -match '(?s)request->status.run == RECORD_STATE_STOP.*?rdx_record_stream_only_release_complete' -and
+    $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_HOLD_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?g_hold_release_done = \(u32\)msg\[2\]' -and
+    $RdxApp -match '\(u32\)priv != record_state_upload_generation'
+) 'retain ownership through local shutdown and notification failures; fence late commands by owner token'
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
