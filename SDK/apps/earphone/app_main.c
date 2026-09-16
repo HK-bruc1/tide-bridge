@@ -402,7 +402,7 @@ void sd_set_power_user(u8 en)
 
 static struct app_mode *app_task_init()
 {
-#if TCFG_T2620_PC_STORAGE_ENABLE
+#if TCFG_DIP_SWITCH_POWER_ENABLE
     /* Reset-source evidence is historical, not a live supply-ready signal.
      * JL also reports LVD on power-on; do not latch business off from it. */
     log_info("[BOOT-POWER] vddio_lvd_or_poweron=%d vddio_por=%d soft=%d; supply stability unverified",

@@ -421,6 +421,10 @@ static int app_charge_event_handler(int *msg)
         charge_full_deal();
         break;
     case CHARGE_EVENT_LDO5V_KEEP:
+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+        /* 即使未编译 USB 从机协议栈，也必须允许 CPU 运行以处理充电业务。 */
+        set_charge_poweron_en(1);
+#endif
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
         otg_status = app_charge_wait_otg_role("LDO5V_KEEP");
         usb_pc_poweron = app_charge_allow_usb_pc_poweron(otg_status);
@@ -428,6 +432,10 @@ static int app_charge_event_handler(int *msg)
         ldo5v_keep_deal();
         break;
     case CHARGE_EVENT_LDO5V_IN:
+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+        /* 即使未编译 USB 从机协议栈，也必须允许 CPU 运行以处理充电业务。 */
+        set_charge_poweron_en(1);
+#endif
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
         otg_status = app_charge_wait_otg_role("LDO5V_IN");
         usb_pc_poweron = app_charge_allow_usb_pc_poweron(otg_status);

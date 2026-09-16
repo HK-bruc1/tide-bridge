@@ -10,11 +10,12 @@ from pathlib import Path
 from llvmlite import binding as llvm
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "SDK/apps/common/third_party_profile/rdx_protocol/rdx_dip_switch.c"
+SOURCE = ROOT / "SDK/apps/common/third_party_profile/rdx_protocol/rdx_storage_lifecycle.c"
 STUBS = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef int s32;
+typedef int bool;
 #define RDX_WIFI_ENABLE 0
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 0
 #define RDX_LED_SCENE_USB_SWITCH_WAIT 1
@@ -27,6 +28,7 @@ int resets=0, record_posts=0, file_posts=0, advertising=0, led=0;
 u32 now=100;
 struct { int goto_poweroff_flag; } app_var;
 static int s_business_mode_entered=1;
+int rdx_dip_switch_cold_service(void) { return !s_business_mode_entered && !mock_business; }
 int get_power_on_status(void) { return mock_on; }
 int rdx_app_business_started(void) { return mock_business; }
 int rdx_uxfile_pc_refresh_status(void) { return mock_refresh; }
@@ -54,14 +56,14 @@ void rdx_cpu_reset(void) { ++resets; }
 def main():
     source = SOURCE.read_text(encoding="utf-8")
     begin = source.index("enum { USB_SWITCH_IDLE")
-    end = source.index("\n#endif\n\nvoid rdx_dip_switch_note_business_mode", begin)
+    end = source.rindex("\n#endif")
     extracted = source[begin:end]
     audit = ROOT / "output/phase2b-audit"
     audit.mkdir(parents=True, exist_ok=True)
     c_path = audit / "switch-test.c"
     ir_path = audit / "switch-test.ll"
     c_path.write_text(STUBS + extracted +
-                      "\nint test_tick(int on, int vbus) { return rdx_usb_switch_service(on, vbus); }\n",
+                      "\nint test_tick(int on, int vbus) { return rdx_storage_lifecycle_service(on, vbus); }\n",
                       encoding="utf-8")
     subprocess.run(["C:/JL/pi32/bin/clang.exe", "-target", "pi32v2", "-mcpu=r3",
                     "-O0", "-S", "-emit-llvm", str(c_path), "-o", str(ir_path)],
@@ -93,14 +95,16 @@ def main():
         return ctypes.c_int.from_address(engine.get_global_value_address(name)).value
 
     tick_fn = fn("test_tick", (ctypes.c_int, ctypes.c_int))
-    blocked = fn("rdx_dip_switch_business_blocked")
-    deferred = fn("rdx_dip_switch_shutdown_deferred")
+    blocked = fn("rdx_storage_lifecycle_business_blocked")
+    deferred = fn("rdx_storage_lifecycle_shutdown_deferred")
 
     def tick(on=0, vbus=1):
         setv("mock_on", on)
         return tick_fn(on, vbus)
 
     def boot():
+        setv("mock_business", 1)
+        setv("s_business_mode_entered", 1)
         for name in ("s_usb_switch", "s_wait_busy", "s_pc_refresh_pending"):
             setv(name, 0, byte=True)
         for name in ("mock_refresh", "mock_error", "mock_ota", "mock_format", "mock_dut",
@@ -110,6 +114,15 @@ def main():
         setv("mock_record", -2)
         setv("mock_file", -2)
         setv("now", 100)
+
+    # 关机安全保护不依赖导出功能。冷启动纯充电待机，以及正常 ON 状态下插入 USB，
+    # 均不应触发任务排空和重启流程。
+    boot()
+    assert tick(on=1) == 0 and getv("record_posts") == 0
+    assert tick(on=0, vbus=0) == 0 and getv("record_posts") == 0
+    setv("mock_business", 0)
+    setv("s_business_mode_entered", 0)
+    assert tick() == 0 and getv("resets") == 0
 
     boot()
     assert tick() == 1 and blocked() and deferred()

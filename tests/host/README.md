@@ -19,3 +19,10 @@ These are source contract checks; command delivery, disconnect races and
 PC/phone handoff must be verified on the device.
 
 These checks do not replace firmware builds or real-device qualification.
+
+T2620 defaults to USB export disabled with charging/business coexistence enabled.
+The product group also protects fixed SD registration, boot data preservation,
+charge CPU permission without USB Slave, and the independent storage lifecycle
+fence. Optional MSC ownership checks remain to protect future re-enablement.
+`test_rdx_usb_switch.py` optionally executes the extracted storage lifecycle
+coordinator using JL clang and llvmlite; it is not a dependency of the daily suite.

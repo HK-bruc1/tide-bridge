@@ -49,19 +49,28 @@
 /* PC 存储接管                                                                */
 /* -------------------------------------------------------------------------- */
 
-/*
- * 开启后进入仅导出 SD0 的 USB MSC PC 模式。SD0 和 MSC 由杰理配置工具配置，
- * 此处校验依赖，并联动 PC 模式、SD0 常在线及互斥的 USB Class。开机充电是
- * 独立产品策略，不属于 PC 存储功能的依赖。
- */
+/* 可选的 SD0 导出功能。SD0/MSC 硬件配置由 JL Studio 管理，
+ * 本产品配置层负责 PC 模式及互斥的 USB 类别。
+ * 充电、固定存储介质注册和启动数据保护独立于导出功能。 */
 #ifndef TCFG_T2620_PC_STORAGE_ENABLE
-#define TCFG_T2620_PC_STORAGE_ENABLE               1
+#define TCFG_T2620_PC_STORAGE_ENABLE               0
 #endif
 
-/* Mount failure (including a missing VM marker) is not proof of an empty
- * disk. Preserve user data on every boot, including charger-only/PC boots.
- * Provisioning/recovery must use an explicit formatting operation. */
+/* 挂载失败（包括缺少 VM 标记）不代表空盘。
+ * 每次启动均保留用户数据，包括纯充电和 PC 模式启动。
+ * 首次初始化或故障恢复必须通过显式格式化操作完成。 */
 #define TCFG_T2620_STORAGE_PRESERVE_ON_BOOT         1
+
+/* 充电与业务共存策略独立于 USB 枚举功能。 */
+#ifndef TCFG_T2620_CHARGE_COEXIST_ENABLE
+#define TCFG_T2620_CHARGE_COEXIST_ENABLE           1
+#endif
+
+/* 板载焊接 SD 常在线属于硬件属性，录音和 MSC 均依赖此配置。 */
+#if TCFG_SD0_ENABLE
+#undef TCFG_SD_ALWAY_ONLINE_ENABLE
+#define TCFG_SD_ALWAY_ONLINE_ENABLE                1
+#endif
 
 #if TCFG_T2620_PC_STORAGE_ENABLE
 #if !TCFG_SD0_ENABLE
@@ -71,14 +80,6 @@
 #if !TCFG_USB_SLAVE_MSD_ENABLE
 #error "T2620 PC storage requires USB MSC"
 #endif
-
-/*
- * PC 接管前要求板载 SD NAND 已注册；常在线可在启动时直接加入 SD0，并停止
- * 插拔检测，避免 USB MSC 接管 FAT 期间产生伪插拔事件。该行为属于本项目的
- * PC 存储约束，因此覆盖原生取值。
- */
-#undef TCFG_SD_ALWAY_ONLINE_ENABLE
-#define TCFG_SD_ALWAY_ONLINE_ENABLE                1
 
 #undef TCFG_APP_PC_EN
 #define TCFG_APP_PC_EN                             1
@@ -91,7 +92,14 @@
 
 #undef TCFG_USB_SLAVE_AUDIO_MIC_ENABLE
 #define TCFG_USB_SLAVE_AUDIO_MIC_ENABLE            0
+#else
+/* 即使 JL Studio 后续启用通用 PC 模式，此处仍强制关闭，防止意外出盘。 */
+#undef TCFG_APP_PC_EN
+#define TCFG_APP_PC_EN                             0
 #endif
+
+#undef TCFG_PC_ENABLE
+#define TCFG_PC_ENABLE                            TCFG_APP_PC_EN
 
 /* -------------------------------------------------------------------------- */
 /* RDX 与 HOGP 功能                                                           */

@@ -21,6 +21,7 @@
 #include "app_default_msg_handler.h"
 #include "dev_manager.h"
 #include "rdx_dip_switch.h"
+#include "rdx_storage_lifecycle.h"
 #include "idle.h"
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -152,7 +153,7 @@ static int pc_storage_restore(void)
     log_info("[PC-STORAGE] HOST_OWNED -> DEVICE_OWNED, sd0 remount ok");
 #if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
     /* First BLE startup must reconcile PC changes before opening admission. */
-    rdx_dip_switch_pc_returned();
+    rdx_storage_lifecycle_pc_returned();
 #endif
 #endif
     return 0;

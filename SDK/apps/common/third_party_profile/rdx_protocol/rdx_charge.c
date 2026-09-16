@@ -398,7 +398,7 @@ void rdx_app_charge_full(void)
 
     /* Keep the full indicator on: the legacy timeout cuts PC1 and PA4. */
 #if (TCFG_CHARGE_POWERON_ENABLE == 0) && !RDX_PRODUCT_IS_CHARGE_CASE && \
-    !(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
+    !(TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     // rdx_app_charge_full_timeout_stop();
     //timer to poweroff.
     rdx_app_charge_full_timer_to_poweroff();
@@ -590,7 +590,7 @@ void rdx_app_charge_start(void)
     rdx_battery_incharge_batLevel_reset();
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 0) && \
-    !(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
+    !(TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     //ldo gpio init.
     if (rdx_app_business_started()) {
         rdx_app_emmc_poweron(0);
@@ -629,7 +629,7 @@ void rdx_app_charge_start(void)
  **************************************************************************/
 void rdx_app_charge_prepare(void)
 {
-#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
     /* USB insertion only changes charging. DIP shutdown owns business
      * cleanup; it must never be triggered by the charging preparation hook. */
     y_printf("[CHARGE] USB inserted: preserve running business\n");
@@ -686,7 +686,7 @@ int rdx_app_battery_msg_handler(int *msg)
     /*----------------------------------------------------------------*/
     g_printf("rdx_app_battery_msg_handler :0x%x\n", msg[0]);
 
-#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
     /* Both cold USB service and normal ON business share charging state.
      * Neither insertion nor removal may stop recording or touch SD power. */
     switch (msg[0]) {

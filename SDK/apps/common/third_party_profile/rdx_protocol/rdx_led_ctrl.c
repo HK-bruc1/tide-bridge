@@ -38,6 +38,7 @@
 #include "rdx_record.h"
 #include "rdx_app.h"
 #include "rdx_dip_switch.h"
+#include "rdx_storage_lifecycle.h"
 #include "rdx_charge.h"
 #include "app_main.h"
 #include "app_power_manage.h"
@@ -308,7 +309,7 @@ static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
 
 static bool _rdx_led_on_usb_charge(void)
 {
-#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
     return get_power_on_status() && rdx_app_business_started() &&
            get_charge_online_flag() &&
            rdx_app_get_charge_state() != RDX_CHARGE_OUT &&
@@ -557,7 +558,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
-    int transition = rdx_dip_switch_transition_led();
+    int transition = rdx_storage_lifecycle_transition_led();
     bool on_usb_charge = !transition && _rdx_led_on_usb_charge();
     if (transition) {
         scene = transition == 2 ? RDX_LED_SCENE_USB_SWITCH_FAILED :
@@ -706,7 +707,7 @@ void rdx_led_ctrl_update(void)
     if (!g_led_config->run_en) {
         return;
     }
-    int transition = rdx_dip_switch_transition_led();
+    int transition = rdx_storage_lifecycle_transition_led();
     if (transition) {
         rdx_led_scene_e desired = transition == 2 ?
             RDX_LED_SCENE_USB_SWITCH_FAILED : RDX_LED_SCENE_USB_SWITCH_WAIT;

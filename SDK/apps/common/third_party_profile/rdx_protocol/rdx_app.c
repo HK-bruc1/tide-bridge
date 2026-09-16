@@ -88,6 +88,7 @@
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
+#include "rdx_storage_lifecycle.h"
 #include "rdx_playback_config.h"
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #include "rdx_playback.h"
@@ -971,7 +972,7 @@ void rdx_app_online_key_down(u8 key_value)
 
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
-    if (rdx_dip_switch_business_blocked()) {
+    if (rdx_storage_lifecycle_business_blocked()) {
         *value = APP_MSG_NULL;
         return;
     }
@@ -1808,7 +1809,7 @@ void rdx_app_record_state_upload_timer_start(void)
 static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
 {
     if (run == RECORD_STATE_START &&
-        (!rdx_record_binding_allowed() || rdx_dip_switch_business_blocked())) {
+        (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked())) {
         return -1;
     }
     u8 formate = 0;
@@ -2172,7 +2173,7 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
         rdx_ble_server_rdx_lifecycle_barrier_complete();
         return;
     }
-    if (rdx_dip_switch_business_blocked()) {
+    if (rdx_storage_lifecycle_business_blocked()) {
         return;
     }
     if (strcmp(cmd, RDX_SESSION_CUSTOM_CMD) == 0) {
@@ -3746,7 +3747,7 @@ static void rdx_app_bound_tone_play(void)
  */
 static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
-    if (rdx_dip_switch_business_blocked()) {
+    if (rdx_storage_lifecycle_business_blocked()) {
         return;
     }
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
@@ -4174,7 +4175,7 @@ void rdx_app_tasks_init(void)
 #if defined(__UUX_FILE__)
 	rdx_uxfile_init();
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-    if (!rdx_dip_switch_business_blocked()) {
+    if (!rdx_storage_lifecycle_business_blocked()) {
         rdx_playback_refresh_playlist();
     }
 #endif
@@ -4201,7 +4202,7 @@ void rdx_app_tasks_init(void)
 #endif
 
 #if (TCFG_CHARGE_POWERON_ENABLE == 1) || \
-    (TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
+    (TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE)
     if (get_charge_online_flag()) {
         rdx_app_charge_start();
         rdx_ble_server_auto_shut_down_enable(0);

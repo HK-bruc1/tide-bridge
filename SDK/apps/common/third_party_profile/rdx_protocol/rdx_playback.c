@@ -6,6 +6,7 @@
 #include "rdx_app.h"
 #include "rdx_record.h"
 #include "rdx_dip_switch.h"
+#include "rdx_storage_lifecycle.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_uxfile.h"
 #include "dev_flow_player.h"
@@ -432,7 +433,7 @@ static bool pb_schedule_pump(u32 delay_ms)
 
 bool rdx_playback_can_start(void)
 {
-    if (rdx_dip_switch_business_blocked()) {
+    if (rdx_storage_lifecycle_business_blocked()) {
         return false;
     }
     RecordStatus *rp = rdx_record_get_status();

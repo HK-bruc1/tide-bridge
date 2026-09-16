@@ -56,6 +56,7 @@
 #include "rdx_ble_session.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_dip_switch.h"
+#include "rdx_storage_lifecycle.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -1142,7 +1143,7 @@ static void rdx_record_cmd_handle_internal(
     if (!r_info) {
         return;
     }
-    if (rdx_dip_switch_business_blocked() &&
+    if (rdx_storage_lifecycle_business_blocked() &&
         r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
         return;
     }
@@ -1360,7 +1361,7 @@ void rdx_record_stop(void)
  **************************************************************************/
 void rdx_record_start(void* priv)
 {
-    if (!rdx_record_binding_allowed() || rdx_dip_switch_business_blocked()) {
+    if (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked()) {
         return;
     }
     /*----------------------------------------------------------------*/
@@ -1555,7 +1556,7 @@ static bool rdx_record_start_tone_is_current(u32 epoch)
 {
     return record_start_tone_pending && epoch == record_start_tone_epoch &&
            rdx_record_binding_token_is_current(tone_binding_token) &&
-           !rdx_dip_switch_business_blocked() &&
+           !rdx_storage_lifecycle_business_blocked() &&
            record_status.run == RECORD_STATE_START &&
            !app_var.goto_poweroff_flag && !rdx_app_get_poweroff_flag() &&
            (!g_record_session_token_valid || rdx_record_online_session_is_current());
@@ -1801,7 +1802,7 @@ void rdx_record_process(void)
         }
         return;
     }
-    if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
+    if (rdx_storage_lifecycle_business_blocked() && record_status.run != RECORD_STATE_STOP) {
         record_status.run = RECORD_STATE_STOP;
         return;
     }
@@ -1968,7 +1969,7 @@ void rdx_record_process(void)
         }
         return;
     }
-    if (rdx_dip_switch_business_blocked() && record_status.run != RECORD_STATE_STOP) {
+    if (rdx_storage_lifecycle_business_blocked() && record_status.run != RECORD_STATE_STOP) {
         record_status.run = RECORD_STATE_STOP;
         return;
     }
@@ -2200,7 +2201,7 @@ static void rdx_record_task(void *arg)
                             usb_record_done = (u32)msg[2];
                             continue;
                         }
-                        if (rdx_dip_switch_business_blocked() &&
+                        if (rdx_storage_lifecycle_business_blocked() &&
                             (msg[1] == RECORD_STATE_START ||
                              msg[1] == RECORD_STATE_RESUME)) {
                             continue;

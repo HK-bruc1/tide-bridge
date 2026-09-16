@@ -174,9 +174,11 @@ This overlay is included by `SDK/apps/earphone/include/app_config.h` immediately
 Current overlay rules:
 
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
-- `TCFG_T2620_PC_STORAGE_ENABLE` owns the T2620 PC-storage configuration group: it requires tool-configured SD0 + USB MSC, enables PC mode, and disables the mutually exclusive USB HID/UAC classes
+- `TCFG_T2620_PC_STORAGE_ENABLE` defaults to 0 and owns only optional USB MSC export. When enabled it requires tool-configured SD0 + USB MSC; when disabled it forces PC mode off.
+- `TCFG_T2620_CHARGE_COEXIST_ENABLE` defaults to 1 and independently preserves ON charging with BLE/recording.
+- `rdx_storage_lifecycle.c/h` owns the storage shutdown fence and PC-return admission gates independently of USB export; `rdx_dip_switch.c` owns input sampling and mode requests. See `docs/7-1.T2620充电与USB存储模块边界.md`.
 - Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay
-- PC storage forces the soldered SD NAND always-online policy in `t2620_project_config.h`; `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` bypasses automatic and forced boot formatting, including mount failure with a missing VM marker. Initial provisioning/recovery requires an explicit format operation; the board header retains only the generic fallback policy.
+- The SD0 board configuration forces the soldered SD NAND always-online policy independently of PC export in `t2620_project_config.h`; `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` bypasses automatic and forced boot formatting, including mount failure with a missing VM marker. Initial provisioning/recovery requires an explicit format operation; the board header retains only the generic fallback policy.
 - Do **not** add `TCFG_DIP_SWITCH_POWER*` macros to `sdk_config.h`, `sdk_config.c`, or `iokey_config.c`
 
 ### GPIO / key configuration

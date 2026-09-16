@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 
 [CmdletBinding()]
 param()
@@ -49,6 +49,7 @@ $PatchedRdxArchiveHash = if (Test-Path -LiteralPath $PatchedRdxArchivePath) {
     ''
 }
 $AppMsg = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_msg.h'
+$StorageLifecycle = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_lifecycle.c'
 $Dip = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
 $AppDefault = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\common\app_default_msg_handler.c'
 $SdkUsedList = Read-RepoFile $RepoRoot 'SDK\apps\earphone\sdk_used_list.c'
@@ -354,11 +355,11 @@ $recordingEncoderPathOk = $Config -notmatch 'TCFG_STENC_OPUS_ENABLE' -and
 Assert-Contract 'RDX_RECORDING_USES_EFFECT_DEV2_ENCODER' $recordingEncoderPathOk `
     'RDX recording must use effect_dev2; the native legacy registration stays behind its disabled gate'
 
-$usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s+1\s*$' -and
+$usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s+0\s*$' -and
                 $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#if\s+!TCFG_SD0_ENABLE.*?#if\s+!TCFG_USB_SLAVE_MSD_ENABLE.*?#define\s+TCFG_APP_PC_EN\s+1' -and
                 $SdkConfigH -match '(?m)^\s*#define\s+TCFG_CHARGE_POWERON_ENABLE\s+0\b' -and
                 $SdkConfigH -match '(?m)^\s*#define\s+TCFG_USB_SLAVE_MSD_ENABLE\s+1\b' -and
-                $Config -match '(?s)#if\s+TCFG_T2620_PC_STORAGE_ENABLE.*?#undef\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s*#define\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s+1' -and
+                $Config -match '(?s)#if\s+TCFG_SD0_ENABLE\s+#undef\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s*#define\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s+1' -and
                 $BoardConfig -notmatch '(?m)^\s*#\s*(?:define|undef)\s+TCFG_SD_ALWAY_ONLINE_ENABLE\b'
 foreach ($disabledClass in @(
     'TCFG_USB_SLAVE_HID_ENABLE',
@@ -379,7 +380,17 @@ foreach ($defaultDisabledClass in @(
         $UsbCommon -match "(?m)^\s*#define\s+$defaultDisabledClass\s+0\s*$"
 }
 Assert-Contract 'USB_MSC_PRODUCT_PROFILE' $usbProfileOk `
-    'the product USB profile must expose only MSC over the soldered always-online storage'
+    'USB export defaults off; optional export is MSC-only and fixed SD registration is independent'
+
+Assert-Contract 'USB_EXPORT_AND_CHARGING_ARE_INDEPENDENT' (
+    $Config -match '(?m)^\s*#define\s+TCFG_T2620_CHARGE_COEXIST_ENABLE\s+1\s*$' -and
+    $Config -match '(?s)#else\s*(?:/\*.*?\*/\s*)?#undef TCFG_APP_PC_EN\s+#define TCFG_APP_PC_EN\s+0\s+#endif' -and
+    $Config -match '#define TCFG_PC_ENABLE\s+TCFG_APP_PC_EN' -and
+    $Dip -match '(?s)int rdx_dip_switch_pc_allowed.*?#if TCFG_T2620_PC_STORAGE_ENABLE.*?#else\s+return false;' -and
+    $StorageLifecycle -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
+    $Dip -match 'rdx_storage_lifecycle_service\(on, vbus\)' -and
+    $Makefile -match 'rdx_storage_lifecycle\.c'
+) 'Disabling export must close PC admission without removing charging, SD or the shutdown fence'
 
 $bootPreserve = Get-SourceSlice $DevManager `
     '#if (TCFG_SD0_ENABLE && TCFG_T2620_STORAGE_PRESERVE_ON_BOOT)' `
@@ -436,7 +447,7 @@ $RdxCharge = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_pr
 $Charger = Read-RepoFile $RepoRoot 'SDK\apps\common\device\charge\sk4558.c'
 Assert-Contract 'POWER_RESET_EVIDENCE_IS_NOT_SUPPLY_READY' `
     ($AppMain -match '(?s)BOOT-POWER.*?is_reset_source\(P33_VDDIO_LVD_RST\).*?is_reset_source\(P33_VDDIO_POR_RST\).*?is_reset_source\(P33_SOFT_RST\)' -and
-     $Dip -match 'storage reconciliation complete; enabling business, supply stability unverified' -and
+     $StorageLifecycle -match 'storage reconciliation complete; enabling business, supply stability unverified' -and
      $Charge -match '(?s)if \(app_var.goto_poweroff_flag\) \{\s*log_info\("\[CHARGE\] controlled reset: USB inserted during pending poweroff"\);\s*cpu_reset\(\);') `
     'Keep historical reset evidence separate from supply readiness and identify the actual charge-triggered reset branch'
 $AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
@@ -488,25 +499,33 @@ Assert-Contract 'PC_GENERIC_FALLBACK_IS_PRESERVED' (
 ) 'Product USB policy must be shared and generic USB removal fallback preserved'
 
 $chargePrepare = Get-SourceSlice $RdxCharge 'void rdx_app_charge_prepare(void)' 'int rdx_app_battery_msg_handler(int *msg)'
-$productPrepare = Get-SourceSlice $chargePrepare '#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#else'
+$productPrepare = Get-SourceSlice $chargePrepare '#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#else'
 $chargeEvents = Get-SourceSlice $RdxCharge 'int rdx_app_battery_msg_handler(int *msg)' 'APP_MSG_PROB_HANDLER(rdx_app_battery_msg_entry)'
 $productChargeEvents = Get-SourceSlice $chargeEvents `
-    '#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#elif TCFG_DIP_SWITCH_POWER_ENABLE'
+    '#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE' '#elif TCFG_DIP_SWITCH_POWER_ENABLE'
 Assert-Contract 'ON_USB_PRESERVES_RECORDING_AND_STORAGE' (
     $productPrepare -match 'return;' -and
     $productPrepare -notmatch 'rdx_record_process|rdx_ota_stop|rdx_app_wifi_handle|rdx_app_emmc_power' -and
     $productChargeEvents -match '(?s)case CHARGE_EVENT_LDO5V_IN:.*?case CHARGE_EVENT_LDO5V_KEEP:.*?rdx_app_charge_start\(\)' -and
     $productChargeEvents -notmatch 'rdx_record_process\(|rdx_app_emmc_poweroff\(|rdx_app_normal_poweroff\(' -and
-    $RdxCharge -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 0\) &&\s*\\\s*!\(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?rdx_app_emmc_poweron\(0\)'
+    $RdxCharge -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 0\) &&\s*\\\s*!\(TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?rdx_app_emmc_poweron\(0\)'
 ) 'Product USB insertion must maintain charge state without stopping recording, transfers or storage power'
 
 $Poweroff = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\bt\poweroff.c'
 $autoShutdown = Get-SourceSlice $Poweroff 'void sys_auto_shut_down_enable(void)' 'static void sys_auto_shut_down_deal(void *priv)'
+Assert-Contract 'CHARGING_WITHOUT_USB_SLAVE' (
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_KEEP:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_IN:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $RdxCharge -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
+    $RdxLedCtrl -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
+    $autoShutdown -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE'
+) 'Charge-only builds must keep CPU service and ON business alive without an OTG slave event'
+
 Assert-Contract 'ON_USB_CHARGE_LIFECYCLE' (
     $productChargeEvents -match '(?s)rdx_app_charge_start\(\).*?rdx_app_business_started\(\).*?rdx_ble_server_auto_shut_down_enable\(0\)' -and
     $productChargeEvents -match '(?s)case CHARGE_EVENT_LDO5V_OFF:.*?rdx_app_charge_stop\(\).*?rdx_app_business_started\(\) && get_power_on_status\(\) &&.*?!app_var.goto_poweroff_flag.*?rdx_ble_server_auto_shut_down_enable\(1\)' -and
-    $autoShutdown -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?if \(get_charge_online_flag\(\)\).*?sys_auto_shut_down_disable\(\);.*?return;' -and
-    $RdxApp -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 1\) \|\|\s*\\\s*\(TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?get_charge_online_flag\(\).*?rdx_app_charge_start\(\)' -and
+    $autoShutdown -match '(?s)#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?if \(get_charge_online_flag\(\)\).*?sys_auto_shut_down_disable\(\);.*?return;' -and
+    $RdxApp -match '(?s)#if \(TCFG_CHARGE_POWERON_ENABLE == 1\) \|\|\s*\\\s*\(TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE\).*?get_charge_online_flag\(\).*?rdx_app_charge_start\(\)' -and
     $Charge -match '(?s)case CHARGE_EVENT_LDO5V_OFF:.*?if \(!get_power_on_status\(\)\).*?APP_MSG_REQUEST_POWEROFF.*?charge_ldo5v_off_deal\(\)'
 ) 'USB power including FULL must inhibit inactivity shutdown; ON removal restores the normal business-aware timer policy'
 
@@ -514,7 +533,7 @@ $usbLedPolicy = Get-SourceSlice $RdxLedCtrl 'static bool _rdx_led_on_usb_charge(
 $ledSceneEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_scene(' 'rdx_led_scene_e rdx_led_ctrl_get_scene('
 $ledChargeEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_charge_state_by_battery(' 'void rdx_led_ctrl_restore_system_state('
 Assert-Contract 'ON_CHARGE_LED_BUSINESS_PRIORITY' (
-    $usbLedPolicy -match '(?s)#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?get_power_on_status\(\) && rdx_app_business_started\(\).*?get_charge_online_flag\(\).*?RDX_CHARGE_OUT.*?!app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\)' -and
+    $usbLedPolicy -match '(?s)#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?get_power_on_status\(\) && rdx_app_business_started\(\).*?get_charge_online_flag\(\).*?RDX_CHARGE_OUT.*?!app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\)' -and
     (Test-TokensInOrder $usbLedPolicy @('RECORD_STATE_START', 'RDX_LED_SCENE_RECORD_MARK', 'RDX_LED_SCENE_RECORD_START', 'RDX_LED_SCENE_DUT_ENTER', 'RDX_LED_SCENE_OTA_START', 'RDX_LED_SCENE_WIFI_START', 'RDX_LED_SCENE_CHARGE_FULL')) -and
     $ledSceneEntry -match '(?s)if \(on_usb_charge\).*?_rdx_led_resolve_on_usb_charge\(scene\).*?scene == g_current_scene && g_active_effect && !new_mark.*?return;' -and
     $ledChargeEntry -match '(?s)if \(_rdx_led_on_usb_charge\(\)\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_CHARGE_PLUG_IN\);.*?return;.*?_rdx_led_set_charge_effect_by_battery'
@@ -527,22 +546,22 @@ Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
 
 $StoragePatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_storage.ps1'
 $StorageIr = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_patch.ll'
-$DipSwitch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
+$DipSwitch = $StorageLifecycle
 Assert-Contract 'USB_HOT_SWITCH_REQUIRES_REAL_COMPLETION' (
     $DipSwitch -match '(?s)s_usb_switch = USB_SWITCH_DRAIN.*?rdx_record_usb_quiesce_request' -and
     (Test-TokensInOrder $DipSwitch @('rdx_record_usb_quiesce_poll', 'rdx_ble_server_usb_quiesce', 'saved == 0 && ble_idle', 'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll', 'else if (!result)', 'rdx_cpu_reset()')) -and
     $DipSwitch -match '(?s)rdx_usb_switch_fail\(.*?USB_SWITCH_FAILED.*?no export/reset' -and
-    $DipSwitch -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag' -and
-    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_dip_switch_shutdown_deferred\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
+    $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag' -and
+    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_storage_lifecycle_shutdown_deferred\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
     $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_USB_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?usb_record_done = ' -and
     $RdxServer -match '(?s)int rdx_ble_server_usb_quiesce\(void\).*?app_ble_disconnect.*?rdx_ble_server_rdx_runtime_try_rearm\(\)'
 ) 'Hot switch must close recording, drain real BLE lifecycle and freeze UXFILE before reset; cold export and failure protection remain intact'
 Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
-    (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'HOST_OWNED -> DEVICE_OWNED', 'rdx_dip_switch_pc_returned()')) -and
-    $DipSwitch -match '(?s)rdx_dip_switch_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
-    $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_dip_switch_business_blocked\(\).*?enable = 0;' -and
-    $RdxRecord -match '(?s)void rdx_record_process\(void\).*?rdx_dip_switch_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
-    $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_dip_switch_business_blocked' -and
+    (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'HOST_OWNED -> DEVICE_OWNED', 'rdx_storage_lifecycle_pc_returned()')) -and
+    $DipSwitch -match '(?s)rdx_storage_lifecycle_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
+    $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_storage_lifecycle_business_blocked\(\).*?enable = 0;' -and
+    $RdxRecord -match '(?s)void rdx_record_process\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
+    $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_storage_lifecycle_business_blocked' -and
     $StoragePatch -match 'rdx_storage_boot_refresh_post' -and
     $StorageIr -match '(?s)rdx_storage_boot_reconcile.*?rdx_uxfile_sync_files_with_dat.*?store volatile i32 %state, i32\* @rdx_storage_refresh'
 ) 'PC return must stop USB/remount before reconciliation and gate BLE, recording and playback until completion'
