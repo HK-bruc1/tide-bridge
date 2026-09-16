@@ -26,7 +26,7 @@ function Assert-Contract {
     if (-not $Condition) {
         throw "${Name}: $Message"
     }
-    Write-Host "PASS: $Name"
+    Write-Verbose "PASS: $Name"
 }
 
 function Get-SourceSlice {

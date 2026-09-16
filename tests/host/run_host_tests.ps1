@@ -14,12 +14,9 @@ $Tests = @(
 )
 
 $Failed = 0
-Write-Host 'Host Core Contracts'
-Write-Host '==================='
 
 foreach ($test in $Tests) {
     $path = Join-Path $PSScriptRoot $test
-    Write-Host "`nRunning: $test"
     try {
         & $path
     } catch {
@@ -28,7 +25,6 @@ foreach ($test in $Tests) {
     }
 }
 
-Write-Host "`n-------------------"
 if ($Failed -eq 0) {
     Write-Host "All $($Tests.Count) host core contracts passed."
     exit 0
