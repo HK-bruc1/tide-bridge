@@ -200,4 +200,64 @@ Assert-Contract 'OTA_FINAL_CALLBACKS_REJECT_INVALID_SESSION' (
     (Test-TokensInOrder $OtaBoot @('!rdx_ota_session_is_current()', 'return -1;', 'sys_timeout_add'))
 ) 'invalidated OTA sessions cannot enter verification or continue from verification to commit/reset scheduling'
 
+$Record = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_record.c"
+$StopRequest = Get-SourceSlice $Record `
+    'static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token)' `
+    '/* app_core only.' -Last
+$StopPump = Get-SourceSlice $Record `
+    'static void rdx_record_app_stop_pump(void *priv)' `
+    'static void rdx_record_app_stop_tick(void *priv)'
+$RecordCommand = Get-SourceSlice $Record `
+    'static void rdx_record_cmd_handle_internal(' `
+    'void rdx_record_cmd_handle(Record_info *r_info)' -Last
+$RecordWorker = Get-SourceSlice $Record `
+    'static void rdx_record_task(void *arg)' `
+    'int rdx_record_task_create(void)'
+
+Assert-Contract 'OFFLINE_RECORD_STOP_HAS_COMMAND_RECIPIENT' (
+    (Test-TokensInOrder $RecordCommand @('!rdx_record_rdx_token_is_current(token)',
+        '!rdx_record_online_session_accepts(token)', 'rdx_record_app_stop_request(token)',
+        'record cmd job is same as current')) -and
+    $StopRequest -match 'g_app_stop_token = \*token' -and
+    $StopRequest -notmatch 'online_session_bind|token_capture' -and
+    (Test-TokensInOrder $StopPump @('g_app_stop_done != ticket',
+        'rdx_record_rdx_token_is_current(&g_app_stop_token)',
+        'rdx_protocol_record_state_indicate()')) -and
+    $StopPump -notmatch 'online_session_is_current|online_session_token_is_current'
+) 'App STOP must reply to its validated command epoch even when the recording started offline'
+
+Assert-Contract 'RECORD_STOP_COMPLETION_FOLLOWS_WORKER_CLEANUP' (
+    (Test-TokensInOrder $RecordWorker @('msg[1] == RDX_RECORD_APP_STOP_FENCE',
+        'msg[1] = RECORD_STATE_STOP', 'translation_ear_recoder_close_all()',
+        'if (app_stop_ticket)', 'g_app_stop_done = app_stop_ticket')) -and
+    $RecordWorker -match '(?s)translation_ear_recoder_close_all\(\);\s*/\* A paused session.*?rdx_uxfile_finish_record\(\).*?if \(app_stop_ticket\).*?g_app_stop_done' -and
+    $Record -match '!g_app_stop_pending && rdx_record_online_session_is_current\(\)' -and
+    $StopPump -match '!g_app_stop_pending \|\| ticket != g_app_stop_ticket'
+) 'STOP completion must wait for both audio paths and paused-file finalization, and reject stale callbacks'
+
+Assert-Contract 'RECORD_STOP_RETRY_IS_BOUNDED_AND_IDEMPOTENT' (
+    $StopRequest -match '(?s)if \(g_app_stop_pending\).*?return;' -and
+    $StopRequest -match 'record_status.run != RECORD_STATE_STOP \|\|' -and
+    $RecordWorker -match '(?s)if \(!msg\[3\]\).*?g_app_stop_done = app_stop_ticket;\s*continue;' -and
+    $StopPump -match '(?s)if \(!g_app_stop_posted\).*?if \(os_taskq_post_msg.*?return;.*?g_app_stop_posted = 1;' -and
+    $StopRequest -match 'sys_timer_add' -and
+    $StopRequest -notmatch 'malloc' -and
+    (Test-TokensInOrder $StopRequest @('sys_timer_add', 'if (!g_app_stop_timer)',
+        'g_app_stop_pending = 1', 'sys_timeout_del(g_record_cmd_delay_timer)',
+        'rdx_record_start_tone_cancel()', 'record_status.run = RECORD_STATE_STOP')) -and
+    $RecordWorker -match '(?s)RECORD_STATE_RESUME\) &&\s*\(g_app_stop_pending \|\|' -and
+    $Record -match '(?s)bool rdx_record_process_is_busy_check\(void\)\s*\{.*?if \(g_app_stop_pending\).*?return TRUE;' -and
+    (Test-TokensInOrder $RecordCommand @('rdx_record_app_stop_request(token)',
+        'if (g_app_stop_pending)', 'command rejected: STOP pending', 'if(r_info->cmd == (RECORD_STATE_START + 0x30))')) -and
+    $App -match 'run == RECORD_STATE_START && rdx_record_process_is_busy_check\(\)'
+) 'coalesce retries, observe already-stopped state without closing twice, retry queue pressure and fence new starts'
+
+Assert-Contract 'RECORD_STOP_RETAINS_POWER_AND_STORAGE_BUSY_FENCE' (
+    (Test-TokensInOrder $StopRequest @('g_app_stop_pending = 1',
+        'rdx_record_set_process_state_busy()', 'record_status.run = RECORD_STATE_STOP')) -and
+    $Record -match '(?s)void rdx_record_set_process_state_ready\(void\)\s*\{\s*if \(g_app_stop_pending\).*?return;.*?record_status.process_state = REC_PROCESS_STATE_READY' -and
+    (Test-TokensInOrder $StopPump @('g_app_stop_done != ticket',
+        'g_app_stop_pending = 0', 'rdx_record_set_process_state_ready()'))
+) 'shared power and storage users must continue to see BUSY until the complete worker fence has returned'
+
 Write-Host 'RDX lifecycle contracts passed.'

@@ -234,6 +234,21 @@ static u32 g_hold_release_ticket;
 static volatile u32 g_hold_release_done;
 static u8 g_hold_release_posted;
 
+/* One outstanding App STOP, independent of the recording's stream owner.
+ * app_core owns the request; the recorder publishes completion after its FIFO
+ * has drained and both audio paths/file finalization have returned. */
+#define RDX_RECORD_APP_STOP_FENCE 0x52445853
+static rdx_ble_async_token_t g_app_stop_token;
+static u32 g_app_stop_ticket;
+static volatile u32 g_app_stop_done;
+static u16 g_app_stop_timer;
+static volatile u8 g_app_stop_pending;
+static u8 g_app_stop_posted;
+static u8 g_app_stop_close;
+static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token);
+void rdx_record_max_timer_stop(void);
+extern void rdx_app_record_state_upload_timer_stop(void);
+
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
     const rdx_ble_async_token_t *token);
@@ -383,6 +398,9 @@ typedef struct {
 static void rdx_record_state_indicate_if_current(
     const rdx_ble_async_token_t *token)
 {
+    if (g_app_stop_pending) {
+        return;
+    }
     if (!rdx_record_online_session_token_is_current(token)) {
         r_printf("[RDX_RECORD] drop stale state indication\r");
         return;
@@ -670,6 +688,10 @@ static void rdx_record_process_state_set_timer_cb(void* priv)
  **************************************************************************/
 bool rdx_record_process_is_busy_check(void)
 {
+    /* The legacy busy watchdog cannot certify worker completion. */
+    if (g_app_stop_pending) {
+        return TRUE;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -722,6 +744,11 @@ void rdx_record_set_process_state_busy(void)
  **************************************************************************/
 void rdx_record_set_process_state_ready(void)
 {
+    if (g_app_stop_pending) {
+        /* Sink completion and the legacy watchdog cannot release the shared
+         * power/storage busy fence before the whole STOP worker returns. */
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -1155,6 +1182,14 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] drop command for another session\r");
         return;
     }
+    if (token && r_info->cmd == (RECORD_STATE_STOP + 0x30)) {
+        rdx_record_app_stop_request(token);
+        return;
+    }
+    if (g_app_stop_pending) {
+        r_printf("[RDX_RECORD] command rejected: STOP pending\r");
+        return;
+    }
     if (token && g_stream_only_hold_released &&
         rdx_record_token_equal(token, &g_stream_only_start_token)) {
         if (r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
@@ -1414,6 +1449,104 @@ static void rdx_record_start_tone_cancel(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
     rdx_record_set_process_state_ready();
     rdx_app_emmc_poweroff_check();
+}
+
+static void rdx_record_app_stop_pump(void *priv)
+{
+    u32 ticket = (u32)priv;
+
+    if (!g_app_stop_pending || ticket != g_app_stop_ticket) {
+        return;
+    }
+    if (!g_app_stop_posted) {
+        /* Keep the request on queue pressure; never infer completion from run. */
+        if (os_taskq_post_msg(RECORD_TASK_NAME, 3, RDX_RECORD_APP_STOP_FENCE,
+                             ticket, g_app_stop_close)) {
+            return;
+        }
+        g_app_stop_posted = 1;
+    }
+    if (g_app_stop_done != ticket) {
+        return;
+    }
+    sys_timer_del(g_app_stop_timer);
+    g_app_stop_timer = 0;
+    rdx_record_max_timer_stop();
+    g_app_stop_pending = 0;
+    rdx_record_set_process_state_ready();
+    /* Serialize the legacy singleton indication with owner changes on app_core.
+     * Do not bind an offline recording to the command's response recipient. */
+    if (rdx_record_rdx_token_is_current(&g_app_stop_token)) {
+        g_printf("[RDX_RECORD] STOP complete, state reply ticket=%u\r", ticket);
+        rdx_protocol_record_state_indicate();
+    } else {
+        r_printf("[RDX_RECORD] drop stale STOP reply ticket=%u\r", ticket);
+    }
+}
+
+static void rdx_record_app_stop_tick(void *priv)
+{
+    int msg[3] = {(int)rdx_record_app_stop_pump, 1, (int)priv};
+
+    /* A full app_core queue is retried by the periodic timer, without allocating
+     * one callback object per App retransmission. */
+    os_taskq_post_type("app_core", Q_CALLBACK, 3, msg);
+}
+
+static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token)
+{
+    if (g_app_stop_pending) {
+        /* Retransmissions coalesce; a different epoch cannot steal the reply. */
+        return;
+    }
+    if (!is_record_task_created) {
+        r_printf("[RDX_RECORD] STOP rejected: recorder unavailable\r");
+        return;
+    }
+    if (!++g_app_stop_ticket) {
+        ++g_app_stop_ticket;
+    }
+    g_app_stop_timer = sys_timer_add((void *)g_app_stop_ticket,
+                                    rdx_record_app_stop_tick, 50);
+    if (!g_app_stop_timer) {
+        r_printf("[RDX_RECORD] STOP rejected: retry timer unavailable\r");
+        return;
+    }
+    g_app_stop_token = *token;
+    g_app_stop_close = record_status.run != RECORD_STATE_STOP ||
+                       record_status.process_state == REC_PROCESS_STATE_BUSY;
+    g_app_stop_posted = 0;
+    g_app_stop_done = 0;
+    g_app_stop_pending = 1;
+    rdx_record_set_process_state_busy();
+    g_printf("[RDX_RECORD] STOP request ticket=%u close=%u\r",
+             g_app_stop_ticket, g_app_stop_close);
+    if (g_record_cmd_delay_timer) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+        g_record_cmd_retry_cnt = 0;
+        rdx_record_pending_cmd_clear();
+    }
+    rdx_app_record_state_upload_timer_stop();
+    rdx_record_stream_only_start_cancel();
+    if (record_start_tone_pending) {
+        rdx_record_start_tone_cancel();
+    }
+    rdx_record_pause_timeout_stop();
+    record_status.run = RECORD_STATE_STOP;
+    rdx_record_max_timer_stop();
+    rdx_record_set_filter_cnt(0);
+#ifdef RECORD_HEARTBEAT_SUPPORT
+    rdx_record_keep_alive_check_stop();
+#endif
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+#if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN)
+    tws_api_auto_role_switch_enable();
+    extern void rdx_app_tws_record_state_sync(void);
+    rdx_app_tws_record_state_sync();
+#endif
+    rdx_ble_server_auto_shut_down_enable(1);
+    rdx_record_app_stop_pump((void *)g_app_stop_ticket);
 }
 
 /* app_core only. Return success only after the owned recording is closed.
@@ -1802,6 +1935,10 @@ void rdx_record_process(void)
         }
         return;
     }
+    if (g_app_stop_pending) {
+        record_status.run = RECORD_STATE_STOP;
+        return;
+    }
     if (rdx_storage_lifecycle_business_blocked() && record_status.run != RECORD_STATE_STOP) {
         record_status.run = RECORD_STATE_STOP;
         return;
@@ -1967,6 +2104,10 @@ void rdx_record_process(void)
         if (!record_binding_revoke_pending) {
             rdx_record_start_tone_cancel();
         }
+        return;
+    }
+    if (g_app_stop_pending) {
+        record_status.run = RECORD_STATE_STOP;
         return;
     }
     if (rdx_storage_lifecycle_business_blocked() && record_status.run != RECORD_STATE_STOP) {
@@ -2142,6 +2283,16 @@ static void rdx_record_task(void *arg)
             switch (msg[0]) {
 				case Q_MSG:
 					{
+                        u32 app_stop_ticket = 0;
+                        if (msg[1] == RDX_RECORD_APP_STOP_FENCE) {
+                            app_stop_ticket = (u32)msg[2];
+                            if (!msg[3]) {
+                                /* Already stopped: observe FIFO completion only. */
+                                g_app_stop_done = app_stop_ticket;
+                                continue;
+                            }
+                            msg[1] = RECORD_STATE_STOP;
+                        }
                         if (msg[1] == RDX_RECORD_HOLD_FENCE) {
                             bool play_stop_tone = record_tone_session_active;
                             u32 tone_epoch = record_start_tone_epoch;
@@ -2185,7 +2336,8 @@ static void rdx_record_task(void *arg)
                             continue;
                         }
                         if ((msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME) &&
-                            !rdx_record_binding_token_is_current((u32)msg[3])) {
+                            (g_app_stop_pending ||
+                             !rdx_record_binding_token_is_current((u32)msg[3]))) {
                             /* The binding fence owns cleanup, after earlier FIFO work. */
                             continue;
                         }
@@ -2230,6 +2382,12 @@ static void rdx_record_task(void *arg)
                             /* Both MIC and DAC paths are now closed. */
                             if (play_stop_tone) {
                                 rdx_record_stop_tone_post(tone_epoch);
+                            }
+                            if (app_stop_ticket) {
+                                /* Publish after close_all and finish_record, never
+                                 * from a sink callback halfway through shutdown. */
+                                record_status.run = RECORD_STATE_STOP;
+                                g_app_stop_done = app_stop_ticket;
                             }
                         }
 					}
@@ -2281,6 +2439,11 @@ int rdx_record_task_create(void)
  **************************************************************************/
 int rdx_record_task_free(void)
 {
+    if (g_app_stop_timer) {
+        sys_timer_del(g_app_stop_timer);
+        g_app_stop_timer = 0;
+    }
+    g_app_stop_pending = 0;
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2959,7 +3122,7 @@ int rdx_record_run_exit(void)
 
     //send ack of record state.
     if(con_hdl != 0xffff && con_hdl != 0 &&
-       rdx_record_online_session_is_current()){
+       !g_app_stop_pending && rdx_record_online_session_is_current()){
         rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 

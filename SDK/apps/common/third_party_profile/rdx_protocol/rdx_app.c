@@ -1812,6 +1812,9 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
         (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked())) {
         return -1;
     }
+    if (run == RECORD_STATE_START && rdx_record_process_is_busy_check()) {
+        return -1;
+    }
     u8 formate = 0;
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();

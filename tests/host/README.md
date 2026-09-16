@@ -16,7 +16,7 @@ groups still run. Exit code is 0 on success and 1 on failure.
 | `test_t2620_product_contract.ps1` | Configuration ownership, power sequencing, recording safety, charging, storage preservation and optional USB MSC ownership |
 | `test_hogp_profile_contract.ps1` | GATT handles/report bytes, encryption, ready state and peer-scoped bonded CCC |
 | `test_rdx_transport_contract.ps1` | Two-wrapper topology, owner-scoped routing, binding and advertising |
-| `test_rdx_lifecycle_contract.ps1` | Reconnect barriers, worker cleanup, RDX-only release and OTA cancellation |
+| `test_rdx_lifecycle_contract.ps1` | Reconnect barriers, worker cleanup, RDX-only release, offline recording STOP replies and OTA cancellation |
 | `test_rdx_keymap_contract.ps1` | Owner-bound transactions, verified A/B storage and release-before-apply |
 
 Each group can also run directly. Shared helpers live in `host_test_lib.ps1`.
