@@ -26,6 +26,9 @@
 * Include files
 ******************************************************************************/ 
 #include "typedef.h"
+
+/* Last packet accepted: final write/verify/commit cannot be user-cancelled. */
+u8 rdx_ota_is_finalizing(void);
 // #include "asm/cpu.h"
 
 /******************************************************************************

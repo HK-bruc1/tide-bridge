@@ -118,6 +118,12 @@ static u16 rdx_ota_get_data_timer = 0; //ota data response timer
 static u32 pack_cnt = 0; //for ota data transfer timeout timer rerun count.
 static rdx_ble_async_token_t g_rdx_ota_session_token;
 static u8 g_rdx_ota_session_token_valid = 0;
+static u8 g_rdx_ota_finalizing = 0;
+
+u8 rdx_ota_is_finalizing(void)
+{
+    return g_rdx_ota_finalizing;
+}
 
 /******************************************************************************
 * Function Section
@@ -283,6 +289,10 @@ int rdx_ota_boot_info_cb(int err)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if (!get_ota_status() || !rdx_ota_session_is_current()) {
+        log_info("ignore stale ota boot callback\r");
+        return -1;
+    }
     log_info("rdx_ota_boot_info_cb:%d", err);
 #if (OTA_TWS_SAME_TIME_ENABLE)
     extern int tws_ota_result(u8 err);
@@ -355,7 +365,11 @@ int rdx_ota_file_end_response(void *priv)
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
-    u8 res, up_flg;    
+    u8 res, up_flg;
+    if (!get_ota_status() || !rdx_ota_session_is_current()) {
+        log_info("ignore stale ota final write callback\r");
+        return -1;
+    }
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
@@ -388,7 +402,12 @@ int rdx_ota_file_end_response(void *priv)
     if (160 * 1000000L - old_sys_clk > 0) {
         clock_alloc("sys", 160 * 1000000L - old_sys_clk);     //提升系统时钟提高校验速度
     }
-    if (dual_bank_update_verify_without_crc(rdx_ota_clk_resume) == 0) {
+    u8 verify_result = dual_bank_update_verify_without_crc(rdx_ota_clk_resume);
+    if (!get_ota_status() || !rdx_ota_session_is_current()) {
+        log_info("ignore stale ota verify result\r");
+        return -1;
+    }
+    if (verify_result == 0) {
         log_info("UPDATE SUCCESS");
 #if (OTA_TWS_SAME_TIME_ENABLE)
         if (tws_ota_enter_verify_without_crc(NULL)) {
@@ -450,6 +469,12 @@ void rdx_ota_end(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    if (!get_ota_status() || !rdx_ota_session_is_current()) {
+        return;
+    }
+    /* Set in the BLE ingress task before handing the final write to dw_update. */
+    g_rdx_ota_finalizing = 1;
+    r_printf("[RDX_OTA] finalizing: user cancellation closed\n");
     g_printf("============ Pend the second last ota data sibling rsp \r");
 #if (OTA_TWS_SAME_TIME_ENABLE)
     tws_ota_data_send_pend();
@@ -506,6 +531,10 @@ static void rdx_ota_get_data_timeout_cb(void *priv)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    /* A queued transfer timeout must not tear down final verification. */
+    if (g_rdx_ota_finalizing) {
+        return;
+    }
     //close ota.
     log_info("rdx_ota_get_data_timeout_cb --> timeout, close ota");
 
@@ -752,6 +781,11 @@ int rdx_ota_get_data_handler(u8* d, u32 len)
 	//16#128#sum#xxxxxxxxxxxxxxx…
 	// b_printf("===> %s --> len = %d \r", __func__, len);
 	//find '#'.
+    if (!get_ota_status()) {
+        log_info("ignore ota data after ota stopped\r");
+        return E_PROTOCOL_ECODE_FAIL;
+    }
+
 	i = _rdx_ota_split_params((char*)p, items, 3, 50, &size);
 	if(0 != i)
 		return i;
@@ -832,10 +866,9 @@ int rdx_ota_get_data_handler(u8* d, u32 len)
     log_info("%s --> cur_pack_num = %d, pack_total = %d \r", __func__, otaPara.cur_pack_num, otaPara.pack_total);
     if(otaPara.cur_pack_num == otaPara.pack_total){
         //ota end handle.
-        rdx_ota_end();
-        //stop timer.
         rdx_ota_get_data_timer_stop();
         pack_cnt = 0;
+        rdx_ota_end();
         return E_PROTOCOL_ECODE_SUCCESS;
     }else{
         otaPara.cur_pack_num ++;
@@ -873,6 +906,10 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 	/*----------------------------------------------------------------*/
 	/* Code Body                                                      */
 	/*----------------------------------------------------------------*/
+    if (g_rdx_ota_finalizing) {
+        log_info("ignore ota command while finalizing\r");
+        return;
+    }
     y_printf("%s --> recv data len: %d \r", __func__, recv_len); 
 	switch (type){
 		case OTA_UPGRADE_BEGIN:
@@ -917,16 +954,24 @@ void rdx_ota_stop(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    log_info("ota stop \r");
     rdx_ota_session_clear();
     rdx_ota_get_data_timer_stop();
     pack_cnt = 0;
 
-    dual_bank_passive_update_exit(NULL);
+    if (!get_ota_status()) {
+        return;
+    }
+
+    log_info("ota stop: cancel pack=%u/%u\r",
+             otaPara.cur_pack_num, otaPara.pack_total);
     set_ota_status(0);
+    dual_bank_passive_update_exit(NULL);
+    g_rdx_ota_finalizing = 0;
     
     // OTA 结束，恢复 BLE 广播灯效
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_STOP);
+    rdx_led_ctrl_set_scene(rdx_ble_server_get_connected_count()
+                           ? RDX_LED_SCENE_BLE_CONNECTED
+                           : RDX_LED_SCENE_BLE_DISCONNECTED);
     
     otaPara.state = RDX_OTA_STATE_NORMAL;
     otaPara.cur_pack_num = 0;
@@ -946,6 +991,7 @@ void rdx_ota_init(void)
     memset(&otaPara, 0, sizeof(OTA_UpgradePara));
     rdx_ota_get_data_timer = 0;
     pack_cnt = 0;
+    g_rdx_ota_finalizing = 0;
     rdx_ota_session_clear();
 }
 

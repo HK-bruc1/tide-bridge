@@ -717,6 +717,7 @@ extern u32 sys_get_auto_off_time(void);
 extern bool rdx_app_get_poweroff_flag(void);
 extern void rdx_protocol_record_trigger_indicate(RecordStatus* d, bool factor);
 extern void rdx_ota_stop(void);
+extern u8 rdx_ota_is_finalizing(void);
 extern void rdx_app_clk_unlock(const char *task_name);
 extern RecordStatus* rdx_record_get_status(void);
 extern u8 rdx_app_get_record_mode(void);
@@ -2868,6 +2869,14 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
 }
 #endif
 
+static u8 rdx_ble_server_is_ota_stop_command(const u8 *data, u16 len)
+{
+    static const char command[] = CMD_DL_OTA_CTRL "0#";
+
+    return data && len == sizeof(command) - 1 &&
+           memcmp(data, command, sizeof(command) - 1) == 0;
+}
+
 static int rdx_ble_server_phase2_rdx_write(
     rdx_ble_link_state_t *link,
     u16 att_handle,
@@ -2900,7 +2909,21 @@ static int rdx_ble_server_phase2_rdx_write(
             return RDX_BLE_PHASE0A_ATT_ERR_VALUE_NOT_ALLOWED;
         }
         if (cfg == 0x0000) {
+            if (att_handle ==
+                    ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE &&
+                rdx_ble_session_link_is_rdx(link) && rdx_ota_is_finalizing()) {
+                r_printf("[RDX_OTA] notify disable rejected: finalizing con=0x%04x\n",
+                         link->con_handle);
+                return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+            }
             multi_att_set_ccc_config(link->con_handle, att_handle, cfg);
+            if (att_handle ==
+                    ATT_CHARACTERISTIC_00239A8F_C616_89BB_3374_F25AF588A7B3_01_CLIENT_CONFIGURATION_HANDLE &&
+                rdx_ble_session_link_is_rdx(link) && link->rdx_runtime_active) {
+                r_printf("[RDX_OTA] notify disabled con=0x%04x active=%u\n",
+                         link->con_handle, get_ota_status());
+                rdx_ota_stop();
+            }
             if (att_handle ==
                     ATT_CHARACTERISTIC_06068D2C_6B97_11EF_B864_0242AC120002_01_CLIENT_CONFIGURATION_HANDLE &&
                 rdx_ble_session_link_is_rdx(link)) {
@@ -2912,6 +2935,29 @@ static int rdx_ble_server_phase2_rdx_write(
             }
             return 0;
         }
+    }
+
+    /* A stop must never claim an idle link or affect another RDX owner. */
+    if ((att_handle ==
+             ATT_CHARACTERISTIC_06068D1C_6B97_11EF_B864_0241AC120002_01_VALUE_HANDLE ||
+         att_handle ==
+             ATT_CHARACTERISTIC_00239A7F_C616_89BB_3374_F15AF588A7B3_01_VALUE_HANDLE) &&
+        rdx_ble_server_is_ota_stop_command(buffer, buffer_size)) {
+        if (!rdx_ble_session_link_is_rdx(link) || !link->rdx_runtime_active ||
+            rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_ACTIVE) {
+            r_printf("[RDX_OTA] stop rejected: not owner con=0x%04x att=0x%04x\n",
+                     link->con_handle, att_handle);
+            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+        }
+        if (rdx_ota_is_finalizing()) {
+            r_printf("[RDX_OTA] stop rejected: finalizing con=0x%04x att=0x%04x\n",
+                     link->con_handle, att_handle);
+            return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+        }
+        r_printf("[RDX_OTA] stop command con=0x%04x att=0x%04x active=%u\n",
+                 link->con_handle, att_handle, get_ota_status());
+        rdx_ota_stop();
+        return 0;
     }
 
     switch (att_handle) {
@@ -2929,6 +2975,18 @@ static int rdx_ble_server_phase2_rdx_write(
         }
         if (rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_ACTIVE) {
             return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+        }
+        if (rdx_ota_is_finalizing()) {
+            y_printf("[RDX_OTA] ignore packet while finalizing\n");
+            return 0;
+        }
+        /* After cancel, only a fresh upgrade command may restart OTA. */
+        if (!get_ota_status() &&
+            !(buffer_size >= sizeof(CMD_DL_UPGRADE) - 1 &&
+              memcmp(buffer, CMD_DL_UPGRADE, sizeof(CMD_DL_UPGRADE) - 1) == 0)) {
+            y_printf("[RDX_OTA] ignore packet while stopped con=0x%04x len=%u\n",
+                     link->con_handle, buffer_size);
+            return 0;
         }
         rdx_protocol_ota_handle(buffer, buffer_size);
         return 0;

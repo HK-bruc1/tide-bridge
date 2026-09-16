@@ -163,4 +163,41 @@ Assert-Contract 'SINGLE_COMMAND_RELEASE' (
     $App -match 'rdx_session_control_handle_custom\(value\)'
 ) 'one custom command carries an internal epoch to the serialized cleanup'
 
+$Ota = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ota.c"
+$OtaMatch = Get-SourceSlice $Server 'static u8 rdx_ble_server_is_ota_stop_command(' 'static int rdx_ble_server_phase2_rdx_write('
+$RdxWrite = Get-SourceSlice $Server 'static int rdx_ble_server_phase2_rdx_write(' 'static int rdx_ble_server_phase0a_hogp_control_write('
+$OtaCommand = Get-SourceSlice $RdxWrite '/* A stop must never claim' 'switch (att_handle)'
+$OtaStop = Get-SourceSlice $Ota 'void rdx_ota_stop(void)' 'void rdx_ota_init(void)' -Last
+Assert-Contract 'OTA_CANCEL_IS_OWNER_SCOPED' (
+    $OtaMatch -match 'CMD_DL_OTA_CTRL "0#"' -and
+    $OtaMatch -match 'len == sizeof\(command\) - 1' -and
+    $OtaMatch -match 'memcmp' -and
+    $OtaCommand -match '06068D1C' -and $OtaCommand -match '00239A7F' -and
+    (Test-TokensInOrder $OtaCommand @('!rdx_ble_session_link_is_rdx(link)', 'return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR', 'rdx_ota_stop()')) -and
+    $OtaCommand -notmatch 'rdx_attach' -and
+    $RdxWrite -match '(?s)if \(cfg == 0x0000\).*?00239A8F.*?rdx_ble_session_link_is_rdx\(link\) && link->rdx_runtime_active\).*?rdx_ota_stop\(\)'
+) 'both write channels and OTA CCC cancellation must respect the current owner'
+Assert-Contract 'OTA_CANCEL_PRESERVES_SESSION_AND_REJECTS_LATE_DATA' (
+    (Test-TokensInOrder $OtaStop @('rdx_ota_session_clear()', 'rdx_ota_get_data_timer_stop()', 'if (!get_ota_status())', 'return;', 'set_ota_status(0)', 'dual_bank_passive_update_exit(NULL)')) -and
+    $OtaStop -notmatch 'app_disconnect|rdx_detach|rdx_session_abort|rdx_hogp_' -and
+    $RdxWrite -match '(?s)!get_ota_status\(\).*?CMD_DL_UPGRADE.*?return 0;.*?rdx_protocol_ota_handle' -and
+    $Ota -match '(?s)int rdx_ota_get_data_handler\(.*?!get_ota_status\(\).*?return E_PROTOCOL_ECODE_FAIL;.*?_rdx_ota_split_params'
+) 'cancel closes OTA before teardown, preserves BLE ownership and gates trailing data'
+
+$OtaEnd = Get-SourceSlice $Ota 'void rdx_ota_end(void)' 'void rdx_ota_get_data_timer_stop(void)'
+$OtaTimeout = Get-SourceSlice $Ota 'static void rdx_ota_get_data_timeout_cb(void *priv)' 'void rdx_ota_get_data_timer_rerun(void)'
+$OtaVerify = Get-SourceSlice $Ota 'int rdx_ota_file_end_response(void *priv)' 'void rdx_ota_end(void)'
+$OtaBoot = Get-SourceSlice $Ota 'int rdx_ota_boot_info_cb(int err)' 'int rdx_ota_clk_resume(int priv)'
+Assert-Contract 'OTA_FINALIZATION_CLOSES_USER_CANCEL' (
+    (Test-TokensInOrder $OtaEnd @('g_rdx_ota_finalizing = 1', 'dual_bank_update_write')) -and
+    (Test-TokensInOrder $OtaTimeout @('if (g_rdx_ota_finalizing)', 'return;', 'rdx_ota_stop()')) -and
+    (Test-TokensInOrder $OtaCommand @('rdx_ota_is_finalizing()', 'return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR', 'rdx_ota_stop()')) -and
+    $RdxWrite -match '(?s)if \(cfg == 0x0000\).*?rdx_ota_is_finalizing\(\).*?return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;.*?multi_att_set_ccc_config' -and
+    $Ota -match '(?s)if\(otaPara.cur_pack_num == otaPara.pack_total\).*?rdx_ota_get_data_timer_stop\(\);.*?rdx_ota_end\(\);'
+) 'final write/verify/commit rejects user cancellation before mutating CCC and stops the transfer timer first'
+Assert-Contract 'OTA_FINAL_CALLBACKS_REJECT_INVALID_SESSION' (
+    (Test-TokensInOrder $OtaVerify @('!rdx_ota_session_is_current()', 'return -1;', 'dual_bank_update_verify_without_crc', '!rdx_ota_session_is_current()', 'return -1;', 'dual_bank_update_burn_boot_info')) -and
+    (Test-TokensInOrder $OtaBoot @('!rdx_ota_session_is_current()', 'return -1;', 'sys_timeout_add'))
+) 'invalidated OTA sessions cannot enter verification or continue from verification to commit/reset scheduling'
+
 Write-Host 'RDX lifecycle contracts passed.'
