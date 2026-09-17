@@ -100,8 +100,8 @@ The host test runner keeps a five-contract core suite covering:
 - `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
 
 The lifecycle group includes source checks for the single-command RDX release
-and preservation of the shared HID/physical link. Host checks require only
-PowerShell 5.1; there is no additional C compiler dependency.
+and preservation of the shared HID/physical link. The factory USB behavioral harness also requires Python with llvmlite and
+the JL compiler at C:/JL/pi32/bin/clang.exe, alongside PowerShell 5.1.
 See `tests/host/README.md` for coverage and on-device validation limits.
 
 The former phase-specific, playback, and split configuration scripts were
@@ -175,6 +175,7 @@ Current overlay rules:
 
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
 - `TCFG_T2620_PC_STORAGE_ENABLE` defaults to 0 and owns only optional USB MSC export. When enabled it requires tool-configured SD0 + USB MSC; when disabled it forces PC mode off.
+- `TCFG_T2620_FACTORY_USB_CDC_ENABLE` defaults to 0 and enables physical-key DUT CDC independently of optional PC/MSC export. CDC admission uses the storage lifecycle guards.
 - `TCFG_T2620_CHARGE_COEXIST_ENABLE` defaults to 1 and independently preserves ON charging with BLE/recording.
 - `rdx_storage_lifecycle.c/h` owns the storage shutdown fence and PC-return admission gates independently of USB export; `rdx_dip_switch.c` owns input sampling and mode requests. See `docs/7-1.T2620充电与USB存储模块边界.md`.
 - Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay

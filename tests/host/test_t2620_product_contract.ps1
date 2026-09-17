@@ -652,5 +652,10 @@ Assert-Contract 'RECORD_SESSION_LIFETIME' (
     (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
     $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
 ) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
+# Execute the actual factory USB coordinator with mocked hardware boundaries.
+& python (Join-Path $PSScriptRoot 'test_factory_usb.py')
+if ($LASTEXITCODE -ne 0) {
+    throw 'Factory USB behavioral harness failed (requires JL clang and Python llvmlite)'
+}
 
 Write-Host 'T2620 product contracts passed.'

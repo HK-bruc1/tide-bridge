@@ -102,6 +102,39 @@
 #define TCFG_PC_ENABLE                            TCFG_APP_PC_EN
 
 /* -------------------------------------------------------------------------- */
+/* USB CDC 产测：仅在台架测试固件中显式启用。 */
+/* -------------------------------------------------------------------------- */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#define TCFG_T2620_FACTORY_USB_CDC_ENABLE          0
+#endif
+
+/* 原始数据回显及主动发送 00..FF 测试数据；禁止与第三阶段协议同时启用。 */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+#define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE     0
+#endif
+/* COM3 日志：0=关闭，1=每秒汇总接收/发送完成情况及生命周期日志，2=限长报文十六进制日志。 */
+#ifndef TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
+#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
+#endif
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL < 0 || TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL > 2
+#error "Factory CDC log level must be 0, 1 or 2"
+#endif
+
+#if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#error "Factory CDC byte test requires factory CDC"
+#endif
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#undef TCFG_USB_CDC_BACKGROUND_RUN
+#define TCFG_USB_CDC_BACKGROUND_RUN               1
+/* CDC 与 MSC 分别枚举；使用 BR28 硬件端点 1/2。 */
+#define CDC_DATA_EP_IN                            1
+#define CDC_DATA_EP_OUT                           1
+#define CDC_INTR_EP_IN                            2
+#define CDC_INTR_EP_ENABLE                        1
+#endif
+
+/* -------------------------------------------------------------------------- */
 /* RDX 与 HOGP 功能                                                           */
 /* -------------------------------------------------------------------------- */
 

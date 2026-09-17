@@ -128,6 +128,16 @@ static const u8 serial_string[] = {
 void get_device_descriptor(u8 *ptr)
 {
     memcpy(ptr, sDeviceDescriptor, USB_DT_DEVICE_SIZE);
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    extern int cdc_is_registered(void);
+    if (cdc_is_registered()) {
+        /* IAD association for the standalone CDC control/data interfaces.
+         * Experimental identity remains the SDK VID/PID until board tests. */
+        ptr[4] = 0xef;
+        ptr[5] = 0x02;
+        ptr[6] = 0x01;
+    }
+#endif
 }
 
 void get_language_str(u8 *ptr)

@@ -61,6 +61,13 @@ struct pc_opr {
 static struct pc_opr pc_hdl = {0};
 #define __this 	(&pc_hdl)
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+int pc_storage_usb_ready(void)
+{
+    return __this->storage_state == PC_STORAGE_HOST_OWNED && __this->pc_is_active;
+}
+#endif
+
 extern void dac_try_power_on_thread();
 
 

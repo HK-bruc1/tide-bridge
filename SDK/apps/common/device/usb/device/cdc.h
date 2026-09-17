@@ -15,6 +15,7 @@ u32 cdc_write_data(const usb_dev usb_id, u8 *buf, u32 len);
 u32 cdc_write_inir(const usb_dev usb_id, u8 *buf, u32 len);
 void cdc_register(const usb_dev usb_id);
 void cdc_release(const usb_dev usb_id);
+int cdc_is_registered(void);
 
 #ifdef __cplusplus
 }

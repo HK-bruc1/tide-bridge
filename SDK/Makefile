@@ -375,6 +375,8 @@ c_SRC_FILES := \
 	apps/common/device/storage_device/norflash/norflash_sfc.c \
 	apps/common/device/usb/demo/host/udisk_block_test.c \
 	apps/common/device/usb/device/cdc.c \
+	apps/common/device/usb/device/usb_factory_cdc.c \
+	apps/common/device/usb/device/usb_factory_cdc_test.c \
 	apps/common/device/usb/device/custom_hid.c \
 	apps/common/device/usb/device/descriptor.c \
 	apps/common/device/usb/device/hid.c \
