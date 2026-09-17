@@ -6,6 +6,7 @@
 #include "effects_dev.h"
 #include "audio_splicing.h"
 #include "st_opus_enc/opus_stenc_api.h"
+#include "meeting_mono.h"
 
 #if TCFG_EFFECT_DEV2_NODE_ENABLE
 
@@ -43,42 +44,61 @@ struct effect_dev2_node_hdl {
     struct user_effect_tool_param cfg;//工具界面参数
     struct packet_ctrl dev;
     OPUS_STENC_OPS* opus_stenc;
+    void *run_buf;
+    s16 *pcm;
+    struct meeting_mono_policy mono;
+    u8 started;
+    u8 failed;
+    u32 encoded_frames;
+    u32 encoded_bytes;
+    u16 min_encoded_len;
+    u16 max_encoded_len;
 };
 
-int *run_buf = NULL;//[24 * 1024 / 4];
-s16 *tst_buf_LR = NULL;//[FRAME_SIZE * 2];
 /* 自定义算法，初始化
  * hdl->dev.sample_rate:采样率
  * hdl->dev.in_ch_num:通道数，单声道 1，立体声 2, 四声道 4
  * hdl->dev.out_ch_num:通道数，单声道 1，立体声 2, 四声道 4
  * hdl->dev.bit_width:位宽 0，16bit  1，32bit
  **/
-static void audio_effect_dev2_init(struct effect_dev2_node_hdl *hdl)
+static int audio_effect_dev2_init(struct effect_dev2_node_hdl *hdl)
 {
-    //do something
-    int needsz;
-    void* work_buf;
-    u8 ch_num = hdl->dev.out_ch_num;
-    OPUS_ENC_PARA  opuset;
+    OPUS_ENC_PARA opuset = {0};
     hdl->opus_stenc = get_opus_stenc_ops();
-    static int ret = 0;
-    int i, crc = 0;
+    if (!hdl->opus_stenc) {
+        return -EINVAL;
+    }
     opuset.sr = OPUS_SR;
-    opuset.br = OPUS_SR * ch_num * sizeof(s16) / OPUS_CR * 8;
-    opuset.nch = ch_num;     //channels
-    opuset.format_mode = 0;     //0:百度无头   1:兼容源码解码器.    2:ogg.
-    opuset.complexity = 1;      //complexity_max_4       //VVV_TST
-    opuset.frame_ms = OPUS_FS;    
-    needsz = hdl->opus_stenc->need_buf(&opuset);
-    printf("sr : %d, br : %d, ch : %d, fs : %d\n", opuset.sr, opuset.br, opuset.nch, opuset.frame_ms);
-    printf("needsz  : %d\n", needsz);
-    run_buf = malloc(24 * 1024);
-    tst_buf_LR = malloc(FRAME_SIZE * 2);
-    work_buf = (void*)run_buf;
-    ret = hdl->opus_stenc->open(work_buf, NULL, &opuset);
-    if (ret != 0)
-    {
-        printf("init failed \n");
+    opuset.br = OPUS_SR * hdl->dev.out_ch_num * sizeof(s16) / OPUS_CR * 8;
+    opuset.nch = hdl->dev.out_ch_num;
+    opuset.format_mode = 0;
+    opuset.complexity = 1;
+    opuset.frame_ms = OPUS_FS;
+    u32 needsz = hdl->opus_stenc->need_buf(&opuset);
+    printf("[opus] sr=%d br=%d nch=%d frame_ms=%d need=%u mono_mic=%u\n",
+           opuset.sr, opuset.br, opuset.nch, opuset.frame_ms, needsz, hdl->mono.mic);
+    if (!needsz) {
+        return -EINVAL;
+    }
+    hdl->run_buf = malloc(needsz);
+    hdl->pcm = malloc(FRAME_SIZE * 2);
+    if (!hdl->run_buf || !hdl->pcm) {
+        return -ENOMEM;
+    }
+    if (hdl->opus_stenc->open(hdl->run_buf, NULL, &opuset)) {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static void effect_dev2_fail(struct effect_dev2_node_hdl *hdl, int reason)
+{
+    if (!hdl->failed) {
+        hdl->failed = 1;
+        printf("[opus] frame failed: %d\n", reason);
+        if (hdl->mono.fault) {
+            hdl->mono.fault(hdl->mono.epoch, reason);
+        }
     }
 }
 
@@ -93,66 +113,53 @@ static void audio_effect_dev2_init(struct effect_dev2_node_hdl *hdl)
  * */
 static u32 audio_effect_dev2_run(struct effect_dev2_node_hdl *hdl, s16 *indata, s16 *outdata, u32 indata_len)
 {
-#if 0
-    //test 2to4
-    if (hdl->dev.bit_width && ((hdl->dev.out_ch_num == 4) && (hdl->dev.in_ch_num == 2))) {
-        pcm_dual_to_qual_with_slience_32bit(outdata, indata, indata_len, 0);
-    }
-#endif
-    //do something
-    u32 data_len = indata_len;
-    int encLen = 0;
-    if(tst_buf_LR == NULL || run_buf == NULL){
+    int enc_len = 0;
+    u32 expected = hdl->dev.in_ch_num >= 2 ? FRAME_SIZE * 2 : FRAME_SIZE;
+    if (hdl->failed || !hdl->pcm || !hdl->run_buf) {
         return 0;
     }
-
-    s16 *pcm_l = tst_buf_LR;
-    s16 *pcm_r = tst_buf_LR + FRAME_POINT;
-    u32 expected_len = (hdl->dev.in_ch_num >= 2) ? (FRAME_SIZE * 2) : FRAME_SIZE;
-    if(data_len < expected_len){
-        printf("len err %d\n", data_len);
+    if ((hdl->mono.mic && indata_len != FRAME_SIZE * 2) ||
+        indata_len < expected) {
+        effect_dev2_fail(hdl, -1);
         return 0;
     }
-
+    s16 *left = hdl->pcm;
+    s16 *right = left + FRAME_POINT;
+    const s16 *selected = indata;
+    if (hdl->mono.mic == 2) {
+        selected += FRAME_POINT;
+    }
+    memcpy(left, selected, FRAME_SIZE);
     if (hdl->dev.out_ch_num == 2) {
-        if (hdl->dev.in_ch_num >= 2) {
-            /* Source_Dev1 provides planar PCM: L[320] followed by R[320]. */
-            memcpy(pcm_l, indata, FRAME_SIZE);
-            memcpy(pcm_r, indata + FRAME_POINT, FRAME_SIZE);
-        } else {
-            memcpy(pcm_l, indata, FRAME_SIZE);
-            memcpy(pcm_r, indata, FRAME_SIZE);
-        }
-    } else {
-        if (hdl->dev.in_ch_num >= 2) {
-            memcpy(pcm_l, indata, FRAME_SIZE);
-        } else {
-            memcpy(pcm_l, indata, FRAME_SIZE);
-        }
+        memcpy(right, hdl->dev.in_ch_num >= 2 ? indata + FRAME_POINT : indata, FRAME_SIZE);
     }
-
-    int ret = hdl->opus_stenc->run_wb((void*)run_buf, pcm_l, pcm_r, (u8 *)outdata, &encLen);
-    /* printf("effect dev2 do something here\n"); */
-    if(ret != 0){
-        printf("enc err\n");
+    int ret = hdl->opus_stenc->run_wb(hdl->run_buf, left,
+                                     hdl->dev.out_ch_num == 2 ? right : NULL,
+                                     (u8 *)outdata, &enc_len);
+    if (ret || enc_len <= 0 || enc_len > FRAME_SIZE * 2) {
+        effect_dev2_fail(hdl, -2);
+        return 0;
     }
-
-    return encLen;
-    /* printf("effect dev2 do something here\n"); */
-    return indata_len;
+    if (!hdl->encoded_frames || enc_len < hdl->min_encoded_len) {
+        hdl->min_encoded_len = enc_len;
+    }
+    if (enc_len > hdl->max_encoded_len) {
+        hdl->max_encoded_len = enc_len;
+    }
+    ++hdl->encoded_frames;
+    hdl->encoded_bytes += enc_len;
+    return enc_len;
 }
-/* 自定义算法，关闭
- **/
+
 static void audio_effect_dev2_exit(struct effect_dev2_node_hdl *hdl)
 {
-    //do something
-    if(run_buf){
-        free(run_buf);
-        run_buf = NULL;
+    if (hdl->run_buf) {
+        free(hdl->run_buf);
+        hdl->run_buf = NULL;
     }
-    if(tst_buf_LR){
-        free(tst_buf_LR);
-        tst_buf_LR = NULL;
+    if (hdl->pcm) {
+        free(hdl->pcm);
+        hdl->pcm = NULL;
     }
 }
 
@@ -178,6 +185,32 @@ static void effect_dev2_handle_frame(struct stream_iport *iport, struct stream_n
     struct effect_dev2_node_hdl *hdl = (struct effect_dev2_node_hdl *)iport->node->private_data;
 
 
+    if (hdl->mono.mic) {
+        struct stream_frame *frame;
+        while ((frame = jlstream_pull_frame(iport, note)) != NULL) {
+            if (!hdl->started || hdl->failed) {
+                jlstream_free_frame(frame);
+                continue;
+            }
+            /* One Source_Dev1 packet is one complete planar PCM pair.
+             * Allocate for the codec's output, not a PCM channel-ratio stride. */
+            struct stream_frame *out = jlstream_get_frame(iport->node->oport, FRAME_SIZE * 2);
+            if (!out) {
+                effect_dev2_fail(hdl, -3);
+                jlstream_free_frame(frame);
+                continue;
+            }
+            out->len = audio_effect_dev2_run(hdl, (s16 *)frame->data,
+                                             (s16 *)out->data, frame->len);
+            jlstream_free_frame(frame);
+            if (out->len) {
+                jlstream_push_frame(iport->node->oport, out);
+            } else {
+                jlstream_free_frame(out);
+            }
+        }
+        return;
+    }
     effect_dev_process(&hdl->dev, iport,  note); //音效处理
 }
 
@@ -204,6 +237,17 @@ static int effect_dev2_ioc_negotiate(struct stream_iport *iport)
     struct stream_oport *oport = iport->node->oport;
     struct stream_fmt *in_fmt = &iport->prev->fmt;
     struct effect_dev2_node_hdl *hdl = (struct effect_dev2_node_hdl *)iport->node->private_data;
+
+    if (hdl->mono.mic) {
+        if (in_fmt->channel_mode != AUDIO_CH_LR) {
+            in_fmt->channel_mode = AUDIO_CH_LR;
+            ret = NEGO_STA_CONTINUE;
+        }
+        oport->fmt.channel_mode = AUDIO_CH_MIX;
+        hdl->dev.in_ch_num = 2;
+        hdl->dev.out_ch_num = 1;
+        return ret;
+    }
 
     if (oport->fmt.channel_mode == 0xff) {
         return 0;
@@ -233,8 +277,11 @@ static int effect_dev2_ioc_negotiate(struct stream_iport *iport)
 }
 
 /*节点start函数*/
-static void effect_dev2_ioc_start(struct effect_dev2_node_hdl *hdl)
+static int effect_dev2_ioc_start(struct effect_dev2_node_hdl *hdl)
 {
+    if (hdl->started) {
+        return 0;
+    }
     struct stream_fmt *fmt = &hdl_node(hdl)->oport->fmt;
     /* struct jlstream *stream = jlstream_for_node(hdl_node(hdl)); */
 
@@ -248,7 +295,7 @@ static void effect_dev2_ioc_start(struct effect_dev2_node_hdl *hdl)
     int len = jlstream_read_node_data_new(hdl_node(hdl)->uuid, hdl_node(hdl)->subid, (void *)&hdl->cfg, hdl->name);
     if (!len) {
         log_error("%s, read node data err\n", __FUNCTION__);
-        return;
+        return -EINVAL;
     }
 
     /*
@@ -272,15 +319,40 @@ static void effect_dev2_ioc_start(struct effect_dev2_node_hdl *hdl)
 
     hdl->dev.node_hdl = hdl;
     hdl->dev.effect_run = (u32 (*)(void *, s16 *, s16 *, u32))audio_effect_dev2_run;
-    effect_dev_init(&hdl->dev, EFFECT_DEV2_FRAME_POINTS);
-
-    audio_effect_dev2_init(hdl);
+    if (hdl->mono.mic && (hdl->dev.sample_rate != OPUS_SR || hdl->dev.bit_width ||
+                          hdl_node(hdl)->iport->prev->fmt.sample_rate != OPUS_SR ||
+                          hdl->dev.in_ch_num != 2 || hdl->dev.out_ch_num != 1)) {
+        return -EINVAL;
+    }
+    int err = audio_effect_dev2_init(hdl);
+    if (err) {
+        audio_effect_dev2_exit(hdl);
+        return err;
+    }
+    if (!hdl->mono.mic) {
+        effect_dev_init(&hdl->dev, EFFECT_DEV2_FRAME_POINTS);
+        if (!hdl->dev.remain_buf) {
+            audio_effect_dev2_exit(hdl);
+            return -ENOMEM;
+        }
+    }
+    hdl->failed = 0;
+    hdl->encoded_frames = hdl->encoded_bytes = 0;
+    hdl->min_encoded_len = hdl->max_encoded_len = 0;
+    hdl->started = 1;
+    return 0;
 }
 
 
 /*节点stop函数*/
 static void effect_dev2_ioc_stop(struct effect_dev2_node_hdl *hdl)
 {
+    if (hdl->started && hdl->mono.mic) {
+        printf("[meeting mono] mic=%u frames=%u bytes=%u encLen=%u..%u failed=%u\n",
+               hdl->mono.mic, hdl->encoded_frames, hdl->encoded_bytes,
+               hdl->min_encoded_len, hdl->max_encoded_len, hdl->failed);
+    }
+    hdl->started = 0;
     audio_effect_dev2_exit(hdl);
     effect_dev_close(&hdl->dev);
 }
@@ -329,9 +401,18 @@ static int effect_dev2_adapter_ioctl(struct stream_iport *iport, int cmd, int ar
     case NODE_IOC_NEGOTIATE:
         *(int *)arg |= effect_dev2_ioc_negotiate(iport);
         break;
-    case NODE_IOC_START:
-        effect_dev2_ioc_start(hdl);
+    case NODE_IOC_SET_PRIV_FMT:
+        if (hdl->started || !arg) {
+            return -EINVAL;
+        }
+        struct meeting_mono_policy *policy = (struct meeting_mono_policy *)arg;
+        if (policy->mic > 2 || (policy->mic && (!policy->epoch || !policy->fault))) {
+            return -EINVAL;
+        }
+        hdl->mono = *policy;
         break;
+    case NODE_IOC_START:
+        return effect_dev2_ioc_start(hdl);
     case NODE_IOC_SUSPEND:
     case NODE_IOC_STOP:
         effect_dev2_ioc_stop(hdl);
@@ -353,6 +434,7 @@ static int effect_dev2_adapter_ioctl(struct stream_iport *iport, int cmd, int ar
 /*节点用完释放函数*/
 static void effect_dev2_adapter_release(struct stream_node *node)
 {
+    effect_dev2_ioc_stop((struct effect_dev2_node_hdl *)node->private_data);
 }
 
 /*节点adapter 注意需要在sdk_used_list声明，否则会被优化*/
@@ -363,8 +445,8 @@ REGISTER_STREAM_NODE_ADAPTER(effect_dev2_node_adapter) = {
     .ioctl      = effect_dev2_adapter_ioctl,
     .release    = effect_dev2_adapter_release,
     .hdl_size   = sizeof(struct effect_dev2_node_hdl),
-#if (CHANNEL_ADAPTER_TYPE != CHANNEL_ADAPTER_AUTO)
-    .ability_channel_out = 0x80 | 1 | 2 | 4,
+#if (CHANNEL_ADAPTER_TYPE != CHANNEL_ADAPTER_AUTO) || TCFG_T2620_MEETING_MONO_DEBUG_MIC
+    .ability_channel_out = 0x80 | 1 | 2,
     .ability_channel_convert = 1,
 #endif
 

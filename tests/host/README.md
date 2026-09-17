@@ -41,3 +41,16 @@ compiler at `C:/JL/pi32/bin/clang.exe`, in addition to Windows PowerShell 5.1.
 Missing dependencies fail the suite rather than silently skipping these checks.
 The tests do not replace firmware builds or real-device qualification, including
 USB enumeration, DMA/interrupt concurrency and physical endpoint backpressure.
+
+The product contract also runs `test_record_storage.py` using the same JL clang
+and llvmlite dependencies. It executes production recording aggregation with a
+mock writer, checking byte preservation across blocks, tail flush and failures.
+It does not validate the RDX binary writer or physical storage.
+
+`test_meeting_mono.py` also runs within the product contract. It executes the
+stage 2A encoder-node functions with a mock codec and stream framework, checking
+fixed MIC selection, input guards, allocation cleanup, frame lengths and stale
+fault isolation. It does not execute the real Opus library or prove App decoding.
+
+The mono harness also executes recording startup to verify the reported channel mode
+is set before the worker starts; mono CHAT reports 0, stereo and CALL report 1.

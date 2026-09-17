@@ -197,6 +197,15 @@
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */
 
+/* Stage 2A: CHAT stream-only debugging only. 0=legacy, 1=MIC0, 2=MIC3.
+ * Saved recordings remain stereo until persistent format support is added. */
+#ifndef TCFG_T2620_MEETING_MONO_DEBUG_MIC
+#define TCFG_T2620_MEETING_MONO_DEBUG_MIC          1
+#endif
+#if TCFG_T2620_MEETING_MONO_DEBUG_MIC < 0 || TCFG_T2620_MEETING_MONO_DEBUG_MIC > 2
+#error "Meeting mono debug MIC must be 0, 1 or 2"
+#endif
+
 /* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1

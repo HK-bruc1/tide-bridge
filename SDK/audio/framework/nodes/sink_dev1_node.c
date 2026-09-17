@@ -28,7 +28,7 @@ struct sink_dev1_hdl {
 
 extern int rdx_record_run_exit(void);
 extern int rdx_record_run_init(void);
-extern int rdx_record_run_data_handle(u8 *data, u16 len);
+extern int rdx_record_run_data_handle(u8 *data, u32 len);
 
 #ifdef BIT_RATE_TEST
 static int tx_speed_cal_timer = 0;

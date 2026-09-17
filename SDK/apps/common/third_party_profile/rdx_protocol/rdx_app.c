@@ -1832,7 +1832,8 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
         return -1;
     }
     if(scene == RECORD_SCENE_CHAT){
-        formate = RECORD_FORMATE_OPUS_16K_STERO; //会议模式用降噪算法，改为双声道
+        formate = rdx_record_format_for_session(scene, stream_only &&
+                                               con_hdl != 0xffff && con_hdl != 0);
     }else if(scene == RECORD_SCENE_CALL){
         formate = RECORD_FORMATE_OPUS_16K_STERO;
     }else{
