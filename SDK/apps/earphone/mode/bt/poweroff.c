@@ -260,6 +260,10 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
         return;
     }
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    extern void usb_factory_shutdown(void);
+    usb_factory_shutdown(); /* notification; never gates poweroff/reset */
+#endif
     app_var.goto_poweroff_flag = 1;
     app_var.goto_poweroff_cnt = 0;
     sys_auto_shut_down_disable();

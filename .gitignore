@@ -39,3 +39,7 @@ info.json
 *sdk.md5
 output/
 cache/
+
+# Python test caches
+__pycache__/
+*.py[cod]

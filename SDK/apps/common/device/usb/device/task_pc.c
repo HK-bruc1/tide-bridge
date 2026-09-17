@@ -23,6 +23,12 @@
 #include "asm/charge.h"
 #include "app_main.h"
 #include "rdx_dip_switch.h"
+#include "usb/device/usb_factory.h"
+#include "usb/device/usb_factory_cdc_internal.h"
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#include "rdx_dut.h"
+#include "usb/otg.h"
+#endif
 
 #if TCFG_USB_SLAVE_ENABLE
 #if  USB_PC_NO_APP_MODE == 0
@@ -90,6 +96,85 @@
 extern u8 msd_in_task;
 extern u8 msd_run_reset;
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+enum { FACTORY_USB_NONE, FACTORY_USB_MSC, FACTORY_USB_CDC, FACTORY_USB_STOPPING };
+static volatile u8 factory_cdc_requested;
+static volatile u8 factory_usb_state;
+static volatile u8 factory_usb_shutdown;
+static u32 factory_cdc_retry_at;
+static u8 factory_cdc_retry_wait;
+
+static int factory_cdc_allowed(void)
+{
+    if (factory_cdc_retry_wait) {
+        if ((int)(sys_timer_get_ms() - factory_cdc_retry_at) < 0) return 0;
+        factory_cdc_retry_wait = 0;
+    }
+    /* requested schedules reconciliation; it is not an authorization token.
+     * RDX owns the live, read-only admission query. Recheck at execution so
+     * queued work cannot revive DUT after its owner revokes it. */
+    return factory_cdc_requested && rdx_dut_factory_usb_ready() &&
+           !factory_usb_shutdown &&
+           get_charge_online_flag() && usb_otg_online(0) == SLAVE_MODE &&
+           !app_in_mode(APP_MODE_PC);
+}
+
+void usb_factory_service(void)
+{
+    factory_cdc_requested = !factory_usb_shutdown &&
+        rdx_dut_factory_usb_ready() && get_charge_online_flag() &&
+        usb_otg_online(0) == SLAVE_MODE && !app_in_mode(APP_MODE_PC);
+    /* Retry rejected posts on the next app_core tick. Messages carry no old
+     * target and never start MSC; usb_stack rechecks current admission. */
+    if ((factory_cdc_requested && factory_usb_state == FACTORY_USB_NONE) ||
+        (!factory_cdc_requested && factory_usb_state == FACTORY_USB_CDC)) {
+        usb_message_to_stack(USBSTACK_CDC_BACKGROUND, 0, 0);
+    }
+}
+
+int usb_factory_msc_started(void) { return factory_usb_state == FACTORY_USB_MSC; }
+int usb_factory_cdc_started(void) { return factory_usb_state == FACTORY_USB_CDC; }
+
+void usb_factory_cdc_poll(void)
+{
+    /* Consume stale notifications even after stop. No resource pointer is
+     * carried by the message. Recheck product admission before each I/O. */
+    if (usb_factory_cdc_started() && !factory_cdc_allowed()) {
+        usb_stop(0);
+    }
+    factory_cdc_process();
+    if (usb_factory_cdc_started() && factory_cdc_needs_restart()) {
+        usb_stop(0);
+        factory_cdc_retry_at = sys_timer_get_ms() + 300;
+        factory_cdc_retry_wait = 1;
+        log_info("[FACTORY-USB] session closed; reenumerate after 300 ms");
+    }
+}
+
+/* Notification only: CDC cannot veto system poweroff/reset. No wait, timer,
+ * hardware access or resource release on the caller's task. MSC remains owned
+ * by the existing PC/storage shutdown path. */
+void usb_factory_shutdown(void)
+{
+    factory_usb_shutdown = 1;
+    factory_cdc_requested = 0;
+    factory_cdc_quiesce();
+    if (factory_usb_state == FACTORY_USB_CDC) {
+        /* Best effort. Already queued CDC work also observes admission closed.
+         * Queue failure must never delay system shutdown. */
+        usb_message_to_stack(USBSTACK_FACTORY_SHUTDOWN, 0, 0);
+    }
+}
+
+void usb_factory_shutdown_process(void)
+{
+    if (factory_usb_shutdown && factory_usb_state == FACTORY_USB_CDC) {
+        usb_stop(0);
+    }
+}
+
+#endif
+
 
 #if TCFG_USB_SLAVE_MSD_ENABLE
 static void usb_msd_wakeup(struct usb_device_t *usb_device)
@@ -138,6 +223,7 @@ static void usb_cdc_wakeup(struct usb_device_t *usb_device)
 #endif
 
 }
+#if TCFG_CFG_TOOL_ENABLE && (TCFG_COMM_TYPE == TCFG_USB_COMM)
 static int cdc_rx_data(int *msg)
 {
     /* log_debug("msg[0]:0x%x\n", (u32)msg[0]); */
@@ -160,6 +246,7 @@ APP_MSG_HANDLER(cdc_data_msg_entry) = {
     .from       = MSG_FROM_CDC_DATA,
     .handler    = cdc_rx_data,
 };
+#endif
 #endif
 
 #if TCFG_USB_CUSTOM_HID_ENABLE
@@ -222,6 +309,17 @@ void usb_start(const usb_dev usbfd)
 {
     u32 class = 0;
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (usbfd != 0 || factory_usb_shutdown || !rdx_dip_switch_pc_allowed() ||
+        !pc_storage_usb_ready() || factory_usb_state == FACTORY_USB_STOPPING) {
+        return;
+    }
+    if (factory_usb_state == FACTORY_USB_MSC) {
+        return;
+    }
+    usb_stop(usbfd);
+#endif
+
 #if TCFG_USB_SLAVE_MSD_ENABLE
     class |= MASSSTORAGE_CLASS;
 #endif
@@ -234,7 +332,7 @@ void usb_start(const usb_dev usbfd)
 #if TCFG_USB_SLAVE_HID_ENABLE
     class |= HID_CLASS;
 #endif
-#if TCFG_USB_SLAVE_CDC_ENABLE
+#if TCFG_USB_SLAVE_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
     class |= CDC_CLASS;
 #endif
 #if TCFG_USB_CUSTOM_HID_ENABLE
@@ -250,7 +348,9 @@ void usb_start(const usb_dev usbfd)
     class |= PRINTER_CLASS;
 #endif
     g_printf("USB_DEVICE_CLASS_CONFIG:%x", class);
-    usb_device_mode(usbfd, class);
+    if (usb_device_mode(usbfd, class)) {
+        return;
+    }
 
 
 #if TCFG_USB_SLAVE_MSD_ENABLE
@@ -290,7 +390,7 @@ void usb_start(const usb_dev usbfd)
     mtp_set_wakeup_handle(usb_mtp_wakeup);
 #endif
 
-#if TCFG_USB_SLAVE_CDC_ENABLE
+#if TCFG_USB_SLAVE_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
     cdc_set_wakeup_handler(usb_cdc_wakeup);
 #endif
 
@@ -305,11 +405,28 @@ void usb_start(const usb_dev usbfd)
 #if TCFG_USB_SLAVE_PRINTER_ENABLE
     printer_set_wakeup_handle(printer_rx_handler);
 #endif
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    factory_usb_state = FACTORY_USB_MSC;
+#endif
 }
 
 void usb_pause(const usb_dev usbfd)
 {
     log_info("usb pause");
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (factory_usb_state == FACTORY_USB_CDC) {
+        factory_cdc_stop();
+    }
+    factory_usb_state = FACTORY_USB_STOPPING;
+    /* I/O and stop execute on usb_stack. Mask device interrupts before
+     * releasing control state or DMA; no task waits inside this section. */
+    local_irq_disable();
+    usb_write_intr_usbe(usbfd, 0);
+    usb_clr_intr_txe(usbfd, -1);
+    usb_clr_intr_rxe(usbfd, -1);
+    local_irq_enable();
+#endif
 
     usb_sie_disable(usbfd);
 
@@ -326,6 +443,9 @@ void usb_pause(const usb_dev usbfd)
 
 
     usb_device_mode(usbfd, 0);
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    factory_usb_state = FACTORY_USB_NONE;
+#endif
 }
 
 void usb_stop(const usb_dev usbfd)
@@ -353,14 +473,54 @@ int usb_standby(const usb_dev usbfd)
 #if TCFG_USB_CDC_BACKGROUND_RUN
 void usb_cdc_background_run(const usb_dev usbfd)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (usbfd != 0) {
+        return;
+    }
+    if (!factory_cdc_allowed()) {
+        if (factory_usb_state == FACTORY_USB_CDC) {
+            usb_stop(usbfd);
+        }
+        return;
+    }
+    /* PC owns MSC stop and SD restore; background work cannot take it over. */
+    if (factory_usb_state != FACTORY_USB_NONE) {
+        return;
+    }
+    usb_stop(usbfd);
+    if (!factory_cdc_allowed()) {
+        return;
+    }
+    if (factory_cdc_start()) {
+        factory_cdc_stop();
+        return; /* app_core policy tick retries a failed timer allocation */
+    }
+    if (!usb_device_mode(usbfd, CDC_CLASS)) {
+        factory_usb_state = FACTORY_USB_CDC;
+        log_info("[FACTORY-USB] CDC byte transport, test=%d", TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE);
+    } else {
+        factory_cdc_stop();
+    }
+#else
     g_printf("CDC is running in the background");
     usb_device_mode(usbfd, CDC_CLASS);
     cdc_set_wakeup_handler(usb_cdc_wakeup);
+#endif
 }
 
 int usb_cdc_background_standby(const usb_dev usbfd)
 {
     int ret = 0;
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (get_power_on_status()) {
+        usb_cdc_background_run(usbfd);
+        return 0; /* Suppress PC even before business/SD is ready. */
+    }
+    if (factory_usb_state == FACTORY_USB_MSC) {
+        return 0; /* Duplicate IN must not tear down the active PC instance. */
+    }
+    return usb_standby(usbfd);
+#else
 #if TCFG_USB_DM_MULTIPLEX_WITH_SD_DAT0
     mult_sdio_suspend();
     usb_cdc_background_run(usbfd);
@@ -381,6 +541,7 @@ int usb_cdc_background_standby(const usb_dev usbfd)
 #endif
 #endif
     return ret;
+#endif
 }
 #endif
 

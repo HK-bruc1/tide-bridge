@@ -1,5 +1,6 @@
 #include "app_config.h"
 #include "rdx_dip_switch.h"
+#include "usb/device/usb_factory.h"
 
 #if TCFG_DIP_SWITCH_POWER_ENABLE
 #include "system/includes.h"
@@ -54,6 +55,10 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     u32 usb = usb_otg_online(0);
     int vbus = get_charge_online_flag();
     (void)priv;
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* Runs even when the DIP/PC service is waiting, retrying or failing. */
+    usb_factory_service();
+#endif
     /* Require two matching samples before reacting to a mechanical edge. */
     if (on != s_sample_on) {
         s_sample_on = on;

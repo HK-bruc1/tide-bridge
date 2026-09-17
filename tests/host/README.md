@@ -1,6 +1,6 @@
 ﻿# Host contracts
 
-Run from the repository root (PowerShell 5.1, no extra dependencies):
+Run from the repository root (dependencies listed below):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
@@ -22,8 +22,22 @@ groups still run. Exit code is 0 on success and 1 on failure.
 Each group can also run directly. Shared helpers live in `host_test_lib.ps1`.
 Add checks to the relevant group; keep the runner's explicit five-group list.
 
-These are source contracts, not firmware execution tests. The optional Python/
+The five core groups primarily check source contracts. The optional Python/
 LLVM storage scripts were removed to keep one validation path; their runtime
 fault injection is no longer covered here. Firmware builds and device checks
 remain necessary for storage I/O failures, disconnect/worker races, PC/phone
 handoff and OTA finalization. Historical validation records remain in `docs/`.
+
+Most checks are static PowerShell assertions. The product contract also runs
+`test_factory_usb.py`: it compiles the actual factory USB coordinator with hardware
+stubs, executes its LLVM IR, and checks the real SDK's final CDC configurations.
+The same harness checks CDC queues, session invalidation, bounded DMA I/O and
+summary logging. The optional board tool runs only four short echo checks:
+`python tests/board/factory_cdc_bytes.py --port COM6`.
+Board instructions and acceptance records live in
+`docs/8-0.厂测USB通信协议设计.md`; no serial port is opened by the host suite.
+This requires Python with `llvmlite` (`python -m pip install llvmlite`) and the JL
+compiler at `C:/JL/pi32/bin/clang.exe`, in addition to Windows PowerShell 5.1.
+Missing dependencies fail the suite rather than silently skipping these checks.
+The tests do not replace firmware builds or real-device qualification, including
+USB enumeration, DMA/interrupt concurrency and physical endpoint backpressure.

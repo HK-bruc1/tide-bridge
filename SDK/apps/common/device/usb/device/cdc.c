@@ -12,6 +12,7 @@
 #include "app_config.h"
 #include "os/os_api.h"
 #include "cdc_defs.h"  //need redefine __u8, __u16, __u32
+#include "usb/device/usb_factory_cdc_internal.h"
 
 #define LOG_TAG_CONST       USB
 #define LOG_TAG             "[USB]"
@@ -22,6 +23,20 @@
 #define LOG_CLI_ENABLE
 #include "debug.h"
 
+/* Factory diagnostics are deferred by usb_factory_cdc.c. Never print from
+ * the factory control/endpoint callbacks, even in detailed logging mode.
+ * Preserve the SDK logging policy for non-factory CDC builds. */
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#undef log_info
+#undef log_debug
+#undef log_error
+#undef log_debug_hexdump
+#define log_info(...) ((void)0)
+#define log_debug(...) ((void)0)
+#define log_error(...) ((void)0)
+#define log_debug_hexdump(...) ((void)0)
+#endif
+
 #if TCFG_USB_SLAVE_CDC_ENABLE
 
 
@@ -29,6 +44,9 @@ struct usb_cdc_gadget {
     u8 *cdc_buffer;
     u8 *bulk_ep_out_buffer;
     u8 *bulk_ep_in_buffer;
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    u8 *factory_rx_buffer;
+#endif
     void *priv;
     int (*output)(void *priv, u8 *obuf, u32 olen);
     void (*wakeup_handler)(struct usb_device_t *usb_device);
@@ -43,6 +61,8 @@ struct usb_cdc_gadget {
 };
 
 static struct usb_cdc_gadget *cdc_hdl;
+
+int cdc_is_registered(void) { return cdc_hdl != NULL; }
 
 #if USB_MALLOC_ENABLE
 
@@ -159,6 +179,21 @@ static u32 cdc_setup(struct usb_device_t *usb_device, struct usb_ctrlrequest *ct
     int recip_type;
     u32 len;
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* Only implements line coding and control lines. Reject unknown
+     * or malformed control payloads before touching the shared EP0 buffer. */
+    if (!cdc_hdl || !(
+        (ctrl_req->bRequestType == 0x21 &&
+         ctrl_req->bRequest == USB_CDC_REQ_SET_LINE_CODING && ctrl_req->wLength == 7) ||
+        (ctrl_req->bRequestType == 0xa1 &&
+         ctrl_req->bRequest == USB_CDC_REQ_GET_LINE_CODING && ctrl_req->wLength <= 7) ||
+        (ctrl_req->bRequestType == 0x21 &&
+         ctrl_req->bRequest == USB_CDC_REQ_SET_CONTROL_LINE_STATE && ctrl_req->wLength == 0))) {
+        usb_set_setup_phase(usb_device, USB_EP0_SET_STALL);
+        return 0;
+    }
+#endif
+
     recip_type = ctrl_req->bRequestType & USB_TYPE_MASK;
 
     switch (recip_type) {
@@ -205,6 +240,15 @@ static u32 cdc_setup(struct usb_device_t *usb_device, struct usb_ctrlrequest *ct
         case USB_CDC_REQ_SET_CONTROL_LINE_STATE:
             log_info("set control line state - %d", ctrl_req->wValue);
             if (cdc_hdl) {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+                u8 was_open = cdc_hdl->bmTransceiver & BIT(0);
+                cdc_hdl->bmTransceiver = (ctrl_req->wValue & 3) | BIT(4);
+                if (was_open && !(ctrl_req->wValue & BIT(0))) {
+                    factory_cdc_invalidate(FACTORY_CDC_CLOSE);
+                } else if (ctrl_req->wValue & BIT(0)) {
+                    factory_cdc_open();
+                }
+#else
                 /* if (ctrl_req->wValue & BIT(0)) { //DTR */
                 cdc_hdl->bmTransceiver |= BIT(0);
                 /* } else { */
@@ -216,6 +260,7 @@ static u32 cdc_setup(struct usb_device_t *usb_device, struct usb_ctrlrequest *ct
                 /* usb_slave->cdc->bmTransceiver &= ~BIT(1); */
                 /* } */
                 cdc_hdl->bmTransceiver |= BIT(4);  //cfg done
+#endif
             }
             usb_set_setup_phase(usb_device, USB_EP0_STAGE_SETUP);
             //cdc_endpoint_init(usb_device, (ctrl_req->wIndex & USB_RECIP_MASK));
@@ -241,6 +286,13 @@ static u32 cdc_setup_rx(struct usb_device_t *usb_device, struct usb_ctrlrequest 
     struct usb_cdc_line_coding *lc = 0;
     u32 len;
     u8 *read_ep = usb_get_setup_buffer(usb_device);
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (!cdc_hdl || ctrl_req->bRequestType != 0x21 ||
+        ctrl_req->bRequest != USB_CDC_REQ_SET_LINE_CODING || ctrl_req->wLength != 7) {
+        return USB_EP0_SET_STALL;
+    }
+#endif
 
     len = ctrl_req->wLength;
     usb_read_ep0(usb_id, read_ep, len);
@@ -280,6 +332,10 @@ static u32 cdc_setup_rx(struct usb_device_t *usb_device, struct usb_ctrlrequest 
 
 static void cdc_reset(struct usb_device_t *usb_device, u32 itf)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    factory_cdc_invalidate(FACTORY_CDC_RESET);
+    if (cdc_hdl) cdc_hdl->bmTransceiver = 0;
+#endif
     log_debug("%s", __func__);
     //cppcheck-suppress unreadVariable
     const usb_dev usb_id = usb_device2id(usb_device);
@@ -301,6 +357,11 @@ u32 cdc_desc_config(const usb_dev usb_id, u8 *ptr, u32 *itf)
 
     tptr = ptr;
     memcpy(tptr, cdc_virtual_comport_desc, sizeof(cdc_virtual_comport_desc));
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* No encapsulated AT/call-management or comm-feature requests. */
+    tptr[8 + 9 + 5 + 3] = 0;
+    tptr[8 + 9 + 5 + 5 + 3] = 2;
+#endif
     //iad interface number
     tptr[2] = *itf;
     //control interface number
@@ -349,9 +410,14 @@ void cdc_set_wakeup_handler(void (*handle)(struct usb_device_t *usb_device))
 
 static void cdc_wakeup_handler(struct usb_device_t *usb_device, u32 ep)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    usb_clr_intr_rxe(usb_device2id(usb_device), CDC_DATA_EP_OUT);
+    factory_cdc_rx_irq();
+#else
     if (cdc_hdl && cdc_hdl->wakeup_handler) {
         cdc_hdl->wakeup_handler(usb_device);
     }
+#endif
 }
 
 void cdc_set_output_handle(void *priv, int (*output_handler)(void *priv, u8 *buf, u32 len))
@@ -385,10 +451,18 @@ static void cdc_endpoint_init(struct usb_device_t *usb_device, u32 itf)
     usb_g_ep_config(usb_id, CDC_DATA_EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_BULK,
                     0, cdc_hdl->bulk_ep_in_buffer, MAXP_SIZE_CDC_BULKIN);
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* IRQ only posts a coalesced notification; task handles one packet. */
+    cdc_hdl->factory_rx_buffer = cdc_hdl->bulk_ep_out_buffer;
+    usb_g_ep_config(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, USB_ENDPOINT_XFER_BULK,
+                    1, cdc_hdl->bulk_ep_out_buffer, MAXP_SIZE_CDC_BULKOUT);
+    usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_wakeup_handler);
+#else
     usb_g_ep_config(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, USB_ENDPOINT_XFER_BULK,
                     1, cdc_hdl->bulk_ep_out_buffer, MAXP_SIZE_CDC_BULKOUT);
     /* usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_intrrx); */
     usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_wakeup_handler);
+#endif
     usb_enable_ep(usb_id, CDC_DATA_EP_IN);
 
 #if CDC_INTR_EP_ENABLE
@@ -398,8 +472,86 @@ static void cdc_endpoint_init(struct usb_device_t *usb_device, u32 itf)
 #endif
 }
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+#if MAXP_SIZE_CDC_BULKIN != 64 || MAXP_SIZE_CDC_BULKOUT != 64
+#error "Factory CDC transport requires 64-byte endpoints"
+#endif
+
+void cdc_factory_configuration(struct usb_device_t *device, u32 value)
+{
+    if (!cdc_hdl || !(device->wDeviceClass & CDC_CLASS)) return;
+    factory_cdc_invalidate(FACTORY_CDC_CONFIG);
+    cdc_hdl->bmTransceiver = 0;
+    /* SET_CONFIGURATION starts a new data-toggle epoch. Reinitialize even
+     * for the same configuration, flushing DMA before permitting new DTR. */
+    cdc_endpoint_init(device, 0);
+    if (!value) usb_clr_intr_rxe(usb_device2id(device), CDC_DATA_EP_OUT);
+}
+
+int cdc_factory_configured(void)
+{
+    struct usb_device_t *device = usb_id2device(0);
+    return cdc_hdl && device && device->bDeviceStates == USB_CONFIGURED &&
+           (cdc_hdl->bmTransceiver & (BIT(0) | BIT(4))) == (BIT(0) | BIT(4));
+}
+
+int cdc_factory_tx_busy(void)
+{
+    return !cdc_hdl || (usb_read_txcsr(0, CDC_DATA_EP_IN) &
+                      (TXCSRP_TxPktRdy | TXCSRP_FIFONotEmpty));
+}
+
+int cdc_factory_write_packet(const u8 *bytes, u32 length)
+{
+    if (!cdc_factory_configured() || length > MAXP_SIZE_CDC_BULKIN ||
+        cdc_factory_tx_busy()) return -1;
+    /* Non-waiting BR28 commit, matching usb_g_bulk_write: copy DMA, set
+     * count, set TxPktRdy. One task owns this single-buffer endpoint and
+     * masks IRQs across readiness check/commit. No bulk wait loop or mutex. */
+    if (length) memcpy(cdc_hdl->bulk_ep_in_buffer, bytes, length);
+    usb_set_dma_taddr(0, CDC_DATA_EP_IN, cdc_hdl->bulk_ep_in_buffer);
+    usb_write_ep_cnt(0, CDC_DATA_EP_IN, length);
+    usb_write_txcsr(0, CDC_DATA_EP_IN,
+                    usb_read_txcsr(0, CDC_DATA_EP_IN) | TXCSRP_TxPktRdy);
+    return length;
+}
+
+int cdc_factory_read_packet(u8 *bytes)
+{
+    if (!cdc_factory_configured()) return 0;
+    if (!(usb_read_rxcsr(0, CDC_DATA_EP_OUT) & RXCSRP_RxPktRdy)) {
+        usb_set_intr_rxe(0, CDC_DATA_EP_OUT);
+        return 0;
+    }
+    /* BR28 usb_v1.c bulk RX uses alternating DMA buffers spaced maxp+4
+     * (the SDK allocator includes this padding). Mirror its switch and ACK,
+     * but consume exactly ONE packet, including ZLP. The legacy read helper
+     * can keep looping on short/ZLP traffic even with block=0. */
+    int n = usb_read_rxcount(0, CDC_DATA_EP_OUT);
+    if (n < 0 || n > MAXP_SIZE_CDC_BULKOUT) {
+        factory_cdc_invalidate(FACTORY_CDC_TIMEOUT);
+        return 0;
+    }
+    u8 *current = cdc_hdl->factory_rx_buffer;
+    cdc_hdl->factory_rx_buffer = current == cdc_hdl->bulk_ep_out_buffer ?
+        cdc_hdl->bulk_ep_out_buffer + MAXP_SIZE_CDC_BULKOUT + 4 : cdc_hdl->bulk_ep_out_buffer;
+    usb_set_dma_raddr(0, CDC_DATA_EP_OUT, cdc_hdl->factory_rx_buffer);
+    if (n) memcpy(bytes, current, n);
+    u32 csr = usb_read_rxcsr(0, CDC_DATA_EP_OUT);
+    csr &= ~(RXCSRP_IncompRx | RXCSRP_SentStall | RXCSRP_SendStall |
+             RXCSRP_FlushFIFO | RXCSRP_OverRun);
+    usb_write_rxcsr(0, CDC_DATA_EP_OUT, csr | RXCSRP_FlushFIFO);
+    usb_set_intr_rxe(0, CDC_DATA_EP_OUT);
+    return n;
+}
+#endif
+
 u32 cdc_read_data(const usb_dev usb_id, u8 *buf, u32 len)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    /* Factory endpoints have one owner. Legacy tuning callers cannot race it. */
+    return 0;
+#else
     u32 rxlen;
     if (cdc_hdl == NULL) {
         return 0;
@@ -414,10 +566,14 @@ u32 cdc_read_data(const usb_dev usb_id, u8 *buf, u32 len)
     }
     os_mutex_post(&cdc_hdl->mutex_data);
     return rxlen;
+#endif
 }
 
 u32 cdc_write_data(const usb_dev usb_id, u8 *buf, u32 len)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    return 0;
+#else
     u32 txlen, offset;
     if (cdc_hdl == NULL) {
         return 0;
@@ -448,11 +604,12 @@ u32 cdc_write_data(const usb_dev usb_id, u8 *buf, u32 len)
     }
     os_mutex_post(&cdc_hdl->mutex_data);
     return offset;
+#endif
 }
 
 u32 cdc_write_inir(const usb_dev usb_id, u8 *buf, u32 len)
 {
-#if CDC_INTR_EP_ENABLE
+#if CDC_INTR_EP_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
     u32 txlen, offset;
     if (cdc_hdl == NULL) {
         return 0;
@@ -514,6 +671,14 @@ void cdc_register(const usb_dev usb_id)
         cdc_hdl->intr_ep_in_buffer = usb_alloc_ep_dmabuffer(usb_id, CDC_INTR_EP_IN | USB_DIR_IN, MAXP_SIZE_CDC_INTRIN);
 #endif
 
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        if (!cdc_hdl->bulk_ep_in_buffer || !cdc_hdl->bulk_ep_out_buffer ||
+            !cdc_hdl->intr_ep_in_buffer) {
+            cdc_release(usb_id);
+            return;
+        }
+#endif
+
     }
     return;
 __exit_err:
@@ -532,6 +697,14 @@ void cdc_release(const usb_dev usb_id)
 {
     /* log_info("%s() %d", __func__, __LINE__); */
     if (cdc_hdl) {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+        /* usb_stack serializes I/O and stop; interrupts were masked by
+         * usb_pause. Return OS objects on every enumeration. */
+        os_mutex_del(&cdc_hdl->mutex_data, 0);
+#if CDC_INTR_EP_ENABLE
+        os_mutex_del(&cdc_hdl->mutex_intr, 0);
+#endif
+#endif
         if (cdc_hdl->bulk_ep_in_buffer) {
             usb_free_ep_dmabuffer(usb_id, cdc_hdl->bulk_ep_in_buffer);
             cdc_hdl->bulk_ep_in_buffer = NULL;

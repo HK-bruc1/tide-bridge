@@ -17,6 +17,7 @@
 #include "init.h"
 #include "gpio.h"
 #include "app_config.h"
+#include "usb/device/usb_factory_cdc_internal.h"
 
 #if TCFG_USB_APPLE_DOCK_EN
 #include "apple_dock/iAP.h"
@@ -263,6 +264,12 @@ static u32 setup_other(struct usb_device_t *usb_device, struct usb_ctrlrequest *
 }
 static u32 user_setup_filter(struct usb_device_t *usb_device, struct usb_ctrlrequest *request)
 {
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (request->bRequestType == 0 && request->bRequest == USB_REQ_SET_CONFIGURATION &&
+        request->wLength == 0 && request->wIndex == 0 && request->wValue <= 1) {
+        cdc_factory_configuration(usb_device, request->wValue);
+    }
+#endif
     // dump_setup_request(request);
     // log_debug_hexdump((u8 *)request, 8);
     u32 ret = 0;
