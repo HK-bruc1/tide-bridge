@@ -288,8 +288,8 @@ static int rf_emit(FILE *dst, cJSON *obj, u32 *count)
     if (*count >= RF_MAX_FILES ||
         !cJSON_PrintPreallocated(obj, buf, RF_OBJECT_SIZE, 0)) return -1;
     u32 n = strlen(buf);
-    if (*count && fwrite(",", 1, 1, dst) != 1) return -1;
-    if (fwrite(buf, 1, n, dst) != n) return -1;
+    if (dst && *count && fwrite(",", 1, 1, dst) != 1) return -1;
+    if (dst && fwrite(buf, 1, n, dst) != n) return -1;
     ++*count;
     return 0;
 }
@@ -305,7 +305,7 @@ static int rf_number(cJSON *obj, const char *key, u32 value)
     return cJSON_AddNumberToObject(obj, key, value) ? 0 : -1;
 }
 
-static int rf_fix_object(cJSON *obj, rf_entry *entries, u32 total)
+static int rf_fix_object(cJSON *obj, rf_entry *entries, u32 total, int *changed)
 {
     cJSON *name = cJSON_GetObjectItemCaseSensitive(obj, "name");
     cJSON *sn = cJSON_GetObjectItemCaseSensitive(obj, "sn");
@@ -318,6 +318,14 @@ static int rf_fix_object(cJSON *obj, rf_entry *entries, u32 total)
         }
         if (e->found || sn->valuedouble != e->meta.sn) return -1;
         e->found = 1;
+        cJSON *frame = cJSON_GetObjectItemCaseSensitive(obj, "frame_size");
+        cJSON *opus = cJSON_GetObjectItemCaseSensitive(obj, "opus");
+        if (!cJSON_IsNumber(frame) ||
+            frame->valuedouble != rf_frame_bytes(e->meta.format) ||
+            !cJSON_IsNumber(opus) ||
+            opus->valuedouble != rdx_protocol_calc_opus_format(e->meta.format)) {
+            *changed = 1;
+        }
         if (rf_number(obj, "frame_size", rf_frame_bytes(e->meta.format)) ||
             rf_number(obj, "opus", rdx_protocol_calc_opus_format(e->meta.format))) return -1;
     }
@@ -360,12 +368,17 @@ static cJSON *rf_restore_object(const rf_entry *e)
     return obj;
 }
 
-static int rf_merge(rf_entry *entries, u32 total)
+/* First pass is read-only: a consistent DAT must not be rewritten each boot.
+ * The second pass uses the same parser and the existing durable transaction.
+ * Both passes run before the archive owns the index. */
+static int rf_merge(rf_entry *entries, u32 total, int persist)
 {
+    for (u32 i = 0; i < total; ++i) entries[i].found = 0;
     FILE *src = fopen(RF_DAT, "r");
-    FILE *dst = fopen(RF_TMP, "w+");
-    if (!dst) { if (src) fclose(src); return -1; }
-    int ok = fwrite("[", 1, 1, dst) == 1;
+    FILE *dst = persist ? fopen(RF_TMP, "w+") : NULL;
+    if (persist && !dst) { if (src) fclose(src); return -1; }
+    int changed = !src;
+    int ok = !persist || fwrite("[", 1, 1, dst) == 1;
     u32 count = 0;
     if (src && ok) {
         memset(&rf_reader, 0, sizeof(rf_reader));
@@ -377,7 +390,7 @@ static int rf_merge(rf_entry *entries, u32 total)
             char *buf = rf_json;
             if (rf_object(src, buf)) { ok = 0; break; }
             cJSON *obj = cJSON_ParseWithOpts(buf, NULL, 1);
-            if (!obj || rf_fix_object(obj, entries, total) || rf_emit(dst, obj, &count)) ok = 0;
+            if (!obj || rf_fix_object(obj, entries, total, &changed) || rf_emit(dst, obj, &count)) ok = 0;
             cJSON_Delete(obj);
             c = rf_nonspace(src);
             if (c != ',') break;
@@ -390,10 +403,17 @@ static int rf_merge(rf_entry *entries, u32 total)
     if (src && fclose(src)) ok = 0;
     for (u32 i = 0; ok && i < total; ++i) {
         if (entries[i].found) continue;
+        changed = 1;
+        if (!persist) {
+            if (count >= RF_MAX_FILES) ok = 0;
+            else ++count;
+            continue;
+        }
         cJSON *obj = rf_restore_object(&entries[i]);
         if (!obj || rf_emit(dst, obj, &count)) ok = 0;
         cJSON_Delete(obj);
     }
+    if (!persist) return ok ? changed : -1;
     if (ok && fwrite("]", 1, 1, dst) != 1) ok = 0;
     /* JL w+ need not truncate an existing file. */
     if (ok && ftruncate(dst, ftell(dst))) ok = 0;
@@ -466,7 +486,10 @@ int rdx_record_format_boot(void)
         wdt_clear();
     }
     fscan_release(scan);
-    if (ok && total && rf_merge(entries, total)) ok = 0;
+    if (ok && total) {
+        int changed = rf_merge(entries, total, 0);
+        if (changed < 0 || (changed && rf_merge(entries, total, 1))) ok = 0;
+    }
     free(entries);
     if (!ok) return rf_fail();
     printf("[REC_FORMAT] boot reconciled files=%u\n", total);

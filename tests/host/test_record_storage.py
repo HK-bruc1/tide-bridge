@@ -6,7 +6,7 @@ validate the binary RDX writer, physical storage, or Opus framing.
 import tempfile
 from pathlib import Path
 
-from test_factory_usb import ROOT, run_c_checks
+from host_c_test_lib import ROOT, run_c_checks
 
 
 def main():

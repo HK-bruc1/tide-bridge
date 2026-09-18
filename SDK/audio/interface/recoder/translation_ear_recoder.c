@@ -220,6 +220,9 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
             }
             fmt.channel_mode = AUDIO_CH_MIX;
         }
+        /* Shared storage-format failures also need STOP for CALL and stereo
+         * rollback. Keep this timer for every recording encoder; only the
+         * CHAT dynamic policy enables the PCM-pair watchdog in its callback. */
         recoder->fault_timer = sys_timer_add((void *)recoder->epoch,
                                              translation_mono_fault_poll, 100);
         if (!recoder->fault_timer) {

@@ -652,25 +652,17 @@ Assert-Contract 'RECORD_SESSION_LIFETIME' (
     (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
     $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
 ) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
-# Execute the actual factory USB coordinator with mocked hardware boundaries.
-& python (Join-Path $PSScriptRoot 'test_factory_usb.py')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Factory USB behavioral harness failed (requires JL clang and Python llvmlite)'
-}
-
-& python (Join-Path $PSScriptRoot 'test_record_storage.py')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Recording storage behavioral harness failed'
-}
-
-& python -X utf8 (Join-Path $PSScriptRoot 'test_meeting_mono.py')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Meeting mono behavioral harness failed'
-}
-
-& python -X utf8 (Join-Path $PSScriptRoot 'test_record_format.py')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Recording format recovery behavioral harness failed'
+# Execute production C with mocked hardware/storage/DSP boundaries.
+foreach ($harness in @(
+    'test_factory_usb.py',
+    'test_record_storage.py',
+    'test_meeting_mono.py',
+    'test_record_format.py'
+)) {
+    & python -X utf8 (Join-Path $PSScriptRoot $harness)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$harness failed (requires JL clang and Python llvmlite)"
+    }
 }
 
 Write-Host 'T2620 product contracts passed.'

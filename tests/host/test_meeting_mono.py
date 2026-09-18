@@ -2,19 +2,7 @@
 import tempfile
 from pathlib import Path
 
-from test_factory_usb import ROOT, run_c_checks
-
-
-def function(source, name):
-    start = source.index(name)
-    start = source.rfind('\n', 0, start) + 1
-    brace = source.index('{', start)
-    depth = 1
-    end = brace + 1
-    while depth:
-        depth += (source[end] == '{') - (source[end] == '}')
-        end += 1
-    return source[start:end] + '\n'
+from host_c_test_lib import ROOT, function, run_c_checks
 
 
 def main():

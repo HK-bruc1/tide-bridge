@@ -3,10 +3,8 @@
 Checks persistence semantics and interruption replay, not physical SD durability.
 """
 import re
-from pathlib import Path
 
-from test_factory_usb import ROOT, run_c_checks
-from test_meeting_mono import function
+from host_c_test_lib import ROOT, function, run_c_checks
 
 
 STUBS = r'''
@@ -138,7 +136,11 @@ int test_format_recovery(void) {
     cJSON_Delete(root);
     CHECK(!lookup(RF_COMMIT));
     int unchanged=writes; CHECK(rdx_record_format_boot()==0 && writes==unchanged);
-    CHECK(recover()==0 && handles==0);
+    CHECK(recover()==0 && handles==0 && writes==unchanged);
+    /* A healthy index boots even when all writes would fail. */
+    fail_write=1;
+    CHECK(recover()==0 && handles==0 && writes==unchanged);
+    fail_write=0;
     root=read_dat(); CHECK(cJSON_GetArraySize(root)==1); cJSON_Delete(root);
     /* A legacy stereo entry and marks survive missing-mono-entry recovery. */
     const char *old="[{\"sn\":3,\"name\":\"def123.raw\",\"frame_size\":80,\"marks\":[12,45]}]";
@@ -153,6 +155,20 @@ int test_format_recovery(void) {
     root=read_dat(); obj=cJSON_GetArrayItem(root,0);
     CHECK(num(obj,"frame_size")==40 && num(obj,"opus")==0x40a80400u);
     CHECK(cJSON_GetArraySize(cJSON_GetObjectItem(obj,"marks"))==1); cJSON_Delete(root);
+    unchanged=writes;
+    CHECK(recover()==0 && writes==unchanged && handles==0);
+    /* Missing profile fields still require repair; preserve unknown fields. */
+    old="[{\"sn\":7,\"name\":\"abc123.raw\",\"vendor\":{\"revision\":2}}]";
+    CHECK(rf_write(RF_DAT,old,strlen(old))==0); unchanged=writes;
+    CHECK(recover()==0 && writes>unchanged && handles==0);
+    root=read_dat(); obj=cJSON_GetArrayItem(root,0);
+    CHECK(num(obj,"frame_size")==40 && num(obj,"opus")==0x40a80400u);
+    CHECK(num(cJSON_GetObjectItem(obj,"vendor"),"revision")==2); cJSON_Delete(root);
+    /* Preserve original DAT bytes, including whitespace, on a healthy boot. */
+    old="[ {\"sn\":7, \"name\":\"abc123.raw\", \"frame_size\":40, \"opus\":1084752896} ]";
+    CHECK(rf_write(RF_DAT,old,strlen(old))==0); unchanged=writes;
+    CHECK(recover()==0 && writes==unchanged && handles==0);
+    CHECK(lookup(RF_DAT)->size==strlen(old) && !memcmp(lookup(RF_DAT)->data,old,strlen(old)));
     return 0;
 }
 int test_format_fail_closed(void) {
@@ -170,7 +186,8 @@ int test_format_fail_closed(void) {
     reset(); CHECK(seed_mono()==0);
     const char *bad="[{\"sn\":7,\"name\":\"def123.raw\"}]";
     CHECK(rf_write(RF_DAT,bad,strlen(bad))==0);
-    CHECK(recover()<0 && handles==0);
+    int unchanged=writes;
+    CHECK(recover()<0 && handles==0 && writes==unchanged);
     CHECK(lookup(RF_DAT)->size==strlen(bad) && !memcmp(lookup(RF_DAT)->data,bad,strlen(bad)));
     reset(); CHECK(seed_mono()==0); bad="[{\"sn\":3";
     CHECK(rf_write(RF_DAT,bad,strlen(bad))==0);
