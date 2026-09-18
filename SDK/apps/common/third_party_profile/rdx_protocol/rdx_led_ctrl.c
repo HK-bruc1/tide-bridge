@@ -323,6 +323,10 @@ static bool _rdx_led_on_usb_charge(void)
  * Keep the existing restore order; only ON USB charging uses this policy. */
 static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
 {
+    if (requested == RDX_LED_SCENE_FINALPACK_DONE ||
+        g_current_scene == RDX_LED_SCENE_FINALPACK_DONE) {
+        return RDX_LED_SCENE_FINALPACK_DONE;
+    }
     RecordStatus *rp = rdx_record_get_status();
     if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
         if (requested == RDX_LED_SCENE_RECORD_MARK ||
@@ -558,6 +562,12 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
+    /* Packaging completion stays visible until the physical shutdown begins. */
+    if (g_current_scene == RDX_LED_SCENE_FINALPACK_DONE &&
+        !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        !rdx_storage_lifecycle_transition_led()) {
+        return;
+    }
     int transition = rdx_storage_lifecycle_transition_led();
     bool on_usb_charge = !transition && _rdx_led_on_usb_charge();
     if (transition) {
@@ -566,6 +576,13 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         if (scene == g_current_scene && g_active_effect) {
             return;
         }
+    }
+    /* Until packaging commits, ordinary events retain the DUT indication. */
+    if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        rdx_app_get_dut_status() &&
+        scene != RDX_LED_SCENE_DUT_LED_TEST &&
+        scene != RDX_LED_SCENE_FINALPACK_DONE) {
+        scene = RDX_LED_SCENE_DUT_ENTER;
     }
     if (on_usb_charge) {
         bool new_mark = scene == RDX_LED_SCENE_RECORD_MARK;
@@ -604,7 +621,8 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         && scene != RDX_LED_SCENE_CHARGE_FULL
         && scene != RDX_LED_SCENE_OTA_START
         && scene != RDX_LED_SCENE_DUT_ENTER
-        && scene != RDX_LED_SCENE_DUT_LED_TEST) {
+        && scene != RDX_LED_SCENE_DUT_LED_TEST
+        && scene != RDX_LED_SCENE_FINALPACK_DONE) {
         return;
     }
 
@@ -705,6 +723,12 @@ void rdx_led_ctrl_update(void)
         return;
     }
     if (!g_led_config->run_en) {
+        return;
+    }
+    /* Packaging completion stays visible until the physical shutdown begins. */
+    if (g_current_scene == RDX_LED_SCENE_FINALPACK_DONE &&
+        !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        !rdx_storage_lifecycle_transition_led()) {
         return;
     }
     int transition = rdx_storage_lifecycle_transition_led();

@@ -82,7 +82,7 @@ u32 rdx_vm_get_bound_token(void);
  * Data callbacks must never acquire this mutex. */
 int rdx_vm_bound_transition_lock(void);
 void rdx_vm_bound_transition_unlock(void);
-/* Returns 0 after persistence succeeds, -1 on write failure. */
+/* Returns 0 after write/readback succeeds, -1 on persistence failure. */
 int rdx_vm_set_bound_status(u8 d, u8 show_en);
 void rdx_vm_bound_status_check(void);
 u8 rdx_vm_is_unbouding(void);
@@ -91,6 +91,8 @@ void rdx_vm_unbound_handle(void);
 void rdx_vm_choose_to_unbound_cb(u8 result);
 void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en);
 void rdx_vm_sys_reset_to_defaults(void);
+/* Returns -1 if busy; does not schedule reset/poweroff. */
+int rdx_vm_reset_defaults_no_poweroff(void);
 
 const u8 *rdx_vm_get_license_ptr(void);
 u8 rdx_vm_read_product_info_from_flash(u8 *read_buf, u16 buflen);

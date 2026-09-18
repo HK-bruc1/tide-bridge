@@ -70,6 +70,14 @@ void sys_auto_shut_down_disable(void)
 void sys_auto_shut_down_enable(void)
 {
 #if TCFG_AUTO_SHUT_DOWN_TIME
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    extern bool rdx_app_get_dut_status(void);
+    /* DUT waits for the operator; keep normal-mode timeout settings intact. */
+    if (rdx_app_get_dut_status()) {
+        sys_auto_shut_down_disable();
+        return;
+    }
+#endif
 #if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
     /* All callers (including native BT events) must respect USB power,
      * also after FULL. Explicit DIP shutdown and low-battery protection

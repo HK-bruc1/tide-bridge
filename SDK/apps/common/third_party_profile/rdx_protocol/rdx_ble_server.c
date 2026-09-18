@@ -4032,6 +4032,10 @@ void rdx_ble_server_auto_shut_down_enable(u8 enable)
 #if TCFG_AUTO_SHUT_DOWN_TIME
     y_printf("rdx_ble_server_auto_shut_down_enable: %d\r", enable);
     if (enable) {
+        /* DUT, including completed packaging, waits for operator shutdown. */
+        if (rdx_app_get_dut_status()) {
+            return;
+        }
         if (bt_get_total_connect_dev() == 0 && g_rdx_ble_server_info.ble_conn == 0 && (rp->run == RECORD_STATE_STOP)) { 
             sys_auto_shut_down_enable();
         }

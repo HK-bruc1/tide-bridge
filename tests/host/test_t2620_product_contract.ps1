@@ -655,6 +655,7 @@ Assert-Contract 'RECORD_SESSION_LIFETIME' (
 # Execute production C with mocked hardware/storage/DSP boundaries.
 foreach ($harness in @(
     'test_factory_usb.py',
+    'test_finalpack.py',
     'test_record_storage.py',
     'test_meeting_mono.py',
     'test_record_format.py'

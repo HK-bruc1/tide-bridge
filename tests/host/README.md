@@ -15,7 +15,7 @@ and the final exit code is 0 on success or 1 on failure.
 
 | Group | Coverage |
 | --- | --- |
-| `test_t2620_product_contract.ps1` | Configuration ownership, power, charging, storage, recording and optional USB; also runs the four C behavioral harnesses below |
+| `test_t2620_product_contract.ps1` | Configuration ownership, power, charging, storage, recording and optional USB; also runs the five C behavioral harnesses below |
 | `test_hogp_profile_contract.ps1` | GATT/report bytes, encryption, readiness and peer-scoped bonded CCC |
 | `test_rdx_transport_contract.ps1` | Two-wrapper topology, owner-scoped routing, binding and advertising |
 | `test_rdx_lifecycle_contract.ps1` | Reconnect barriers, worker cleanup, RDX-only release, offline STOP replies and OTA cancellation |
@@ -24,6 +24,7 @@ and the final exit code is 0 on success or 1 on failure.
 | Behavioral harness | Production code exercised with mocks |
 | --- | --- |
 | `test_factory_usb.py` | USB admission/shutdown, final CDC configuration, queues, session invalidation, bounded DMA I/O and logging |
+| `test_finalpack.py` | Packaging commit order, business unbinding, VM write/readback failures, format/queue/timer failures and key DUT recovery |
 | `test_record_storage.py` | Recording aggregation, byte preservation across blocks, tail flush and write failures |
 | `test_meeting_mono.py` | Fixed/dynamic mono integration, PCM guards, allocation cleanup, selector ownership/failures, pairing timeout, stale fault isolation and channel reporting before worker startup |
 | `test_record_format.py` | Format metadata and real cJSON, DAT merge, healthy boot without writes, legacy fields/marks, identity conflicts, failed I/O and interrupted transaction replay |

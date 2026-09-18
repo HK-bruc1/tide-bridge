@@ -78,12 +78,16 @@ extern int rdx_ble_server_adv_enable(u8 enable);
 extern void bt_bredr_enter_dut_mode(u8 a, u8 b);
 extern void bt_bredr_exit_dut_mode(void);
 extern u8 get_ota_status(void);
+extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 extern bool client_file_is_transfer_in_progress(void);
 extern void rdx_app_normal_poweroff(void);
 
 /******************************************************************************
 * Function Declaration Section
 ******************************************************************************/ 
+static bool g_finalpack_end_pending;
+static bool g_finalpack_format_waiting;
+extern bool rdx_uxfile_sd_format_status_check(void);
 static volatile u8 factory_key_dut_ready;
 
 int rdx_dut_factory_usb_ready(void)
@@ -167,6 +171,10 @@ typedef enum {
  **************************************************************************/
 static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
 {
+    if (g_finalpack_end_pending) {
+        DUT_LOG("Finalpack busy, command blocked\r");
+        return;
+    }
     DUT_LOG("Async handle: cmd_type=%d, onoff=%d\r", cmd_type, onoff);
     
     switch(cmd_type) {
@@ -729,25 +737,47 @@ void rdx_dut_poweroff(void)
 * Function Section - 7. 包装测试 / 按键进DUT禁用
 ******************************************************************************/ 
 
-static bool g_finalpack_end_pending = false;
-
-/**************************************************************************
- * function: rdx_dut_finalpack_end_poweroff
- **************************************************************************/
-static void rdx_dut_finalpack_end_poweroff(void *priv)
+static void rdx_dut_finalpack_fail(void)
 {
-    DUT_LOG("Finalpack end: Power off now\r");
-    rdx_dut_poweroff();
+    g_finalpack_end_pending = false;
+    g_finalpack_format_waiting = false;
+    DUT_LOG("Finalpack FAILED; remain in DUT, no automatic poweroff\r");
 }
 
-/**************************************************************************
- * function: rdx_dut_finalpack_end_disconnect_ble
- **************************************************************************/
-static void rdx_dut_finalpack_end_disconnect_ble(void *priv)
+static int rdx_dut_key_dut_store(bool disabled)
 {
-    DUT_LOG("Finalpack end: Disconnect BLE\r");
-    rdx_ble_server_app_disconnect();
-    sys_timeout_add(NULL, rdx_dut_finalpack_end_poweroff, 500);
+    u8 value = disabled ? KEY_DUT_DISABLED_FLAG : 0xff;
+    u8 verified = 0;
+    if (syscfg_write(VM_RDX_KEY_DUT_DISABLED, &value, 1) != 1 ||
+        syscfg_read(VM_RDX_KEY_DUT_DISABLED, &verified, 1) != 1 ||
+        verified != value) {
+        DUT_LOG("Key DUT VM write/readback failed\r");
+        return -1;
+    }
+    rdx_dut_info.key_dut_disabled = disabled;
+    return 0;
+}
+
+/* The vendor format callback may run outside app_core. Commit only here. */
+static void rdx_dut_finalpack_commit(int result)
+{
+    if (!g_finalpack_end_pending || g_finalpack_format_waiting) {
+        return;
+    }
+    if (result != MEM_FORMAT_RESULT_OK) {
+        DUT_LOG("Finalpack format failed: %d\r", result);
+        rdx_dut_finalpack_fail();
+        return;
+    }
+    if (rdx_vm_reset_defaults_no_poweroff() ||
+        rdx_vm_set_bound_status(0, 0) || rdx_dut_key_dut_store(true)) {
+        rdx_dut_finalpack_fail();
+        return;
+    }
+    DUT_LOG("Finalpack committed: bound=0, key DUT disabled (verified)\r");
+    rdx_ble_server_auto_shut_down_enable(0);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_FINALPACK_DONE);
+    DUT_LOG("Finalpack complete: solid red LED; turn DIP switch OFF to power off\r");
 }
 
 /**************************************************************************
@@ -757,35 +787,40 @@ void rdx_dut_finalpack_end_format_cb(u8 result)
 {
     DUT_LOG("Finalpack end format cb, result: %d\r", result);
     
-    if(!g_finalpack_end_pending){
+    if(!g_finalpack_end_pending || !g_finalpack_format_waiting){
         return;
     }
-    g_finalpack_end_pending = false;
-    
-    sys_timeout_add(NULL, rdx_dut_finalpack_end_disconnect_ble, 500);
+    g_finalpack_format_waiting = false;
+    int msg[3] = {(int)rdx_dut_finalpack_commit, 1, result};
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        rdx_dut_finalpack_fail();
+    }
 }
 
 /**************************************************************************
  * function: rdx_dut_finalpack_end
  * description: 包装测试结束
- *              流程：禁止按键进DUT → 重置用户参数 → 格式化存储 → 断开BLE → 关机
+ *              流程：格式化成功 → 重置参数/解绑 → 禁止按键进DUT → 红灯常亮，等待拨码关机
  **************************************************************************/
 void rdx_dut_finalpack_end(void)
 {
     DUT_LOG("=== Finalpack End ===\r");
     
-    rdx_dut_info.key_dut_disabled = true;
-    
-    rdx_vm_sys_reset_to_defaults();
-    
-    {
-        u8 vm_value = KEY_DUT_DISABLED_FLAG;
-        syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
-        DUT_LOG("Disable key entry DUT, flag=0x%02X saved to VM\r", vm_value);
+    RecordStatus *rp = rdx_record_get_status();
+    ReqFileInfo *rf = rdx_protocol_get_uploadfileInfo();
+    if (g_finalpack_end_pending || !rdx_dut_info.dut_mode ||
+        rdx_dut_info.current_func != DUT_FUNC_NONE || get_ota_status() ||
+        rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+        rf->file_send_busy ||
+        rdx_uxfile_sd_format_status_check() || app_var.goto_poweroff_flag ||
+        rdx_storage_lifecycle_business_blocked() ||
+        rdx_storage_lifecycle_shutdown_deferred()) {
+        DUT_LOG("Finalpack rejected: busy or not in DUT\r");
+        return;
     }
-    
     g_finalpack_end_pending = true;
-    
+    g_finalpack_format_waiting = true;
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
     rdx_uxfile_device_sd_format(rdx_dut_finalpack_end_format_cb);
 }
 
@@ -796,10 +831,9 @@ void rdx_dut_key_dut_enable(void)
 {
     DUT_LOG("Key DUT ENABLED\r");
     
-    rdx_dut_info.key_dut_disabled = false;
-    
-    u8 vm_value = 0xff;
-    syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+    if (rdx_dut_key_dut_store(false)) {
+        return;
+    }
     DUT_LOG("Saved to VM: key_dut_disabled = 0 (cleared flag)\r");
 }
 
@@ -810,10 +844,9 @@ void rdx_dut_key_dut_disable(void)
 {
     DUT_LOG("Key DUT DISABLED\r");
     
-    rdx_dut_info.key_dut_disabled = true;
-    
-    u8 vm_value = KEY_DUT_DISABLED_FLAG;
-    syscfg_write(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
+    if (rdx_dut_key_dut_store(true)) {
+        return;
+    }
     DUT_LOG("Saved to VM: key_dut_disabled = 1 (set flag)\r");
 }
 
@@ -834,8 +867,27 @@ bool rdx_dut_is_key_dut_disabled(void)
  * description: DUT BLE指令处理入口
  *              命令异步发送到app_core任务执行
  **************************************************************************/
+/* Acknowledge the factory APP's packaging mode handshake without reopening
+ * tests or replacing the completion indication. DIP OFF ends this session. */
+static bool rdx_dut_finalpack_mode_ack(const char *cmd, const char *value)
+{
+    if (g_finalpack_end_pending && !strcmp(cmd, FT_DUT) &&
+        (!strcmp(value, "0") || !strcmp(value, "1"))) {
+        rdx_protocol_custom_msg_indicate(FT_DUT, (char *)value);
+        return true;
+    }
+    return false;
+}
+
 void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
 {
+    if (g_finalpack_end_pending) {
+        if (rdx_dut_finalpack_mode_ack(cmd, value)) {
+            return;
+        }
+        DUT_LOG("Finalpack busy, BLE command blocked\r");
+        return;
+    }
     char* p = NULL;
     int msg[4];
     int ret;
@@ -1051,6 +1103,9 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
  **************************************************************************/
 void rdx_dut_key_handle(int key_msg)
 {
+    if (g_finalpack_end_pending) {
+        return;
+    }
     if(!rdx_dut_info.dut_mode){
         return;
     }

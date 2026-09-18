@@ -86,6 +86,7 @@ typedef enum {
     RDX_LED_SCENE_USB_SWITCH_WAIT,
     RDX_LED_SCENE_USB_SWITCH_FAILED,
     RDX_LED_SCENE_DUT_LED_TEST,   /* DUT LED test */
+    RDX_LED_SCENE_FINALPACK_DONE, /* Solid red until manual DIP shutdown */
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 

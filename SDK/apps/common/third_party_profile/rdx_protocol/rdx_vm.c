@@ -222,6 +222,7 @@ u8 rdx_vm_get_bound_status(void)
  **************************************************************************/
 int rdx_vm_set_bound_status(u8 d, u8 show_en)
 {
+    u8 verified = 0xff;
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -241,6 +242,12 @@ int rdx_vm_set_bound_status(u8 d, u8 show_en)
     if (syscfg_write(VM_RDX_NOTTA_BOUND_STATUS, &d, sizeof(d)) != sizeof(d)) {
         rdx_vm_bound_transition_unlock();
         r_printf("[RDX_VM] bound status write failed\n");
+        return -1;
+    }
+    if (syscfg_read(VM_RDX_NOTTA_BOUND_STATUS, &verified, sizeof(verified)) != sizeof(verified) ||
+        verified != d) {
+        rdx_vm_bound_transition_unlock();
+        r_printf("[RDX_VM] bound status readback failed\n");
         return -1;
     }
     if (rdx_bound_info.bound_state != d) {
@@ -783,7 +790,7 @@ EarphoneInfo* rdx_vm_get_ep_info(void)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_vm_sys_reset_to_defaults(void)
+int rdx_vm_reset_defaults_no_poweroff(void)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
@@ -795,17 +802,17 @@ void rdx_vm_sys_reset_to_defaults(void)
     log_info("====== %s ------> APP_MSG_BT_PAIR_SET_DEFAULT!!! \n", __FUNCTION__);
     // check if recording or ota
     if(get_ota_status()){
-        return;
+        return -1;
     }
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         y_printf("\r =====%s --> command reject, now is recording or on ota \r", __func__);
-        return;
+        return -1;
     }
     //file transferring.
     ReqFileInfo* r_file = rdx_protocol_get_uploadfileInfo();
     if(r_file->file_send_busy == true){
         y_printf("\r =====%s --> command reject, now is file transferring \r", __func__);
-        return;
+        return -1;
     }
 
     //BT & TWS set default, do system restart.
@@ -845,7 +852,14 @@ if(tws_api_get_role() == TWS_ROLE_MASTER){
     rdx_rtc_store_timestamp();
 #endif
 
-    rdx_app_time_to_reset();     
+    return 0;
+}
+
+void rdx_vm_sys_reset_to_defaults(void)
+{
+    if (!rdx_vm_reset_defaults_no_poweroff()) {
+        rdx_app_time_to_reset();
+    }
 }
 
 /**
