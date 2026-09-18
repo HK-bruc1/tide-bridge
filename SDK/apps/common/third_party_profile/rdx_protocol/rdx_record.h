@@ -169,11 +169,16 @@ void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);
 /* app_core: latch release, cancel pending start, and drain owned recording. */
 u8 rdx_record_stream_only_release(void);
+/* app_core: generic audio failure, retrying STOP for online/offline sessions. */
+u8 rdx_record_audio_fault_stop(void);
+void translation_ear_recoder_storage_fault(void);
 void rdx_record_stream_only_release_complete(void);
 u8 rdx_record_stream_only_is_releasing(void);
 int rdx_record_task_create(void);
 int rdx_record_task_free(void);
 RecordStatus* rdx_record_get_status(void);
+u8 rdx_record_format_for_session(u8 scene, u8 stream_only);
+u8 rdx_record_mono_debug_mic(void);
 int rdx_record_run_exit(void);
 int rdx_record_run_init(void);
 int rdx_record_run_data_handle(u8* d, u32 len);

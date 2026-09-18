@@ -197,6 +197,15 @@
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */
 
+/* All CHAT recording: 0=stereo, 1=MIC0, 2=MIC3, 3=dynamic selector.
+ * CALL retains its original stereo encoder and PCM routing. */
+#ifndef TCFG_T2620_MEETING_MONO_DEBUG_MIC
+#define TCFG_T2620_MEETING_MONO_DEBUG_MIC          3
+#endif
+#if TCFG_T2620_MEETING_MONO_DEBUG_MIC < 0 || TCFG_T2620_MEETING_MONO_DEBUG_MIC > 3
+#error "Meeting mono debug MIC must be 0, 1, 2 or 3"
+#endif
+
 /* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1

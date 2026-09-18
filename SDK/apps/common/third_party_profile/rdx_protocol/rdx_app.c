@@ -63,6 +63,7 @@
 
 #include "rdx_app_config.h"
 #include "rdx_record.h"
+#include "rdx_record_format.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
@@ -1832,7 +1833,8 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
         return -1;
     }
     if(scene == RECORD_SCENE_CHAT){
-        formate = RECORD_FORMATE_OPUS_16K_STERO; //会议模式用降噪算法，改为双声道
+        formate = rdx_record_format_for_session(scene, stream_only &&
+                                               con_hdl != 0xffff && con_hdl != 0);
     }else if(scene == RECORD_SCENE_CALL){
         formate = RECORD_FORMATE_OPUS_16K_STERO;
     }else{
@@ -4176,7 +4178,10 @@ void rdx_app_tasks_init(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
 #if defined(__UUX_FILE__)
-	rdx_uxfile_init();
+    /* Format recovery owns DAT exclusively before the library starts. */
+    if (!rdx_record_format_boot()) {
+        rdx_uxfile_init();
+    }
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (!rdx_storage_lifecycle_business_blocked()) {
         rdx_playback_refresh_playlist();

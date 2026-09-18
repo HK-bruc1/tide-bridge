@@ -7,6 +7,7 @@
 #include "rdx_app.h"
 #include "rdx_uxfile.h"
 #include "rdx_record.h"
+#include "rdx_record_format.h"
 #include "rdx_ble_server.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_rtc.h"
@@ -37,7 +38,7 @@ void rdx_storage_lifecycle_pc_returned(void)
 
 int rdx_storage_lifecycle_business_blocked(void)
 {
-    return s_usb_switch != USB_SWITCH_IDLE ||
+    return rdx_record_format_status() < 0 || s_usb_switch != USB_SWITCH_IDLE ||
            rdx_uxfile_pc_refresh_status() != 0 ||
            rdx_uxfile_storage_status() < 0;
 }
@@ -49,7 +50,7 @@ int rdx_storage_lifecycle_shutdown_deferred(void)
 
 int rdx_storage_lifecycle_transition_led(void)
 {
-    if (s_usb_switch == USB_SWITCH_FAILED ||
+    if (rdx_record_format_status() < 0 || s_usb_switch == USB_SWITCH_FAILED ||
         (get_power_on_status() && rdx_uxfile_pc_refresh_status() < 0) ||
         rdx_uxfile_storage_status() < 0) {
         return 2;
@@ -133,7 +134,7 @@ int rdx_storage_lifecycle_service(int on, int vbus)
     if (s_usb_switch == USB_SWITCH_DRAIN) {
         int saved = rdx_record_usb_quiesce_poll(USB_SWITCH_TICKET);
         int ble_idle = rdx_ble_server_usb_quiesce();
-        if (saved == -1 || rdx_uxfile_storage_status() < 0) {
+        if (saved == -1 || rdx_record_format_status() < 0 || rdx_uxfile_storage_status() < 0) {
             rdx_usb_switch_fail("record/file save");
         } else if (saved == 0 && ble_idle) {
             if (rdx_uxfile_fence_request(USB_SWITCH_TICKET)) {

@@ -3,6 +3,8 @@
 #include "encoder_node.h"
 #include "st_opus_enc/opus_stenc_api.h"
 #include "clock_manager/clock_manager.h"
+#include "meeting_mono.h"
+#include "system/timer.h"
 
  
 #include "rdx_app_config.h"
@@ -16,9 +18,64 @@ extern bool esco_player_runing();
 
 struct translation_ear_recoder {
     struct jlstream *stream;
+    u16 fault_timer;
+    u32 epoch;
+    u32 binding;
 };
 
 static struct translation_ear_recoder *g_translation_ear_recoder[2] = {NULL,NULL};//一共需要两条流，一条[0]用于mic采样，一条[1]用于收集数据和编码
+
+static u32 mono_epoch;
+static u32 mono_binding;
+static u8 mono_running;
+static volatile int mono_fault;
+
+/* Audio callbacks only latch failure. app_core owns the stop request. The
+ * timer retries a full task queue; the failed node emits no further audio. */
+static void translation_mono_fault(u32 epoch, int reason)
+{
+    if (epoch == mono_epoch && !mono_fault) {
+        mono_fault = reason;
+        printf("[meeting mono] fault epoch=%u reason=%d\n", epoch, reason);
+    }
+}
+
+void translation_ear_recoder_storage_fault(void)
+{
+    translation_mono_fault(mono_epoch, -22);
+}
+
+static void translation_mono_stop_on_app_core(void *priv)
+{
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (mono_running && mono_epoch == (u32)priv && mono_fault &&
+        rdx_record_binding_token_is_current(mono_binding)) {
+        /* The generic STOP owns retries and closes both streams, including
+         * saved/offline sessions. Do not lose failure on queue pressure. */
+        if (rdx_record_audio_fault_stop()) {
+            mono_fault = 0;
+        }
+    }
+#endif
+}
+
+static void translation_mono_fault_poll(void *priv)
+{
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if ((u32)priv == mono_epoch && mono_running && rdx_record_mono_debug_mic() == 3) {
+        int health = source_dev1_pair_health();
+        if (health) {
+            translation_mono_fault((u32)priv, health);
+        }
+    }
+#endif
+    if ((u32)priv == mono_epoch && mono_fault) {
+        int msg[3] = {(int)translation_mono_stop_on_app_core, 1, (int)priv};
+        if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+            printf("[meeting mono] stop queue full; retry\n");
+        }
+    }
+}
 
 
 static void translation_ear_recoder_callback(void *private_data, int event)
@@ -95,7 +152,7 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
         return -EFAULT;
     }
 
-    recoder = malloc(sizeof(*recoder));
+    recoder = zalloc(sizeof(*recoder));
     if (!recoder) {
         return -ENOMEM;
     }
@@ -136,6 +193,43 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
             err = jlstream_node_ioctl(recoder->stream, NODE_UUID_ENCODER, NODE_IOC_SET_PRIV_FMT, (int)(&enc_fmt));
         }
         fmt.channel_mode = global_ch_mode;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+        struct meeting_mono_policy policy = {0};
+        policy.mic = rdx_record_mono_debug_mic();
+        if (++mono_epoch == 0) {
+            ++mono_epoch;
+        }
+        mono_fault = 0;
+        recoder->epoch = policy.epoch = mono_epoch;
+        recoder->binding = rdx_record_binding_token_capture();
+        mono_binding = recoder->binding;
+        if (policy.mic) {
+            /* Historical MONO graph contains the dual-MIC CHAT capture and
+             * EffectDev2. Its name does not describe the PCM channel count. */
+            if (uuid != PIPELINE_UUID_TRANSLATION_MONO ||
+                source_uuid != NODE_UUID_SOURCE_DEV1 ||
+                global_ch_mode != AUDIO_CH_LR || esco_player_runing()) {
+                err = -EINVAL;
+                goto __exit2;
+            }
+            policy.fault = translation_mono_fault;
+            err = jlstream_node_ioctl(recoder->stream, NODE_UUID_EFFECT_DEV2,
+                                      NODE_IOC_SET_PRIV_FMT, (int)&policy);
+            if (err) {
+                goto __exit2;
+            }
+            fmt.channel_mode = AUDIO_CH_MIX;
+        }
+        /* Shared storage-format failures also need STOP for CALL and stereo
+         * rollback. Keep this timer for every recording encoder; only the
+         * CHAT dynamic policy enables the PCM-pair watchdog in its callback. */
+        recoder->fault_timer = sys_timer_add((void *)recoder->epoch,
+                                             translation_mono_fault_poll, 100);
+        if (!recoder->fault_timer) {
+            err = -ENOMEM;
+            goto __exit2;
+        }
+#endif
         err += jlstream_node_ioctl(recoder->stream, NODE_UUID_SINK_DEV1, NODE_IOC_SET_FMT, (int)(&fmt));
         if (err && err != -ENOENT) {
             goto __exit2;
@@ -176,6 +270,9 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
     }
 
     g_translation_ear_recoder[idx] = recoder;
+    if (recoder->epoch) {
+        mono_running = 1;
+    }
 
     return 0;
 
@@ -186,6 +283,14 @@ __exit1:
     jlstream_release(recoder->stream);
 __exit0:
     printf("ext0\n");
+    if (recoder->fault_timer) {
+        sys_timer_del(recoder->fault_timer);
+    }
+    if (recoder->epoch && recoder->epoch == mono_epoch) {
+        ++mono_epoch;
+        mono_running = 0;
+        mono_fault = 0;
+    }
     free(recoder);
     return err;
 }
@@ -225,11 +330,19 @@ void translation_ear_recoder_close(u8 type)
     if (!recoder) {
         return;
     }
+    if (recoder->epoch && recoder->epoch == mono_epoch) {
+        ++mono_epoch;
+        mono_running = 0;
+        mono_fault = 0;
+    }
     putchar('O');
     jlstream_stop(recoder->stream, 0);
     putchar('G');
     jlstream_release(recoder->stream);
 
+    if (recoder->fault_timer) {
+        sys_timer_del(recoder->fault_timer);
+    }
     free(recoder);
     g_translation_ear_recoder[idx] = NULL;
 
@@ -337,4 +450,3 @@ REGISTER_LP_TARGET(ai_target) = {
     .name = "ai",
     .is_idle = ai_idle_query,
 };
-

@@ -380,10 +380,13 @@ const int OPUS_SRINDEX = 0; //选择opus解码文件的帧大小，0代表一帧
 //支持ogg_opus 类解码
 const int CONFIG_OGG_OPUS_DEC_SUPPORT = TCFG_DEC_OGG_OPUS_ENABLE; //这里使能才能进行下面两种解码方式的配置
 //设置OPUS 为raw 数据. 带8字节packet头(4字节大端包长+4字节range校验值)
-const int CONFIG_OGG_OPUS_DEC_SET_RAW_MODE = 0;
+/* Decoder-library global, not a per-player option. RDX SourceDev0 supplies
+ * the matching 8-byte headers for both 40/80-byte profiles. Any additional
+ * STENC/OGG Opus source must be checked against this input contract. */
+const int CONFIG_OGG_OPUS_DEC_SET_RAW_MODE = TCFG_RDX_LOCAL_PLAYBACK_ENABLE ? 1 : 0;
 //设置OPUS 为raw 数据 + CBR_OPUS 包长,配配置每次解码读入的包长置每次解码读入的包长可能有多帧共用TOC. 返回0设置成功;
 //使用CBR_OPUS设置包长，需要将上面的 CONFIG_OGG_OPUS_DEC_SET_RAW_MODE 置零
-const int CONFIG_OGG_OPUS_DEC_SET_CBR_PACKET_LEN = 80;
+const int CONFIG_OGG_OPUS_DEC_SET_CBR_PACKET_LEN = TCFG_RDX_LOCAL_PLAYBACK_ENABLE ? 0 : 80;
 
 //***********************
 //*		SPEEX Codec      *

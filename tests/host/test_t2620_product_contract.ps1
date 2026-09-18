@@ -258,7 +258,7 @@ $holdRecordStorageOk = $RdxApp -match '(?s)!ret && stream_only && run == RECORD_
                        $RdxApp -match 'rdx_app_device_record_set\(scene, run, 0\)' -and
                        $RdxRecord -match '(?s)rdx_record_stream_only_start_consume\(token\);.*?rdx_record_online_session_bind\(token\);' -and
                        $RdxRecord -match '(?s)if\(rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_operate_file_init\(\);.*?else\s*\{.*?rdx_uxfile_dat_1_gen\(rp->scene\);' -and
-                       $RdxRecord -match '(?s)//local save\..*?if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_raw_write' -and
+                       $RdxRecord -match '(?s)//local save\.\s*if\(!rdx_record_stream_only_session_is_active\(\)\)\{\s*if \(rdx_record_format_frame\(rdx_uxfile_get_operateFile_info\(\), rp->formate, d, len\)\).*?return -1;.*?rdx_record_local_append\(d, len, rp->scene\);' -and
                        $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
                        $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;'
 Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `
@@ -652,10 +652,17 @@ Assert-Contract 'RECORD_SESSION_LIFETIME' (
     (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
     $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
 ) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
-# Execute the actual factory USB coordinator with mocked hardware boundaries.
-& python (Join-Path $PSScriptRoot 'test_factory_usb.py')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Factory USB behavioral harness failed (requires JL clang and Python llvmlite)'
+# Execute production C with mocked hardware/storage/DSP boundaries.
+foreach ($harness in @(
+    'test_factory_usb.py',
+    'test_record_storage.py',
+    'test_meeting_mono.py',
+    'test_record_format.py'
+)) {
+    & python -X utf8 (Join-Path $PSScriptRoot $harness)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$harness failed (requires JL clang and Python llvmlite)"
+    }
 }
 
 Write-Host 'T2620 product contracts passed.'
