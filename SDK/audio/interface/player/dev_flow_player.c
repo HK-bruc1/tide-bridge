@@ -5,12 +5,17 @@
 #pragma code_seg(".dev_flow_player.text")
 #endif
 #include "jlstream.h"
-#include "sdk_config.h"
+#include "app_config.h"
+#include "node_uuid.h"
 #include "audio_config_def.h"
 #include "dev_flow_player.h"
+#include "os/os_api.h"
 
 struct dev_flow_player {
     struct jlstream *stream;
+    OS_SEM stop_done;
+    u8 stopping;
+    u8 stopped;
 };
 
 static struct dev_flow_player *g_dev_flow_player = NULL;
@@ -42,11 +47,17 @@ int dev_flow_player_open(u8 ch_num, u16 source_uuid)
     dev_flow_player_close();
 
     u16 uuid = ch_num == 2 ? PIPELINE_UUID_TRANSLATION : PIPELINE_UUID_TRANSLATION_MONO;//jlstream_event_notify(STREAM_EVENT_GET_PIPELINE_UUID, (int)"dev_flow");
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    /* SourceDev0 raw Opus is decoded to 48 kHz LR for either file profile. */
+    if (source_uuid == NODE_UUID_SOURCE_DEV0) {
+        uuid = PIPELINE_UUID_TRANSLATION;
+    }
+#endif
     if (uuid == 0) {
         return -EFAULT;
     }
 
-    player = malloc(sizeof(*player));
+    player = zalloc(sizeof(*player));
     if (!player) {
         return -ENOMEM;
     }
@@ -95,6 +106,43 @@ bool dev_flow_player_runing(void)
     return g_dev_flow_player != NULL;
 }
 
+static void dev_flow_stop_worker(void *priv)
+{
+    struct dev_flow_player *player = priv;
+    jlstream_stop(player->stream, 50);
+    os_sem_post(&player->stop_done);
+    while (1) {
+        os_time_dly(0xffff);
+    }
+}
+
+/* Called only by the playback owner (app_core). Keep the player published
+ * until close: recording/storage admission must not see a false idle window.
+ * The worker stops audio only; release and notifications stay on app_core. */
+int dev_flow_player_drain_close(void)
+{
+    struct dev_flow_player *player = g_dev_flow_player;
+    if (!player || player->stopped) {
+        return 1;
+    }
+    if (!player->stopping) {
+        if (os_sem_create(&player->stop_done, 0)) {
+            return -ENOMEM;
+        }
+        player->stopping = 1;
+        if (os_task_create(dev_flow_stop_worker, player, 1, 1024, 0, "pb_close")) {
+            player->stopping = 0;
+            os_sem_del(&player->stop_done, 0);
+            return -ENOMEM;
+        }
+    }
+    if (os_sem_query(&player->stop_done) > 0) {
+        player->stopped = 1;
+        return 1;
+    }
+    return 0;
+}
+
 
 /**
  * @brief 自定义数据流播放器 关闭
@@ -107,7 +155,15 @@ void dev_flow_player_close(void)
     if (!player) {
         return;
     }
-    jlstream_stop(player->stream, 50);
+    if (player->stopping) {
+        /* Explicit stop/pause/switch may arrive during natural EOF cleanup.
+         * Join before release, never stop the same stream concurrently. */
+        os_sem_pend(&player->stop_done, 0);
+        os_task_del("pb_close");
+        os_sem_del(&player->stop_done, 0);
+    } else {
+        jlstream_stop(player->stream, 50);
+    }
     jlstream_release(player->stream);
 
     free(player);
@@ -115,4 +171,3 @@ void dev_flow_player_close(void)
 
     jlstream_event_notify(STREAM_EVENT_CLOSE_PLAYER, (int)"dev_flow");
 }
-

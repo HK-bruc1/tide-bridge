@@ -1,4 +1,4 @@
-"""Stage 2A production C with mocked codec/framework, not acoustic validation."""
+"""Production mono/selector integration with mocked DSP, not acoustic validation."""
 import tempfile
 from pathlib import Path
 
@@ -27,7 +27,7 @@ def main():
     assert recorder.index('NODE_IOC_SET_PRIV_FMT, (int)&policy') < recorder.index('err = jlstream_start(')
     assert 'global_ch_mode != AUDIO_CH_LR' in recorder
     assert 'fmt.channel_mode = AUDIO_CH_MIX;' in recorder
-    assert 'if(!rdx_record_stream_only_session_is_active()){\n        rdx_record_local_append' in record
+    assert record.count('rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)') == 2
     assert record.count('rdx_record_format_for_session(RECORD_SCENE_CHAT,') == 2
     policy = (ROOT / 'SDK/audio/effect/meeting_mono.h').read_text(encoding='utf-8-sig')
     codec = (ROOT / 'SDK/audio/st_opus_enc/opus_stenc_api.h').read_text(encoding='utf-8-sig')
@@ -124,10 +124,37 @@ static u8 mono_running;
 static volatile int mono_fault;
 static int binding_valid=1, stop_calls, queue_fail, queue_calls, worker_busy;
 int rdx_record_binding_token_is_current(u32 token) { return binding_valid && token==11; }
-int rdx_record_stream_only_release(void) { ++stop_calls; return !worker_busy; }
+int rdx_record_audio_fault_stop(void) { ++stop_calls; return !worker_busy; }
 int os_taskq_post_type(const char *t, int q, int n, int *msg) { ++queue_calls; return queue_fail; }
 '''
     codec_stubs = r'''
+
+#define OS_ENTER_CRITICAL() ((void)0)
+#define OS_EXIT_CRITICAL() ((void)0)
+#define MS_MAX_MICS 4
+typedef struct { int sample_rate, num_mics, analysis_samples; } mic_select_config_t;
+static int select_live, select_create_fail, select_process_fail, select_destroy_calls;
+static int source_health;
+static u32 now_ms;
+u32 sys_timer_get_ms(void) { return now_ms; }
+int source_dev1_pair_health(void) { return source_health; }
+int rdx_record_mono_debug_mic(void) { return TCFG_T2620_MEETING_MONO_DEBUG_MIC; }
+void sl_mic_select_config_init(mic_select_config_t *p) { memset(p, 0, sizeof(*p)); }
+int sl_mic_select_create(const mic_select_config_t *p) {
+    if (select_live || select_create_fail) return -1;
+    if(p->sample_rate!=16000 || p->num_mics!=2 || p->analysis_samples!=320) bad=1;
+    select_live=1; return 0;
+}
+void sl_mic_select_destroy(void) { if(!select_live) bad=1; select_live=0; ++select_destroy_calls; }
+int sl_mic_select_process(const s16 *l, const s16 *r, const s16 *c, const s16 *d,
+                          u32 n, s16 *o, int *sel) {
+    if (!select_live || !l || !r || c || d || n!=320 || sel || o==l || o==r) bad=1;
+    for(int i=0;i<320;++i) { if(l[i]!=i+100 || r[i]!=-i-100) bad=1; o[i]=r[i]; }
+    return select_process_fail ? -2 : 320;
+}
+void sl_mic_select_get_channel_rms(float *r) { r[0]=100; r[1]=200; }
+void sl_mic_select_get_channel_state(int *s) { s[0]=s[1]=1; }
+int sl_mic_select_get_active_channel(void) { return 2; }
 static OPUS_ENC_PARA opened;
 static int open_fail, run_fail, run_calls, next_len=43;
 static int want_right, want_selected;
@@ -152,6 +179,7 @@ OPUS_STENC_OPS *get_opus_stenc_ops(void) { return &ops; }
         'audio_effect_dev2_init(', 'effect_dev2_fail(', 'audio_effect_dev2_run(',
         'audio_effect_dev2_exit(', 'effect_dev2_handle_frame(',
         'effect_dev2_ioc_negotiate(', 'effect_dev2_ioc_start(', 'effect_dev2_ioc_stop('))
+    funcs = 'static struct effect_dev2_node_hdl *selector_owner;\n' + funcs
     funcs += function(record, 'rdx_record_format_for_session(')
     funcs += '\n'.join(function(recorder, name) for name in (
         'translation_mono_fault(', 'translation_mono_stop_on_app_core(', 'translation_mono_fault_poll('))
@@ -171,15 +199,16 @@ void setup(int mic) {
     alloc_calls=alloc_fail_at=bad=read_fail=open_fail=run_fail=0;
     run_calls=fault_calls=pushed=freed=pulled=pending=frame_alloc_fail=0;
     next_len=43; workspace=30000;
-    want_selected=mic==2; want_right=mic==0;
+    source_health=select_create_fail=select_process_fail=0;
+    want_selected=mic>=2; want_right=mic==0;
     for (int i=0; i<320; ++i) { pcm[i]=i+100; pcm[i+320]=-i-100; }
     input_frame.data=pcm; input_frame.len=1280;
 }
 int test_mono(void) {
     CHECK(rdx_record_format_for_session(0,1)==(TCFG_T2620_MEETING_MONO_DEBUG_MIC?1:2));
-    CHECK(rdx_record_format_for_session(0,0)==2);
+    CHECK(rdx_record_format_for_session(0,0)==(TCFG_T2620_MEETING_MONO_DEBUG_MIC?1:2));
     CHECK(rdx_record_format_for_session(1,1)==2);
-    for(int mic=0; mic<=2; ++mic) {
+    for(int mic=0; mic<=3; ++mic) {
         setup(mic);
         CHECK(effect_dev2_ioc_negotiate(&input)==NEGO_STA_ACCPTED);
         CHECK(h.dev.in_ch_num==2 && h.dev.out_ch_num==(mic?1:2));
@@ -197,6 +226,27 @@ int test_mono(void) {
         }
         effect_dev2_ioc_stop(&h); effect_dev2_ioc_stop(&h);
         CHECK(!used[0] && !used[1] && !used[2] && !bad);
+    }
+
+    setup(3); effect_dev2_ioc_negotiate(&input); select_create_fail=1;
+    int destroyed=select_destroy_calls;
+    CHECK(effect_dev2_ioc_start(&h)!=0 && !h.selector_owned && !select_live);
+    CHECK(!selector_owner && select_destroy_calls==destroyed && !used[0] && !used[1]);
+    setup(3); effect_dev2_ioc_negotiate(&input); CHECK(effect_dev2_ioc_start(&h)==0);
+    struct effect_dev2_node_hdl other;
+    memset(&other,0,sizeof(other)); other.selector_owned=0; other.mono.mic=3; other.dev.out_ch_num=1;
+    CHECK(audio_effect_dev2_init(&other)!=0);
+    audio_effect_dev2_exit(&other);
+    CHECK(select_live && selector_owner==&h && select_destroy_calls==destroyed);
+    select_process_fail=1;
+    CHECK(audio_effect_dev2_run(&h,pcm,out,1280)==0 && !run_calls && fault_reason==-5);
+    effect_dev2_ioc_stop(&h); effect_dev2_ioc_stop(&h);
+    CHECK(!select_live && !selector_owner && select_destroy_calls==destroyed+1 && !bad);
+    for(int reason=-21; reason<=-20; ++reason) {
+        setup(3); effect_dev2_ioc_negotiate(&input); CHECK(effect_dev2_ioc_start(&h)==0);
+        source_health=reason;
+        CHECK(audio_effect_dev2_run(&h,pcm,out,1280)==0 && !run_calls && fault_reason==reason);
+        effect_dev2_ioc_stop(&h); CHECK(!select_live && !bad);
     }
     for(int fail=1; fail<=2; ++fail) {
         setup(1); effect_dev2_ioc_negotiate(&input); alloc_fail_at=fail;
@@ -224,6 +274,7 @@ int test_mono(void) {
     }
     setup(1); effect_dev2_ioc_negotiate(&input); CHECK(effect_dev2_ioc_start(&h)==0);
     struct effect_dev2_node_hdl second = {0};
+    second.selector_owned=0; /* Explicit tail init: target IR uses 32-bit sizeof, host pointers are 64-bit. */
     second.dev.in_ch_num=2; second.dev.out_ch_num=1;
     CHECK(audio_effect_dev2_init(&second)==0);
     CHECK(second.run_buf!=h.run_buf && second.pcm!=h.pcm);
@@ -291,12 +342,260 @@ int test_report(void) {
 '''
         path.write_text(report_stubs + function(record, 'void rdx_record_auto_run(') + report_tests, encoding='utf-8')
         run_c_checks(path, ['test_report'])
-        for mode in (0, 1, 2):
+        source = (ROOT / 'SDK/audio/framework/plugs/source/source_dev1_file.c').read_text(encoding='utf-8-sig')
+        health_stubs = r"""
+typedef unsigned int u32;
+#define NULL ((void *)0)
+struct source_dev1_file_hdl { int start; };
+static struct source_dev1_file_hdl device, *hdl_p;
+static u32 source_drop_count[2], source_last_pair_ms, now_ms;
+static int source_pair_fault;
+u32 sys_timer_get_ms(void) { return now_ms; }
+"""
+        health_tests = r"""
+#define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
+int test_health(void) {
+    CHECK(source_dev1_pair_health()==0);
+    hdl_p=&device; device.start=1; source_last_pair_ms=100;
+    now_ms=599; CHECK(source_dev1_pair_health()==0);
+    now_ms=600; CHECK(source_dev1_pair_health()==-21);
+    source_last_pair_ms=600; CHECK(source_dev1_pair_health()==-21);
+    source_pair_fault=0; source_drop_count[1]=1;
+    CHECK(source_dev1_pair_health()==-20);
+    source_drop_count[1]=0; CHECK(source_dev1_pair_health()==-20);
+    device.start=0; CHECK(source_dev1_pair_health()==0);
+    device.start=1; source_pair_fault=0;
+    source_last_pair_ms=0xffffff00u; now_ms=243;
+    CHECK(source_dev1_pair_health()==0);
+    now_ms=244; CHECK(source_dev1_pair_health()==-21);
+    return 0;
+}
+"""
+        path.write_text(health_stubs + function(source, 'int source_dev1_pair_health(') + health_tests, encoding='utf-8')
+        run_c_checks(path, ['test_health'])
+        for mode in (0, 1, 2, 3):
             configured = stubs.replace('#define TCFG_T2620_MEETING_MONO_DEBUG_MIC 1',
                                        f'#define TCFG_T2620_MEETING_MONO_DEBUG_MIC {mode}')
             path.write_text(configured + policy + codec + node[struct_start:struct_end] + codec_stubs + funcs + tests, encoding='utf-8')
             run_c_checks(path, ['test_mono'])
-    print('Meeting mono stage 2A behavioral checks passed (mock codec).')
+    metadata_stubs = r"""
+typedef unsigned char u8;
+typedef struct { unsigned int frame_size; } uxfile_data_t;
+#define RECORD_FORMATE_OPUS_16K_MONO 1
+#define RECORD_FORMATE_OPUS_16K_STERO 2
+static uxfile_data_t file;
+static int missing;
+uxfile_data_t *rdx_uxfile_get_operateFile_info(void) { return missing ? 0 : &file; }
+"""
+    metadata_tests = r"""
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+int test_raw_metadata(void) {
+    file.frame_size=80;
+    rdx_record_init_raw_metadata(1); CHECK(file.frame_size==40);
+    rdx_record_init_raw_metadata(2); CHECK(file.frame_size==80);
+    file.frame_size=123;
+    rdx_record_init_raw_metadata(0); CHECK(file.frame_size==123);
+    rdx_record_init_raw_metadata(3); CHECK(file.frame_size==123);
+    rdx_record_init_raw_metadata(255); CHECK(file.frame_size==123);
+    missing=1; rdx_record_init_raw_metadata(1);
+    CHECK(file.frame_size==123);
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-raw-metadata-') as work:
+        path = Path(work) / 'raw_metadata.c'
+        path.write_text(metadata_stubs + function(record, 'static void rdx_record_init_raw_metadata(')
+                        + metadata_tests, encoding='utf-8')
+        run_c_checks(path, ['test_raw_metadata'])
+    # Both recording implementations update only immediately after new-file
+    # generation; the existing generation guard preserves PAUSE/RESUME state.
+    assert record.count('rdx_record_init_raw_metadata(rp->formate);') == 2
+    for scene in ('rp->scene', 'scene'):
+        assert ('rdx_uxfile_dat_1_gen(' + scene + ');\n'
+                '            rdx_record_init_raw_metadata(rp->formate);') in record
+    playback = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_playback.c').read_text(encoding='utf-8-sig')
+    playback_stubs = r"""
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef int bool;
+#define true 1
+#define false 0
+static u16 pb_frame_bytes=80, pb_pending_len, pb_pending_off;
+static u8 pb_channels=2, pb_stream_buf[560];
+static u32 pb_total_written, free_bytes, offered, consumed;
+static struct { u32 seek_base_frame, duration_frames; } pb;
+u32 source_dev0_get_free_space(void) { return free_bytes; }
+u32 source_dev0_input_write(void *data, u32 len) { offered=len; return len; }
+u32 source_dev0_get_consumed_bytes(void) { return consumed; }
+"""
+    playback_tests = r"""
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+int test_raw_playback(void) {
+    CHECK(pb_raw_profile(0,&pb_frame_bytes,&pb_channels));
+    CHECK(pb_frame_bytes==80 && pb_channels==2);
+    CHECK(!pb_raw_profile(79,&pb_frame_bytes,&pb_channels));
+    CHECK(pb_frame_bytes==80 && pb_channels==2);
+    CHECK(!pb_raw_profile(0xffffffffu,&pb_frame_bytes,&pb_channels));
+    for (u32 channels=1; channels<=2; ++channels) {
+        CHECK(pb_raw_profile(channels*40,&pb_frame_bytes,&pb_channels));
+        CHECK(pb_channels==channels);
+        pb_pending_len=560; pb_pending_off=0; pb_total_written=0;
+        free_bytes=pb_frame_bytes-1; offered=0;
+        CHECK(pb_write_pending()==0 && offered==0 && pb_pending_off==0);
+        free_bytes=pb_frame_bytes*3+1;
+        CHECK(pb_write_pending()==pb_frame_bytes*3);
+        CHECK(offered==pb_frame_bytes*3 && pb_pending_off==offered);
+        free_bytes=560;
+        CHECK(pb_write_pending()==560-pb_frame_bytes*3);
+        CHECK(pb_pending_len==0 && pb_pending_off==0 && pb_total_written==560);
+        pb.seek_base_frame=250; pb.duration_frames=1000;
+        consumed=pb_frame_bytes*100;
+        CHECK(pb_current_frame()==350);
+        consumed=pb_frame_bytes*1000;
+        CHECK(pb_current_frame()==1000);
+    }
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-raw-playback-') as work:
+        path = Path(work) / 'raw_playback.c'
+        funcs = ''.join(function(playback, name) for name in
+                        ('static bool pb_raw_profile(', 'static u32 pb_write_pending(',
+                         'static u32 pb_current_frame('))
+        path.write_text(playback_stubs + funcs + playback_tests, encoding='utf-8')
+        run_c_checks(path, ['test_raw_playback'])
+    assert 'base_frame * candidate_frame_bytes' in playback
+    assert 'target_frame * pb_frame_bytes' in playback
+    assert playback.index('pb_close_track();', playback.index('static pb_candidate_result_t pb_start_candidate_at_frame')) < playback.index('pb_frame_bytes = candidate_frame_bytes;')
+    source = (ROOT / 'SDK/audio/framework/plugs/source/source_dev0_file.c').read_text(encoding='utf-8-sig')
+    source_stubs = r"""
+void *memcpy(void *, const void *, unsigned int);
+void *memset(void *, int, unsigned int);
+int memcmp(const void *, const void *, unsigned int);
+#define NULL ((void *)0)
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
+#define SOURCE_DEV0_MSBC_TEST_ENABLE 0
+#define AUDIO_CODING_STENC_OPUS 0xB0000000u
+#define AUDIO_CODING_OPUS 0x100000u
+#define AUDIO_CH_LR 37
+#define AUDIO_CH_MIX 20
+#define OUTPUT_BUFF_SIZE 2048
+struct source_dev0_file_hdl { u8 ch_num; };
+struct stream_fmt { u32 sample_rate, coding_type, channel_mode, bit_rate, frame_dms; };
+static u8 output[88], data_ok, input[560];
+static u32 available, cursor, output_cbuf_h;
+u32 cbuf_get_data_len(void *p) { return available; }
+u32 source_input_read(u8 *dst, u16 n) {
+    if (available<n) return 0;
+    memcpy(dst,input+cursor,n); cursor+=n; available-=n; return n;
+}
+int putchar(int c) { return c; }
+"""
+    constants = '\n'.join(line for line in source.splitlines() if line.startswith('#define OPUS_'))
+    # The disabled-product fallback repeats MAX_FRAME_BYTES; retain local profile.
+    constants = constants.replace('#define OPUS_MAX_FRAME_BYTES        OPUS_MONO_FRAME_BYTES', '')
+    source_tests = r"""
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+int test_decoder_packets(void) {
+    for (u32 ch=1; ch<=2; ++ch) {
+        struct source_dev0_file_hdl h={ch}; struct stream_fmt f={0};
+        source_dev0_get_fmt(&h,&f);
+        CHECK(f.coding_type==AUDIO_CODING_STENC_OPUS);
+        CHECK(f.sample_rate==48000 && f.channel_mode==AUDIO_CH_LR);
+        CHECK(f.bit_rate==16000*ch && f.frame_dms==200);
+        for (u32 i=0;i<560;++i) input[i]=(u8)(i*19);
+        available=560; cursor=0; data_ok=0;
+        while (available>=40*ch) {
+            u32 before=cursor, len=0; u8 *p=source_dev0_get_packet(&h,&len);
+            CHECK(p && len==40*ch+8);
+            CHECK(p[0]==0 && p[1]==0 && p[2]==0 && p[3]==40*ch);
+            CHECK(p[4]==0 && p[5]==0 && p[6]==0 && p[7]==0);
+            CHECK(!memcmp(p+8,input+before,40*ch));
+        }
+        u32 len=0; CHECK(!source_dev0_get_packet(&h,&len));
+        CHECK(cursor==560 && available==0);
+    }
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-raw-decoder-') as work:
+        path = Path(work) / 'decoder_packets.c'
+        funcs = ''.join(function(source, name) for name in
+                        ('static u8 *source_dev0_get_packet(', 'static void source_dev0_get_fmt('))
+        path.write_text(source_stubs + constants + '\n' + funcs + source_tests, encoding='utf-8')
+        run_c_checks(path, ['test_decoder_packets'])
+    assert 'source_dev0_add_consumed_bytes(len - OPUS_RAW_HEADER_BYTES)' in source
+    config = (ROOT / 'SDK/apps/earphone/log_config/lib_media_config.c').read_text(encoding='utf-8-sig')
+    assert 'CONFIG_OGG_OPUS_DEC_SET_RAW_MODE = TCFG_RDX_LOCAL_PLAYBACK_ENABLE ? 1 : 0' in config
+    assert 'CONFIG_OGG_OPUS_DEC_SET_CBR_PACKET_LEN = TCFG_RDX_LOCAL_PLAYBACK_ENABLE ? 0 : 80' in config
+    player = (ROOT / 'SDK/audio/interface/player/dev_flow_player.c').read_text(encoding='utf-8-sig')
+    close_stubs = r"""
+typedef unsigned char u8;
+typedef int OS_SEM;
+#define NULL ((void *)0)
+#define ENOMEM 12
+#define KILL_WAIT 0
+#define STREAM_EVENT_CLOSE_PLAYER 1
+struct jlstream { int value; };
+struct dev_flow_player { struct jlstream *stream; OS_SEM stop_done; u8 stopping, stopped; };
+static struct dev_flow_player *g_dev_flow_player;
+static void (*work_fn)(void *); static void *work_arg;
+static int fail_create, fail_fork, stops, releases, frees, notices, joins;
+int os_sem_create(OS_SEM *s, int n) { *s=n; return fail_create; }
+int os_sem_post(OS_SEM *s) { ++*s; return 0; }
+int os_sem_query(OS_SEM *s) { return *s; }
+int os_sem_del(OS_SEM *s, int x) { return 0; }
+void jlstream_stop(struct jlstream *s, int fade) { ++stops; }
+void jlstream_release(struct jlstream *s) { ++releases; }
+void free(void *p) { ++frees; }
+void jlstream_event_notify(int event, int arg) { ++notices; }
+int os_task_create(void (*fn)(void *),void *arg,int p,int s,int q,const char *n) {
+    if (fail_fork) return 1;
+    work_fn=fn; work_arg=arg; return 0;
+}
+void complete_worker(void) { if (work_fn) { void (*fn)(void *)=work_fn; work_fn=NULL; fn(work_arg); } }
+int os_sem_pend(OS_SEM *s,int t) { complete_worker(); --*s; return 0; }
+void os_task_del(const char *n) { ++joins; }
+#define os_time_dly(x) return
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+"""
+    close_tests = r"""
+int test_async_close(void) {
+    struct jlstream stream={0};
+    struct dev_flow_player p={&stream,0,0,0}; g_dev_flow_player=&p;
+    fail_create=1; CHECK(dev_flow_player_drain_close()<0 && !p.stopping);
+    fail_create=0; fail_fork=1;
+    CHECK(dev_flow_player_drain_close()<0 && !p.stopping && !stops);
+    fail_fork=0;
+    CHECK(dev_flow_player_drain_close()==0 && p.stopping && !stops);
+    CHECK(dev_flow_player_drain_close()==0 && !releases && g_dev_flow_player==&p);
+    complete_worker(); CHECK(stops==1 && !releases);
+    CHECK(dev_flow_player_drain_close()==1);
+    CHECK(dev_flow_player_drain_close()==1);
+    dev_flow_player_close();
+    CHECK(stops==1 && releases==1 && frees==1 && notices==1 && joins==1 && !g_dev_flow_player);
+    dev_flow_player_close(); CHECK(releases==1);
+    p.stopping=p.stopped=0; g_dev_flow_player=&p;
+    CHECK(dev_flow_player_drain_close()==0);
+    dev_flow_player_close(); /* explicit stop races pending EOF: join first */
+    CHECK(stops==2 && releases==2 && joins==2 && !g_dev_flow_player);
+    p.stopping=p.stopped=0; g_dev_flow_player=&p;
+    dev_flow_player_close(); CHECK(stops==3 && releases==3 && joins==2);
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-playback-close-') as work:
+        path = Path(work) / 'close.c'
+        funcs = ''.join(function(player, name) for name in
+                        ('static void dev_flow_stop_worker(', 'int dev_flow_player_drain_close(',
+                         'void dev_flow_player_close('))
+        path.write_text(close_stubs + funcs + close_tests, encoding='utf-8')
+        run_c_checks(path, ['test_async_close'])
+    print('Meeting mono and RAW playback behavioral checks passed (mock codec/selector).')
 
 
 if __name__ == '__main__':

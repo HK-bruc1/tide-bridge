@@ -63,6 +63,7 @@
 
 #include "rdx_app_config.h"
 #include "rdx_record.h"
+#include "rdx_record_format.h"
 #include "rdx_app.h"
 #include "rdx_util.h"
 #include "rdx_commonDef.h"
@@ -4177,7 +4178,10 @@ void rdx_app_tasks_init(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
 #if defined(__UUX_FILE__)
-	rdx_uxfile_init();
+    /* Format recovery owns DAT exclusively before the library starts. */
+    if (!rdx_record_format_boot()) {
+        rdx_uxfile_init();
+    }
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (!rdx_storage_lifecycle_business_blocked()) {
         rdx_playback_refresh_playlist();

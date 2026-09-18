@@ -9,6 +9,8 @@
 #include "jlstream.h"
 #include "media/audio_base.h"
 #include "app_config.h"
+#include "system/timer.h"
+#include "meeting_mono.h"
 #include "Resample_api.h"
 #include "st_opus_enc/opus_stenc_api.h"
 
@@ -40,7 +42,24 @@ static u8 *output_buff[2] = {NULL, NULL};
 #define OUTPUT_BUFF_SIZE    (FRAME_SIZE * 8)
 static u32 source_frame_count;
 static u32 source_wait_count;
-static u32 source_drop_count[2];
+static volatile u32 source_drop_count[2];
+static volatile u32 source_last_pair_ms;
+static volatile int source_pair_fault;
+
+int source_dev1_pair_health(void)
+{
+    if (!hdl_p || !hdl_p->start) {
+        return 0;
+    }
+    if (source_drop_count[0] || source_drop_count[1]) {
+        source_pair_fault = -20;
+    }
+    /* Engineering watchdog, to be qualified under on-device load. */
+    if (!source_pair_fault && (u32)(sys_timer_get_ms() - source_last_pair_ms) >= 500) {
+        source_pair_fault = -21;
+    }
+    return source_pair_fault;
+}
 
 static void output_buff_init(void)
 {
@@ -195,6 +214,7 @@ static u8 *source_dev1_get_packet(struct source_dev1_file_hdl *hdl, u32 *len)
         packet_len = read_len;
     }
     // printf("%d\n", packet_len);
+    source_last_pair_ms = sys_timer_get_ms();
     source_frame_count++;
 #if SOURCE_DEV1_MSBC_TEST_ENABLE
     u8 test_buf[4] = {0x08, 0x38, 0xc8, 0xf8};
@@ -239,6 +259,8 @@ static void source_dev1_open(struct source_dev1_file_hdl *hdl)
     */
     output = malloc(FRAME_POINT * 2 * 2);
     output_buff_init();
+    source_last_pair_ms = sys_timer_get_ms();
+    source_pair_fault = 0;
     source_frame_count = 0;
     source_wait_count = 0;
     source_drop_count[0] = 0;

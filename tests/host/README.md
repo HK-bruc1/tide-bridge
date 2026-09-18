@@ -54,3 +54,8 @@ fault isolation. It does not execute the real Opus library or prove App decoding
 
 The mono harness also executes recording startup to verify the reported channel mode
 is set before the worker starts; mono CHAT reports 0, stereo and CALL report 1.
+
+动态单声道（2B）：`test_meeting_mono.py` 同时覆盖配置 3 的算法集成、单例归属、初始化/处理失败清理及源配对超时锁存。算法与编码器使用 mock；真实库已参与固件链接，声学择优与同步性仍需实机验收。配置与步骤见 `docs/9-1.会议录音双声道改单声道实施方案.md` 第 9.6 节。
+
+
+全 CHAT 保存/恢复：产品契约运行 `test_record_format.py`，执行真实 `rdx_record_format.c` 与 cJSON，mock JL 文件系统，检查格式持久化、索引合并、旧文件/marks 保留、身份校验及提交中断重放。该测试使用 JL clang 的主机目标生成 IR，避免把含动态分配的 32 位 cJSON 结构直接映射到 64 位主机。真实 SD flush/掉电耐久性、APP 下载解码和本地播放仍需实机验收，步骤见方案第 9.7 节。

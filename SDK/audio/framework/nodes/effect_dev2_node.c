@@ -7,6 +7,8 @@
 #include "audio_splicing.h"
 #include "st_opus_enc/opus_stenc_api.h"
 #include "meeting_mono.h"
+#include "sl_mic_select.h"
+#include "system/timer.h"
 
 #if TCFG_EFFECT_DEV2_NODE_ENABLE
 
@@ -47,6 +49,8 @@ struct effect_dev2_node_hdl {
     void *run_buf;
     s16 *pcm;
     struct meeting_mono_policy mono;
+    u8 selector_owned;
+    u32 selector_max_ms;
     u8 started;
     u8 failed;
     u32 encoded_frames;
@@ -54,6 +58,9 @@ struct effect_dev2_node_hdl {
     u16 min_encoded_len;
     u16 max_encoded_len;
 };
+
+typedef char mic_select_config_abi_must_be_44[(sizeof(mic_select_config_t) == 44) ? 1 : -1];
+static struct effect_dev2_node_hdl *selector_owner;
 
 /* 自定义算法，初始化
  * hdl->dev.sample_rate:采样率
@@ -87,6 +94,32 @@ static int audio_effect_dev2_init(struct effect_dev2_node_hdl *hdl)
     }
     if (hdl->opus_stenc->open(hdl->run_buf, NULL, &opuset)) {
         return -EINVAL;
+    }
+    if (hdl->mono.mic == 3) {
+        OS_ENTER_CRITICAL();
+        int busy = selector_owner != NULL;
+        if (!busy) {
+            selector_owner = hdl;
+        }
+        OS_EXIT_CRITICAL();
+        if (busy) {
+            return -EINVAL;
+        }
+        mic_select_config_t config;
+        sl_mic_select_config_init(&config);
+        config.sample_rate = OPUS_SR;
+        config.num_mics = 2;
+        config.analysis_samples = FRAME_POINT;
+        int result = sl_mic_select_create(&config);
+        if (result) {
+            OS_ENTER_CRITICAL();
+            selector_owner = NULL;
+            OS_EXIT_CRITICAL();
+            return -EINVAL;
+        }
+        hdl->selector_owned = 1;
+        hdl->selector_max_ms = 0;
+        printf("[mic select] ready rate=16000 mics=2 points=320 map=1:MIC0,2:MIC3\n");
     }
     return 0;
 }
@@ -129,7 +162,35 @@ static u32 audio_effect_dev2_run(struct effect_dev2_node_hdl *hdl, s16 *indata, 
     if (hdl->mono.mic == 2) {
         selected += FRAME_POINT;
     }
-    memcpy(left, selected, FRAME_SIZE);
+    if (hdl->mono.mic == 3) {
+        int health = source_dev1_pair_health();
+        if (health || !hdl->selector_owned) {
+            effect_dev2_fail(hdl, health ? health : -4);
+            return 0;
+        }
+        u32 began = sys_timer_get_ms();
+        int count = sl_mic_select_process(indata, indata + FRAME_POINT,
+                                         NULL, NULL, FRAME_POINT, left, NULL);
+        u32 elapsed = sys_timer_get_ms() - began;
+        if (elapsed > hdl->selector_max_ms) {
+            hdl->selector_max_ms = elapsed;
+        }
+        if (count != FRAME_POINT) {
+            effect_dev2_fail(hdl, -5);
+            return 0;
+        }
+        if (hdl->encoded_frames % 50 == 0) {
+            float rms[MS_MAX_MICS];
+            int states[MS_MAX_MICS];
+            sl_mic_select_get_channel_rms(rms);
+            sl_mic_select_get_channel_state(states);
+            printf("[mic select] frame=%u active=%d rms=%d/%d state=%d/%d max_ms=%u\n",
+                   hdl->encoded_frames, sl_mic_select_get_active_channel(),
+                   (int)rms[0], (int)rms[1], states[0], states[1], hdl->selector_max_ms);
+        }
+    } else {
+        memcpy(left, selected, FRAME_SIZE);
+    }
     if (hdl->dev.out_ch_num == 2) {
         memcpy(right, hdl->dev.in_ch_num >= 2 ? indata + FRAME_POINT : indata, FRAME_SIZE);
     }
@@ -153,6 +214,13 @@ static u32 audio_effect_dev2_run(struct effect_dev2_node_hdl *hdl, s16 *indata, 
 
 static void audio_effect_dev2_exit(struct effect_dev2_node_hdl *hdl)
 {
+    if (hdl->selector_owned) {
+        sl_mic_select_destroy();
+        hdl->selector_owned = 0;
+        OS_ENTER_CRITICAL();
+        selector_owner = NULL;
+        OS_EXIT_CRITICAL();
+    }
     if (hdl->run_buf) {
         free(hdl->run_buf);
         hdl->run_buf = NULL;
@@ -406,7 +474,7 @@ static int effect_dev2_adapter_ioctl(struct stream_iport *iport, int cmd, int ar
             return -EINVAL;
         }
         struct meeting_mono_policy *policy = (struct meeting_mono_policy *)arg;
-        if (policy->mic > 2 || (policy->mic && (!policy->epoch || !policy->fault))) {
+        if (policy->mic > 3 || (policy->mic && (!policy->epoch || !policy->fault))) {
             return -EINVAL;
         }
         hdl->mono = *policy;

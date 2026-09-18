@@ -36,7 +36,13 @@ static void translation_mono_fault(u32 epoch, int reason)
 {
     if (epoch == mono_epoch && !mono_fault) {
         mono_fault = reason;
+        printf("[meeting mono] fault epoch=%u reason=%d\n", epoch, reason);
     }
+}
+
+void translation_ear_recoder_storage_fault(void)
+{
+    translation_mono_fault(mono_epoch, -22);
 }
 
 static void translation_mono_stop_on_app_core(void *priv)
@@ -44,9 +50,9 @@ static void translation_mono_stop_on_app_core(void *priv)
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     if (mono_running && mono_epoch == (u32)priv && mono_fault &&
         rdx_record_binding_token_is_current(mono_binding)) {
-        /* Existing hold fence retries its worker enqueue and closes both
-         * streams before acknowledging. Do not lose failure on queue pressure. */
-        if (rdx_record_stream_only_release()) {
+        /* The generic STOP owns retries and closes both streams, including
+         * saved/offline sessions. Do not lose failure on queue pressure. */
+        if (rdx_record_audio_fault_stop()) {
             mono_fault = 0;
         }
     }
@@ -55,6 +61,14 @@ static void translation_mono_stop_on_app_core(void *priv)
 
 static void translation_mono_fault_poll(void *priv)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if ((u32)priv == mono_epoch && mono_running && rdx_record_mono_debug_mic() == 3) {
+        int health = source_dev1_pair_health();
+        if (health) {
+            translation_mono_fault((u32)priv, health);
+        }
+    }
+#endif
     if ((u32)priv == mono_epoch && mono_fault) {
         int msg[3] = {(int)translation_mono_stop_on_app_core, 1, (int)priv};
         if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
@@ -182,6 +196,13 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
         struct meeting_mono_policy policy = {0};
         policy.mic = rdx_record_mono_debug_mic();
+        if (++mono_epoch == 0) {
+            ++mono_epoch;
+        }
+        mono_fault = 0;
+        recoder->epoch = policy.epoch = mono_epoch;
+        recoder->binding = rdx_record_binding_token_capture();
+        mono_binding = recoder->binding;
         if (policy.mic) {
             /* Historical MONO graph contains the dual-MIC CHAT capture and
              * EffectDev2. Its name does not describe the PCM channel count. */
@@ -191,26 +212,19 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
                 err = -EINVAL;
                 goto __exit2;
             }
-            if (++mono_epoch == 0) {
-                ++mono_epoch;
-            }
-            mono_fault = 0;
-            recoder->epoch = policy.epoch = mono_epoch;
-            recoder->binding = rdx_record_binding_token_capture();
-            mono_binding = recoder->binding;
             policy.fault = translation_mono_fault;
             err = jlstream_node_ioctl(recoder->stream, NODE_UUID_EFFECT_DEV2,
                                       NODE_IOC_SET_PRIV_FMT, (int)&policy);
             if (err) {
                 goto __exit2;
             }
-            recoder->fault_timer = sys_timer_add((void *)recoder->epoch,
-                                                 translation_mono_fault_poll, 100);
-            if (!recoder->fault_timer) {
-                err = -ENOMEM;
-                goto __exit2;
-            }
             fmt.channel_mode = AUDIO_CH_MIX;
+        }
+        recoder->fault_timer = sys_timer_add((void *)recoder->epoch,
+                                             translation_mono_fault_poll, 100);
+        if (!recoder->fault_timer) {
+            err = -ENOMEM;
+            goto __exit2;
         }
 #endif
         err += jlstream_node_ioctl(recoder->stream, NODE_UUID_SINK_DEV1, NODE_IOC_SET_FMT, (int)(&fmt));

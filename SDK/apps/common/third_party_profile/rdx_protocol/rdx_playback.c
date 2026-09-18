@@ -26,8 +26,6 @@
 
 // 板载 SD NAND 通过 dev_manager 挂载后的录音文件根目录
 #define PB_STORAGE_ROOT         "storage/sd0/C/"
-#define PB_OPUS_CHANNELS        (2u)
-#define PB_OPUS_FRAME_BYTES     (80u)
 #define PB_OPUS_FRAME_MS        (20u)
 #define PB_SEEK_STEP_MS         (5000u)
 #define PB_SEEK_STEP_FRAMES     (PB_SEEK_STEP_MS / PB_OPUS_FRAME_MS)
@@ -49,9 +47,32 @@ static u8 pb_stream_buf[PB_CHUNK_BYTES];
 static u16 pb_pending_len = 0;
 static u16 pb_pending_off = 0;
 static u8 pb_eof = 0;
+static u8 pb_natural_closing = 0;
 static u16 pb_drain_ticks = 0;
 static u32 pb_total_read = 0;
 static u32 pb_total_written = 0;
+/* Supported legacy RAW profiles: 16 kHz, 20 ms, CBR 16/32 kbit/s.
+ * frame_size is persisted DAT metadata, never inferred from file length.
+ * Keep the active profile until the replacement candidate is accepted. */
+static u16 pb_frame_bytes = 80;
+static u8 pb_channels = 2;
+
+static bool pb_raw_profile(u32 stored_frame_bytes, u16 *frame_bytes, u8 *channels)
+{
+    switch (stored_frame_bytes) {
+    case 0: /* Old DAT entries without frame_size use the stereo baseline. */
+    case 80:
+        *frame_bytes = 80;
+        *channels = 2;
+        return true;
+    case 40:
+        *frame_bytes = 40;
+        *channels = 1;
+        return true;
+    default:
+        return false;
+    }
+}
 
 typedef enum {
     PB_DIRECTION_OLDER = -1,
@@ -113,7 +134,7 @@ static void pb_clear_resume_cursor(void)
 
 // ---- 文件路径 --------------------------------------------------------
 
-static bool pb_open_file(const char *fname, FILE **out_f)
+static bool pb_open_file(const char *fname, u16 frame_bytes, FILE **out_f)
 {
     *out_f = NULL;
 
@@ -123,7 +144,7 @@ static bool pb_open_file(const char *fname, FILE **out_f)
     snprintf(path, sizeof(path), PB_STORAGE_ROOT "%s", name);
 
     FILE *f = fopen(path, "r");
-    if (f && flen(f) >= PB_OPUS_FRAME_BYTES) {
+    if (f && flen(f) >= frame_bytes) {
         PB_LOG("open ok: %s, flen=%d", path, flen(f));
         *out_f = f;
         return true;
@@ -211,6 +232,7 @@ static bool pb_cache_ready(void)
 
 static void pb_reset_stream_state(void)
 {
+    pb_natural_closing = 0;
     pb_pending_len = 0;
     pb_pending_off = 0;
     pb_eof = 0;
@@ -281,7 +303,7 @@ static u32 pb_write_pending(void)
 
     u16 remain = pb_pending_len - pb_pending_off;
     u32 free_space = source_dev0_get_free_space();
-    if (free_space < PB_OPUS_FRAME_BYTES) {
+    if (free_space < pb_frame_bytes) {
         return 0;
     }
 
@@ -289,7 +311,7 @@ static u32 pb_write_pending(void)
     if (free_space < write_len) {
         write_len = (u16)free_space;
     }
-    write_len = (write_len / PB_OPUS_FRAME_BYTES) * PB_OPUS_FRAME_BYTES;
+    write_len = (write_len / pb_frame_bytes) * pb_frame_bytes;
     if (write_len == 0) {
         return 0;
     }
@@ -316,7 +338,7 @@ static bool pb_load_next_chunk(u16 max_len)
         return false;
     }
 
-    u16 read_len = (max_len / PB_OPUS_FRAME_BYTES) * PB_OPUS_FRAME_BYTES;
+    u16 read_len = (max_len / pb_frame_bytes) * pb_frame_bytes;
     if (read_len == 0) {
         return false;
     }
@@ -330,7 +352,7 @@ static bool pb_load_next_chunk(u16 max_len)
         return false;
     }
 
-    u16 aligned_len = ((u16)rlen / PB_OPUS_FRAME_BYTES) * PB_OPUS_FRAME_BYTES;
+    u16 aligned_len = ((u16)rlen / pb_frame_bytes) * pb_frame_bytes;
     if (aligned_len == 0) {
         PB_LOG("drop short tail: %d bytes", rlen);
         pb_eof = 1;
@@ -377,6 +399,15 @@ static void pb_finish_natural(void)
         return;
     }
 
+    pb_natural_closing = 1;
+    int result = dev_flow_player_drain_close();
+    if (result <= 0) {
+        /* Allocation failure is retried without blocking app_core. */
+        if (!pb_schedule_pump(PB_PUMP_INTERVAL_MS)) {
+            pb_finish_stop(false);
+        }
+        return;
+    }
     PB_LOG("eof: SN=%u, read=%u, written=%u",
            pb.current_sn, pb_total_read, pb_total_written);
     pb_finish_stop(false);
@@ -391,6 +422,10 @@ static void pb_pump_timer_cb(void *priv)
         return;
     }
 
+    if (pb_natural_closing) {
+        pb_finish_natural();
+        return;
+    }
     if (!pb_eof || pb_pending_len) {
         pb_pump_fill();
     }
@@ -526,7 +561,7 @@ static void pb_restore_stable_state(pb_state_t previous_state)
 
 static u32 pb_current_frame(void)
 {
-    u32 consumed_frames = source_dev0_get_consumed_bytes() / PB_OPUS_FRAME_BYTES;
+    u32 consumed_frames = source_dev0_get_consumed_bytes() / pb_frame_bytes;
     u32 frame = pb.seek_base_frame + consumed_frames;
 
     if (pb.duration_frames && frame > pb.duration_frames) {
@@ -542,7 +577,7 @@ static int pb_open_stream_at_frame(u32 base_frame, pb_state_t transition_state)
     pb.seek_base_frame = base_frame;
     source_dev0_reset_consumed_bytes();
 
-    int err = dev_flow_player_open(PB_OPUS_CHANNELS, NODE_UUID_SOURCE_DEV0);
+    int err = dev_flow_player_open(pb_channels, NODE_UUID_SOURCE_DEV0);
     if (err) {
         PB_LOG("error: dev_flow_player_open failed, err=%d, SN=%u",
                err, pb.current_sn ? pb.current_sn : pb.pending_sn);
@@ -575,14 +610,21 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
         return PB_CANDIDATE_SKIP;
     }
 
+    u16 candidate_frame_bytes;
+    u8 candidate_channels;
+    if (!pb_raw_profile(fi->frame_size, &candidate_frame_bytes, &candidate_channels)) {
+        PB_LOG("skip: unsupported RAW frame_size=%u, SN=%u", fi->frame_size, fi->sn);
+        return PB_CANDIDATE_SKIP;
+    }
+
     FILE *candidate_file = NULL;
-    if (!pb_open_file(fname, &candidate_file)) {
+    if (!pb_open_file(fname, candidate_frame_bytes, &candidate_file)) {
         PB_LOG("skip: fopen failed for SN=%u, file='%s'", fi->sn, fname);
         return PB_CANDIDATE_SKIP;
     }
 
     u32 candidate_sn = fi->sn;
-    u32 candidate_frames = (u32)flen(candidate_file) / PB_OPUS_FRAME_BYTES;
+    u32 candidate_frames = (u32)flen(candidate_file) / candidate_frame_bytes;
     if (candidate_frames == 0) {
         PB_LOG("skip: file shorter than one frame for SN=%u", candidate_sn);
         fclose(candidate_file);
@@ -592,7 +634,7 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
         base_frame = candidate_frames - 1;
     }
 
-    u32 start_offset = base_frame * PB_OPUS_FRAME_BYTES;
+    u32 start_offset = base_frame * candidate_frame_bytes;
     if (start_offset != 0 && fseek(candidate_file, start_offset, SEEK_SET) != 0) {
         PB_LOG("skip: fseek failed for SN=%u, frame=%u, offset=%u",
                candidate_sn, base_frame, start_offset);
@@ -607,6 +649,10 @@ static pb_candidate_result_t pb_start_candidate_at_frame(uxfile_data_t *fi,
     // 候选文件已经成功打开后，才释放旧播放资源。
     pb_close_track();
     pb_file = candidate_file;
+    pb_frame_bytes = candidate_frame_bytes;
+    pb_channels = candidate_channels;
+    PB_LOG("RAW profile: SN=%u channels=%u frame_bytes=%u",
+           candidate_sn, pb_channels, pb_frame_bytes);
     pb.duration_frames = candidate_frames;
 
     int ret = pb_open_stream_at_frame(base_frame, transition_state);
@@ -959,7 +1005,7 @@ static int pb_seek_relative(s32 delta_frames)
         target_frame = current_frame + forward_frames;
     }
 
-    u32 target_offset = target_frame * PB_OPUS_FRAME_BYTES;
+    u32 target_offset = target_frame * pb_frame_bytes;
 
     PB_LOG("seek: sn=%u, cur=%u, target=%u, offset=%u",
            pb.current_sn, current_frame, target_frame, target_offset);

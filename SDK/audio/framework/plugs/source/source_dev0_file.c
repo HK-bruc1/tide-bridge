@@ -38,7 +38,8 @@ static u32 source_dev0_consumed_bytes = 0;
 #define OPUS_MONO_FRAME_BYTES       (40u)
 #if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define OPUS_STEREO_FRAME_BYTES     (80u)
-#define OPUS_MAX_FRAME_BYTES        OPUS_STEREO_FRAME_BYTES
+#define OPUS_RAW_HEADER_BYTES       (8u)
+#define OPUS_MAX_FRAME_BYTES        (OPUS_STEREO_FRAME_BYTES + OPUS_RAW_HEADER_BYTES)
 #else
 #define OPUS_MAX_FRAME_BYTES        OPUS_MONO_FRAME_BYTES
 #endif
@@ -177,7 +178,19 @@ static u8 *source_dev0_get_packet(struct source_dev0_file_hdl *hdl, u32 *len)
     //do something
     packet = (u8 *)output;
     // putchar('b');
+    #if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    /* The JL standard Opus decoder accepts an 8-byte raw packet header.
+     * Only this in-memory decoder input has a header; stored/BLE RAW does not.
+     * Its implementation reads BE length and ignores the range field. */
+    memset(output, 0, OPUS_RAW_HEADER_BYTES);
+    output[3] = frame_len;
+    packet_len = source_input_read(output + OPUS_RAW_HEADER_BYTES, frame_len);
+    if (packet_len) {
+        packet_len += OPUS_RAW_HEADER_BYTES;
+    }
+#else
     packet_len = source_input_read(output, frame_len);
+#endif
 #if SOURCE_DEV0_MSBC_TEST_ENABLE
     u8 test_buf[4] = {0x08, 0x38, 0xc8, 0xf8};
     packet_len = sizeof(source_test_data);
@@ -250,14 +263,13 @@ static void source_dev0_get_fmt(struct source_dev0_file_hdl *hdl, struct stream_
 #endif
     fmt->frame_dms = OPUS_FRAME_DMS;
 #if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-    if (hdl->ch_num == 2) {
-        /* JL's stereo Opus decoder always emits 48 kHz PCM. */
-        fmt->sample_rate = OPUS_STEREO_DEC_SAMPLE_RATE;
-        fmt->coding_type = AUDIO_CODING_STENC_OPUS;
-        fmt->channel_mode = AUDIO_CH_LR;
-        fmt->bit_rate = OPUS_STEREO_BIT_RATE;
-        return;
-    }
+    /* Both recorded profiles use get_opus_stenc_ops(). The matching JL
+     * decoder outputs 48 kHz LR PCM even for a mono encoded packet. */
+    fmt->sample_rate = OPUS_STEREO_DEC_SAMPLE_RATE;
+    fmt->coding_type = AUDIO_CODING_STENC_OPUS;
+    fmt->channel_mode = AUDIO_CH_LR;
+    fmt->bit_rate = hdl->ch_num == 2 ? OPUS_STEREO_BIT_RATE : OPUS_MONO_BIT_RATE;
+    return;
 #endif
     {
         fmt->sample_rate = OPUS_SAMPLE_RATE;
@@ -301,7 +313,11 @@ static enum stream_node_state source_dev0_get_frame(void *_hdl, struct stream_fr
 
     //3、将当前节点数据拷贝到frame
     memcpy(frame->data, packet, len);
+    #if defined(TCFG_RDX_LOCAL_PLAYBACK_ENABLE) && TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    source_dev0_add_consumed_bytes(len - OPUS_RAW_HEADER_BYTES);
+#else
     source_dev0_add_consumed_bytes(len);
+#endif
 
     //4、释放当前节点数据
     source_dev0_free_packet(hdl, packet);

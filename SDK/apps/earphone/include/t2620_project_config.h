@@ -117,7 +117,7 @@
 #define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
 #endif
 #if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL < 0 || TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL > 2
-#error "Factory CDC log level must be 0, 1 or 2"
+#error "Factory CDC log level must be 0, 1, 2 or 3"
 #endif
 
 #if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
@@ -197,13 +197,13 @@
 /* RDX 录音与本地播放                                                         */
 /* -------------------------------------------------------------------------- */
 
-/* Stage 2A: CHAT stream-only debugging only. 0=legacy, 1=MIC0, 2=MIC3.
- * Saved recordings remain stereo until persistent format support is added. */
+/* All CHAT recording: 0=stereo, 1=MIC0, 2=MIC3, 3=dynamic selector.
+ * CALL retains its original stereo encoder and PCM routing. */
 #ifndef TCFG_T2620_MEETING_MONO_DEBUG_MIC
-#define TCFG_T2620_MEETING_MONO_DEBUG_MIC          1
+#define TCFG_T2620_MEETING_MONO_DEBUG_MIC          3
 #endif
-#if TCFG_T2620_MEETING_MONO_DEBUG_MIC < 0 || TCFG_T2620_MEETING_MONO_DEBUG_MIC > 2
-#error "Meeting mono debug MIC must be 0, 1 or 2"
+#if TCFG_T2620_MEETING_MONO_DEBUG_MIC < 0 || TCFG_T2620_MEETING_MONO_DEBUG_MIC > 3
+#error "Meeting mono debug MIC must be 0, 1, 2 or 3"
 #endif
 
 /* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */

@@ -470,6 +470,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_vm.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_dut.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_record.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_record_format.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_server.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_session.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_session_control.c \
@@ -1210,6 +1211,7 @@ LFLAGS := \
 	cpu/br28/liba/fs.a  \
 	cpu/br28/liba/cfg_tool.a  \
 	audio/st_opus_enc/lib_opus_stenc.a \
+	apps/common/third_party_profile/rdx_protocol/libsl_V2_0722.a \
 	cpu/br28/liba/lwip_2_2_0.a \
 	cpu/br28/liba/earphone/release/websocket.a \
 	cpu/br28/liba/earphone/release/libmbedtls_3_4_0.a  \

@@ -177,9 +177,10 @@ int test_all(void) {
 '''
 
 
-def run_c_checks(path, functions):
+def run_c_checks(path, functions, native=False):
     ir_path = path.with_suffix('.ll')
-    result = subprocess.run(['C:/JL/pi32/bin/clang.exe', '-target', 'pi32v2', '-mcpu=r3',
+    target_args = ['-target', llvm.get_default_triple()] if native else ['-target', 'pi32v2', '-mcpu=r3']
+    result = subprocess.run(['C:/JL/pi32/bin/clang.exe', *target_args,
                              '-O0', '-S', '-emit-llvm', str(path), '-o', str(ir_path)],
                             capture_output=True, text=True)
     if result.returncode:

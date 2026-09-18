@@ -31,6 +31,7 @@
 
 #include "app_config.h"
 #include "rdx_record.h"
+#include "rdx_record_format.h"
 #include "rdx_vm.h"
 #include "effects/eq_config.h"
 #include "audio_config.h"
@@ -154,8 +155,9 @@ static u32 record_initialized_generation;
 
 u8 rdx_record_format_for_session(u8 scene, u8 stream_only)
 {
+    (void)stream_only; /* All CHAT businesses share the same encoder profile. */
     return TCFG_T2620_MEETING_MONO_DEBUG_MIC &&
-           scene == RECORD_SCENE_CHAT && stream_only ?
+           scene == RECORD_SCENE_CHAT ?
            RECORD_FORMATE_OPUS_16K_MONO : RECORD_FORMATE_OPUS_16K_STERO;
 }
 
@@ -498,6 +500,24 @@ extern void rdx_app_set_record_mode(u8 d);
 extern int rdx_uxfile_dat_1_save_gen(void);
 extern void rdx_uxfile_operate_file_init(void);
 extern uxfile_data_t* rdx_uxfile_get_operateFile_info(void);
+
+/* The archive initializes every new RAW file to 80 bytes. Keep the public
+ * metadata consistent with the two supported 16 kHz / 20 ms CBR profiles.
+ * Call only for a new file: PAUSE/RESUME must retain its original metadata.
+ * Source-owned recovery restores this profile before the archive starts.
+ */
+static void rdx_record_init_raw_metadata(u8 format)
+{
+    uxfile_data_t *file = rdx_uxfile_get_operateFile_info();
+    if (!file) {
+        return;
+    }
+    if (format == RECORD_FORMATE_OPUS_16K_MONO) {
+        file->frame_size = 40;
+    } else if (format == RECORD_FORMATE_OPUS_16K_STERO) {
+        file->frame_size = 80;
+    }
+}
 extern void rdx_protocol_record_mark_indicate(u8 result, u32 sn, const char* filename,
                                               u8 index, u32 offset_ms, u8 source);
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
@@ -1435,7 +1455,9 @@ void rdx_record_start(void* priv)
         // rp->orig_mode = rp->mode;
 
         rdx_record_mode_active_check(0);
-        rp->formate = RECORD_FORMATE_OPUS_16K_STERO; //背夹目前都是双声道
+        rp->formate = rdx_record_format_for_session(rp->scene, 0);
+        if (!++record_session_generation) ++record_session_generation;
+        rdx_record_clear_marks();
         rdx_record_process();
     }
 }
@@ -1563,6 +1585,15 @@ static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token)
 #endif
     rdx_ble_server_auto_shut_down_enable(1);
     rdx_record_app_stop_pump((void *)g_app_stop_ticket);
+}
+
+/* app_core: the accepted STOP owns its own retry timer and completion fence. */
+u8 rdx_record_audio_fault_stop(void)
+{
+    rdx_ble_async_token_t token = {0};
+    if (g_record_session_token_valid) token = g_record_session_token;
+    if (!g_app_stop_pending) rdx_record_app_stop_request(&token);
+    return g_app_stop_pending || !is_record_task_created;
 }
 
 /* app_core only. Return success only after the owned recording is closed.
@@ -3067,6 +3098,10 @@ int rdx_record_run_init(void)
                      (unsigned)s_cur_mark_count);
         }else{
             rdx_uxfile_dat_1_gen(rp->scene);
+            rdx_record_init_raw_metadata(rp->formate);
+            if (rdx_record_format_begin(rdx_uxfile_get_operateFile_info(), rp->formate)) {
+                return -1;
+            }
         }
     }
 
@@ -3128,6 +3163,10 @@ int rdx_record_run_data_handle(u8* d, u32 len)
 
     //local save.
     if(!rdx_record_stream_only_session_is_active()){
+        if (rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)) {
+            translation_ear_recoder_storage_fault();
+            return -1;
+        }
         rdx_record_local_append(d, len, rp->scene);
     }
     return 0;
@@ -3272,6 +3311,10 @@ int rdx_record_run_init(void)
         // rdx_uxfile_mssg_1_generate(scene);
         if (record_initialized_generation != record_session_generation) {
             rdx_uxfile_dat_1_gen(scene);
+            rdx_record_init_raw_metadata(rp->formate);
+            if (rdx_record_format_begin(rdx_uxfile_get_operateFile_info(), rp->formate)) {
+                return -1;
+            }
         }
 
         /* V24: begin_time 只在初始 START 时设置, RESUME 不重置 */
@@ -3329,6 +3372,10 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     rdx_record_set_process_state_ready();
 
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
+        if (rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)) {
+            translation_ear_recoder_storage_fault();
+            return -1;
+        }
         rdx_record_local_append(d, len, rp->scene);
     }else{
         if(0xffff != con_hdl && 0 != con_hdl &&
