@@ -52,7 +52,19 @@ RecordStatus record;
 int mono_config, marks, record_starts;
 #define TCFG_T2620_MEETING_MONO_DEBUG_MIC mono_config
 u32 record_session_generation;
-int rdx_record_binding_allowed(void) { return 1; }
+u32 product_binding, record_binding_generation=1;
+int record_binding_revoke_pending, dut_record_stopping;
+#define record_status record
+u32 rdx_vm_get_bound_token(void) { return product_binding; }
+u32 rdx_record_binding_token_capture(void);
+u8 rdx_record_binding_allowed(void);
+u8 rdx_record_dut_authorize(void);
+void rdx_record_dut_authorization_revoke(void);
+void rdx_record_binding_revoke(void);
+bool rdx_dut_test_keys_active(void);
+bool rdx_dut_rec_is_running(void);
+bool rdx_dut_rec_call_is_running(void);
+bool rdx_app_get_dut_status(void) { return rdx_dut_info.dut_mode; }
 int rdx_record_online_session_bind_current(void) { return 1; }
 const char *rdx_dut_get_current_func_name(void) { return "test"; }
 void rdx_record_clear_marks(void) { marks=0; }
@@ -67,11 +79,19 @@ typedef struct { int rdx_ccc_configured, rdx_stream_tx_ready, mtu_size; } rdx_bl
 rdx_ble_link_state_t link;
 u32 epoch;
 int connected, powered, blocked, deferred, audio_state, open_fail, opens, cancels;
+bool rdx_app_get_poweroff_flag(void) { return !powered; }
 int sends, send_fail_at, post_fail, events, capture_during_send;
 u32 event_gen[32], event_key[32];
 char wire[8192];
 int wire_size;
 int record_post_fail, record_result, record_requests;
+int transition_busy, transition_locks, cleanup_posts, record_binding_cleanup_error;
+int rdx_vm_bound_transition_lock(void) {
+    if (transition_busy) return -1;
+    ++transition_locks; return 0;
+}
+void rdx_vm_bound_transition_unlock(void) { --transition_locks; }
+static void rdx_record_binding_revoke_post(void *priv) { ++cleanup_posts; }
 bool rdx_dut_key_scan(u8 value, u8 previous);
 void rdx_dut_test_cancel(void);
 void rdx_dut_close_current_func(void);
@@ -121,7 +141,9 @@ int rdx_dut_speaker_open(void) {
 void rdx_dut_speaker_cancel(void) { ++cancels; }
 int rdx_dut_speaker_state(void) { return audio_state; }
 void rdx_dut_speaker_reap(void) { audio_state=DUT_AUDIO_IDLE; }
-int rdx_record_dut_stop_request(u32 ticket) { ++record_requests; return record_post_fail; }
+int rdx_record_dut_stop_request(u32 ticket) {
+    rdx_record_dut_authorization_revoke(); ++record_requests; return record_post_fail;
+}
 int rdx_record_dut_stop_poll(u32 ticket) { return record_result; }
 void rdx_dut_msg_handle(void) { rdx_dut_info.dut_mode=0; rdx_dut_test_cancel(); }
 '''
@@ -154,6 +176,10 @@ static void boot(void) {
     wire_size=0; wire[0]=0; record_requests=record_post_fail=0; record_result=-2;
     memset(&record,0,sizeof(record));
     record_session_generation=1; mono_config=3; marks=record_starts=0;
+    product_binding=1; record_binding_generation=1;
+    record_binding_revoke_pending=dut_record_stopping=0;
+    transition_busy=transition_locks=cleanup_posts=record_binding_cleanup_error=0;
+    rdx_record_dut_authorization_revoke();
 }
 static void key_start(void) { dut_parse_test(FT_KEY_LAYOUT,"1"); dut_service(NULL); }
 static void speaker_start(void) { dut_parse_test(FT_SPEAKER,"1"); dut_service(NULL); }
@@ -272,6 +298,92 @@ int test_factory_record_profiles_and_new_sessions(void) {
             CHECK(record_session_generation==previous+1 && record_starts==attempt+1);
         }
     }
+    return 0;
+}
+int test_unbound_factory_authorization(void) {
+    for (int call=0; call<2; ++call) {
+        boot(); product_binding=0;
+        CHECK(!rdx_record_binding_allowed() && !rdx_record_session_allowed());
+        CHECK(!dut_enqueue(call ? DUT_CMD_REC_CALL : DUT_CMD_REC,1));
+        dut_service(NULL);
+        CHECK(record_starts==1 && record.run==RECORD_STATE_START);
+        u32 token=rdx_record_session_token_capture();
+        CHECK(token && rdx_record_session_token_is_current(token));
+        CHECK(!rdx_record_binding_allowed() && !rdx_record_binding_token_is_current(token));
+        CHECK(!product_binding); /* Never publish a fake persisted binding. */
+        rdx_dut_test_session_revoke();
+        CHECK(!rdx_record_session_token_is_current(token));
+        dut_service(NULL);
+        CHECK(dut_record_wait && record_requests==1);
+        record_result=0; dut_service(NULL);
+        record.run=RECORD_STATE_STOP;
+        CHECK(!dut_enqueue(call ? DUT_CMD_REC_CALL : DUT_CMD_REC,1));
+        dut_service(NULL);
+        CHECK(record_starts==2 && rdx_record_session_allowed());
+        CHECK(!rdx_record_session_token_is_current(token));
+    }
+    return 0;
+}
+int test_factory_authorization_revocation(void) {
+    for (int reason=0; reason<8; ++reason) {
+        boot(); product_binding=0;
+        rdx_dut_rec_start();
+        u32 token=rdx_record_session_token_capture(); CHECK(token);
+        if (reason==0) ++epoch;
+        if (reason==1) connected=0;
+        if (reason==2) rdx_dut_info.dut_mode=0;
+        if (reason==3) app_var.goto_poweroff_flag=1;
+        if (reason==4) blocked=1;
+        if (reason==5) record_binding_revoke_pending=1;
+        if (reason==6) dut_record_stopping=1;
+        if (reason==7) rdx_dut_info.current_func=DUT_FUNC_NONE;
+        CHECK(!rdx_record_session_token_is_current(token));
+        CHECK(!rdx_record_session_allowed());
+        /* Binding the product afterwards must not revive an old DUT request. */
+        product_binding=1;
+        CHECK(!rdx_record_session_token_is_current(token));
+    }
+    boot(); product_binding=0; connected=0;
+    rdx_dut_rec_start(); CHECK(!record_starts);
+    boot(); product_binding=0; rdx_dut_info.dut_mode=0;
+    rdx_dut_rec_start(); CHECK(!record_starts);
+    boot(); product_binding=0; record.process_state=REC_PROCESS_STATE_BUSY;
+    rdx_dut_rec_start(); CHECK(!record_starts);
+    return 0;
+}
+int test_unbound_speaker_stop_then_record(void) {
+    boot(); product_binding=0;
+    speaker_start(); playing();
+    dut_parse_test(FT_SPEAKER,"0");
+    dut_enqueue(DUT_CMD_REC,1); dut_service(NULL);
+    CHECK(dut_waiting==2 && !record_starts && dut_count==1);
+    finished();
+    CHECK(record_starts==1 && rdx_record_session_allowed());
+    CHECK(!rdx_record_binding_allowed());
+    return 0;
+}
+int test_factory_audio_guard_and_failure(void) {
+    boot(); product_binding=0;
+    CHECK(rdx_record_audio_start_enter(0)!=0 && !transition_locks);
+    rdx_dut_rec_start();
+    u32 token=rdx_record_session_token_capture(); CHECK(token);
+    CHECK(rdx_record_audio_start_enter(token)==0 && transition_locks==1);
+    rdx_record_audio_start_exit(0); CHECK(!transition_locks && !cleanup_posts);
+    transition_busy=1;
+    CHECK(rdx_record_audio_start_enter(token)!=0 && !transition_locks);
+    transition_busy=0;
+    ++epoch;
+    CHECK(rdx_record_audio_start_enter(token)!=0 && !transition_locks);
+    --epoch;
+    CHECK(rdx_record_audio_start_enter(token)==0);
+    rdx_record_audio_start_exit(-1);
+    CHECK(!transition_locks && cleanup_posts==1 && record_binding_revoke_pending);
+    CHECK(!rdx_record_session_token_is_current(token) && !rdx_record_binding_allowed());
+    CHECK(!rdx_record_dut_authorize());
+    /* The token namespaces remain disjoint at generation wrap. */
+    record_binding_revoke_pending=0; record_binding_generation=0x7fffffff;
+    rdx_record_binding_revoke();
+    CHECK(record_binding_generation==1);
     return 0;
 }
 int test_speaker_order_and_idempotence(void) {
@@ -614,11 +726,18 @@ def main():
     legacy += ''.join(c_function(record_source, name) for name in (
         'rdx_record_format_for_session', 'rdx_record_prepare_new_session'))
     legacy += ''.join(c_function(source, name) for name in (
-        'rdx_dut_rec_start', 'rdx_dut_rec_call_start'))
+        'rdx_dut_rec_start', 'rdx_dut_rec_call_start',
+        'rdx_dut_rec_is_running', 'rdx_dut_rec_call_is_running'))
+    authorization = record_source.split('u8 rdx_record_binding_allowed(void)', 1)[1]
+    authorization = 'u8 rdx_record_binding_allowed(void)' + authorization.split(
+        '/* A successful enter must be paired', 1)[0]
+    authorization += ''.join(c_function(record_source, name) for name in (
+        'rdx_record_audio_start_enter', 'rdx_record_audio_start_exit',
+        'rdx_record_binding_revoke'))
     tests = re.findall(r'int (test_\w+)\(void\)', TESTS)
     with tempfile.TemporaryDirectory(prefix='t2620_dut_') as temp:
         path = Path(temp) / 'dut.c'
-        path.write_text(audio + enums + '\n' + defines + STUBS + core + legacy + TESTS, encoding='utf-8')
+        path.write_text(audio + enums + '\n' + defines + STUBS + authorization + core + legacy + TESTS, encoding='utf-8')
         run_c_checks(path, tests, native=True)
         check_key_scan(temp)
         speaker = (BASE / 'rdx_dut_speaker.c').read_text(encoding='utf-8')

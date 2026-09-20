@@ -49,7 +49,7 @@ static void translation_mono_stop_on_app_core(void *priv)
 {
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     if (mono_running && mono_epoch == (u32)priv && mono_fault &&
-        rdx_record_binding_token_is_current(mono_binding)) {
+        rdx_record_session_token_is_current(mono_binding)) {
         /* The generic STOP owns retries and closes both streams, including
          * saved/offline sessions. Do not lose failure on queue pressure. */
         if (rdx_record_audio_fault_stop()) {
@@ -117,7 +117,7 @@ void set_global_ch_mode(u8 mode)
 static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uuid, u32 code_type, u8 ai_type)
 {
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-    if (!rdx_record_binding_allowed()) {
+    if (!rdx_record_session_allowed()) {
         return -1;
     }
 #endif
@@ -201,7 +201,7 @@ static int translation_ear_recoder_open_impl(stream_type enc_type, u16 source_uu
         }
         mono_fault = 0;
         recoder->epoch = policy.epoch = mono_epoch;
-        recoder->binding = rdx_record_binding_token_capture();
+        recoder->binding = rdx_record_session_token_capture();
         mono_binding = recoder->binding;
         if (policy.mic) {
             /* Historical MONO graph contains the dual-MIC CHAT capture and
@@ -368,7 +368,7 @@ void translation_ear_recoder_close_all(void)
 static int translation_ear_recoder_open_all_impl(u8 ch_mode)
 {
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-    if (!rdx_record_binding_allowed()) {
+    if (!rdx_record_session_allowed()) {
         return -1;
     }
 #endif

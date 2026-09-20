@@ -379,6 +379,9 @@ static int dut_enqueue(u8 command, u8 value)
     dut_queue[(dut_head + dut_count) % DUT_QUEUE_CAPACITY] = request;
     ++dut_count;
     local_irq_enable();
+    DUT_LOG("Queued cmd=%u value=%u func=%u speaker=%d wait=%u stopping=%u record_wait=%u\n",
+            command, value, rdx_dut_info.current_func, rdx_dut_speaker_state(),
+            dut_waiting, dut_stopping, dut_record_wait);
     int kick[3] = {(int)dut_service, 1, 0};
     /* Queue owns the request even if this wakeup is full. The periodic
      * service retries; while DUT is active it runs every 10 ms. */
@@ -388,6 +391,7 @@ static int dut_enqueue(u8 command, u8 value)
 
 void rdx_dut_test_session_revoke(void)
 {
+    rdx_record_dut_authorization_revoke();
     /* BLE task: revoke producers immediately; timer performs app_core cleanup. */
     dut_key_gate = 0;
     dut_emergency_cancel = 1;
@@ -495,8 +499,9 @@ static void dut_service(void *priv)
         /* Overflow can discard a legacy stop too. Use the existing resource
          * cleanup; an in-flight format has no cancellation API and must keep
          * its ownership until the format callback completes. Session revoke
-         * alone retains its original scope (KEY/SPEAKER only). */
-        if (abort_all && rdx_dut_info.current_func != DUT_FUNC_FORMAT) {
+         * also drains recording after its owner authorization is revoked. */
+        if ((abort_all || rdx_dut_rec_is_running() || rdx_dut_rec_call_is_running()) &&
+            rdx_dut_info.current_func != DUT_FUNC_FORMAT) {
             rdx_dut_close_current_func();
         } else {
             rdx_dut_test_cancel();
@@ -941,6 +946,7 @@ bool rdx_dut_motor_is_running(void)
 /* Called on app_core when recording is revoked or audio startup fails. */
 void rdx_dut_record_reset(void)
 {
+    rdx_record_dut_authorization_revoke();
     if (dut_record_wait) return;
     if (rdx_dut_info.current_func == DUT_FUNC_REC ||
         rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
@@ -950,9 +956,6 @@ void rdx_dut_record_reset(void)
 
 void rdx_dut_rec_start(void)
 {
-    if (!rdx_record_binding_allowed()) {
-        return;
-    }
     DUT_LOG("Record test START\r");
     
     if(rdx_dut_info.current_func != DUT_FUNC_NONE){
@@ -960,6 +963,11 @@ void rdx_dut_rec_start(void)
         return;
     }
     
+    if (!dut_business_ready() || !rdx_record_dut_authorize()) {
+        DUT_LOG("Record test rejected: session/audio/storage not ready\n");
+        return;
+    }
+
     rdx_dut_info.current_func = DUT_FUNC_REC;
     
     RecordStatus* rp = rdx_record_get_status();
@@ -1005,9 +1013,6 @@ bool rdx_dut_rec_is_running(void)
  **************************************************************************/
 void rdx_dut_rec_call_start(void)
 {
-    if (!rdx_record_binding_allowed()) {
-        return;
-    }
     DUT_LOG("Record CALL test START\r");
     
     if(rdx_dut_info.current_func != DUT_FUNC_NONE){
@@ -1015,6 +1020,11 @@ void rdx_dut_rec_call_start(void)
         return;
     }
     
+    if (!dut_business_ready() || !rdx_record_dut_authorize()) {
+        DUT_LOG("Record test rejected: session/audio/storage not ready\n");
+        return;
+    }
+
     rdx_dut_info.current_func = DUT_FUNC_REC_CALL;
     
     RecordStatus* rp = rdx_record_get_status();
@@ -1637,6 +1647,7 @@ void rdx_dut_msg_handle(void)
         }
 
         rdx_dut_factory_usb_revoke();
+        rdx_record_dut_authorization_revoke();
         rdx_dut_info.dut_mode = FALSE;
         
         rdx_dut_close_current_func();

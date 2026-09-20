@@ -111,7 +111,7 @@ static u32 mono_epoch, mono_binding;
 static u8 mono_running;
 static volatile int mono_fault;
 static int binding_valid=1, stop_calls, queue_fail, queue_calls, worker_busy;
-int rdx_record_binding_token_is_current(u32 token) { return binding_valid && token==11; }
+int rdx_record_session_token_is_current(u32 token) { return binding_valid && token==11; }
 int rdx_record_audio_fault_stop(void) { ++stop_calls; return !worker_busy; }
 int os_taskq_post_type(const char *t, int q, int n, int *msg) { ++queue_calls; return queue_fail; }
 '''
@@ -305,7 +305,7 @@ typedef struct { int run, scene, formate; } RecordStatus;
 #define y_printf(...) ((void)0)
 static int mode, mode_at_post, posts;
 void rdx_app_set_record_mode(int value) { mode = value; }
-int rdx_record_binding_token_capture(void) { return 7; }
+int rdx_record_session_token_capture(void) { return 7; }
 int os_taskq_post_msg(const char *name, int count, int run, ...) {
     mode_at_post = mode; ++posts; return 0;
 }

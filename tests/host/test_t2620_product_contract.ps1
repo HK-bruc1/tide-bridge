@@ -585,7 +585,7 @@ Assert-Contract 'RECORD_BINDING_FAIL_CLOSED_VM' (
     $BindingRead -notmatch 'syscfg_read' -and
     $RdxRecord -match 'return rdx_record_binding_token_capture\(\) != 0;' -and
     $BindingVm -match 'bound_token = d \? bound_epoch : 0;'
-) 'Recording must require a validated persistent product binding, with a cached fail-closed runtime gate independent of BLE pairing'
+) 'Ordinary recording must require a validated persistent product binding, with a cached fail-closed runtime gate independent of BLE pairing'
 
 $BindingCommand = Get-SourceSlice $RdxApp 'static void rdx_app_record_cmd_on_app_core(' 'typedef struct {'
 $BindingDevice = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)' 'void rdx_app_device_record_handle('
@@ -595,18 +595,31 @@ Assert-Contract 'RECORD_BINDING_ENTRY_AND_ASYNC_GATES' (
     $RdxApp -match 'hold_record_pressed && !rdx_record_binding_allowed\(\)' -and
     $RdxApp -match '(?s)case APP_MSG_RECORD_SWITCH:.*?!rdx_record_binding_allowed\(\).*?key_press_record_ready_flag = 0;' -and
     $RdxRecord -match 'rdx_record_binding_token_is_current\(pending_binding_token\)' -and
-    $RdxRecord -match 'rdx_record_binding_token_is_current\(tone_binding_token\)' -and
+    $RdxRecord -match 'rdx_record_session_token_is_current\(tone_binding_token\)' -and
     $RdxRecord -match 'sys_timeout_add\(\(void \*\)rdx_record_binding_token_capture\(\), rdx_record_restart_if_bound, 1000\)'
 ) 'Keys and App commands must be gated before side effects; STOP remains available and delayed starts cannot survive unbind/rebind'
 
 Assert-Contract 'RECORD_BINDING_LOW_LEVEL_COVERAGE' (
     $BindingRecorder -match '#include "app_config.h"' -and
-    ([regex]::Matches($RdxRecord, 'void rdx_record_process\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
-    ([regex]::Matches($RdxRecord, 'int rdx_record_run_init\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
-    ([regex]::Matches($BindingDut, 'void rdx_dut_rec(?:_call)?_start\(void\)\s*\{\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
-    ([regex]::Matches($BindingRecorder, 'int translation_ear_recoder_open(?:_all)?_impl\([^\n]+\)\s*\{\s*#if[^\n]+\s*if \(!rdx_record_binding_allowed\(\)').Count -eq 2) -and
-    $RdxRecord -match 'rdx_record_binding_token_is_current\(\(u32\)msg\[3\]\)'
-) 'Both recorder variants, DUT, direct SDK audio entry points and queued worker starts must enforce product binding'
+    ([regex]::Matches($RdxRecord, 'void rdx_record_process\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($RdxRecord, 'int rdx_record_run_init\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($BindingDut, 'if \(!dut_business_ready\(\) \|\| !rdx_record_dut_authorize\(\)').Count -eq 2) -and
+    ([regex]::Matches($BindingRecorder, 'int translation_ear_recoder_open(?:_all)?_impl\([^\n]+\)\s*\{\s*#if[^\n]+\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
+    $RdxRecord -match 'rdx_record_session_token_is_current\(\(u32\)msg\[3\]\)'
+) 'Both recorder variants and queued worker starts must enforce recording authorization; DUT uses an explicit session grant'
+
+$DutAuthorization = Get-SourceSlice $RdxRecord 'u8 rdx_record_dut_authorize(void)' '/* A successful enter must be paired'
+Assert-Contract 'RECORD_DUT_SCOPED_AUTHORIZATION' (
+    $DutAuthorization -match 'rdx_ble_session_rdx_token_capture\(&dut_record_owner, 1\)' -and
+    $DutAuthorization -match 'rdx_ble_session_rdx_token_resolve\(&dut_record_owner, 1\)' -and
+    $DutAuthorization -match 'rdx_dut_rec_is_running\(\) \|\| rdx_dut_rec_call_is_running\(\)' -and
+    $DutAuthorization -notmatch 'syscfg_write|rdx_vm_set_bound_status' -and
+    $BindingDut -match '(?s)void rdx_dut_test_session_revoke\(void\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
+    $RdxRecord -match '(?s)int rdx_record_dut_stop_request\(u32 ticket\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
+    ([regex]::Matches($RdxRecord, 'int rdx_record_run_data_handle\([^\n]+\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
+    $BindingRecorder -match 'u32 token = rdx_record_binding_token_capture\(\);' -and
+    $BindingRecorder -match 'translation_ear_recoder_open_all_bound\(ch_mode, rdx_record_binding_token_capture\(\)\)'
+) 'Factory recording grants must remain RAM-only, owner-scoped and revocable; ordinary SDK entry points remain bound-only'
 
 $BindingFence = Get-SourceSlice $RdxRecord 'if (msg[1] == RDX_RECORD_BIND_FENCE)' 'if (msg[1] == RDX_RECORD_USB_FENCE)'
 $BindingRevoke = Get-SourceSlice $RdxRecord 'static void rdx_record_binding_revoke_on_app_core(void)' 'int rdx_record_usb_quiesce_request('
@@ -622,7 +635,7 @@ Assert-Contract 'RECORD_BINDING_SERIALIZED_AUDIO_START' (
     (Test-TokensInOrder $BindingVm @('int rdx_vm_set_bound_status(', 'rdx_vm_bound_transition_lock()', 'syscfg_write(VM_RDX_NOTTA_BOUND_STATUS', 'bound_token = d ? bound_epoch : 0;', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
     (Test-TokensInOrder $BindingRecorder @('int translation_ear_recoder_open_all_bound(', 'rdx_record_audio_start_enter(token)', 'translation_ear_recoder_open_all_impl(ch_mode)', 'rdx_record_audio_start_exit(ret)')) -and
     $RdxRecord -match 'translation_ear_recoder_open_all_bound\(msg\[2\], \(u32\)msg\[3\]\)' -and
-    (Test-TokensInOrder $RdxRecord @('int rdx_record_audio_start_enter(', 'rdx_vm_bound_transition_lock()', 'rdx_record_binding_token_is_current(token)', 'void rdx_record_audio_start_exit(', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
+    (Test-TokensInOrder $RdxRecord @('int rdx_record_audio_start_enter(', 'rdx_vm_bound_transition_lock()', 'rdx_record_session_token_is_current(token)', 'void rdx_record_audio_start_exit(', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
     $BindingRecorder -notmatch 'rdx_vm_'
 ) 'Binding publication and actual audio open must serialize, preserving the original queued token'
 Assert-Contract 'RECORD_START_FAILURE_ROLLBACK' (

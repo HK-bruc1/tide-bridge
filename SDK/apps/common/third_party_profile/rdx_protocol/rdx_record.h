@@ -139,6 +139,12 @@ void rdx_record_process(void);
 u8 rdx_record_binding_allowed(void);
 u32 rdx_record_binding_token_capture(void);
 u8 rdx_record_binding_token_is_current(u32 token);
+/* Internal recording pipeline. Ordinary command/key admission stays bound-only. */
+u8 rdx_record_dut_authorize(void);
+void rdx_record_dut_authorization_revoke(void);
+u32 rdx_record_session_token_capture(void);
+u8 rdx_record_session_token_is_current(u32 token);
+u8 rdx_record_session_allowed(void);
 /* Internal binding publisher/audio guard: transition mutex must be held. */
 void rdx_record_binding_revoke(void);
 /* Task-only audio guard. Pair successful enter with exit(result) in the

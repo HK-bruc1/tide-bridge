@@ -60,6 +60,12 @@ RDX/HID coexistence and DIP OFF cleanup. The DUT harness mocks SDK audio and BLE
 it does not prove sound output or IRQ/task scheduling. See
 [the DUT implementation plan](../../docs/8-4.工厂APP按键与喇叭DUT测试实施方案.md).
 
+The DUT harness also executes the recording authorization and audio-start guard:
+unbound CHAT/CALL admission, unchanged ordinary binding gates, stale owner and
+recording generations, revoke/stop cleanup, startup failure, and speaker STOP
+completion before unbound recording. Hardware acceptance must still verify
+recording audio, saved-file retrieval and disconnect/exit during the start tone.
+
 ## Optional board check
 
 `tests/board/factory_cdc_bytes.py` is a separate physical CDC echo tool, requiring
