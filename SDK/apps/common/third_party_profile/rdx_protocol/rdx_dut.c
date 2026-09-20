@@ -199,6 +199,8 @@ static u8 dut_waiting; /* 1=start, 2=stop */
 static u8 dut_stopping;
 static u32 dut_wait_started;
 static u8 dut_record_wait, dut_record_posted;
+/* Storage errors are latched by the library until reboot. */
+static u8 dut_record_failed;
 static u32 dut_record_ticket;
 static void
 rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff);
@@ -212,7 +214,7 @@ static bool dut_token_ready(const rdx_ble_async_token_t *token)
 
 static bool dut_business_ready(void)
 {
-    return rdx_dut_info.dut_mode && !g_finalpack_end_pending &&
+    return rdx_dut_info.dut_mode && !dut_record_failed && !g_finalpack_end_pending &&
         get_power_on_status() && !app_var.goto_poweroff_flag &&
         !rdx_storage_lifecycle_business_blocked() &&
         !rdx_storage_lifecycle_shutdown_deferred();
@@ -512,14 +514,18 @@ static void dut_service(void *priv)
             dut_record_posted = 1;
         }
         int result = dut_record_posted ? rdx_record_dut_stop_poll(dut_record_ticket) : -2;
-        if (result == 0) {
+        if (result != -2) {
+            if (result < 0) {
+                dut_record_failed = 1;
+                DUT_LOG("Record save FAILED; exit/poweroff allowed, reboot required\n");
+            }
             dut_record_wait = dut_record_posted = 0;
             if (rdx_dut_info.current_func == DUT_FUNC_REC ||
                 rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
                 rdx_dut_info.current_func = DUT_FUNC_NONE;
             }
         } else {
-            return; /* Retain ownership on queue pressure or save failure. */
+            return; /* Retain ownership until the worker acknowledges cleanup. */
         }
     }
     if (rdx_dut_test_keys_active() &&
@@ -561,6 +567,11 @@ static void dut_service(void *priv)
         /* Legacy factory mode entry precedes APP write-ready. Keep owner /
          * epoch validation, but reserve the TX-ready gate for new tests. */
         if (!rdx_ble_session_rdx_token_resolve(&request.token, 1)) continue;
+        if (dut_record_failed && request.command != DUT_CMD_POWEROFF &&
+            !(request.command == DUT_CMD_DUT_MODE && !request.value)) {
+            DUT_LOG("DUT command rejected: record save failed, reboot required\n");
+            continue;
+        }
         if (request.command >= DUT_CMD_KEY_LAYOUT) {
             dut_execute_test(&request);
         } else {
@@ -621,7 +632,9 @@ static bool dut_parse_test(const char *cmd, const char *value)
  **************************************************************************/
 static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
 {
-    if (cmd_type != DUT_CMD_DUT_MODE && !dut_business_ready()) return;
+    if (cmd_type != DUT_CMD_DUT_MODE &&
+        !(dut_record_failed && cmd_type == DUT_CMD_POWEROFF) &&
+        !dut_business_ready()) return;
     if (g_finalpack_end_pending) {
         DUT_LOG("Finalpack busy, command blocked\r");
         return;
@@ -1503,7 +1516,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
  **************************************************************************/
 void rdx_dut_key_handle(int key_msg)
 {
-    if (rdx_dut_test_keys_active() || dut_stopping) return;
+    if (rdx_dut_test_keys_active() || dut_stopping || dut_record_failed) return;
     if (g_finalpack_end_pending) {
         return;
     }
@@ -1596,6 +1609,7 @@ void rdx_dut_msg_handle(void)
     RecordStatus* rp = rdx_record_get_status();
     
     if(rdx_dut_info.dut_mode == FALSE){
+        if (dut_record_failed) return; /* Reboot required before another test. */
         /*--- 进入DUT模式 ---*/
         DUT_LOG("=== Enter DUT mode request ===\r");
         

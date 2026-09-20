@@ -84,7 +84,7 @@ int sends, send_fail_at, post_fail, events, capture_during_send;
 u32 event_gen[32], event_key[32];
 char wire[8192];
 int wire_size;
-int record_post_fail, record_result, record_requests;
+int record_post_fail, record_result, record_requests, poweroffs, legacy_dispatches;
 int transition_busy, transition_locks, cleanup_posts, record_binding_cleanup_error;
 int rdx_vm_bound_transition_lock(void) {
     if (transition_busy) return -1;
@@ -150,7 +150,9 @@ void rdx_dut_msg_handle(void) { rdx_dut_info.dut_mode=0; rdx_dut_test_cancel(); 
 
 TESTS = r'''
 static void rdx_dut_cmd_async_handle(u8 type, u8 value) {
+    ++legacy_dispatches;
     if (type==DUT_CMD_DUT_MODE) rdx_dut_info.dut_mode=value;
+    if (type==DUT_CMD_POWEROFF) ++poweroffs;
     if (type==DUT_CMD_REC && !value) dut_record_stop();
     if (value && rdx_dut_info.current_func==DUT_FUNC_NONE) {
         if (type==DUT_CMD_REC) rdx_dut_rec_start();
@@ -168,6 +170,7 @@ static void boot(void) {
     rdx_dut_info.motor_timer=rdx_dut_info.motor_run=0;
     motor_power=timer_deleted=wifi_power=show_count=0;
     dut_waiting=dut_stopping=dut_record_wait=dut_record_posted=0;
+    dut_record_failed=poweroffs=legacy_dispatches=0;
     dut_service_timer=1; dut_key_generation=1;
     memset(dut_key_cutoff,0,sizeof(dut_key_cutoff));
     memset(dut_key_quarantined,0,sizeof(dut_key_quarantined));
@@ -436,6 +439,31 @@ int test_queue_pressure_and_record_barrier(void) {
     dut_service(NULL); CHECK(record_requests==2 && !opens);
     record_post_fail=0; dut_service(NULL); CHECK(dut_record_posted && !opens);
     record_result=0; dut_service(NULL); CHECK(opens==1 && !dut_record_wait);
+    return 0;
+}
+int test_record_save_failure_recovery(void) {
+    boot(); rdx_dut_info.current_func=DUT_FUNC_REC;
+    dut_enqueue(DUT_CMD_REC,0); dut_service(NULL);
+    CHECK(dut_record_wait && record_requests==1);
+    record_result=-1;
+    dut_enqueue(DUT_CMD_FORMAT,1);
+    dut_enqueue(DUT_CMD_FINALPACK_END,0);
+    dut_enqueue(DUT_CMD_SPEAKER,1);
+    dut_service(NULL);
+    CHECK(dut_record_failed && !dut_record_wait && !dut_record_posted);
+    CHECK(!dut_count && !opens && !dut_business_ready());
+    CHECK(legacy_dispatches==1); /* Only the original STOP reached dispatch. */
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE && record_requests==1);
+    rdx_dut_test_session_revoke(); ++epoch; dut_service(NULL);
+    CHECK(dut_record_failed && record_requests==1);
+    dut_enqueue(DUT_CMD_REC,1); dut_enqueue(DUT_CMD_REC_CALL,1);
+    dut_service(NULL); CHECK(!record_starts && !dut_count);
+    dut_enqueue(DUT_CMD_DUT_MODE,0); dut_service(NULL);
+    CHECK(!rdx_dut_info.dut_mode);
+    dut_enqueue(DUT_CMD_DUT_MODE,1); dut_service(NULL);
+    CHECK(!rdx_dut_info.dut_mode && dut_record_failed);
+    dut_enqueue(DUT_CMD_POWEROFF,0); dut_service(NULL);
+    CHECK(poweroffs==1 && !dut_count);
     return 0;
 }
 static void overflow_legacy_stop(int command) {
