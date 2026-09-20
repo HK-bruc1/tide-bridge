@@ -269,4 +269,17 @@ Assert-Contract 'FRESH_HID_PAIRING_DOES_NOT_PRECLAIM_OWNER' `
      $SmBody -notmatch 'rdx_ble_session_claim_hid') `
     'Just Works may confirm a provisional link, but encrypted CCC must claim HID ownership'
 
+# 定位函数定义，跳过源码前面的同名函数声明。
+$AppTasksStart = $App.LastIndexOf('void rdx_app_tasks_init(void)')
+$AppTasksBody = $App.Substring($AppTasksStart)
+$RegisterAt = $AppTasksBody.IndexOf('rdx_protocol_register_test_appkey_mac_list(rdx_test_appkey_mac_list)')
+Assert-Contract 'TEST_APPKEY_LIST_REGISTERED_BEFORE_BLE_AND_WORKER' `
+    ($RegisterAt -ge 0 -and
+     $RegisterAt -lt $AppTasksBody.IndexOf('rdx_ble_server_init();') -and
+     $RegisterAt -lt $AppTasksBody.IndexOf('rdx_protocol_task_create(&protocol_cbs)')) `
+    'test AppKey policy must be installed before any BLE or protocol admission'
+Assert-Contract 'TEST_APPKEY_LIST_HAS_STATIC_LIFETIME_AND_TERMINATOR' `
+    ($App -match 'static const char\s*\*\s*const rdx_test_appkey_mac_list\[\]\s*=\s*\{\s*TCFG_RDX_TEST_APPKEY_MAC_LIST\s+NULL\s*\}') `
+    'the binary retains the list pointer and traverses until NULL, including empty configuration'
+
 Write-Host 'RDX transport contracts passed.'

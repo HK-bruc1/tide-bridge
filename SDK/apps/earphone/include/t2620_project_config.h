@@ -1,6 +1,24 @@
 #ifndef T2620_PROJECT_CONFIG_H
 #define T2620_PROJECT_CONFIG_H
 
+/* 测试 AppKey 授权名单：填写设备本机 BLE MAC，不是手机或 PC 的 MAC。
+ * 每台设备填写 12 位十六进制字符串，不带冒号或横线，末尾保留逗号。
+ * 格式示例（请替换为实际地址）："AABBCCDDEEFF", "112233445566",
+ * 留空表示所有设备均拒绝测试 AppKey。应用自动追加 NULL 终止项，
+ * 并在 BLE 启动前注册这份整个运行期间有效的名单。
+ * 无论选择哪个 App 项目，特殊测试 AppKey 都受此名单约束。
+ */
+#ifndef TCFG_RDX_TEST_APPKEY_MAC_LIST
+/* 填写示例：将下面的地址替换为真实设备的 BLE MAC，
+ * 再用示例中的多行定义替换下方的空定义。示例地址当前不生效。
+ * #define TCFG_RDX_TEST_APPKEY_MAC_LIST \
+ *     "AABBCCDDEEFF", \
+ *     "112233445566",
+ */
+#define TCFG_RDX_TEST_APPKEY_MAC_LIST \
+        "28CD9CF33F7A",
+#endif
+
 /* -------------------------------------------------------------------------- */
 /* 片内 Flash 布局                                                            */
 /* -------------------------------------------------------------------------- */

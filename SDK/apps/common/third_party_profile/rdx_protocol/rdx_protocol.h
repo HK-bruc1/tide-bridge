@@ -471,6 +471,11 @@ typedef struct {
 * Function Section
 ******************************************************************************/ 
 int rdx_protocol_task_create(RdxProtocolCallbacks *cb);
+/* 静态库保留此指针：名单及字符串必须在所有会话期间持续有效。
+ * 名单以 NULL 终止；每项为本机 BLE MAC，12 位十六进制，忽略大小写。
+ * NULL 或空名单均拒绝特殊测试 AppKey，不支持通配符。
+ */
+void rdx_protocol_register_test_appkey_mac_list(const char * const *mac_list);
 void rdx_protocol_send_buffer_reinit(void);
 BLE_SendData *rdx_protocol_get_ble_send_data(void);
 BleBulkSendData *rdx_protocol_get_bulk_send_data(void);

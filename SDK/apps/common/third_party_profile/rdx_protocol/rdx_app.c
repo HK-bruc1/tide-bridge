@@ -220,6 +220,15 @@ static RdxProtocolCallbacks protocol_cbs = {
 
 static const RdxProtocolIndicateOps* g_protocol_ops = NULL;
 
+/* 协议工作任务或会话重启后，静态库仍保留此名单，故使用静态存储。 */
+#ifndef TCFG_RDX_TEST_APPKEY_MAC_LIST
+#define TCFG_RDX_TEST_APPKEY_MAC_LIST
+#endif
+static const char * const rdx_test_appkey_mac_list[] = {
+    TCFG_RDX_TEST_APPKEY_MAC_LIST
+    NULL
+};
+
 /* WiFi AP 产品配置 - 在 rdx_app_tasks_init() 通过 xxp_uart_register_wifi_cfg()
  * 注入到 xxpUart 库. lib 不再直接读 WIFI_AP_SSID 等产品宏, 完全由这里传入. */
 #if RDX_WIFI_ENABLE
@@ -4198,6 +4207,11 @@ void rdx_app_tasks_init(void)
     }
 #endif
 #endif
+
+    /* 在广播启动或协议工作任务接收 AppKey 前完成名单注册。
+     * 配置为空时保持拒绝测试 AppKey 鉴权。
+     */
+    rdx_protocol_register_test_appkey_mac_list(rdx_test_appkey_mac_list);
 
     //rdx ble server initial.
     rdx_ble_server_init();

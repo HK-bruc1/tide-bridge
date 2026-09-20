@@ -1292,7 +1292,7 @@ void rdx_ble_server_force_disconnect_timer_cb(void *priv)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    y_printf("---- %s ----> return \n", __func__);
+    y_printf("---- %s ----> temp return \n", __func__);
     return;
     
     y_printf("====== %s --> \n", __func__);
