@@ -52,6 +52,9 @@
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "usb/device/usb_factory.h"
+#include "rdx_dut_speaker.h"
+#include "key_driver.h"
+#include "generic/jiffies.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -159,7 +162,449 @@ typedef enum {
     DUT_CMD_FINALPACK_END,
     DUT_CMD_KEY_DUT_ENABLE,
     DUT_CMD_KEY_DUT_DISABLE,
+    DUT_CMD_KEY_LAYOUT,
+    DUT_CMD_KEY_STOP,
+    DUT_CMD_SPEAKER,
 } DUT_CMD_TYPE;
+
+/* DUT_TEST_CORE_BEGIN: serialized by the app_core service timer. */
+#define DUT_QUEUE_CAPACITY 16
+static const struct {
+    u8 value;
+    char id;
+    u8 row;
+} dut_keys[] = {
+    { KEY_IO_NUM0, 'A', 0 }, { KEY_IO_NUM1, 'B', 0 },
+    { KEY_IO_NUM2, 'C', 1 }, { KEY_IO_NUM3, 'D', 1 },
+    { KEY_IO_NUM4, 'E', 2 },
+};
+struct dut_request {
+    rdx_ble_async_token_t token;
+    u8 command;
+    u8 value;
+};
+static struct dut_request dut_queue[DUT_QUEUE_CAPACITY];
+static u8 dut_head, dut_count;
+static u16 dut_service_timer;
+static u16 dut_service_period = 1000;
+static volatile u8 dut_emergency_cancel;
+static volatile u8 dut_queue_abort;
+static volatile u8 dut_key_gate;
+static volatile u32 dut_key_generation;
+static u32 dut_key_cutoff[5];
+static u8 dut_key_quarantined[5];
+static rdx_ble_async_token_t dut_test_token;
+static struct dut_request dut_pending;
+static u8 dut_waiting; /* 1=start, 2=stop */
+static u8 dut_stopping;
+static u32 dut_wait_started;
+static u8 dut_record_wait, dut_record_posted;
+static u32 dut_record_ticket;
+static void
+rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff);
+static void dut_service(void *priv);
+
+static bool dut_token_ready(const rdx_ble_async_token_t *token)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 1);
+    return link && link->rdx_ccc_configured && link->rdx_stream_tx_ready;
+}
+
+static bool dut_business_ready(void)
+{
+    return rdx_dut_info.dut_mode && !g_finalpack_end_pending &&
+        get_power_on_status() && !app_var.goto_poweroff_flag &&
+        !rdx_storage_lifecycle_business_blocked() &&
+        !rdx_storage_lifecycle_shutdown_deferred();
+}
+
+static int dut_send(const rdx_ble_async_token_t *token,
+                    const char *name, const char *value)
+{
+    char text[64];
+    int length = snprintf(text, sizeof(text), "*DEV#custom#%s#%s#", name, value);
+    int offset = 0;
+    rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 1);
+    if (!dut_token_ready(token) || !link || length <= 0 || length >= sizeof(text)) {
+        return -1;
+    }
+    /* Session mtu_size is the ATT payload (MTU - 3). Text fragments use the
+     * same characteristic and FIFO; no event is submitted before the tail. */
+    int payload = link->mtu_size;
+    if (payload < 20) {
+        return -1;
+    }
+    while (offset < length) {
+        int count = MIN(payload, length - offset);
+        if (rdx_ble_server_send_for_token((u8 *)text + offset, count, token)) {
+            DUT_LOG("Test response failed: %s offset=%d\n", name, offset);
+            return -1;
+        }
+        offset += count;
+    }
+    return 0;
+}
+
+static int dut_layout(char *out, int capacity)
+{
+    int size = ARRAY_SIZE(dut_keys);
+    int offset = 0;
+    if (!size) {
+        if (capacity < 5) return -1;
+        strcpy(out, "NONE");
+        return 0;
+    }
+    if (capacity < size * 2 || dut_keys[0].row != 0) return -1;
+    for (int i = 0; i < size; ++i) {
+        if (dut_keys[i].value < KEY_IO_NUM0 || dut_keys[i].value > KEY_IO_NUM4 ||
+            dut_keys[i].id != 'A' + i) return -1;
+        for (int j = 0; j < i; ++j) {
+            if (dut_keys[j].value == dut_keys[i].value) return -1;
+        }
+        if (i) {
+            if (dut_keys[i].row < dut_keys[i - 1].row ||
+                dut_keys[i].row > dut_keys[i - 1].row + 1) return -1;
+            out[offset++] = dut_keys[i].row == dut_keys[i - 1].row ? ',' : '&';
+        }
+        out[offset++] = dut_keys[i].id;
+    }
+    out[offset] = 0;
+    return size;
+}
+
+bool rdx_dut_test_keys_active(void)
+{
+    return rdx_dut_info.current_func == DUT_FUNC_KEY ||
+           rdx_dut_info.current_func == DUT_FUNC_SPEAKER;
+}
+
+static void dut_key_event(u32 generation, u32 value)
+{
+    char id[2] = {0};
+    if (!dut_key_gate || generation != dut_key_generation ||
+        rdx_dut_info.current_func != DUT_FUNC_KEY || !dut_business_ready() ||
+        !dut_token_ready(&dut_test_token)) {
+        return;
+    }
+    for (int i = 0; i < ARRAY_SIZE(dut_keys); ++i) {
+        if (dut_keys[i].value == value) {
+            id[0] = dut_keys[i].id;
+            if (dut_send(&dut_test_token, FT_KEY_EVENT, id)) {
+                rdx_dut_test_cancel();
+            }
+            return;
+        }
+    }
+}
+
+/* Called after debounce, before click/hold aggregation. Consuming the scan
+ * resets its aggregation counters, so a test press never becomes a late
+ * normal click. Keep consuming a held key across stop until release. */
+bool rdx_dut_key_scan(u8 value, u8 previous)
+{
+    bool active = rdx_dut_test_keys_active();
+    bool consume = active;
+    u32 now = jiffies_to_msecs(jiffies);
+    if (previous >= KEY_IO_NUM0 && previous <= KEY_IO_NUM4 &&
+        dut_key_quarantined[previous - KEY_IO_NUM0]) {
+        consume = true;
+    }
+    if (value >= KEY_IO_NUM0 && value <= KEY_IO_NUM4) {
+        int index = value - KEY_IO_NUM0;
+        if (active || (value == previous && dut_key_quarantined[index])) {
+            dut_key_quarantined[index] = 1;
+            dut_key_cutoff[index] = now;
+            consume = true;
+            if (value != previous && dut_key_gate) {
+                int msg[4] = {(int)dut_key_event, 2, dut_key_generation, value};
+                if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+                    dut_emergency_cancel = 1;
+                }
+            }
+        } else if (value != previous) {
+            dut_key_quarantined[index] = 0;
+        }
+    }
+    return consume;
+}
+
+bool rdx_dut_key_consume(u8 value, u32 timestamp)
+{
+    if (value < KEY_IO_NUM0 || value > KEY_IO_NUM4) {
+        return rdx_dut_test_keys_active();
+    }
+    int index = value - KEY_IO_NUM0;
+    /* Bound the stale-message window. Retaining a signed timestamp cutoff
+     * forever would suppress normal keys after the millisecond counter wraps. */
+    if (!dut_key_quarantined[index] &&
+        (u32)(jiffies_to_msecs(jiffies) - dut_key_cutoff[index]) > 60000) {
+        dut_key_cutoff[index] = 0;
+    }
+    return rdx_dut_test_keys_active() || dut_key_quarantined[index] ||
+        (dut_key_cutoff[index] && (s32)(timestamp - dut_key_cutoff[index]) <= 0);
+}
+
+void rdx_dut_test_cancel(void)
+{
+    /* app_core only. A queued event retains its old generation. */
+    dut_key_gate = 0;
+    ++dut_key_generation;
+    dut_waiting = 0;
+    if (rdx_dut_info.current_func == DUT_FUNC_KEY) {
+        rdx_dut_info.current_func = DUT_FUNC_NONE;
+    }
+    if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
+        dut_stopping = 1;
+        rdx_dut_speaker_cancel();
+    }
+}
+
+static int dut_enqueue(u8 command, u8 value)
+{
+    struct dut_request request;
+    request.command = command;
+    request.value = value;
+    if (!dut_service_timer ||
+        !rdx_ble_session_rdx_token_capture(&request.token, 1)) return -1;
+    local_irq_disable();
+    if (dut_count == DUT_QUEUE_CAPACITY || dut_emergency_cancel) {
+        /* Fail closed, including an unqueueable stop. The service timer is
+         * independent of app_core's Q_CALLBACK capacity. */
+        if (dut_count == DUT_QUEUE_CAPACITY) dut_queue_abort = 1;
+        dut_emergency_cancel = 1;
+        local_irq_enable();
+        DUT_LOG("DUT queue full; cancel requested\n");
+        return -1;
+    }
+    dut_queue[(dut_head + dut_count) % DUT_QUEUE_CAPACITY] = request;
+    ++dut_count;
+    local_irq_enable();
+    int kick[3] = {(int)dut_service, 1, 0};
+    /* Queue owns the request even if this wakeup is full. The periodic
+     * service retries; while DUT is active it runs every 10 ms. */
+    os_taskq_post_type("app_core", Q_CALLBACK, 3, kick);
+    return 0;
+}
+
+void rdx_dut_test_session_revoke(void)
+{
+    /* BLE task: revoke producers immediately; timer performs app_core cleanup. */
+    dut_key_gate = 0;
+    dut_emergency_cancel = 1;
+    rdx_dut_speaker_cancel();
+}
+
+static void dut_execute_test(const struct dut_request *request)
+{
+    u8 command = request->command;
+    u8 value = request->value;
+    if (!dut_business_ready() || !dut_token_ready(&request->token)) {
+        DUT_LOG("Test command rejected: DUT/session not ready\n");
+        return;
+    }
+    if (command == DUT_CMD_KEY_STOP) {
+        if (rdx_dut_info.current_func == DUT_FUNC_KEY) rdx_dut_test_cancel();
+        return;
+    }
+    if (command == DUT_CMD_KEY_LAYOUT || value) {
+        RecordStatus *record = rdx_record_get_status();
+        if (record->run != RECORD_STATE_STOP ||
+            record->process_state == REC_PROCESS_STATE_BUSY ||
+            rdx_uxfile_sd_format_status_check() || get_ota_status()) {
+            DUT_LOG("Test start rejected: audio/storage busy\n");
+            return;
+        }
+    }
+    if (command == DUT_CMD_KEY_LAYOUT) {
+        char layout[24];
+        if (rdx_dut_info.current_func != DUT_FUNC_NONE &&
+            rdx_dut_info.current_func != DUT_FUNC_KEY) {
+            DUT_LOG("Key test rejected: another test owns resources\n");
+            return;
+        }
+        int keys = dut_layout(layout, sizeof(layout));
+        if (keys < 0) {
+            DUT_LOG("Invalid DUT key layout\n");
+            return;
+        }
+        dut_key_gate = 0;
+        ++dut_key_generation;
+        dut_test_token = request->token;
+        rdx_dut_info.current_func = keys ? DUT_FUNC_KEY : DUT_FUNC_NONE;
+        /* Enable capture before enqueueing the layout. Scan events execute
+         * later on app_core, after the complete layout has been accepted. */
+        dut_key_gate = keys != 0;
+        if (dut_send(&request->token, FT_KEY_LAYOUT, layout)) {
+            rdx_dut_test_cancel();
+        }
+        return;
+    }
+    if (!value) {
+        if (rdx_dut_info.current_func != DUT_FUNC_SPEAKER) {
+            dut_send(&request->token, FT_SPEAKER, "0");
+            return;
+        }
+        dut_stopping = 1;
+        dut_pending = *request;
+        dut_waiting = 2;
+        dut_wait_started = jiffies_to_msecs(jiffies);
+        rdx_dut_speaker_cancel();
+        return;
+    }
+    if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
+        if (!dut_stopping && rdx_dut_speaker_state() == DUT_AUDIO_PLAYING &&
+            dut_send(&request->token, FT_SPEAKER, "1")) {
+            rdx_dut_test_cancel();
+        }
+        return;
+    }
+    if (rdx_dut_info.current_func != DUT_FUNC_NONE) {
+        DUT_LOG("Speaker test rejected: another test owns resources\n");
+        return;
+    }
+    rdx_dut_info.current_func = DUT_FUNC_SPEAKER;
+    dut_test_token = request->token;
+    dut_stopping = 0;
+    if (rdx_dut_speaker_open()) {
+        rdx_dut_info.current_func = DUT_FUNC_NONE;
+        DUT_LOG("Speaker open rejected\n");
+        return;
+    }
+    dut_pending = *request;
+    dut_waiting = 1;
+    dut_wait_started = jiffies_to_msecs(jiffies);
+}
+
+static void dut_service(void *priv)
+{
+    u16 period = (rdx_dut_info.dut_mode || dut_count || dut_stopping ||
+                  dut_record_wait || rdx_dut_test_keys_active()) ? 10 : 1000;
+    if (period != dut_service_period) {
+        sys_timer_modify(dut_service_timer, period);
+        dut_service_period = period;
+    }
+    if (rdx_dut_info.dut_mode && rdx_dut_test_keys_active() && !get_power_on_status()) {
+        rdx_dut_msg_handle();
+    }
+    if (dut_emergency_cancel) {
+        local_irq_disable();
+        u8 abort_all = dut_queue_abort;
+        dut_head = dut_count = 0;
+        dut_queue_abort = dut_emergency_cancel = 0;
+        local_irq_enable();
+        /* Overflow can discard a legacy stop too. Use the existing resource
+         * cleanup; an in-flight format has no cancellation API and must keep
+         * its ownership until the format callback completes. Session revoke
+         * alone retains its original scope (KEY/SPEAKER only). */
+        if (abort_all && rdx_dut_info.current_func != DUT_FUNC_FORMAT) {
+            rdx_dut_close_current_func();
+        } else {
+            rdx_dut_test_cancel();
+        }
+    }
+    if (dut_record_wait) {
+        if (!dut_record_posted && !rdx_record_dut_stop_request(dut_record_ticket)) {
+            dut_record_posted = 1;
+        }
+        int result = dut_record_posted ? rdx_record_dut_stop_poll(dut_record_ticket) : -2;
+        if (result == 0) {
+            dut_record_wait = dut_record_posted = 0;
+            if (rdx_dut_info.current_func == DUT_FUNC_REC ||
+                rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
+                rdx_dut_info.current_func = DUT_FUNC_NONE;
+            }
+        } else {
+            return; /* Retain ownership on queue pressure or save failure. */
+        }
+    }
+    if (rdx_dut_test_keys_active() &&
+        (!dut_business_ready() || !dut_token_ready(&dut_test_token))) {
+        rdx_dut_test_cancel();
+    }
+    int state = rdx_dut_speaker_state();
+    if (state == DUT_AUDIO_DONE) {
+        rdx_dut_speaker_reap();
+        if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
+            rdx_dut_info.current_func = DUT_FUNC_NONE;
+        }
+        if (dut_waiting == 2 && dut_business_ready()) {
+            dut_send(&dut_pending.token, FT_SPEAKER, "0");
+        }
+        dut_waiting = dut_stopping = 0;
+    } else if (dut_waiting == 1 && state == DUT_AUDIO_PLAYING) {
+        dut_waiting = 0;
+        if (dut_send(&dut_pending.token, FT_SPEAKER, "1")) {
+            rdx_dut_test_cancel();
+        }
+    } else if (dut_waiting == 1 &&
+               (u32)(jiffies_to_msecs(jiffies) - dut_wait_started) > 2000) {
+        DUT_LOG("Speaker start timeout\n");
+        rdx_dut_test_cancel();
+    }
+    if (dut_waiting || dut_stopping) return;
+    for (int i = 0; i < DUT_QUEUE_CAPACITY; ++i) {
+        struct dut_request request;
+        local_irq_disable();
+        if (!dut_count) {
+            local_irq_enable();
+            break;
+        }
+        request = dut_queue[dut_head];
+        dut_head = (dut_head + 1) % DUT_QUEUE_CAPACITY;
+        --dut_count;
+        local_irq_enable();
+        /* Legacy factory mode entry precedes APP write-ready. Keep owner /
+         * epoch validation, but reserve the TX-ready gate for new tests. */
+        if (!rdx_ble_session_rdx_token_resolve(&request.token, 1)) continue;
+        if (request.command >= DUT_CMD_KEY_LAYOUT) {
+            dut_execute_test(&request);
+        } else {
+            /* Factory APP advances from the layout/key page directly to
+             * legacy tests, without ft_key#0. Release only key ownership;
+             * speaker and recording resources retain their stop fences. */
+            if (rdx_dut_info.current_func == DUT_FUNC_KEY && request.value == 1 &&
+                (request.command == DUT_CMD_OLED || request.command == DUT_CMD_MOTOR ||
+                 request.command == DUT_CMD_REC || request.command == DUT_CMD_REC_CALL ||
+                 request.command == DUT_CMD_WIFI || request.command == DUT_CMD_FORMAT)) {
+                rdx_dut_test_cancel();
+            }
+            rdx_dut_cmd_async_handle(request.command, request.value);
+        }
+        if (dut_waiting || dut_stopping || dut_record_wait) break;
+    }
+}
+static void dut_record_stop(void)
+{
+    if (dut_record_wait) return;
+    if (!++dut_record_ticket) ++dut_record_ticket;
+    dut_record_wait = 1;
+    dut_record_posted = !rdx_record_dut_stop_request(dut_record_ticket);
+}
+static bool dut_parse_test(const char *cmd, const char *value)
+{
+    if (!strcmp(cmd, FT_KEY_LAYOUT) || !strcmp(cmd, FT_KEY) ||
+        !strcmp(cmd, FT_SPEAKER)) {
+        int type;
+        if (!strcmp(cmd, FT_KEY_LAYOUT) && (!value[0] || !strcmp(value, "1"))) {
+            type = DUT_CMD_KEY_LAYOUT;
+        } else if (!strcmp(cmd, FT_KEY) && !strcmp(value, "0")) {
+            type = DUT_CMD_KEY_STOP;
+        } else if (!strcmp(cmd, FT_SPEAKER) &&
+                   (!strcmp(value, "0") || !strcmp(value, "1"))) {
+            type = DUT_CMD_SPEAKER;
+        } else {
+            DUT_LOG("Invalid test value\n");
+            return true;
+        }
+        if (dut_enqueue(type, value[0] == '1')) {
+            DUT_LOG("Test command enqueue failed\n");
+        }
+        return true;
+    }
+    return false;
+}
+/* DUT_TEST_CORE_END */
+
 
 /******************************************************************************
 * Function Section - 基础接口
@@ -171,6 +616,7 @@ typedef enum {
  **************************************************************************/
 static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
 {
+    if (cmd_type != DUT_CMD_DUT_MODE && !dut_business_ready()) return;
     if (g_finalpack_end_pending) {
         DUT_LOG("Finalpack busy, command blocked\r");
         return;
@@ -179,7 +625,9 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
     
     switch(cmd_type) {
         case DUT_CMD_DUT_MODE:
-            rdx_dut_msg_handle();
+            if (!!onoff != !!rdx_dut_info.dut_mode) {
+                rdx_dut_msg_handle();
+            }
             break;
             
         case DUT_CMD_OLED:
@@ -258,6 +706,9 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
  **************************************************************************/
 void rdx_dut_init(void)
 {
+    if (!dut_service_timer) {
+        dut_service_timer = sys_timer_add(NULL, dut_service, dut_service_period);
+    }
     factory_key_dut_ready = 0;
     u8 vm_value = 0xFF;
     int ret = syscfg_read(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
@@ -301,6 +752,8 @@ static const char* rdx_dut_get_current_func_name(void)
         case DUT_FUNC_REC_CALL: return "REC_CALL";
         case DUT_FUNC_WIFI:     return "WIFI";
         case DUT_FUNC_FORMAT:   return "FORMAT";
+        case DUT_FUNC_KEY:      return "KEY";
+        case DUT_FUNC_SPEAKER:  return "SPEAKER";
         default:                return "NONE";
     }
 }
@@ -310,7 +763,14 @@ static const char* rdx_dut_get_current_func_name(void)
  **************************************************************************/
 void rdx_dut_close_current_func(void)
 {
+    local_irq_disable();
+    dut_head = dut_count = 0;
+    local_irq_enable();
     switch(rdx_dut_info.current_func){
+        case DUT_FUNC_KEY:
+        case DUT_FUNC_SPEAKER:
+            rdx_dut_test_cancel();
+            return; /* SPEAKER retains ownership until worker close completes. */
         case DUT_FUNC_OLED:
             rdx_dut_oled_stop();
             break;
@@ -319,10 +779,10 @@ void rdx_dut_close_current_func(void)
             break;
         case DUT_FUNC_REC:
             rdx_dut_rec_stop();
-            break;
+            return;
         case DUT_FUNC_REC_CALL:
             rdx_dut_rec_call_stop();
-            break;
+            return;
         case DUT_FUNC_WIFI:
             rdx_dut_wifi_stop();
             break;
@@ -481,6 +941,7 @@ bool rdx_dut_motor_is_running(void)
 /* Called on app_core when recording is revoked or audio startup fails. */
 void rdx_dut_record_reset(void)
 {
+    if (dut_record_wait) return;
     if (rdx_dut_info.current_func == DUT_FUNC_REC ||
         rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
         rdx_dut_info.current_func = DUT_FUNC_NONE;
@@ -512,8 +973,8 @@ void rdx_dut_rec_start(void)
             DUT_LOG("No live RDX link, chat record falls back to offline\r");
         }
         rp->run = RECORD_STATE_START;
-        rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
         rp->scene = RECORD_SCENE_CHAT;
+        rdx_record_prepare_new_session();
         rdx_record_process();
     }
 }
@@ -523,22 +984,8 @@ void rdx_dut_rec_start(void)
  **************************************************************************/
 void rdx_dut_rec_stop(void)
 {
-    DUT_LOG("Record test STOP\r");
-    
-    if(rdx_dut_info.current_func != DUT_FUNC_REC){
-        DUT_LOG("Chat record not running, skip\r");
-        return;
-    }
-    
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
-    
-    rdx_dut_info.current_func = DUT_FUNC_NONE;
-    
-    rdx_dut_show();
+    if (rdx_dut_info.current_func != DUT_FUNC_REC) return;
+    dut_record_stop();
 }
 
 /**************************************************************************
@@ -581,8 +1028,8 @@ void rdx_dut_rec_call_start(void)
             DUT_LOG("No live RDX link, call record falls back to offline\r");
         }
         rp->run = RECORD_STATE_START;
-        rp->formate = RECORD_FORMATE_OPUS_16K_STERO;
         rp->scene = RECORD_SCENE_CALL;
+        rdx_record_prepare_new_session();
         rdx_record_process();
     }
 }
@@ -592,22 +1039,8 @@ void rdx_dut_rec_call_start(void)
  **************************************************************************/
 void rdx_dut_rec_call_stop(void)
 {
-    DUT_LOG("Record CALL test STOP\r");
-    
-    if(rdx_dut_info.current_func != DUT_FUNC_REC_CALL){
-        DUT_LOG("Call record not running, skip\r");
-        return;
-    }
-    
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->run != RECORD_STATE_STOP){
-        rp->run = RECORD_STATE_STOP;
-        rdx_record_process();
-    }
-    
-    rdx_dut_info.current_func = DUT_FUNC_NONE;
-    
-    rdx_dut_show();
+    if (rdx_dut_info.current_func != DUT_FUNC_REC_CALL) return;
+    dut_record_stop();
 }
 
 /**************************************************************************
@@ -881,6 +1314,8 @@ static bool rdx_dut_finalpack_mode_ack(const char *cmd, const char *value)
 
 void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
 {
+    if (!cmd || !value) return;
+    if (dut_parse_test(cmd, value)) return;
     if (g_finalpack_end_pending) {
         if (rdx_dut_finalpack_mode_ack(cmd, value)) {
             return;
@@ -889,7 +1324,6 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         return;
     }
     char* p = NULL;
-    int msg[4];
     int ret;
     
     p = strstr(cmd, FT_DUT);
@@ -897,12 +1331,8 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("DUT cmd, onoff: %d, current_mode: %d\r", onoff, rdx_dut_info.dut_mode);
         
-        if((onoff == 1 && !rdx_dut_info.dut_mode) || (onoff == 0 && rdx_dut_info.dut_mode)){
-            msg[0] = (int)rdx_dut_cmd_async_handle;
-            msg[1] = 2;
-            msg[2] = DUT_CMD_DUT_MODE;
-            msg[3] = onoff;
-            ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        if(onoff == 0 || onoff == 1){
+            ret = dut_enqueue(DUT_CMD_DUT_MODE, onoff);
             if(ret) {
                 DUT_LOG("DUT taskq post err: %d\r", ret);
             }
@@ -924,11 +1354,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("LED cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_OLED;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_OLED, onoff);
         if(ret) {
             DUT_LOG("LED taskq post err: %d\r", ret);
         }
@@ -942,11 +1368,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("Motor cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_MOTOR;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_MOTOR, onoff);
         if(ret) {
             DUT_LOG("Motor taskq post err: %d\r", ret);
         }
@@ -959,11 +1381,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("Record CALL cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_REC_CALL;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_REC_CALL, onoff);
         if(ret) {
             DUT_LOG("Record CALL taskq post err: %d\r", ret);
         }
@@ -977,11 +1395,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("Record CHAT cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_REC;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_REC, onoff);
         if(ret) {
             DUT_LOG("Record CHAT taskq post err: %d\r", ret);
         }
@@ -994,11 +1408,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         u8 onoff = atoi(value);
         DUT_LOG("WiFi cmd, onoff: %d\r", onoff);
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_WIFI;
-        msg[3] = onoff;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_WIFI, onoff);
         if(ret) {
             DUT_LOG("WiFi taskq post err: %d\r", ret);
         }
@@ -1010,11 +1420,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
     if(p){
         DUT_LOG("Format cmd\r");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_FORMAT;
-        msg[3] = 1;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_FORMAT, 1);
         if(ret) {
             DUT_LOG("Format taskq post err: %d\r", ret);
         }
@@ -1027,11 +1433,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Poweroff cmd\r");
         rdx_protocol_custom_msg_indicate(FT_POWEROFF, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_POWEROFF;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_POWEROFF, 0);
         if(ret) {
             DUT_LOG("Poweroff taskq post err: %d\r", ret);
         }
@@ -1043,11 +1445,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Finalpack end cmd\r");
         rdx_protocol_custom_msg_indicate(FT_FINALPACK_END, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_FINALPACK_END;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_FINALPACK_END, 0);
         if(ret) {
             DUT_LOG("Finalpack end taskq post err: %d\r", ret);
         }
@@ -1059,11 +1457,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Key DUT disable cmd\r");
         rdx_protocol_custom_msg_indicate(FT_KEY_DUT_DISABLED, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_KEY_DUT_DISABLE;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_KEY_DUT_DISABLE, 0);
         if(ret) {
             DUT_LOG("Key DUT disable taskq post err: %d\r", ret);
         }
@@ -1075,11 +1469,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
         DUT_LOG("Key DUT enable cmd\r");
         rdx_protocol_custom_msg_indicate(FT_KEY_DUT_ENABLE, "0");
         
-        msg[0] = (int)rdx_dut_cmd_async_handle;
-        msg[1] = 2;
-        msg[2] = DUT_CMD_KEY_DUT_ENABLE;
-        msg[3] = 0;
-        ret = os_taskq_post_type("app_core", Q_CALLBACK, 4, msg);
+        ret = dut_enqueue(DUT_CMD_KEY_DUT_ENABLE, 0);
         if(ret) {
             DUT_LOG("Key DUT enable taskq post err: %d\r", ret);
         }
@@ -1103,6 +1493,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
  **************************************************************************/
 void rdx_dut_key_handle(int key_msg)
 {
+    if (rdx_dut_test_keys_active() || dut_stopping) return;
     if (g_finalpack_end_pending) {
         return;
     }
@@ -1216,6 +1607,7 @@ void rdx_dut_msg_handle(void)
             rdx_app_wifi_handle(TRANSFER_BY_WIFI_OFF);
         }
         
+        if (dut_stopping || dut_record_wait) return;
         rdx_dut_info.dut_mode = TRUE;
         rdx_dut_info.current_func = DUT_FUNC_NONE;
         
@@ -1285,6 +1677,8 @@ void rdx_dut_show_refresh(void)
     DUT_LOG("DUT show refresh, current_func=%d\r", rdx_dut_info.current_func);
     
     switch(rdx_dut_info.current_func){
+        case DUT_FUNC_KEY:
+        case DUT_FUNC_SPEAKER:
         case DUT_FUNC_MOTOR:
         case DUT_FUNC_OLED:
         case DUT_FUNC_REC:

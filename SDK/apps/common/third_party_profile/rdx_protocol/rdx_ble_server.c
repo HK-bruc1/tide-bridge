@@ -59,6 +59,7 @@
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
+#include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "clock.h"
 #include "rdx_app.h"
@@ -2800,6 +2801,7 @@ static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link,
         printf("[RDX_BLE_SESSION] logical detach cause=%u con=0x%04x capability=%u->%u\n",
                cause, link->con_handle, capability, link->capability);
     }
+    rdx_dut_test_session_revoke();
     rdx_session_control_reset();
     rdx_ble_server_syn_data_timers_cancel();
     rdx_ble_server_rdx_send_pending_reset();

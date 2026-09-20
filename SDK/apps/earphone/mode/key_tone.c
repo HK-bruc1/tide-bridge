@@ -10,6 +10,12 @@
 #include "key_driver.h"
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_app.h"
+#include "rdx_dut.h"
+
+bool key_test_scan_filter(u8 type, u8 value, u8 previous)
+{
+    return type == KEY_DRIVER_TYPE_IO && rdx_dut_key_scan(value, previous);
+}
 #endif
 
 #if TCFG_KEY_TONE_NODE_ENABLE
@@ -35,6 +41,9 @@ static bool is_key_tone_enable()
 
 static int key_tone_msg_handler(int *msg)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (rdx_dut_test_keys_active()) return 0;
+#endif
     if (!is_key_tone_enable()) {
         return 0;
     }

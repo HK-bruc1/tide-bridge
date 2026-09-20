@@ -178,6 +178,8 @@ int rdx_record_task_create(void);
 int rdx_record_task_free(void);
 RecordStatus* rdx_record_get_status(void);
 u8 rdx_record_format_for_session(u8 scene, u8 stream_only);
+/* app_core only, once per accepted new local recording (never RESUME). */
+void rdx_record_prepare_new_session(void);
 u8 rdx_record_mono_debug_mic(void);
 int rdx_record_run_exit(void);
 int rdx_record_run_init(void);
@@ -223,6 +225,8 @@ void rdx_record_on_ble_conn_changed(u8 connected);
 /* app_core requests; record worker closes streams and acknowledges the ticket. */
 int rdx_record_usb_quiesce_request(u32 ticket);
 int rdx_record_usb_quiesce_poll(u32 ticket);
+int rdx_record_dut_stop_request(u32 ticket);
+int rdx_record_dut_stop_poll(u32 ticket);
 
 
 #ifdef __cplusplus

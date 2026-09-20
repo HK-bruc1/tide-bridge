@@ -255,6 +255,9 @@ void key_driver_init(void);
 /* ----------------------------------------------------------------------------*/
 void key_event_handler(struct key_event *key);
 
+/* Called on the scan context when input is consumed before aggregation. */
+void key_event_reset(void);
+
 
 #endif
 

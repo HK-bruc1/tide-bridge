@@ -35,6 +35,8 @@
 #include "rdx_app.h"
 #include "rdx_ble_server.h"
 #include "rdx_record.h"
+#include "rdx_dut.h"
+#include "rdx_dut_speaker.h"
 #endif
 
 #if (TCFG_USER_TWS_ENABLE == 0)
@@ -215,7 +217,15 @@ static void wait_exit_btstack_flag(void *_reason)
 {
     int reason = (int)_reason;
 
-    if (!a2dp_player_runing() && !esco_player_runing()) {
+    if (!a2dp_player_runing() && !esco_player_runing()
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+        && rdx_dut_speaker_state() == DUT_AUDIO_IDLE
+#endif
+       ) {
+#if (SYS_DEFAULT_VOL == 0)
+        /* Factory audio restores the user's volume before persistence. */
+        syscfg_write(CFG_SYS_VOL, &app_var.music_volume, 2);
+#endif
         lmp_hci_reset();
         os_time_dly(2);
         sys_timer_del(g_bt_detach_timer);
@@ -273,6 +283,9 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
     usb_factory_shutdown(); /* notification; never gates poweroff/reset */
 #endif
     app_var.goto_poweroff_flag = 1;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_dut_test_cancel();
+#endif
     app_var.goto_poweroff_cnt = 0;
     sys_auto_shut_down_disable();
 
@@ -291,9 +304,6 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
 
     bt_cmd_prepare(USER_CTRL_POWER_OFF, 0, NULL);
 
-#if (SYS_DEFAULT_VOL == 0)
-    syscfg_write(CFG_SYS_VOL, &app_var.music_volume, 2);
-#endif
 
 #if TCFG_AUDIO_ANC_ENABLE
     anc_poweroff();

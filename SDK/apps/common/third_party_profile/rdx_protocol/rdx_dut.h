@@ -55,6 +55,10 @@ extern "C" {
 #define FT_FINALPACK_END        "ft_finalpack_end"
 #define FT_KEY_DUT_ENABLE       "ft_key_dut_enable"
 #define FT_KEY_DUT_DISABLED     "ft_key_dut_disabled"
+#define FT_KEY_LAYOUT           "ft_key_layout"
+#define FT_KEY                  "ft_key"
+#define FT_KEY_EVENT            "ft_key_event"
+#define FT_SPEAKER              "ft_speaker"
 
 #define KEY_DUT_DISABLED_FLAG       (0xAA)
 
@@ -69,6 +73,8 @@ typedef enum {
     DUT_FUNC_REC_CALL,
     DUT_FUNC_WIFI,
     DUT_FUNC_FORMAT,
+    DUT_FUNC_KEY,
+    DUT_FUNC_SPEAKER,
     DUT_FUNC_MAX
 } rdx_dut_func_e;
 
@@ -133,6 +139,11 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value);
 * Function Section - 按键处理
 ******************************************************************************/ 
 void rdx_dut_key_handle(int key_msg);
+bool rdx_dut_test_keys_active(void);
+bool rdx_dut_key_scan(u8 value, u8 previous);
+bool rdx_dut_key_consume(u8 value, u32 timestamp);
+void rdx_dut_test_cancel(void);
+void rdx_dut_test_session_revoke(void);
 
 /******************************************************************************
 * Function Section - DUT消息处理

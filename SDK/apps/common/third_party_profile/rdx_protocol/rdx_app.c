@@ -950,6 +950,7 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
 
 static void rdx_app_online_key_battery_cb(void *priv)
 {
+    if (rdx_dut_test_keys_active()) return;
     bool online = rdx_app_rdx_key_route_ready();
 #if TCFG_RDX_HOGP_ENABLE
     online = online || rdx_hogp_keyboard_is_ready();
@@ -981,6 +982,10 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
     struct key_event *key = (struct key_event *)msg;
+    if (rdx_dut_key_consume(key->value, key->tmr)) {
+        *value = APP_MSG_NULL;
+        return;
+    }
     int index = key->event;     
     u8 *pk_l = NULL;
     u8 *pk_r = NULL;
@@ -3540,6 +3545,11 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
 
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale app_core command\r");
+        free(request);
+        return;
+    }
+
+    if (rdx_dut_test_keys_active() && info.cmd != (RECORD_STATE_STOP + 0x30)) {
         free(request);
         return;
     }

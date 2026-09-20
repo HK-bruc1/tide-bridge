@@ -32,6 +32,7 @@
 #include "app_config.h"
 #include "rdx_record.h"
 #include "rdx_record_format.h"
+#include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "effects/eq_config.h"
 #include "audio_config.h"
@@ -142,6 +143,10 @@ static volatile int usb_record_result;
 #define RDX_RECORD_USB_FENCE 0x52445852
 #define RDX_RECORD_BIND_FENCE 0x52445842
 #define RDX_RECORD_HOLD_FENCE 0x52445848
+#define RDX_RECORD_DUT_FENCE 0x52445844
+static volatile u32 dut_record_done;
+static volatile int dut_record_result;
+static volatile u8 dut_record_stopping;
 static volatile u8 record_binding_revoke_pending;
 static volatile int record_binding_cleanup_error;
 
@@ -198,7 +203,8 @@ int rdx_record_audio_start_enter(u32 token)
     if (!token || rdx_vm_bound_transition_lock()) {
         return -1;
     }
-    if (!rdx_record_binding_token_is_current(token)) {
+    if (!rdx_record_binding_token_is_current(token) || dut_record_stopping ||
+        rdx_dut_test_keys_active()) {
         rdx_vm_bound_transition_unlock();
         return -1;
     }
@@ -1430,6 +1436,14 @@ void rdx_record_stop(void)
  * param (*)
  * return (*)
  **************************************************************************/
+void rdx_record_prepare_new_session(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    rp->formate = rdx_record_format_for_session(rp->scene, 0);
+    if (!++record_session_generation) ++record_session_generation;
+    rdx_record_clear_marks();
+}
+
 void rdx_record_start(void* priv)
 {
     if (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked()) {
@@ -1455,9 +1469,7 @@ void rdx_record_start(void* priv)
         // rp->orig_mode = rp->mode;
 
         rdx_record_mode_active_check(0);
-        rp->formate = rdx_record_format_for_session(rp->scene, 0);
-        if (!++record_session_generation) ++record_session_generation;
-        rdx_record_clear_marks();
+        rdx_record_prepare_new_session();
         rdx_record_process();
     }
 }
@@ -1730,6 +1742,34 @@ int rdx_record_usb_quiesce_request(u32 ticket)
 int rdx_record_usb_quiesce_poll(u32 ticket)
 {
     return ticket && usb_record_done == ticket ? usb_record_result : -2;
+}
+
+/* Dedicated DUT fence: do not reuse the USB ticket/acknowledgement slot. */
+int rdx_record_dut_stop_request(u32 ticket)
+{
+    if (!ticket || !is_record_task_created) return -1;
+    dut_record_stopping = 1;
+    if (g_record_cmd_delay_timer) {
+        sys_timeout_del(g_record_cmd_delay_timer);
+        g_record_cmd_delay_timer = 0;
+        g_pending_record_token_valid = 0;
+    }
+    rdx_record_stream_only_start_cancel();
+    if (record_start_tone_pending) rdx_record_start_tone_cancel();
+    rdx_record_pause_timeout_stop();
+    rdx_record_max_timer_stop();
+    record_status.rerun = false;
+    record_status.run = RECORD_STATE_STOP;
+    dut_record_done = 0;
+    dut_record_result = -2;
+    return os_taskq_post_msg(RECORD_TASK_NAME, 2, RDX_RECORD_DUT_FENCE, ticket);
+}
+
+int rdx_record_dut_stop_poll(u32 ticket)
+{
+    if (!ticket || dut_record_done != ticket) return -2;
+    if (!dut_record_result) dut_record_stopping = 0;
+    return dut_record_result;
 }
 
 static bool rdx_record_start_tone_is_current(u32 epoch)
@@ -2389,9 +2429,22 @@ static void rdx_record_task(void *arg)
                             continue;
                         }
                         if ((msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME) &&
-                            (g_app_stop_pending ||
+                            (g_app_stop_pending || dut_record_stopping ||
                              !rdx_record_binding_token_is_current((u32)msg[3]))) {
                             /* The binding fence owns cleanup, after earlier FIFO work. */
+                            continue;
+                        }
+                        if (msg[1] == RDX_RECORD_DUT_FENCE) {
+                            record_status.run = RECORD_STATE_STOP;
+                            translation_ear_recoder_close_all();
+                            int saved = rdx_uxfile_finish_record();
+                            record_initialized_generation = 0;
+                            record_tone_session_active = false;
+                            g_stream_only_session_active = 0;
+                            rdx_record_online_session_clear();
+                            rdx_record_set_process_state_ready();
+                            dut_record_result = saved < 0 ? -1 : 0;
+                            dut_record_done = (u32)msg[2];
                             continue;
                         }
                         if (msg[1] == RDX_RECORD_USB_FENCE) {

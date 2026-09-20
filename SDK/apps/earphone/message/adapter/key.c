@@ -23,6 +23,20 @@ static struct key_hold key_hold_hdl[1] = {
     { .value = NO_KEY }
 };
 
+static u8 click_cnt;
+static u8 notify_value = NO_KEY;
+
+void key_event_reset(void)
+{
+    click_cnt = 0;
+    notify_value = NO_KEY;
+    for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); ++i) {
+        key_hold_hdl[i].value = NO_KEY;
+        key_hold_hdl[i].action = 0;
+        key_hold_hdl[i].start_time = 0;
+    }
+}
+
 static struct key_hold *get_key_hold(u8 key_value, int _new)
 {
     for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); i++) {
@@ -55,8 +69,6 @@ static struct key_hold *get_key_hold(u8 key_value, int _new)
 /* ----------------------------------------------------------------------------*/
 static int multi_clicks_translate(struct key_event *key)
 {
-    static u8 click_cnt;
-    static u8 notify_value = 0xff;
     struct key_hold *hold = get_key_hold(key->value, 0);
 
     if (key->event == KEY_ACTION_LONG) {
@@ -324,5 +336,4 @@ void key_event_handler(struct key_event *key)
 
 #endif
 }
-
 
