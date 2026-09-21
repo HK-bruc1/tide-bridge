@@ -1117,8 +1117,9 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        /* KEY5 uses online hold recording while RDX is ready; the local
-         * table supports double-click toggle and hold-to-record with no ACL. */
+        /* KEY5 同时通过 rdx_hogp_input.c 上报 HID 按下和松开事件。
+         * RDX 就绪时保留在线长按录音；无 BLE ACL 连接时，
+         * 本地按键表支持双击切换录音和长按录音。 */
         if (num_idx == 4) {
             rdx_app_key5_remap(value, index, scene);
             return;

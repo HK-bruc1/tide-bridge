@@ -152,7 +152,7 @@ The HOGP feature is implemented by extending the same RDX GATT server instead of
 - `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report, Output Report)
 - `rdx_ble_server_att_write_callback()` handles encrypted HID dynamic writes, including Protocol Mode, Input CCC, Control Point, and Output Report
 - HID reports are sent via `app_ble_att_send_data()` on the current HID owner wrapper
-- KEY1-KEY4 HID routing uses `rdx_hogp_input.c` (debounced samples, bounded FIFO, cycle ownership and app_core recovery); offline/KEY5 business stays in `rdx_app_earphone_key_remap()`. `rdx_hogp_key_action.c` owns held reports and release retries; `rdx_hogp_keyboard.c` validates independent HID tokens at ATT submission.
+- KEY1-KEY5 HID routing uses `rdx_hogp_input.c` (debounced samples, bounded FIFO, cycle ownership and app_core recovery). KEY5 independently retains its recording gestures in `rdx_app_key5_remap()`; HID reports describe physical Down/Up, not recording success. The key adapter consumes HID gestures only for KEY1-KEY4 so KEY5 recording remains available. `rdx_hogp_key_action.c` owns held reports and release retries; `rdx_hogp_keyboard.c` validates independent HID tokens at ATT submission.
 
 Key points:
 

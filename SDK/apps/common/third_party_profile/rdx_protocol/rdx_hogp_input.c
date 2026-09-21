@@ -17,8 +17,8 @@ struct input_event {
 static struct input_event input_fifo[INPUT_FIFO_SIZE];
 static u8 input_head, input_count;
 static u32 input_epoch = 1, scan_seq, scan_epoch, scan_baseline;
-static u32 cycle_epoch[4];
-static u8 cycle_route[4];
+static u32 cycle_epoch[5];
+static u8 cycle_route[5];
 static u8 stable_key = NO_KEY, scan_filtered;
 static u8 published_route, admission, cleanup_pending = 1;
 static u32 published_map;
@@ -29,7 +29,9 @@ static u8 input_high_water;
 
 static u8 product_key(u8 value)
 {
-    return value >= KEY_IO_NUM0 && value <= KEY_IO_NUM3;
+    /* 五个按键均上报 HID 按下和松开事件。KEY5 的录音手势仍由
+     * 按键适配层和 rdx_app_key5_remap() 独立处理。 */
+    return value >= KEY_IO_NUM0 && value <= KEY_IO_NUM4;
 }
 
 /* Caller holds the short IRQ critical section. No ATT/VM/business calls. */

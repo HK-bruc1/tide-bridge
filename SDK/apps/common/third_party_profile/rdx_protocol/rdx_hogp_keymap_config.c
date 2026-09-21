@@ -42,8 +42,14 @@ typedef struct {
     rdx_ble_async_token_t rdx_token;
 } rdx_hogpkm_owned_request_t;
 
-/* A1 leaves the factory keymap TBD, so production defaults to disabled keys. */
-static const u8 s_rdx_hogpkm_default_keymap[RDX_HOGPKM_KEYMAP_LEN] = {0};
+/* KEY1～KEY5 默认对应 F13～F17（键盘用法页 0x07），不带修饰键；APP 保存的配键优先。 */
+static const u8 s_rdx_hogpkm_default_keymap[RDX_HOGPKM_KEYMAP_LEN] = {
+    0x00, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6a, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
 
 static u8 s_rdx_hogpkm_current_keymap[RDX_HOGPKM_KEYMAP_LEN];
 static u32 s_rdx_hogpkm_current_revision;

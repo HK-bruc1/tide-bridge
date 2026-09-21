@@ -114,6 +114,7 @@ static void session_boot(int split) {
     rdx_hogp_key_action_init();
     rdx_hogp_key_action_keymap_t map={0}; map.version=1; map.key_count=5;
     map.keys[0].usages[0]=4;
+    map.keys[4].usages[0]=0x6c; /* KEY5 对应 F17 */
     rdx_hogp_key_action_keymap_apply(&map);
     rdx_hogp_key_action_service(); reports=0; cleanup_pending=0;
 }
@@ -277,6 +278,35 @@ int test_key5_gestures_do_not_overlap(void) {
     for(int i=0;i<key5;i++) {
         CHECK(key5_events[i]!=KEY_ACTION_CLICK && key5_events[i]!=KEY_ACTION_DOUBLE_CLICK);
     }
+    return 0;
+}
+int test_key5_hid_and_recording_gestures_coexist(void) {
+    boot(1);
+    sample(KEY_IO_NUM4); tick();
+    CHECK(reports==1 && report_bytes[0][2]==0x6c);
+    for(int i=0;i<10;i++) { sample(KEY_IO_NUM4); tick(); }
+    CHECK(reports==1 && key5>=1 && key5_events[0]==KEY_ACTION_LONG);
+    sample(NO_KEY); settle();
+    CHECK(reports==2 && report_bytes[1][2]==0);
+    CHECK(key5_events[key5-1]==KEY_ACTION_UP && !offline);
+
+    /* 禁用 HID 映射不能禁用录音手势处理路径。 */
+    boot(1);
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    memset(&map.keys[4],0,sizeof(map.keys[4]));
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+    tick(); settle(); reports=key5=0;
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    sample(NO_KEY); settle();
+    CHECK(!reports && key5>=2 && key5_events[0]==KEY_ACTION_LONG);
+    CHECK(key5_events[key5-1]==KEY_ACTION_UP);
+
+    /* KEY5 松开上报失败时，使用与其他按键相同的释放恢复机制。 */
+    boot(1); sample(KEY_IO_NUM4); tick();
+    fail_up=1; sample(NO_KEY); tick();
+    CHECK(release_pending && reports==1);
+    fail_up=0; tick();
+    CHECK(!release_pending && reports==2 && !report_bytes[1][2]);
     return 0;
 }
 '''
