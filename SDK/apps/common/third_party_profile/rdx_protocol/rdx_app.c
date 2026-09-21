@@ -1034,6 +1034,41 @@ void rdx_app_online_key_down(u8 key_value)
     }
 }
 
+static bool rdx_app_local_player_message_blocked(int message)
+{
+    switch (message) {
+    case APP_MSG_REC_PREV:
+    case APP_MSG_REC_NEXT:
+    case APP_MSG_REC_FR:
+    case APP_MSG_REC_FF:
+    case APP_MSG_VOL_UP:
+    case APP_MSG_VOL_DOWN:
+        if (!rdx_ble_server_has_active_link()) {
+            RecordStatus *rp = rdx_record_get_status();
+            return rp->run != RECORD_STATE_STOP || rdx_record_process_is_busy_check();
+        }
+        break;
+    default:
+        break;
+    }
+    return false;
+}
+
+static void rdx_app_local_player_key_remap(int *value, int num_idx, int index, int scene)
+{
+    RecordStatus *rp = rdx_record_get_status();
+
+    /* KEY1-4 must not change playback or volume while recording or saving. */
+    *value = APP_MSG_NULL;
+    if (rp->run != RECORD_STATE_STOP || rdx_record_process_is_busy_check()) {
+        return;
+    }
+    u8 *table = rdx_key_get_io_num_table(num_idx, scene);
+    if (table) {
+        *value = table[index];
+    }
+}
+
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
     if (rdx_storage_lifecycle_business_blocked()) {
@@ -1105,10 +1140,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
             return;
         }
 
-        pk_r = rdx_key_get_io_num_table(num_idx, scene);
-        if (pk_r) {
-            *value = pk_r[index];
-        }
+        rdx_app_local_player_key_remap(value, num_idx, index, scene);
         return;
     }
 
@@ -2557,6 +2589,10 @@ int rdx_app_msg_handler(int *msg)
 {
     if (!rdx_app_business_started()) {
         return false;
+    }
+    /* Recheck after queueing: recording may have started since key remap. */
+    if (rdx_app_local_player_message_blocked(msg[0])) {
+        return true;
     }
     /*----------------------------------------------------------------*/
     /* Local Variables												  */

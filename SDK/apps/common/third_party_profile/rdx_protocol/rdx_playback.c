@@ -771,12 +771,13 @@ static int pb_switch_track(pb_direction_t direction)
 
 int rdx_playback_prev(void)
 {
-    return pb_switch_track(PB_DIRECTION_NEWER);
+    // Recording SN increases with creation order: previous selects an older recording.
+    return pb_switch_track(PB_DIRECTION_OLDER);
 }
 
 int rdx_playback_next(void)
 {
-    return pb_switch_track(PB_DIRECTION_OLDER);
+    return pb_switch_track(PB_DIRECTION_NEWER);
 }
 
 int rdx_playback_play(void)

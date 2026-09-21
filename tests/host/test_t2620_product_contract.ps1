@@ -228,7 +228,7 @@ $ioKeyRoutingOk = (Test-TokensInOrder $ioKeyRouting @(
                       'rdx_app_key5_remap(value, index, scene)',
                       'rdx_hogp_keyboard_is_ready()',
                       'rdx_ble_server_has_active_link()',
-                      'rdx_key_get_io_num_table(num_idx, scene)'
+                      'rdx_app_local_player_key_remap(value, num_idx, index, scene)'
                   )) -and
                   $ioKeyRouting -match '(?s)rdx_app_rdx_key_route_ready.*?rdx_ble_session_rdx_token_capture\(&token,\s*1\)' -and
                   $ioKeyRouting -match '(?s)rdx_app_key5_remap.*?KEY_ACTION_UP\s*&&\s*key5_online_hold_routed.*?key_table_record_hold\[index\].*?rdx_app_rdx_key_route_ready\(\).*?KEY_ACTION_LONG.*?key_table_record_hold\[index\]' -and

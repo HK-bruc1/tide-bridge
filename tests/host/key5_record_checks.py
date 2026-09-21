@@ -27,7 +27,7 @@ typedef int bool;
 #define g_printf(...) ((void)0)
 #define log_info(...) ((void)0)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
-enum { RECORD_STATE_STOP, RECORD_STATE_START, RECORD_STATE_RESUME,
+enum { RECORD_STATE_STOP, RECORD_STATE_START, RECORD_STATE_RESUME, RECORD_STATE_PAUSE,
        RECORD_SCENE_CHAT, RECORD_SCENE_CALL, RECORD_FORMATE_OPUS_16K_STERO,
        REC_PROCESS_STATE_BUSY, RECORD_MODE_OFFLINE };
 typedef struct { int run, scene, formate, mode, orig_mode, process_state, key_trigger; } RecordStatus;
@@ -135,6 +135,57 @@ int test_local_release_ownership(void) {
     stop_fail=0; rdx_app_hold_record_pump(); CHECK(stops==1 && !hold_record_session_active);
     return 0;
 }
+int test_recording_blocks_player_keys(void) {
+    int value;
+    const int states[] = {RECORD_STATE_START, RECORD_STATE_RESUME, RECORD_STATE_PAUSE};
+    reset();
+    for (int n=0; n<4; ++n) {
+        for (int event=0; event<KEY_ACTION_MAX; ++event) {
+            for (int s=0; s<3; ++s) {
+                status.run=states[s]; value=-1;
+                rdx_app_local_player_key_remap(&value,n,event,2);
+                CHECK(value==APP_MSG_NULL);
+            }
+            status.run=RECORD_STATE_STOP; status.process_state=REC_PROCESS_STATE_BUSY;
+            rdx_app_local_player_key_remap(&value,n,event,1);
+            CHECK(value==APP_MSG_NULL);
+            status.process_state=0;
+            rdx_app_local_player_key_remap(&value,n,event,1);
+            CHECK(value==rdx_key_get_io_num_table(n,1)[event]);
+        }
+    }
+    CHECK(key_table_io_num0_normal[KEY_ACTION_CLICK]==APP_MSG_REC_PREV);
+    CHECK(key_table_io_num1_normal[KEY_ACTION_LONG]==APP_MSG_REC_FF);
+    for (int n=2; n<4; ++n) {
+        int volume=rdx_key_get_io_num_table(n,1)[KEY_ACTION_CLICK];
+        CHECK(volume==APP_MSG_VOL_UP || volume==APP_MSG_VOL_DOWN);
+    }
+    CHECK(key_table_io_num2_normal[KEY_ACTION_CLICK]!=key_table_io_num3_normal[KEY_ACTION_CLICK]);
+    return 0;
+}
+int test_queued_player_message_during_recording(void) {
+    const int messages[] = {APP_MSG_REC_PREV, APP_MSG_REC_NEXT,
+        APP_MSG_REC_FR, APP_MSG_REC_FF, APP_MSG_VOL_UP, APP_MSG_VOL_DOWN};
+    reset();
+    for (int i=0; i<6; ++i) {
+        status.run=RECORD_STATE_STOP; status.process_state=0;
+        CHECK(!rdx_app_local_player_message_blocked(messages[i]));
+        /* A message admitted before START must be rejected at dispatch. */
+        status.run=RECORD_STATE_START;
+        CHECK(rdx_app_local_player_message_blocked(messages[i]));
+        status.run=RECORD_STATE_STOP; status.process_state=REC_PROCESS_STATE_BUSY;
+        CHECK(rdx_app_local_player_message_blocked(messages[i]));
+        status.process_state=0;
+        CHECK(!rdx_app_local_player_message_blocked(messages[i]));
+    }
+    status.run=RECORD_STATE_START;
+    CHECK(!rdx_app_local_player_message_blocked(APP_MSG_RECORD_LOCAL_TOGGLE));
+    CHECK(!rdx_app_local_player_message_blocked(APP_MSG_RECORD_LOCAL_HOLD_STOP));
+    CHECK(!rdx_app_local_player_message_blocked(APP_MSG_REC_PLAY_TOGGLE));
+    connected=1;
+    CHECK(!rdx_app_local_player_message_blocked(APP_MSG_VOL_UP));
+    return 0;
+}
 int test_hold_admission_and_online(void) {
     reset(); bound=0; key(KEY_ACTION_LONG); key(KEY_ACTION_UP); CHECK(!starts && !stops);
     reset(); blocked=1; key(KEY_ACTION_LONG); key(KEY_ACTION_UP); CHECK(!starts && !stops);
@@ -157,14 +208,16 @@ def main():
     kh = (ROOT / 'SDK/apps/common/device/key/key_driver.h').read_text(encoding='utf-8')
     enums += re.search(r'enum key_action \{.*?\};', kh, re.S)[0]
     tables = ''.join(re.search(r'u8 '+n+r'\[KEY_ACTION_MAX\]\s*=\s*\{.*?\};', keys, re.S)[0]
-                     for n in ('key_table_record_hold', 'key_table_io_num4_normal'))
+                     for n in ('key_table_record_hold', *(f'key_table_io_num{i}_normal' for i in range(5))))
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
         'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
-        'rdx_app_rdx_key_route_ready', 'rdx_app_key5_remap',
+        'rdx_app_rdx_key_route_ready', 'rdx_app_key5_remap', 'rdx_app_local_player_key_remap',
+        'rdx_app_local_player_message_blocked',
         'rdx_app_device_record_set', 'rdx_app_device_record_handle'))
     handler = function(app, 'rdx_app_msg_handler')
+    assert handler.index('if (rdx_app_local_player_message_blocked(msg[0]))') < handler.index('switch (msg[0])')
     begin = handler.index('        case APP_MSG_RECORD_LOCAL_HOLD_START:')
     end = handler.index('        case APP_MSG_REC_PREV:', begin)
     cases = handler[begin:end]
@@ -172,7 +225,7 @@ def main():
     cases += handler[begin:handler.index('        case APP_MSG_TWS_START_PAIR:', begin)]
     playback = (BASE / 'rdx_playback.c').read_text(encoding='utf-8')
     program = (STUBS + enums + '\n' + tables + '\n' +
-               'static u8 *rdx_key_get_io_num_table(int n,int s) { return key_table_io_num4_normal; }\n'
+               'static u8 *rdx_key_get_io_num_table(int n,int s) { u8 *t[]={key_table_io_num0_normal,key_table_io_num1_normal,key_table_io_num2_normal,key_table_io_num3_normal,key_table_io_num4_normal}; return t[n]; }\n'
                'static void rdx_app_hold_record_pump(void);\n'
                'static int rdx_app_device_record_set(u8,u8,u8);\n' + helpers +
                function(playback, 'rdx_playback_can_start') +
