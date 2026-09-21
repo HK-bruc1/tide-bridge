@@ -91,13 +91,16 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner keeps a five-contract core suite covering:
+The host test runner runs five source contracts and seven C behavioral harnesses
+as independent processes. It continues after module failures and returns a nonzero
+exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
+focused run; the default runs all 12 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
 - `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
 - `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, cross-peer handoff after full reset, and fail-closed behavior.
-- `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, owner-directed response, and the actual-C HOGP hold/scan/FIFO/session behavioral harness.
+- `test_rdx_keymap_contract.ps1` - token checks across keymap commit stages, A/B storage wiring and owner-directed response. Hot-apply release and HOGP hold/scan/FIFO/session behavior run independently in `test_hogp_hold.py`.
 
 The lifecycle group includes source checks for the single-command RDX release
 and preservation of the shared HID/physical link. The factory USB behavioral harness also requires Python with llvmlite and

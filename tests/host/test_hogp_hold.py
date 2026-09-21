@@ -340,12 +340,7 @@ def main():
         path = Path(temp) / 'hold.c'
         path.write_text(program, encoding='utf-8')
         tests = re.findall(r'int (test_\w+)\(void\)', SCAN_TESTS + SESSION_TESTS + ASYNC_TESTS)
-        try:
-            run_c_checks(path, tests, native=True)
-        except AssertionError as error:
-            line = int(re.search(r'line (\d+)', str(error))[1])
-            print('Failing C:', program.splitlines()[line - 1])
-            raise
+        run_c_checks(path, tests, native=True)
     print('HOGP actual C scan/gesture/FIFO/session/async ATT behavior passed.')
 
 if __name__ == '__main__':

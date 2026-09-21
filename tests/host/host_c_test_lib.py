@@ -18,7 +18,7 @@ def run_c_checks(path, functions, native=False):
     target_args = ['-target', llvm.get_default_triple()] if native else ['-target', 'pi32v2', '-mcpu=r3']
     result = subprocess.run(['C:/JL/pi32/bin/clang.exe', *target_args,
                              '-O0', '-S', '-emit-llvm', str(path), '-o', str(ir_path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, timeout=60)
     if result.returncode:
         raise RuntimeError(result.stderr)
     ir = re.sub(r' "target-(?:cpu|features)"="[^"]*"', '', ir_path.read_text(encoding='utf-8'))
@@ -36,16 +36,28 @@ def run_c_checks(path, functions, native=False):
     engine.finalize_object()
     for function in functions:
         result = ctypes.CFUNCTYPE(ctypes.c_int)(engine.get_function_address(function))()
-        assert result == 0, f'{function} failed at generated C line {result}: {path}'
+        if result:
+            # Temporary harness directories disappear on failure; retain the C input.
+            failure = ROOT / 'cache/host-test-failures' / path.parent.name / path.name
+            failure.parent.mkdir(parents=True, exist_ok=True)
+            failure.write_bytes(path.read_bytes())
+            raise AssertionError(f'{function} failed at generated C line {result}: {failure}')
 
 
 def function(source, name):
-    start = source.index(name)
-    start = source.rfind('\n', 0, start) + 1
-    brace = source.index('{', start)
+    # Mask comments/literals without changing offsets, and skip declarations.
+    masked = re.sub(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
+                    lambda m: re.sub(r'[^\n]', ' ', m[0]), source, flags=re.S)
+    signature = re.escape(name if '(' in name else name + '(')
+    if re.fullmatch(r'\w+\(?', name):
+        signature = r'(?:\w+[ \t*]+)+' + signature
+    match = re.search(r'^[ \t]*' + signature + r'[^;{}]*\{', masked, re.M)
+    if not match:
+        raise ValueError(f'C function definition not found: {name}')
+    start, brace = match.start(), match.end() - 1
     depth = 1
     end = brace + 1
     while depth:
-        depth += (source[end] == '{') - (source[end] == '}')
+        depth += (masked[end] == '{') - (masked[end] == '}')
         end += 1
     return source[start:end] + '\n'

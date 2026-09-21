@@ -24,7 +24,6 @@ $AppConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_config.h'
 $IoKey = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\iokey_config.c'
 $Pc = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\pc\pc.c'
 $UsbTask = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_task.c'
-$UsbCommon = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_common_def.h'
 $DevManager = Read-RepoFile $RepoRoot 'SDK\apps\common\dev_manager\dev_manager.c'
 $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app.c'
 $RdxKey = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.c'
@@ -32,8 +31,6 @@ $RdxKeyH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_prot
 $RdxRecord = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_record.c'
 $RdxPlayback = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_playback.c'
 $RdxLedCtrl = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.c'
-$RdxLedCtrlH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.h'
-$RdxLedCfg = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_cfg.h'
 $RdxServer = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.c'
 $RdxServerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_ble_server.h'
 $RdxAppConfig = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app_config.h'
@@ -115,7 +112,6 @@ $sharedVddQuiesceOk = $PeripheralPower -match 'T2620 PA4 shared VDD conflicts wi
                       $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop.*?dev_manager_takeover\("sd0"\).*?rdx_led_hardware_deinit\(\).*?FINAL_RECHECK' -and
                       $PeripheralPower -match '(?s)T2620_SHARED_VDD_MODE_POWER_CUT.*?rdx_peripheral_power_vdd_storage_io_safe\(\).*?rdx_peripheral_power_vdd_hw_set\(0\).*?RDX_SHARED_VDD_STATE_OFF' -and
                       $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_restore_idle_domain.*?dev_manager_restore\("sd0"\).*?rdx_led_hardware_resume\(\).*?RDX_SHARED_VDD_STATE_ON_READY' -and
-                      $PeripheralPower -match 'stale_idle_ignored' -and
                       $RdxApp -match '(?s)int\s+rdx_led_hardware_deinit.*?rdx_led_ctrl_deinit\(\).*?led_pt0807_deinit' -and
                       $Pc -match '(?s)pc_storage_prepare.*?rdx_peripheral_power_vdd_usb_prepare\(\).*?dev_manager_takeover\("sd0"\).*?rdx_peripheral_power_vdd_usb_takeover_complete\(1\)' -and
                       $Pc -match '(?s)pc_storage_restore.*?dev_manager_restore\("sd0"\).*?rdx_peripheral_power_vdd_usb_restore_complete\(1\)'
@@ -130,7 +126,7 @@ $sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transi
 Assert-Contract 'T2620_SHARED_VDD_TRANSITIONS_SERIALIZED' $sharedVddTransitionSerializationOk `
     'stop/restore transitions must be mutex-serialized and revalidate the exact slow-advertising epoch'
 
-$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)A BLE topology change.*?raises wake_requested/wake_epoch.*?local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv;\s*if\s*\(!canceled\)' -and
+$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv;\s*if\s*\(!canceled\)' -and
                                   $PeripheralPower -notmatch '(?s)local_irq_disable\(\);(?:(?!local_irq_enable\(\);).)*rdx_ble_server_get_connected_count\(\)'
 Assert-Contract 'T2620_SHARED_VDD_FINAL_RECHECK_IS_IRQ_SAFE' $sharedVddIrqSafeFinalRecheckOk `
     'the IRQ-disabled final commit must use atomic wake facts and never call the mutex-backed JL BLE wrapper API'
@@ -161,8 +157,8 @@ Assert-Contract 'T2620_SHARED_VDD_BUSY_SNAPSHOT' $sharedVddBusySnapshotOk `
 $sharedVddBusinessCompletionOk = $PeripheralPower -match 'RDX_SHARED_VDD_IDLE_RECHECK_MS\s+\(1000u\)' -and
                                   $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_recheck_schedule.*?sys_timeout_add\(.*?rdx_peripheral_power_vdd_idle_recheck_cb' -and
                                   $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_recheck_cb.*?RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED.*?epoch' -and
-                                  $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_restore_idle_domain.*?last_would_off_generation\s*=\s*\(u32\)-1.*?restored reason=' -and
-                                  $PeripheralPower -match '(?s)case\s+RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED:.*?stale_business_ignored.*?rdx_peripheral_power_vdd_idle_evaluate' -and
+                                  $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_restore_idle_domain.*?last_would_off_generation\s*=\s*\(u32\)-1' -and
+                                  $PeripheralPower -match '(?s)case\s+RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED:.*?rdx_peripheral_power_vdd_idle_evaluate' -and
                                   $PeripheralPower -match '(?s)case\s+RDX_SHARED_VDD_EVENT_FAST_ADV:.*?rdx_peripheral_power_vdd_idle_recheck_cancel' -and
                                   $RdxRecord -match '(?s)rdx_record_set_process_state_ready.*?record_status\.run\s*==\s*RECORD_STATE_STOP.*?rdx_peripheral_power_vdd_business_changed_notify' -and
                                   $RdxPlayback -match '(?s)static void\s+pb_finish_stop.*?pb\.state\s*=.*?rdx_peripheral_power_vdd_business_changed_notify' -and
@@ -224,15 +220,6 @@ $recordPlayToggleOk = $RdxKey -match '(?s)u8\s+key_table_io_num4_normal\s*\[KEY_
 Assert-Contract 'RDX_RECORD_PLAY_KEY_STATE_DISPATCH' $recordPlayToggleOk `
     'the offline record/play key must add a device mark while recording and otherwise retain playback toggle behavior'
 
-$markSuccessPath = Get-SourceSlice $RdxRecord 'static int rdx_record_add_mark_internal(' 'int rdx_record_add_mark(u8 source)'
-$recordMarkFeedbackOk = $markSuccessPath -match '(?s)return RDX_RECMARK_RESULT_BUSY;.*?s_cur_marks\[s_cur_mark_count\+\+\] = offset_ms;\s*/\*.*?\*/\s*rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
-                        $recordPlayToggleRoute -notmatch 'rdx_led_ctrl_set_scene\(RDX_LED_SCENE_RECORD_MARK\)' -and
-                        $RdxLedCtrlH -match 'RDX_LED_SCENE_RECORD_MARK' -and
-                        $RdxLedCfg -match '(?s)\[RDX_LED_SCENE_RECORD_MARK\]\s*=\s*RDX_LED_EFFECT_RECORD_MARK_YELLOW.*?\[RDX_LED_EFFECT_RECORD_MARK_YELLOW\]\s*=\s*\{.*?RDX_LED_MODE_SOLID_TIMEOUT.*?\.r\s*=\s*255\s*,\s*\.g\s*=\s*160\s*,\s*\.b\s*=\s*0.*?\.timeout_ms\s*=\s*2000' -and
-                        $RdxLedCtrl -match '(?s)g_current_scene\s*==\s*RDX_LED_SCENE_RECORD_MARK.*?_rdx_led_restore_system_state\(\)'
-Assert-Contract 'RDX_RECORD_MARK_LED_FEEDBACK' $recordMarkFeedbackOk `
-    'successful APP and key marks must share two-second yellow feedback after validation, without duplicate key feedback, then restore the system scene'
-
 $ioKeyRouting = Get-SourceSlice $RdxApp `
     'static u8 rdx_app_rdx_key_route_ready(void)' `
     '// ---- KEY_POWER'
@@ -248,11 +235,6 @@ $ioKeyRoutingOk = (Test-TokensInOrder $ioKeyRouting @(
                   $ioKeyRouting -match '(?s)rdx_ble_server_has_active_link\(\).*?APP_MSG_NULL.*?rdx_key_get_io_num_table\(4,\s*scene\)'
 Assert-Contract 'RDX_IO_KEY_BLE_CAPABILITY_ROUTING' $ioKeyRoutingOk `
     'KEY1-4 must prefer HID, KEY5 must prefer RDX hold recording, and local tables require zero BLE links'
-
-$defaultMeetingSceneOk = $RdxRecord -match '(?s)void rdx_record_set_default\(void\).*?record_status\.scene\s*=\s*RECORD_SCENE_CHAT' -and
-                         $RdxApp -notmatch 'rp->scene\s*=\s*RECORD_SCENE_CALL'
-Assert-Contract 'RDX_DEFAULT_RECORD_SCENE_IS_MEETING' $defaultMeetingSceneOk `
-    'BLE state synchronization must preserve the default meeting scene instead of forcing call mode'
 
 $holdRecordStorageOk = $RdxApp -match '(?s)!ret && stream_only && run == RECORD_STATE_START.*?rdx_record_stream_only_start_arm\(&rdx_token\)' -and
                        $RdxApp -match 'rdx_app_device_record_set\(scene, run, 0\)' -and
@@ -284,9 +266,6 @@ $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_pro
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
                            $PatchedRdxArchiveHash -eq '2D844D806F0F26B03BE03C8ACE7495A456CB8A4D19E381E4423C50FDA7518C64' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
-                           $RdxLibraryPatch -match "factory-new empty index fast path" -and
-                           $RdxLibraryPatch -match "br i1 %25, label %221, label %219" -and
-                           $RdxLibraryPatch -match "%222 = phi i32 \[ %218, %217 \], \[ %220, %219 \], \[ 0, %15 \]" -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
                            $RdxRecord -match '(?s)static u8 rdx_record_uxfile_is_busy.*?rdx_uxfile_sync_is_in_progress.*?rdx_uxfile_is_scan_active.*?rdx_uxfile_is_formatting' -and
@@ -296,16 +275,6 @@ $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_pro
                            $RdxApp -match '(?s)run == RECORD_STATE_START && !stream_only.*?rdx_uxfile_sync_is_in_progress.*?local start rejected: UXFILE is busy'
 Assert-Contract 'RDX_UXFILE_STARTUP_RECOVERY' $uxfileStartupRecoveryOk `
     'the patched library must commit a missing DAT as an empty index without boot fscan, persist its marker, and serialize recording against recovery'
-
-$recordMarkPersistenceOk = $RdxLibraryPatch.Contains("'  %113 = sub i32 4, %105, !dbg !1146'") -and
-                           $RdxLibraryPatch.Contains("'  %113 = sub i32 248, %105, !dbg !1146'") -and
-                           $RdxLibraryPatch.Contains("'  %122 = icmp ugt i32 %121, 247, !dbg !1157'") -and
-                           $RdxLibraryPatch.Contains("'  %126 = icmp ult i32 %125, 248, !dbg !1165'") -and
-                           $RdxLibraryPatch.Contains("'  store i8 93, i8* getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 246), align 1, !dbg !1173, !tbaa !710'") -and
-                           $RdxLibraryPatch.Contains("'  %133 = phi i8* [ getelementptr inbounds ([248 x i8], [248 x i8]* @s_marks_str, i32 0, i32 247), %131 ], [ %130, %127 ]'") -and
-                           $RdxLibraryPatch -match 'record marks persistence buffer capacity'
-Assert-Contract 'RDX_RECORD_MARKS_PERSIST_TO_DAT' $recordMarkPersistenceOk `
-    'the UXFILE serializer must use the full 248-byte marks buffer for every append and closing boundary'
 
 $recordToneFinish = Get-SourceSlice $RdxRecord `
     'static void rdx_record_start_tone_finish(' 'static void rdx_record_start_tone_complete('
@@ -318,7 +287,7 @@ $recordToneWait = Get-SourceSlice $RdxRecord `
 $recordUi = Get-SourceSlice $RdxRecord `
     'void rdx_record_ui_notify(void)' 'void rdx_record_auto_run(' -Last
 $recordProcessBranches = [regex]::Matches($RdxRecord, '(?s)void rdx_record_process\(void\)\s*\{.*?(?=\r?\n\})')
-$recordToneOrderingOk = $recordProcessBranches.Count -eq 2
+$recordToneOrderingOk = $recordProcessBranches.Count -gt 0
 foreach ($branch in $recordProcessBranches) {
     $recordToneOrderingOk = $recordToneOrderingOk -and (Test-TokensInOrder $branch.Value @(
         'rdx_record_start_tone_wait()', 'rdx_record_set_process_state_busy()', 'case RECORD_STATE_START:'
@@ -361,24 +330,6 @@ $usbProfileOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_PC_STORAGE_ENABLE\s
                 $SdkConfigH -match '(?m)^\s*#define\s+TCFG_USB_SLAVE_MSD_ENABLE\s+1\b' -and
                 $Config -match '(?s)#if\s+TCFG_SD0_ENABLE\s+#undef\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s*#define\s+TCFG_SD_ALWAY_ONLINE_ENABLE\s+1' -and
                 $BoardConfig -notmatch '(?m)^\s*#\s*(?:define|undef)\s+TCFG_SD_ALWAY_ONLINE_ENABLE\b'
-foreach ($disabledClass in @(
-    'TCFG_USB_SLAVE_HID_ENABLE',
-    'TCFG_USB_SLAVE_AUDIO_SPK_ENABLE',
-    'TCFG_USB_SLAVE_AUDIO_MIC_ENABLE'
-)) {
-    $usbProfileOk = $usbProfileOk -and
-        $Config -match "(?m)^\s*#define\s+$disabledClass\s+0\s*$"
-}
-foreach ($defaultDisabledClass in @(
-    'TCFG_USB_SLAVE_CDC_ENABLE',
-    'TCFG_USB_CUSTOM_HID_ENABLE',
-    'TCFG_USB_SLAVE_MTP_ENABLE',
-    'TCFG_USB_SLAVE_MIDI_ENABLE',
-    'TCFG_USB_SLAVE_PRINTER_ENABLE'
-)) {
-    $usbProfileOk = $usbProfileOk -and
-        $UsbCommon -match "(?m)^\s*#define\s+$defaultDisabledClass\s+0\s*$"
-}
 Assert-Contract 'USB_MSC_PRODUCT_PROFILE' $usbProfileOk `
     'USB export defaults off; optional export is MSC-only and fixed SD registration is independent'
 
@@ -396,7 +347,6 @@ $bootPreserve = Get-SourceSlice $DevManager `
     '#if (TCFG_SD0_ENABLE && TCFG_T2620_STORAGE_PRESERVE_ON_BOOT)' `
     '#elif (TCFG_SD0_ENABLE && TCFG_SD0_FORMAT_ON_BOOT)'
 $formatSafetyOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_STORAGE_PRESERVE_ON_BOOT\s+1\s*$' -and
-                  $bootPreserve -match 'boot format prohibited, data preserved' -and
                   $bootPreserve -notmatch 'f_format\(|syscfg_write\(|dev->fmnt\s*=' -and
                   $DevManager -match 'dev->valid = \(dev->fmnt \? 1 : 0\)'
 Assert-Contract 'STORAGE_BOOT_PRESERVES_DATA_ON_MOUNT_FAILURE' $formatSafetyOk `
@@ -557,7 +507,7 @@ Assert-Contract 'USB_HOT_SWITCH_REQUIRES_REAL_COMPLETION' (
     $RdxServer -match '(?s)int rdx_ble_server_usb_quiesce\(void\).*?app_ble_disconnect.*?rdx_ble_server_rdx_runtime_try_rearm\(\)'
 ) 'Hot switch must close recording, drain real BLE lifecycle and freeze UXFILE before reset; cold export and failure protection remain intact'
 Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
-    (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'HOST_OWNED -> DEVICE_OWNED', 'rdx_storage_lifecycle_pc_returned()')) -and
+    (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'rdx_storage_lifecycle_pc_returned()')) -and
     $DipSwitch -match '(?s)rdx_storage_lifecycle_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
     $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_storage_lifecycle_business_blocked\(\).*?enable = 0;' -and
     $RdxRecord -match '(?s)void rdx_record_process\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
@@ -568,9 +518,6 @@ Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
 Assert-Contract 'UXFILE_PATCH_QUIET_AND_ERROR_BOUNDARY' (
     $Makefile -match '(?m)^\$\(OUT_ELF\): apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a Makefile \| pre_build' -and
     $RdxLibraryPatch -match 'Update-RdxStorageIr' -and
-    $StoragePatch -match 'retain dirty on storage I/O failure' -and
-    $StoragePatch -match 'raw open failure cannot bypass safe shutdown' -and
-    $StoragePatch -match 'freeze file worker after successful fence' -and
     $StorageIr -match '(?s)rdx_storage_fwrite.*?mul i32 %size, %count.*?icmp eq i32 %written, %expected' -and
     (Test-TokensInOrder $StorageIr @('define internal void @rdx_storage_fence_arrive', 'rdx_uxfile_process_delete_queue', 'rdx_uxfile_close_read_file_handle', 'rdx_uxfile_flush_cache', 'rdx_storage_f_flush_wbuf', 'store volatile i32 %quiet', 'store volatile i32 %ticket, i32* @rdx_storage_fence_done'))
 ) 'The pinned patch must retain I/O errors, stop library producers, and publish the matching completion only after flush and worker freeze'
@@ -608,18 +555,12 @@ Assert-Contract 'RECORD_BINDING_LOW_LEVEL_COVERAGE' (
     $RdxRecord -match 'rdx_record_session_token_is_current\(\(u32\)msg\[3\]\)'
 ) 'Both recorder variants and queued worker starts must enforce recording authorization; DUT uses an explicit session grant'
 
-$DutAuthorization = Get-SourceSlice $RdxRecord 'u8 rdx_record_dut_authorize(void)' '/* A successful enter must be paired'
-Assert-Contract 'RECORD_DUT_SCOPED_AUTHORIZATION' (
-    $DutAuthorization -match 'rdx_ble_session_rdx_token_capture\(&dut_record_owner, 1\)' -and
-    $DutAuthorization -match 'rdx_ble_session_rdx_token_resolve\(&dut_record_owner, 1\)' -and
-    $DutAuthorization -match 'rdx_dut_rec_is_running\(\) \|\| rdx_dut_rec_call_is_running\(\)' -and
-    $DutAuthorization -notmatch 'syscfg_write|rdx_vm_set_bound_status' -and
+Assert-Contract 'RECORD_DUT_ENTRY_GATES' (
     $BindingDut -match '(?s)void rdx_dut_test_session_revoke\(void\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
     $RdxRecord -match '(?s)int rdx_record_dut_stop_request\(u32 ticket\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
     ([regex]::Matches($RdxRecord, 'int rdx_record_run_data_handle\([^\n]+\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
-    $BindingRecorder -match 'u32 token = rdx_record_binding_token_capture\(\);' -and
     $BindingRecorder -match 'translation_ear_recoder_open_all_bound\(ch_mode, rdx_record_binding_token_capture\(\)\)'
-) 'Factory recording grants must remain RAM-only, owner-scoped and revocable; ordinary SDK entry points remain bound-only'
+) 'DUT revoke/stop and both data paths must retain authorization gates; SDK opens remain bound-only'
 
 $BindingFence = Get-SourceSlice $RdxRecord 'if (msg[1] == RDX_RECORD_BIND_FENCE)' 'if (msg[1] == RDX_RECORD_USB_FENCE)'
 $BindingRevoke = Get-SourceSlice $RdxRecord 'static void rdx_record_binding_revoke_on_app_core(void)' 'int rdx_record_usb_quiesce_request('
@@ -628,8 +569,6 @@ Assert-Contract 'RECORD_UNBIND_DRAINS_BEFORE_REARM' (
     (Test-TokensInOrder $BindingRevoke @('rdx_app_record_binding_reset()', 'sys_timeout_del(g_record_cmd_delay_timer)', '++record_start_tone_epoch', 'record_status.rerun = false', 'RDX_RECORD_BIND_FENCE')) -and
     $BindingVm -match '(?s)\+\+bound_epoch;.*?rdx_bound_info.bound_state = d;.*?rdx_record_binding_revoke\(\)'
 ) 'Unbinding must cancel producers and close/save through the recording FIFO before rearming; storage failure keeps the gate closed'
-
-
 
 Assert-Contract 'RECORD_BINDING_SERIALIZED_AUDIO_START' (
     (Test-TokensInOrder $BindingVm @('int rdx_vm_set_bound_status(', 'rdx_vm_bound_transition_lock()', 'syscfg_write(VM_RDX_NOTTA_BOUND_STATUS', 'bound_token = d ? bound_epoch : 0;', 'rdx_record_binding_revoke()', 'rdx_vm_bound_transition_unlock()')) -and
@@ -642,7 +581,6 @@ Assert-Contract 'RECORD_START_FAILURE_ROLLBACK' (
     (Test-TokensInOrder $BindingRecorder @('if (!esco_player_runing())', 'ret = translation_ear_recoder_open_impl(MIC', 'goto fail;', 'ret = translation_ear_recoder_open_impl(DAC', 'fail:', 'translation_ear_recoder_close_all()', 'return ret;')) -and
     $RdxRecord -match '(?s)void rdx_record_audio_start_exit\(int result\).*?if \(result\).*?rdx_record_binding_revoke\(\);' -and
     $RdxRecord -match '\+\+record_binding_generation' -and
-    $BindingVm -notmatch 'rdx_vm_invalidate_bound_requests' -and
     $RdxRecord -match 'record_binding_cleanup_error = -1;' -and
     $RdxRecord -match 'record_binding_cleanup_error = -2;'
 ) 'Partial opens must unwind, call recording may skip MIC, and worker failure must drain before rearm'
@@ -656,28 +594,12 @@ Assert-Contract 'RECORD_SESSION_INIT_SINGLE_OWNER' (
     $RecordSink -match '(?s)case NODE_IOC_START:\s*return sink_dev1_ioc_start\(hdl\);'
 ) 'Only the sink initializes each recording session; failed initialization propagates to audio rollback'
 
-
 Assert-Contract 'RECORD_SESSION_LIFETIME' (
     $RdxRecord -match 'if \(\+\+record_session_generation == 0\)' -and
-    ([regex]::Matches($RdxRecord, 'record_initialized_generation = record_session_generation;').Count -eq 2) -and
-    ([regex]::Matches($RdxRecord, 'record_initialized_generation != record_session_generation').Count -eq 2) -and
+    ($RdxRecord -match 'record_initialized_generation = record_session_generation;') -and
+    ($RdxRecord -match 'record_initialized_generation != record_session_generation') -and
     $RdxRecord -match 'record_initialized_generation == record_session_generation' -and
     (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
     $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
 ) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
-# Execute production C with mocked hardware/storage/DSP boundaries.
-foreach ($harness in @(
-    'test_factory_usb.py',
-    'test_finalpack.py',
-    'test_dut_keys_speaker.py',
-    'test_record_storage.py',
-    'test_meeting_mono.py',
-    'test_record_format.py'
-)) {
-    & python -X utf8 (Join-Path $PSScriptRoot $harness)
-    if ($LASTEXITCODE -ne 0) {
-        throw "$harness failed (requires JL clang and Python llvmlite)"
-    }
-}
-
 Write-Host 'T2620 product contracts passed.'

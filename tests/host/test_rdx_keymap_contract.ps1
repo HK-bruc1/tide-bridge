@@ -10,7 +10,6 @@ $RepoRoot = Get-HostTestRepoRoot
 $ProtocolRoot = 'SDK\apps\common\third_party_profile\rdx_protocol'
 $Service = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_config.c"
 $Store = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_store.c"
-$Action = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_key_action.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $Internal = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_internal.h"
@@ -41,16 +40,15 @@ Assert-Contract 'KEYMAP_BOOT_LOAD' `
      $Init -match 'rdx_hogpkm_apply_payload\s*\(\s*s_rdx_hogpkm_current_keymap\s*\)') `
     'boot must publish the last committed keymap to the HID executor'
 
-$revalidations = ([regex]::Matches(
-    $Commit,
-    'rdx_hogpkm_request_is_current\s*\(\s*request\s*,\s*token\s*\)'
-)).Count
-$transactionOk = $revalidations -ge 4 -and
-                 (Test-TokensInOrder $Commit @(
+$transactionOk = Test-TokensInOrder $Commit @(
+                    'rdx_hogpkm_request_is_current(request, token)',
                     'rdx_hogpkm_store_prepare(',
+                    'rdx_hogpkm_request_is_current(request, token)',
                     'rdx_hogpkm_apply_payload(payload)',
-                    'rdx_hogpkm_store_commit('
-                 ))
+                    'rdx_hogpkm_request_is_current(request, token)',
+                    'rdx_hogpkm_store_commit(',
+                    'rdx_hogpkm_request_is_current(request, token)'
+                 )
 Assert-Contract 'KEYMAP_OWNER_BOUND_TRANSACTION' $transactionOk `
     'prepare, RAM apply, VM commit and completion must retain the originating token'
 
@@ -61,18 +59,6 @@ $storeOk = $Store -match 'VM_RDX_HOGP_KEYMAP_SLOT_A' -and
            $Store -match 'memcmp\s*\(\s*commit_record\s*,\s*commit_readback'
 Assert-Contract 'KEYMAP_VERIFIED_AB_STORE' $storeOk `
     'persistent keymaps must use verified A/B data and commit records'
-
-$apply = Get-SourceSlice $Action `
-    'int rdx_hogp_key_action_keymap_apply(' `
-    'int rdx_hogp_key_action_press('
-Assert-Contract 'KEYMAP_RELEASE_BEFORE_APPLY' `
-    (Test-TokensInOrder $apply @(
-        'rdx_hogp_input_invalidate()',
-        'rdx_hogp_key_action_cancel()',
-        'memset(&s_rdx_hogp_key_action_active_keymap',
-        'memcpy('
-    )) `
-    'hot replacement must attempt old-report release and retain failed release responsibility before publishing new keys'
 
 Assert-Contract 'KEYMAP_RESPONSE_USES_OWNER_TOKEN' `
     ($Service -match 'rdx_ble_server_send_for_token\s*\(\s*packet\s*,\s*offset\s*,\s*token\s*\)' -and
@@ -88,8 +74,5 @@ Assert-Contract 'KEYMAP_CANCELS_ON_RDX_DISCONNECT_ONLY' `
     ($disconnectHookCount -eq 1 -and
      $Server -match '(?s)static\s+void\s+rdx_ble_server_rdx_disconnected_cleanup_internal\s*\(\s*void\s*\).*?rdx_hogp_keymap_config_on_disconnect\s*\(\s*\)') `
     'an unrelated HID-only disconnect must not cancel the active App transaction'
-
-& python -X utf8 (Join-Path $PSScriptRoot 'test_hogp_hold.py')
-if ($LASTEXITCODE -ne 0) { throw 'HOGP hold behavior failed' }
 
 Write-Host 'RDX keymap contracts passed.'

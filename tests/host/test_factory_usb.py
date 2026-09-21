@@ -307,6 +307,9 @@ def check_final_config(audit):
             assert macros['TCFG_USB_SLAVE_CDC_ENABLE'] == str(enabled)
             assert macros['TCFG_APP_PC_EN'] == str(storage)
             assert macros['TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE'] == str(byte_test)
+            for usb_class in ('HID', 'AUDIO_SPK', 'AUDIO_MIC', 'MTP', 'MIDI', 'PRINTER'):
+                assert macros[f'TCFG_USB_SLAVE_{usb_class}_ENABLE'] == '0'
+            assert macros['TCFG_USB_CUSTOM_HID_ENABLE'] == '0'
             if enabled:
                 assert macros['CDC_DATA_EP_IN'] == '1' and macros['CDC_DATA_EP_OUT'] == '1'
                 assert macros['CDC_INTR_EP_IN'] == '2' and macros['CDC_INTR_EP_ENABLE'] == '1'

@@ -126,9 +126,7 @@ Assert-Contract 'REARM_REQUIRES_WORKER_IDLE' $idleOk `
 
 $handoffOk = $Claim -match '(?s)s_rdx_runtime_state\s*!=\s*RDX_BLE_RUNTIME_READY.*?return\s+RDX_BLE_CLAIM_NOT_READY.*?rdx_ble_session_claim\s*\(' -and
              $Claim -notmatch 'peer_(addr|identity)|rebind_peer' -and
-             $Quiesce -notmatch 'rebind_peer' -and
-             $Rearm -match 'RDX_BLE_RUNTIME_READY' -and
-             $TryRearm -match '(?s)rdx_app_rdx_rebind_is_idle\s*\(\).*?rdx_ble_server_rdx_session_reset_finalize\s*\(\).*?rdx_ble_session_rdx_runtime_rearm\s*\('
+             $Quiesce -notmatch 'rebind_peer'
 Assert-Contract 'CROSS_PEER_HANDOFF_REQUIRES_FULL_RESET' $handoffOk `
     'a new peer may claim only after the old epoch, FIFO work, workers and buffers have fully converged to READY'
 

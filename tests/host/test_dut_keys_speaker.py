@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from llvmlite import binding as llvm
 
-from host_c_test_lib import ROOT, run_c_checks
+from host_c_test_lib import ROOT, function, run_c_checks
 
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 STUBS = r'''
@@ -705,17 +705,6 @@ int test_scan_clears_pretest_hold(void) {
 '''
 
 
-def c_function(source, name):
-    start = re.search(r'^(?:static )?(?:void|bool|int|u8) ' + name + r'\(', source, re.M).start()
-    opening = source.index('{', start)
-    depth = 1
-    end = opening + 1
-    while depth:
-        depth += (source[end] == '{') - (source[end] == '}')
-        end += 1
-    return source[start:end] + '\n'
-
-
 def check_key_scan(temp):
     driver_dir = ROOT / 'SDK/apps/common/device/key'
     header = (driver_dir / 'key_driver.h').read_text(encoding='utf-8')
@@ -733,7 +722,7 @@ def check_key_scan(temp):
     driver = (driver_dir / 'key_driver.c').read_text(encoding='utf-8')
     path = Path(temp) / 'key_scan.c'
     path.write_text(KEY_STUBS + types + adapter + dispatch +
-                    c_function(driver, 'key_driver_scan') + KEY_TESTS, encoding='utf-8')
+                    function(driver, 'key_driver_scan') + KEY_TESTS, encoding='utf-8')
     run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', KEY_TESTS), native=True)
 
 
@@ -751,19 +740,19 @@ def main():
     core = source.split('/* DUT_TEST_CORE_BEGIN:', 1)[1]
     core = core.split('*/', 1)[1].split('/* DUT_TEST_CORE_END */', 1)[0]
     # Exercise the real legacy resource cleanup, not a state-only substitute.
-    legacy = ''.join(c_function(source, name) for name in (
+    legacy = ''.join(function(source, name) for name in (
         'rdx_dut_close_current_func', 'rdx_dut_oled_stop', 'rdx_dut_motor_stop',
         'rdx_dut_rec_stop', 'rdx_dut_rec_call_stop', 'rdx_dut_wifi_stop'))
     record_source = (BASE / 'rdx_record.c').read_text(encoding='utf-8')
-    legacy += ''.join(c_function(record_source, name) for name in (
+    legacy += ''.join(function(record_source, name) for name in (
         'rdx_record_format_for_session', 'rdx_record_prepare_new_session'))
-    legacy += ''.join(c_function(source, name) for name in (
+    legacy += ''.join(function(source, name) for name in (
         'rdx_dut_rec_start', 'rdx_dut_rec_call_start',
         'rdx_dut_rec_is_running', 'rdx_dut_rec_call_is_running'))
     authorization = record_source.split('u8 rdx_record_binding_allowed(void)', 1)[1]
     authorization = 'u8 rdx_record_binding_allowed(void)' + authorization.split(
         '/* A successful enter must be paired', 1)[0]
-    authorization += ''.join(c_function(record_source, name) for name in (
+    authorization += ''.join(function(record_source, name) for name in (
         'rdx_record_audio_start_enter', 'rdx_record_audio_start_exit',
         'rdx_record_binding_revoke'))
     tests = re.findall(r'int (test_\w+)\(void\)', TESTS)
