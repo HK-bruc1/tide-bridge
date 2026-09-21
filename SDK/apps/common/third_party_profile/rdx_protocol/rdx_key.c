@@ -561,14 +561,13 @@ u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// KEY_IO_NUM4: 离线单击切换播放/暂停，长按抬起后切换本地录音
-// 长按触发链: LONG → APP_MSG_RECORD_SWITCH → flag=1，UP → APP_MSG_LONG_PRESS_HOLDUP → 切换录音
+// KEY_IO_NUM4: 离线单击播放/暂停，双击切换录音，长按录音并在松开时结束
 u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_PLAY_TOGGLE,   //短按 (离线播放/暂停切换)
-    APP_MSG_RECORD_SWITCH,     //长按 (LONG: 录音开关)
+    APP_MSG_RECORD_LOCAL_HOLD_START, //长按开始本地录音
     APP_MSG_NULL,              //hold
-    APP_MSG_LONG_PRESS_HOLDUP, //长按抬起 (UP: 释放后真正触发录音)
-    APP_MSG_NULL,              //双击
+    APP_MSG_RECORD_LOCAL_HOLD_STOP, //只结束本次长按启动的录音
+    APP_MSG_RECORD_LOCAL_TOGGLE, //双击开始/结束录音
     APP_MSG_NULL,              //三击
     APP_MSG_NULL,
     APP_MSG_NULL,              //五击

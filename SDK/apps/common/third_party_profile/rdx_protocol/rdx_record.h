@@ -186,6 +186,8 @@ RecordStatus* rdx_record_get_status(void);
 u8 rdx_record_format_for_session(u8 scene, u8 stream_only);
 /* app_core only, once per accepted new local recording (never RESUME). */
 void rdx_record_prepare_new_session(void);
+/* app_core: identify an accepted recording across asynchronous key releases. */
+u32 rdx_record_generation_get(void);
 u8 rdx_record_mono_debug_mic(void);
 int rdx_record_run_exit(void);
 int rdx_record_run_init(void);

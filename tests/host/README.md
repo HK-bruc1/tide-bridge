@@ -24,7 +24,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 
 | C behavioral harness | Production behavior exercised with mocked boundaries |
 | --- | --- |
-| `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks/KEY5, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery |
+| `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks/KEY5, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries |
 | `test_factory_usb.py` | SDK configuration matrix, storage admission/shutdown, CDC queues, stale sessions, partial I/O and bounded DMA |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |

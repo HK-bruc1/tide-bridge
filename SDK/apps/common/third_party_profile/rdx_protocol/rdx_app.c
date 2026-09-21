@@ -192,6 +192,9 @@ static u8 hold_record_busy_wait_armed = 0;
 static u8 hold_record_scene = RECORD_SCENE_CHAT;
 static u16 hold_record_retry_timer = 0;
 static u8 key5_online_hold_routed = 0;
+static u8 key5_local_hold_routed;
+static u8 hold_record_local;
+static u32 hold_record_local_generation;
 
 static bool app_is_idle = FALSE;
 
@@ -803,6 +806,9 @@ static void rdx_app_hold_record_reset(void)
     hold_record_session_active = 0;
     hold_record_scene = RECORD_SCENE_CHAT;
     key5_online_hold_routed = 0;
+    key5_local_hold_routed = 0;
+    hold_record_local = 0;
+    hold_record_local_generation = 0;
 }
 
 void rdx_app_record_binding_reset(void)
@@ -842,6 +848,20 @@ static void rdx_app_hold_record_pump(void)
             rdx_app_hold_record_retry_cancel();
             return;
         }
+        if (hold_record_local) {
+            /* A later App/DUT recording must never inherit this key release.
+             * The recorder owns STOP retry, prompt cancellation and file close,
+             * even if a BLE link appeared while the local key was held. */
+            if (hold_record_local_generation == rdx_record_generation_get() &&
+                !rdx_record_audio_fault_stop()) {
+                rdx_app_hold_record_retry_schedule();
+                return;
+            }
+            hold_record_session_active = 0;
+            hold_record_local_generation = 0;
+            rdx_app_hold_record_retry_cancel();
+            return;
+        }
         if (hold_record_stop_queued) {
             if (rdx_record_stream_only_is_releasing()) {
                 rdx_app_hold_record_retry_schedule();
@@ -872,6 +892,11 @@ static void rdx_app_hold_record_pump(void)
     if (hold_record_session_active) {
         return;
     }
+    if (hold_record_local && rdx_ble_server_has_active_link()) {
+        hold_record_pressed = 0;
+        rdx_app_hold_record_retry_cancel();
+        return;
+    }
     if (!rdx_app_init_flag || poweroff_ready_flag || rdx_dut_mode ||
         get_ota_status() || mode_switch_keep_timer ||
         app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
@@ -892,14 +917,22 @@ static void rdx_app_hold_record_pump(void)
     if (hold_record_scene != RECORD_SCENE_CALL) {
         hold_record_scene = RECORD_SCENE_CHAT;
     }
-    ret = rdx_app_device_record_set(
-        hold_record_scene, RECORD_STATE_START, 1);
+    if (hold_record_local) {
+        ret = rdx_app_device_record_set(
+            hold_record_scene, RECORD_STATE_START, 0);
+    } else {
+        ret = rdx_app_device_record_set(
+            hold_record_scene, RECORD_STATE_START, 1);
+    }
     if (ret != 0) {
         hold_record_pressed = 0;
         r_printf("[RDX_HOLD_RECORD] start request rejected\r");
         return;
     }
     hold_record_session_active = 1;
+    if (hold_record_local) {
+        hold_record_local_generation = rdx_record_generation_get();
+    }
     g_printf("[RDX_HOLD_RECORD] start request, scene=%d\r", hold_record_scene);
 }
 
@@ -926,6 +959,11 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
 {
     u8 *key_table;
 
+    if (index == KEY_ACTION_UP && key5_local_hold_routed) {
+        key5_local_hold_routed = 0;
+        *value = APP_MSG_RECORD_LOCAL_HOLD_STOP;
+        return;
+    }
     /* Balance an online START even if the BLE state changes while held. */
     if (index == KEY_ACTION_UP && key5_online_hold_routed) {
         key5_online_hold_routed = 0;
@@ -955,6 +993,9 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
     key_table = rdx_key_get_io_num_table(4, scene);
     if (key_table) {
         *value = key_table[index];
+        if (*value == APP_MSG_RECORD_LOCAL_HOLD_START) {
+            key5_local_hold_routed = 1;
+        }
     }
 }
 
@@ -1041,8 +1082,8 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        /* KEY5 uses online hold recording while RDX is ready and the local
-         * key table while both BLE wrappers are idle. */
+        /* KEY5 uses online hold recording while RDX is ready; the local
+         * table supports double-click toggle and hold-to-record with no ACL. */
         if (num_idx == 4) {
             rdx_app_key5_remap(value, index, scene);
             return;
@@ -1926,10 +1967,14 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
             rp->run = RECORD_STATE_START;
             rp->formate = formate;
             rp->scene = scene;
+            rdx_record_prepare_new_session();
             int msg[2];
             msg[0] = (int)rdx_record_process;
             msg[1] = 0;
             int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
+            if (ret) {
+                rp->run = RECORD_STATE_STOP;
+            }
             g_printf("====== %s --> 离线录音开启 \r", __func__);
             return ret;
         }else{
@@ -2525,9 +2570,11 @@ int rdx_app_msg_handler(int *msg)
     y_printf("\n ====== rdx_app_msg_handler event:0x%x \r", msg[0]);
     switch (msg[0]) {
     case APP_MSG_RECORD_HOLD_START:
+    case APP_MSG_RECORD_LOCAL_HOLD_START:
     case APP_MSG_RECORD_CHAT_MODE:
     case APP_MSG_RECORD_CALL_MODE:
     case APP_MSG_RECORD_SWITCH:
+    case APP_MSG_RECORD_LOCAL_TOGGLE:
     case APP_MSG_REC_PREV:
     case APP_MSG_REC_NEXT:
     case APP_MSG_REC_FR:
@@ -2639,18 +2686,25 @@ int rdx_app_msg_handler(int *msg)
             ret = TRUE;
             break;
 
+        case APP_MSG_RECORD_LOCAL_HOLD_START:
         case APP_MSG_RECORD_HOLD_START:
-            if (hold_record_session_active && !hold_record_pressed) {
+            if (hold_record_session_active || hold_record_pressed) {
                 /* Finish the previous release before accepting a new hold. */
                 ret = TRUE;
                 break;
             }
+            hold_record_local = msg[0] == APP_MSG_RECORD_LOCAL_HOLD_START;
             hold_record_pressed = 1;
             rdx_app_hold_record_pump();
             ret = TRUE;
             break;
 
+        case APP_MSG_RECORD_LOCAL_HOLD_STOP:
         case APP_MSG_RECORD_HOLD_STOP:
+            if (hold_record_local != (msg[0] == APP_MSG_RECORD_LOCAL_HOLD_STOP)) {
+                ret = TRUE;
+                break;
+            }
             hold_record_pressed = 0;
             rdx_app_hold_record_pump();
             ret = TRUE;
@@ -2699,7 +2753,18 @@ int rdx_app_msg_handler(int *msg)
             }
             break;
 
+        case APP_MSG_RECORD_LOCAL_TOGGLE:
         case APP_MSG_RECORD_SWITCH:
+            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE &&
+                (hold_record_session_active || hold_record_pressed)) {
+                ret = TRUE;
+                break;
+            }
+            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE &&
+                rdx_ble_server_has_active_link()) {
+                ret = TRUE;
+                break;
+            }
             if (!rdx_record_binding_allowed() &&
                 rdx_record_get_status()->run == RECORD_STATE_STOP) {
                 key_press_record_ready_flag = 0;
@@ -2729,6 +2794,19 @@ int rdx_app_msg_handler(int *msg)
 
             //record switch.
             RecordStatus* rp = rdx_record_get_status();
+            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE) {
+                key_press_record_ready_flag = 0;
+                if (rp->run == RECORD_STATE_STOP) {
+                    rp->key_trigger = true;
+                #if (RDX_SUPPORT_MOTOR == 1)
+                    rdx_record_motor_run();
+                #endif
+                }
+                rdx_app_device_record_handle(rp->scene == RECORD_SCENE_CHAT ?
+                                            RECORD_SCENE_CHAT : RECORD_SCENE_CALL);
+                ret = TRUE;
+                break;
+            }
             if(rp->run == RECORD_STATE_STOP){
                 rp->key_trigger = true;
                 //when offline, let user knonw that they can release the key to start recording.

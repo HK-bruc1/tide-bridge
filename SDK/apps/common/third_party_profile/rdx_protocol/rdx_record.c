@@ -1499,6 +1499,11 @@ void rdx_record_stop(void)
  * param (*)
  * return (*)
  **************************************************************************/
+u32 rdx_record_generation_get(void)
+{
+    return record_session_generation;
+}
+
 void rdx_record_prepare_new_session(void)
 {
     RecordStatus *rp = rdx_record_get_status();

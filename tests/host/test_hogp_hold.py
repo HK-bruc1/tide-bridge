@@ -57,7 +57,8 @@ int offline, key5, route, ready, fail_down, fail_up, reports, attempts;
 u8 report_bytes[512][8];
 int offline_event;
 int rdx_app_key_msg_handler(int *msg);
-int app_send_message_from(int a,int b,int *c) { ++key5; return 0; }
+int key5_events[32];
+int app_send_message_from(int a,int b,int *c);
 u8 rdx_app_hogp_input_route(void) { return route; }
 '''
 
@@ -171,6 +172,10 @@ int test_pending_rdx_release_and_cancel(void) {
 '''
 
 SCAN_TESTS = r'''int rdx_app_key_msg_handler(int *msg) { ++offline; offline_event=((struct key_event *)msg)->event; return 1; }
+int app_send_message_from(int a,int b,int *c) {
+    if(key5<32) key5_events[key5]=((struct key_event *)c)->event;
+    ++key5; return 0;
+}
 
 u8 raw_key, g_is_key_active;
 int filtered;
@@ -255,6 +260,23 @@ int test_offline_and_key5_are_preserved(void) {
     CHECK(get_key_hold(KEY_IO_NUM0,0));
     reconnect(); sample(KEY_IO_NUM4); sample(KEY_IO_NUM4); tick();
     CHECK(get_key_hold(KEY_IO_NUM4,0) && !get_key_hold(KEY_IO_NUM0,0));
+    return 0;
+}
+int test_key5_gestures_do_not_overlap(void) {
+    for(int clicks=1;clicks<=2;clicks++) {
+        boot(0);
+        for(int i=0;i<clicks;i++) { sample(KEY_IO_NUM4); sample(NO_KEY); }
+        settle(); CHECK(key5==1);
+        CHECK(key5_events[0]==(clicks==1?KEY_ACTION_CLICK:KEY_ACTION_DOUBLE_CLICK));
+    }
+    boot(0);
+    for(int i=0;i<4;i++) sample(KEY_IO_NUM4);
+    sample(NO_KEY); settle();
+    CHECK(key5>=2 && key5_events[0]==KEY_ACTION_LONG);
+    CHECK(key5_events[key5-1]==KEY_ACTION_UP);
+    for(int i=0;i<key5;i++) {
+        CHECK(key5_events[i]!=KEY_ACTION_CLICK && key5_events[i]!=KEY_ACTION_DOUBLE_CLICK);
+    }
     return 0;
 }
 '''
@@ -342,6 +364,8 @@ def main():
         tests = re.findall(r'int (test_\w+)\(void\)', SCAN_TESTS + SESSION_TESTS + ASYNC_TESTS)
         run_c_checks(path, tests, native=True)
     print('HOGP actual C scan/gesture/FIFO/session/async ATT behavior passed.')
+    from key5_record_checks import main as check_key5_record
+    check_key5_record()
 
 if __name__ == '__main__':
     main()

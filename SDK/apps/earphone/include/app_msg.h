@@ -287,6 +287,9 @@ enum {
     /* Append product messages to preserve the existing app-message ABI. */
     APP_MSG_RECORD_HOLD_START,
     APP_MSG_RECORD_HOLD_STOP,
+    APP_MSG_RECORD_LOCAL_TOGGLE, // 离线双击切换录音
+    APP_MSG_RECORD_LOCAL_HOLD_START,
+    APP_MSG_RECORD_LOCAL_HOLD_STOP,
 };
 
 
