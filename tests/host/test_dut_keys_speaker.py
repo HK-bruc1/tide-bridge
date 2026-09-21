@@ -9,6 +9,7 @@ from host_c_test_lib import ROOT, run_c_checks
 
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 STUBS = r'''
+void rdx_hogp_key_action_reset(void) {}
 typedef int bool;
 #define true 1
 #define false 0
@@ -507,6 +508,7 @@ int test_legacy_overflow_cleanup(void) {
 '''
 
 AUDIO_STUBS = r'''
+void rdx_hogp_key_action_reset(void) {}
 typedef unsigned char u8;
 typedef short s16;
 typedef int s32;
@@ -642,6 +644,7 @@ int test_sine_failure_rollback(void) {
 
 
 KEY_STUBS = r'''
+void rdx_hogp_key_action_reset(void) {}
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef int bool;
@@ -661,6 +664,7 @@ int filtered, emitted, last_event, last_value;
 u8 input;
 u8 read_key(void) { return input; }
 bool key_test_scan_filter(u8 type,u8 value,u8 previous) { return filtered; }
+void key_stable_sample(u8 type,u8 previous,u8 current,u8 filtered) { }
 void key_down_event_handler(u8 value) { }
 '''
 

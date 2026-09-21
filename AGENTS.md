@@ -97,7 +97,7 @@ The host test runner keeps a five-contract core suite covering:
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
 - `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
 - `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, cross-peer handoff after full reset, and fail-closed behavior.
-- `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, and owner-directed response.
+- `test_rdx_keymap_contract.ps1` - token-bound keymap transaction, verified A/B storage, hot-apply release ordering, owner-directed response, and the actual-C HOGP hold/scan/FIFO/session behavioral harness.
 
 The lifecycle group includes source checks for the single-command RDX release
 and preservation of the shared HID/physical link. The factory USB behavioral harness also requires Python with llvmlite and
@@ -149,7 +149,7 @@ The HOGP feature is implemented by extending the same RDX GATT server instead of
 - `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report, Output Report)
 - `rdx_ble_server_att_write_callback()` handles encrypted HID dynamic writes, including Protocol Mode, Input CCC, Control Point, and Output Report
 - HID reports are sent via `app_ble_att_send_data()` on the current HID owner wrapper
-- Physical-key routing lives in `rdx_app_earphone_key_remap()`; `rdx_hogp_key_action.c` builds reports and `rdx_hogp_keyboard.c` owns ATT transport
+- KEY1-KEY4 HID routing uses `rdx_hogp_input.c` (debounced samples, bounded FIFO, cycle ownership and app_core recovery); offline/KEY5 business stays in `rdx_app_earphone_key_remap()`. `rdx_hogp_key_action.c` owns held reports and release retries; `rdx_hogp_keyboard.c` validates independent HID tokens at ATT submission.
 
 Key points:
 

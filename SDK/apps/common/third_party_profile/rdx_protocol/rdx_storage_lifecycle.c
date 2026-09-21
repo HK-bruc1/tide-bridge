@@ -15,6 +15,8 @@
 #include "jiffies.h"
 
 #include "rdx_storage_lifecycle.h"
+#include "rdx_hogp_input.h"
+#include "rdx_hogp_key_action.h"
 
 #if TCFG_DIP_SWITCH_POWER_ENABLE
 enum { USB_SWITCH_IDLE, USB_SWITCH_DRAIN, USB_SWITCH_FILE, USB_SWITCH_FAILED };
@@ -32,6 +34,7 @@ extern bool rdx_app_get_dut_status(void);
 
 void rdx_storage_lifecycle_pc_returned(void)
 {
+    rdx_hogp_input_invalidate();
     s_pc_refresh_pending = 1;
     rdx_uxfile_pc_returned();
 }
@@ -108,6 +111,7 @@ int rdx_storage_lifecycle_service(int on, int vbus)
             s_wait_busy = 1;
             return 1;
         }
+        rdx_hogp_key_action_reset();
         s_usb_switch = USB_SWITCH_DRAIN;
         s_switch_deadline = jiffies_msec() + USB_SWITCH_TIMEOUT_MS;
         sys_auto_shut_down_disable();

@@ -4,7 +4,7 @@
 
  GENERAL DESCRIPTION:
     Minimal active-keymap executor for full HOGP keyboard reports. Owns the built-in
-    test keymap, private RAM active keymap, and key-up release timer.
+    test keymap, private RAM active keymap, held report and release barrier.
     Does not control advertising, connections, HFP, or VM.
 
 =======================================================================================*/
@@ -24,6 +24,7 @@
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_hogp_input.h"
 #include "device/hid/hid_keyboard_usage.h"
 
 /******************************************************************************
@@ -46,24 +47,96 @@ static const rdx_hogp_key_action_keyboard_t s_rdx_hogp_test_keymap[RDX_HOGP_KEY_
 
 static rdx_hogp_key_action_keymap_t s_rdx_hogp_key_action_active_keymap = {0};
 static u8 s_rdx_hogp_key_action_active = 0;
-static u16 s_rdx_hogp_key_action_release_timer = 0;
+/* app_core owns the action state. A failed Up remains owed until accepted
+ * or until its independent HID token is invalidated. */
+static rdx_hogp_token_t held_token;
+static rdx_hogp_keyboard_report_t held_report;
+static u8 token_valid;
+static u8 held_key = 0xff;
+static u8 release_pending;
+static u8 down_pending, send_pending;
+static u32 held_input_epoch;
+static u32 map_generation;
+static u32 release_failures;
 
-/******************************************************************************
-* Local Function Section
-******************************************************************************/
-static void rdx_hogp_key_action_release_timer_cb(void *priv)
+static u8 same_token(const rdx_hogp_token_t *a, const rdx_hogp_token_t *b)
 {
-    (void)priv;
-    s_rdx_hogp_key_action_release_timer = 0;
-    rdx_hogp_keyboard_release_all();
+    return a->hid_epoch == b->hid_epoch &&
+           a->slot_generation == b->slot_generation &&
+           a->slot_index == b->slot_index;
 }
 
-static void rdx_hogp_key_action_cancel_release_timer(void)
+void rdx_hogp_key_action_service(void)
 {
-    if (s_rdx_hogp_key_action_release_timer) {
-        sys_timeout_del(s_rdx_hogp_key_action_release_timer);
-        s_rdx_hogp_key_action_release_timer = 0;
+    rdx_hogp_token_t current;
+    rdx_hogp_keyboard_report_t zero = {0};
+    int ret;
+    u8 valid = rdx_hogp_token_capture(&current);
+    if (!valid) {
+        token_valid = 0;
+        down_pending = send_pending = 0;
+        held_key = 0xff;
+        release_pending = 0;
+        return;
     }
+    if (!token_valid || !same_token(&current, &held_token)) {
+        down_pending = send_pending = 0;
+        held_token = current;
+        token_valid = 1;
+        held_key = 0xff;
+        release_pending = 1; /* New session has its own zero-state barrier. */
+        rdx_hogp_input_invalidate();
+    }
+    if (down_pending) {
+        ret = rdx_hogp_report_send_for_input(&held_report, &held_token, held_input_epoch);
+        send_pending = ret == RDX_HOGP_SEND_PENDING;
+        if (send_pending) return;
+        down_pending = 0;
+        if (ret != APP_BLE_NO_ERROR) held_key = 0xff;
+    }
+    if (release_pending) {
+        ret = rdx_hogp_report_send_for_token(&zero, &held_token);
+        send_pending = ret == RDX_HOGP_SEND_PENDING;
+        if (send_pending) return;
+        if (ret == APP_BLE_NO_ERROR) {
+            release_pending = 0;
+            held_key = 0xff;
+            memset(&held_report, 0, sizeof(held_report));
+            release_failures = 0;
+        } else if ((++release_failures & 127) == 1) {
+            y_printf("[HOGP_KEY_ACTION] release blocked, attempts=%u\n", release_failures);
+        }
+    }
+}
+
+u8 rdx_hogp_key_action_busy(void)
+{
+    return send_pending;
+}
+
+u8 rdx_hogp_key_action_blocked(void)
+{
+    return release_pending;
+}
+
+u32 rdx_hogp_key_action_generation(void)
+{
+    return map_generation;
+}
+
+void rdx_hogp_key_action_release(u8 key_id)
+{
+    if (held_key == key_id) {
+        release_pending = 1;
+        rdx_hogp_key_action_service();
+    }
+}
+
+void rdx_hogp_key_action_cancel(void)
+{
+    if (held_key != 0xff) release_pending = 1;
+    /* Repeated apply/rollback never erases an outstanding release. */
+    rdx_hogp_key_action_service();
 }
 
 static void rdx_hogp_key_action_clear_active_keymap(void)
@@ -126,7 +199,10 @@ static u8 rdx_hogp_key_action_is_disabled(
 ******************************************************************************/
 void rdx_hogp_key_action_init(void)
 {
-    s_rdx_hogp_key_action_release_timer = 0;
+    token_valid = 0;
+    down_pending = send_pending = 0;
+    held_key = 0xff;
+    release_pending = 0;
 
 #if (RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
     rdx_hogp_key_action_load_test_keymap();
@@ -137,16 +213,13 @@ void rdx_hogp_key_action_init(void)
 
 void rdx_hogp_key_action_reset(void)
 {
-    rdx_hogp_key_action_cancel_release_timer();
-    /* Attempt a clean release in case a key-down is still pending. */
-    rdx_hogp_keyboard_release_all();
+    rdx_hogp_input_invalidate();
+    rdx_hogp_key_action_cancel();
 }
 
 void rdx_hogp_key_action_deinit(void)
 {
-    rdx_hogp_key_action_cancel_release_timer();
-    rdx_hogp_keyboard_release_all();
-
+    rdx_hogp_key_action_reset();
     rdx_hogp_key_action_clear_active_keymap();
 }
 
@@ -167,8 +240,9 @@ int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
     }
 
     /* Do not let a key-up from the previous map race the replacement. */
-    rdx_hogp_key_action_cancel_release_timer();
-    rdx_hogp_keyboard_release_all();
+    rdx_hogp_input_invalidate();
+    rdx_hogp_key_action_cancel();
+    ++map_generation;
     memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
     s_rdx_hogp_key_action_active_keymap.version = keymap->version;
     s_rdx_hogp_key_action_active_keymap.key_count = keymap->key_count;
@@ -179,11 +253,13 @@ int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
     return 0;
 }
 
-int rdx_hogp_key_action_click(u8 key_id)
+int rdx_hogp_key_action_press(u8 key_id, u32 input_epoch)
 {
     rdx_hogp_keyboard_report_t report = {0};
     rdx_hogp_key_action_keyboard_t *action;
     int ret;
+
+    if (!token_valid || release_pending || held_key != 0xff) return -1;
 
     if (key_id >= RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) {
         return -1;
@@ -207,20 +283,15 @@ int rdx_hogp_key_action_click(u8 key_id)
 
     rdx_hogp_key_action_to_keyboard_report(action, &report);
 
-    ret = rdx_hogp_keyboard_report_send(&report);
-    if (ret != APP_BLE_NO_ERROR) {
+    ret = rdx_hogp_report_send_for_input(&report, &held_token, input_epoch);
+    if (ret != APP_BLE_NO_ERROR && ret != RDX_HOGP_SEND_PENDING) {
         y_printf("[HOGP_KEY_ACTION] key %d send failed: %d\n", key_id, ret);
         return 1;   /* consumed but not sent */
     }
 
-    rdx_hogp_key_action_cancel_release_timer();
-    s_rdx_hogp_key_action_release_timer =
-        sys_timeout_add(NULL, rdx_hogp_key_action_release_timer_cb, TCFG_RDX_HOGP_KEY_UP_DELAY_MS);
-    if (s_rdx_hogp_key_action_release_timer == 0) {
-        y_printf("[HOGP_KEY_ACTION] key %d release timer failed, send immediate release\n", key_id);
-        rdx_hogp_keyboard_release_all();
-        return 1;   /* consumed but release timer could not be started */
-    }
-
-    return 0;   /* consumed and sent */
+    held_report = report;
+    held_key = key_id;
+    held_input_epoch = input_epoch;
+    down_pending = send_pending = ret == RDX_HOGP_SEND_PENDING;
+    return 0;
 }

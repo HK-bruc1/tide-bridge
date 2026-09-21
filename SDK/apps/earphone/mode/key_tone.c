@@ -11,6 +11,12 @@
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_app.h"
 #include "rdx_dut.h"
+#include "rdx_hogp_input.h"
+
+void key_stable_sample(u8 type, u8 previous, u8 current, u8 filtered)
+{
+    rdx_hogp_input_scan(type, previous, current, filtered);
+}
 
 bool key_test_scan_filter(u8 type, u8 value, u8 previous)
 {

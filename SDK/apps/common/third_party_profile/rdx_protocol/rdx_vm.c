@@ -38,6 +38,7 @@
 #include "rdx_protocol.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
+#include "rdx_hogp_input.h"
 #include "rdx_util.h"
 #include "rdx_hogp_subscription_store.h"
 
@@ -400,6 +401,7 @@ void rdx_vm_unbound_handle(void)
     unbounding = true;
     
     //format sd card.
+    rdx_hogp_input_invalidate();
     rdx_uxfile_sd_format(rdx_vm_unbound_cb);
 }
 
@@ -481,6 +483,7 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
     }
     if(format_en == 1){
         rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
+        rdx_hogp_input_invalidate();
         rdx_uxfile_sd_format(rdx_vm_choose_to_unbound_cb);
     }else{
         //set unbound, do not show bound status on oled.

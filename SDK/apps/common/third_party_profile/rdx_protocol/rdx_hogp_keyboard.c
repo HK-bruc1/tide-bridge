@@ -31,6 +31,8 @@
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_hogp_input.h"
+#include "rdx_ble_session.h"
 #include "rdx_hogp_subscription_store.h"
 #include "ble_user.h"
 #include "btstack/le/sm.h"
@@ -72,6 +74,7 @@
 /******************************************************************************
 * Local variables Section
 ******************************************************************************/
+static u32 s_hid_epoch = 1;
 static void *s_hogp_app_ble_hdl = NULL;
 static volatile u8 s_hogp_connected = 0;
 static volatile u8 s_hid_notify_enabled = 0;
@@ -121,14 +124,18 @@ static void rdx_hogp_current_report_set(const u8 *payload, u8 len)
  * converge local state even when the transport send fails. */
 static void rdx_hogp_ready_drop_cleanup(void)
 {
+    rdx_hogp_input_invalidate();
+    ++s_hid_epoch;
     if (rdx_hogp_keyboard_is_ready()) {
-        rdx_hogp_key_action_reset();
+        rdx_hogp_keyboard_release_all();
     }
     rdx_hogp_current_report_clear();
 }
 
 static void hogp_runtime_state_reset(void)
 {
+    rdx_hogp_input_invalidate();
+    ++s_hid_epoch;
     rdx_hogp_current_report_clear();
     s_hogp_connected = 0;
     s_hid_con_handle = 0;
@@ -507,43 +514,149 @@ u8 rdx_hogp_keyboard_is_ready(void)
     return 1;
 }
 
-int rdx_hogp_keyboard_report_send(
-    const rdx_hogp_keyboard_report_t *report)
+/* JL app_ble_att_send_data waits on an OS mutex and asserts in IRQ/IRQ-off
+ * context (app_ble_module_manage.c:513-515, linked SDK). Like the SDK Q_CALLBACK
+ * example in debug/dlog_config.c, dispatch to btstack rather than masking IRQs.
+ * HCI/ATT/SM owner changes and final submission then run in the same task.
+ * Only mailbox/FIFO snapshots use short IRQ critical sections. */
+enum hogp_tx_state { HOGP_TX_IDLE, HOGP_TX_QUEUED, HOGP_TX_DONE };
+static struct {
+    rdx_hogp_keyboard_report_t report;
+    rdx_hogp_token_t token;
+    u32 input_epoch;
+    u32 ticket;
+    int result;
+    u8 state;
+} hogp_tx;
+
+int rdx_hogp_keyboard_report_send(const rdx_hogp_keyboard_report_t *report)
 {
+    rdx_hogp_token_t token;
+    if (cpu_in_irq() || cpu_irq_disabled() || !report ||
+        !rdx_hogp_token_capture(&token)) return -1;
+    return rdx_hogp_report_send_for_token(report, &token);
+}
+
+u8 rdx_hogp_token_capture(rdx_hogp_token_t *token)
+{
+    rdx_ble_link_state_t *link;
+    u8 valid = 0;
+    local_irq_disable();
+    link = rdx_ble_session_get_hid_link();
+    if (link && link->connected && link->ble_hdl == s_hogp_app_ble_hdl &&
+        rdx_hogp_keyboard_is_ready()) {
+        token->hid_epoch = s_hid_epoch;
+        token->slot_generation = link->slot_generation;
+        token->slot_index = rdx_ble_session_link_index(link);
+        valid = 1;
+    }
+    local_irq_enable();
+    return valid;
+}
+
+static int hogp_report_submit(const rdx_hogp_keyboard_report_t *report,
+                              const rdx_hogp_token_t *token, u32 input_epoch)
+{
+    int ret;
     u8 payload[RDX_HOGP_KEYBOARD_REPORT_LEN];
-
-    if (report == NULL) {
-        return -1;
+    void *hdl = NULL;
+    rdx_ble_link_state_t *link;
+    /* Never wait on the SDK mutex in an ISR, under an IRQ lock, or in a task
+     * that can race btstack's owner/CCC/encryption callbacks. */
+    if (cpu_in_irq() || cpu_irq_disabled() ||
+        strcmp(os_current_task(), "btstack")) return -1;
+    local_irq_disable();
+    link = rdx_ble_session_get_hid_link();
+    if ((!input_epoch || rdx_hogp_input_current_locked(input_epoch)) &&
+        report && token && link && link->connected &&
+        token->hid_epoch == s_hid_epoch &&
+        token->slot_generation == link->slot_generation &&
+        token->slot_index == rdx_ble_session_link_index(link) &&
+        link->ble_hdl == s_hogp_app_ble_hdl && rdx_hogp_keyboard_is_ready()) {
+        hdl = link->ble_hdl;
     }
-
-    if (s_subscription_update_pending != RDX_HOGP_SUB_UPDATE_NONE) {
-        rdx_hogp_subscription_update_flush();
-    }
-
-    if (!rdx_hogp_keyboard_is_ready()) {
-        RDX_HOGP_ERROR("report_send skipped: not ready");
-        rdx_hogp_dump_state();
-        return -1;
-    }
-
+    local_irq_enable();
+    if (!hdl) return -1;
     memcpy(payload, report, sizeof(payload));
-
-    RDX_HOGP_LOG("report_send %02x %02x %02x %02x %02x %02x %02x %02x",
-                 payload[0], payload[1], payload[2], payload[3],
-                 payload[4], payload[5], payload[6], payload[7]);
-
-    int ret = app_ble_att_send_data(s_hogp_app_ble_hdl,
-                                    HID_INPUT_REPORT_VALUE_HANDLE,
-                                    payload, sizeof(payload),
-                                    ATT_OP_NOTIFY);
+    ret = app_ble_att_send_data(hdl, HID_INPUT_REPORT_VALUE_HANDLE,
+                               payload, sizeof(payload), ATT_OP_NOTIFY);
     if (ret == APP_BLE_NO_ERROR) {
-        rdx_hogp_current_report_set(payload, sizeof(payload));
-    } else {
-        RDX_HOGP_ERROR("report_send failed ret=%d", ret);
-        rdx_hogp_dump_state();
+        rdx_hogp_current_report_set((const u8 *)report, sizeof(*report));
     }
-
+    /* An input invalidation overlapping this submission still owes Up. The
+     * app_core executor retains the pending Down until it consumes this result. */
     return ret;
+}
+
+static void hogp_tx_execute(u32 ticket)
+{
+    int ret;
+    local_irq_disable();
+    if (hogp_tx.state != HOGP_TX_QUEUED || hogp_tx.ticket != ticket) {
+        local_irq_enable();
+        return;
+    }
+    local_irq_enable();
+    /* QUEUED storage cannot be replaced until this callback completes. No
+     * pointers to caller stacks, heap allocation, synchronous task waits or
+     * completion messages that could be lost when app_core's queue is full. */
+    ret = hogp_report_submit(&hogp_tx.report, &hogp_tx.token, hogp_tx.input_epoch);
+    local_irq_disable();
+    hogp_tx.result = ret;
+    hogp_tx.state = HOGP_TX_DONE;
+    local_irq_enable();
+}
+
+int rdx_hogp_report_send_for_input(const rdx_hogp_keyboard_report_t *report,
+                                   const rdx_hogp_token_t *token, u32 input_epoch)
+{
+    int msg[3], ret;
+    u32 ticket;
+    u8 same;
+    if (cpu_in_irq() || cpu_irq_disabled() || !report || !token) return -1;
+    if (!strcmp(os_current_task(), "btstack")) {
+        return hogp_report_submit(report, token, input_epoch);
+    }
+    /* The action state and its completion polling belong to app_core. */
+    if (strcmp(os_current_task(), "app_core")) return -1;
+    local_irq_disable();
+    same = hogp_tx.token.hid_epoch == token->hid_epoch &&
+           hogp_tx.token.slot_generation == token->slot_generation &&
+           hogp_tx.token.slot_index == token->slot_index &&
+           hogp_tx.input_epoch == input_epoch &&
+           !memcmp(&hogp_tx.report, report, sizeof(*report));
+    if (hogp_tx.state == HOGP_TX_QUEUED) {
+        local_irq_enable();
+        return same ? RDX_HOGP_SEND_PENDING : -1;
+    }
+    if (hogp_tx.state == HOGP_TX_DONE && same) {
+        ret = hogp_tx.result;
+        hogp_tx.state = HOGP_TX_IDLE;
+        local_irq_enable();
+        return ret;
+    }
+    hogp_tx.report = *report;
+    hogp_tx.token = *token;
+    hogp_tx.input_epoch = input_epoch;
+    ticket = ++hogp_tx.ticket;
+    hogp_tx.state = HOGP_TX_QUEUED;
+    local_irq_enable();
+    msg[0] = (int)hogp_tx_execute;
+    msg[1] = 1;
+    msg[2] = (int)ticket;
+    if (os_taskq_post_type("btstack", Q_CALLBACK, 3, msg)) {
+        local_irq_disable();
+        hogp_tx.state = HOGP_TX_IDLE;
+        local_irq_enable();
+        return -1;
+    }
+    return RDX_HOGP_SEND_PENDING;
+}
+
+int rdx_hogp_report_send_for_token(const rdx_hogp_keyboard_report_t *report,
+                                   const rdx_hogp_token_t *token)
+{
+    return rdx_hogp_report_send_for_input(report, token, 0);
 }
 
 int rdx_hogp_keyboard_release_all(void)
@@ -683,6 +796,13 @@ void rdx_hogp_on_sm_event(u8 packet_type, u8 *packet, u16 size)
 
 #else  /* !(TCFG_RDX_HOGP_ENABLE && (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)) -- stubs */
 
+int rdx_hogp_report_send_for_input(const rdx_hogp_keyboard_report_t *report,
+                                   const rdx_hogp_token_t *token, u32 epoch)
+{ (void)report; (void)token; (void)epoch; return -1; }
+u8 rdx_hogp_token_capture(rdx_hogp_token_t *token) { (void)token; return 0; }
+int rdx_hogp_report_send_for_token(const rdx_hogp_keyboard_report_t *report,
+                                  const rdx_hogp_token_t *token)
+{ (void)report; (void)token; return -1; }
 void rdx_hogp_init(void *app_ble_hdl) { (void)app_ble_hdl; }
 void rdx_hogp_deinit(void) {}
 void rdx_hogp_runtime_cleanup(void) {}

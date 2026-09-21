@@ -77,6 +77,7 @@
 #include "xxpUart.h"
 #include "rdx_key.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_hogp_input.h"
 #include "rdx_charge.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
@@ -970,6 +971,17 @@ static void rdx_app_online_key_battery_cb(void *priv)
     }
 }
 
+u8 rdx_app_hogp_input_route(void)
+{
+    if (!rdx_app_business_started() || rdx_storage_lifecycle_business_blocked() ||
+        rdx_dut_test_keys_active() || app_in_mode(APP_MODE_PC) ||
+        rdx_uxfile_sd_format_status_check() || app_var.goto_poweroff_flag) return RDX_HOGP_INPUT_DISCARD;
+#if TCFG_RDX_HOGP_ENABLE
+    if (rdx_hogp_keyboard_is_ready()) return RDX_HOGP_INPUT_HID;
+#endif
+    return rdx_ble_server_has_active_link() ? RDX_HOGP_INPUT_DISCARD : RDX_HOGP_INPUT_OFFLINE;
+}
+
 void rdx_app_online_key_down(u8 key_value)
 {
     if (key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM3) {
@@ -1039,16 +1051,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         /* KEY1-KEY4 use HID while ready. Unsupported actions are consumed. */
 #if TCFG_RDX_HOGP_ENABLE
         if (rdx_hogp_keyboard_is_ready()) {
-            if (index == KEY_ACTION_CLICK) {
-                int action_ret = rdx_hogp_key_action_click((u8)num_idx);
-                if (action_ret != 0) {
-                    y_printf("[HOGP_KEY_ACTION] connected key %d execute failed: %d\n",
-                             num_idx, action_ret);
-                }
-            }
-
-            /* LONG/HOLD/UP and unimplemented multi-click actions are intentionally
-             * consumed while HID owns the keys. HOLD repeats, so do not log here. */
+            /* Physical HID cycles use the debounced input FIFO. */
             *value = APP_MSG_NULL;
             return;
         }
@@ -2994,6 +2997,7 @@ void rdx_app_format_handle(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    rdx_hogp_key_action_reset();
     //format sd card.
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
@@ -4218,6 +4222,7 @@ void rdx_app_tasks_init(void)
 
     //key action executor initial (after BLE server / HOGP submodule).
     rdx_hogp_key_action_init();
+    rdx_hogp_input_init();
 
     //formal APP keymap protocol and persisted active keymap.
     rdx_hogp_keymap_config_init();

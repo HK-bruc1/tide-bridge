@@ -31,6 +31,7 @@
 #include "rdx_record.h"
 #include "rdx_app_config.h"
 #include "rdx_vm.h"
+#include "rdx_hogp_input.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,6 +115,9 @@ typedef struct{
 
 
 void rdx_app_online_key_down(u8 key_value);
+/* Returns enum rdx_hogp_input_route; business admission is owned by RDX. */
+u8 rdx_app_hogp_input_route(void);
+int rdx_app_key_msg_handler(int *msg);
 
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 
 

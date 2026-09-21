@@ -19,10 +19,11 @@ and the final exit code is 0 on success or 1 on failure.
 | `test_hogp_profile_contract.ps1` | GATT/report bytes, encryption, readiness and peer-scoped bonded CCC |
 | `test_rdx_transport_contract.ps1` | Two-wrapper topology, owner-scoped routing, binding and advertising |
 | `test_rdx_lifecycle_contract.ps1` | Reconnect barriers, worker cleanup, RDX-only release, offline STOP replies and OTA cancellation |
-| `test_rdx_keymap_contract.ps1` | Owner-bound transactions, verified A/B storage and release-before-apply |
+| `test_rdx_keymap_contract.ps1` | Owner-bound transactions, verified A/B storage, release-before-apply and the HOGP hold behavioral harness |
 
 | Behavioral harness | Production code exercised with mocks |
 | --- | --- |
+| `test_hogp_hold.py` | One production-C harness: hold/fast input, offline single/double/triple clicks and KEY5, keymap rollback, async ATT context and queue failure, stale owner/input rejection, RDX release isolation, cancellation, FIFO overflow and failed Up recovery |
 | `test_factory_usb.py` | USB admission/shutdown, final CDC configuration, queues, session invalidation, bounded DMA I/O and logging |
 | `test_finalpack.py` | Packaging commit order, business unbinding, VM write/readback failures, format/queue/timer failures and key DUT recovery |
 | `test_dut_keys_speaker.py` | Factory layout/press identity, strict parsing, token/CCC guards, stale events, real scan/adapter multi-click and hold reset, queue overflow through legacy LED/motor/WiFi/record cleanup with format ownership retained, recording stop barrier, speaker completion ACK ordering, maximum volume/mute restoration, sine phase through partial writes and 16/24-bit mono/stereo output |
@@ -78,3 +79,10 @@ python tests/board/factory_cdc_bytes.py --port COM6
 It runs four short echo checks. Use the DUT CDC port, not the debug log port.
 The host suite never opens a serial port. Board setup and acceptance records:
 [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
+
+HOGP hold tests execute the real scan/adapter/FIFO/action/token code with deferred `btstack`
+callbacks. The ATT mock rejects IRQ-disabled, ISR and non-btstack submissions;
+coverage includes pending completion, queue pressure, ATT release retry, reused
+ACL handles, fast edge ordering, cancellation during submission and FIFO overflow.
+JL OS scheduling, binary stack behavior, PC receipt, latency and power still require
+on-device regression. See docs/2-6.HOGP长按持续输入实施方案.md section 11.

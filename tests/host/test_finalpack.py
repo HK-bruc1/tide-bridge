@@ -5,6 +5,7 @@ from pathlib import Path
 from host_c_test_lib import ROOT, function, run_c_checks
 
 STUBS = r'''
+void rdx_hogp_input_invalidate(void) {}
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef int bool;

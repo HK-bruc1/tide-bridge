@@ -8,6 +8,11 @@
 #include "key_driver.h"
 #include "system/timer.h"
 #include "app_config.h"
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_hogp_input.h"
+static u32 product_click_epoch;
+static u32 product_hold_epoch;
+#endif
 #include "bt_tws.h"
 #if (defined TCFG_AUDIO_WIDE_AREA_TAP_ENABLE) && TCFG_AUDIO_WIDE_AREA_TAP_ENABLE
 #include "icsd_adt_app.h"
@@ -298,6 +303,46 @@ void key_event_handler(struct key_event *key)
 
     /*printf("key_event: %d\n", key->event);*/
 
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    u32 product_epoch = 0;
+    u8 source_value = key->event == KEY_ACTION_NO_KEY ? notify_value : key->value;
+    u8 product = key->type == KEY_DRIVER_TYPE_IO &&
+                 source_value >= KEY_IO_NUM0 && source_value <= KEY_IO_NUM3;
+    /* Only invalidate product accumulation. KEY5 retains its original state.
+     * NO_KEY belongs to the pending accumulation, not the current snapshot. */
+    if (notify_value >= KEY_IO_NUM0 && notify_value <= KEY_IO_NUM3 &&
+        !rdx_hogp_input_epoch_valid(product_click_epoch)) {
+        click_cnt = 0;
+        notify_value = NO_KEY;
+    }
+    /* A consumed HID click leaves no accumulation for its delayed NO_KEY.
+     * Keep a pending KEY5 accumulation, but never translate an empty one. */
+    if (key->event == KEY_ACTION_NO_KEY && notify_value == NO_KEY) return;
+    if (!rdx_hogp_input_epoch_valid(product_hold_epoch)) {
+        for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); ++i) {
+            if (key_hold_hdl[i].value >= KEY_IO_NUM0 && key_hold_hdl[i].value <= KEY_IO_NUM3) {
+                key_hold_hdl[i].value = NO_KEY;
+                key_hold_hdl[i].action = 0;
+                key_hold_hdl[i].start_time = 0;
+            }
+        }
+    }
+    if (product) {
+        product_epoch = key->event == KEY_ACTION_NO_KEY ? product_click_epoch :
+                        rdx_hogp_input_gesture_epoch(source_value);
+        if (!rdx_hogp_input_epoch_valid(product_epoch)) {
+            struct key_hold *old = get_key_hold(source_value, 0);
+            if (old) {
+                old->value = NO_KEY;
+                old->action = 0;
+                old->start_time = 0;
+            }
+            return;
+        }
+        product_hold_epoch = product_epoch;
+        if (key->event == KEY_ACTION_CLICK) product_click_epoch = product_epoch;
+    }
+#endif
     if (multi_clicks_translate(key)) {
         return;
     }
@@ -309,6 +354,10 @@ void key_event_handler(struct key_event *key)
     }
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (product) {
+        rdx_hogp_input_gesture(key, product_epoch);
+        return;
+    }
     // y_printf("==== %s --> key->event = %d, key->value = %d \r", __FUNCTION__, key->event, key->value);
     app_send_message_from(MSG_FROM_KEY, sizeof(*key), (int *)key); //dons++
 	
@@ -336,4 +385,3 @@ void key_event_handler(struct key_event *key)
 
 #endif
 }
-

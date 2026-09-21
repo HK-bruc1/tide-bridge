@@ -32,6 +32,12 @@ bool key_test_scan_filter(u8 type, u8 value, u8 previous)
 }
 
 __attribute__((weak))
+void key_stable_sample(u8 type, u8 previous, u8 current, u8 filtered)
+{
+    (void)type; (void)previous; (void)current; (void)filtered;
+}
+
+__attribute__((weak))
 void key_event_reset(void)
 {
 }
@@ -82,7 +88,9 @@ static void key_driver_scan(void *key_ops)
     }
     //===== 按键消抖结束, 开始判断按键类型(单击, 双击, 长按, 多击, HOLD, (长按/HOLD)抬起)
 
-    if (key_test_scan_filter(key.type, cur_key_value, scan_para->last_key)) {
+    bool filtered = key_test_scan_filter(key.type, cur_key_value, scan_para->last_key);
+    key_stable_sample(key.type, scan_para->last_key, cur_key_value, filtered);
+    if (filtered) {
         key_event_reset();
         scan_para->press_cnt = 0;
         scan_para->click_delay_cnt = 0;

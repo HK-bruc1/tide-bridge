@@ -46,7 +46,13 @@ void rdx_hogp_key_action_init(void);
 void rdx_hogp_key_action_reset(void);
 void rdx_hogp_key_action_deinit(void);
 int  rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap);
-int  rdx_hogp_key_action_click(u8 key_id);
+int  rdx_hogp_key_action_press(u8 key_id, u32 input_epoch);
+void rdx_hogp_key_action_release(u8 key_id);
+void rdx_hogp_key_action_cancel(void);
+void rdx_hogp_key_action_service(void);
+u8 rdx_hogp_key_action_busy(void);
+u8 rdx_hogp_key_action_blocked(void);
+u32 rdx_hogp_key_action_generation(void);
 
 #ifdef __cplusplus
 }

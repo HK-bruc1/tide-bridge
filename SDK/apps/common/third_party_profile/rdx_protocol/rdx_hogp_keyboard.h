@@ -66,13 +66,27 @@ u8 rdx_hogp_peer_has_persisted_subscription(u16 con_handle);
 /******************************************************************************
 * Keyboard Report API
 ******************************************************************************/
+/* app_core must poll the same request until an ATT result is available.
+ * Pending is not ATT success; never clear an owed Up on queue admission. */
 #define RDX_HOGP_KEYBOARD_REPORT_LEN  8
+#define RDX_HOGP_SEND_PENDING (-1000)
 
 typedef struct {
     u8 modifiers;
     u8 reserved;
     u8 usages[6];
 } rdx_hogp_keyboard_report_t;
+
+typedef struct {
+    u32 hid_epoch;
+    u32 slot_generation;
+    u8 slot_index;
+} rdx_hogp_token_t;
+int rdx_hogp_report_send_for_input(const rdx_hogp_keyboard_report_t *report,
+                                   const rdx_hogp_token_t *token, u32 input_epoch);
+u8 rdx_hogp_token_capture(rdx_hogp_token_t *token);
+int rdx_hogp_report_send_for_token(const rdx_hogp_keyboard_report_t *report,
+                                   const rdx_hogp_token_t *token);
 
 int rdx_hogp_keyboard_report_send(
     const rdx_hogp_keyboard_report_t *report);

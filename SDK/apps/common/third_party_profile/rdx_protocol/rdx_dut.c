@@ -35,6 +35,7 @@
 #pragma code_seg(".rdx_dut.text")
 #endif
 
+#include "rdx_hogp_key_action.h"
 #include "rdx_dut.h"
 #include "rdx_record.h"
 #include "rdx_protocol.h"
@@ -433,6 +434,7 @@ static void dut_execute_test(const struct dut_request *request)
             DUT_LOG("Invalid DUT key layout\n");
             return;
         }
+        rdx_hogp_key_action_reset();
         dut_key_gate = 0;
         ++dut_key_generation;
         dut_test_token = request->token;
@@ -468,6 +470,7 @@ static void dut_execute_test(const struct dut_request *request)
         DUT_LOG("Speaker test rejected: another test owns resources\n");
         return;
     }
+    rdx_hogp_key_action_reset();
     rdx_dut_info.current_func = DUT_FUNC_SPEAKER;
     dut_test_token = request->token;
     dut_stopping = 0;

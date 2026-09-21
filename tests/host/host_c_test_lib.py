@@ -22,6 +22,9 @@ def run_c_checks(path, functions, native=False):
     if result.returncode:
         raise RuntimeError(result.stderr)
     ir = re.sub(r' "target-(?:cpu|features)"="[^"]*"', '', ir_path.read_text(encoding='utf-8'))
+    # JL clang uses untyped ABI attributes; newer LLVM requires a pointee type.
+    ir = re.sub(r'(%[\w.]+)\* (noalias )?(sret|byval)(?!\()',
+                lambda m: f'{m[1]}* {m[2] or ""}{m[3]}({m[1]})', ir)
     llvm.initialize_native_target()
     llvm.initialize_native_asmprinter()
     target = llvm.Target.from_default_triple().create_target_machine()

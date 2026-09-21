@@ -161,7 +161,9 @@ Assert-Contract 'HID_CCC_AND_READY_BOUNDARY' `
      $ReadyBody -match 's_hid_notify_enabled' -and
      $ReadyBody -match 's_hogp_encrypted' -and
      $ReadyBody -match 's_hogp_suspended' -and
-     $ReadyDropBody -match 'rdx_hogp_key_action_reset\s*\(\s*\)' -and
+     $ReadyDropBody -match 'rdx_hogp_input_invalidate\s*\(\s*\)' -and
+     $ReadyDropBody -match '\+\+s_hid_epoch' -and
+     $ReadyDropBody -match 'rdx_hogp_keyboard_release_all\s*\(\s*\)' -and
      $ReadyDropBody -match 'rdx_hogp_current_report_clear\s*\(\s*\)') `
     'HID is ready only for encrypted CCC 0x0001 while not suspended, and every ready drop clears key state'
 

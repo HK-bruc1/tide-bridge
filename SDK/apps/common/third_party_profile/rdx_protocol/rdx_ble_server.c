@@ -52,6 +52,7 @@
 #include "rdx_storage_lifecycle.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
+#include "rdx_hogp_input.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_session_control.h"
 #include "rdx_hogp_profile.h"
@@ -2196,6 +2197,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     }
 
     wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
+    if (!rdx_hogp_keyboard_is_ready()) rdx_hogp_input_invalidate();
     link = rdx_ble_session_link_accept(hdl, con_handle);
     if (!link) {
         y_printf("[RDX_BLE_LINK] connect rejected: registry conflict wrapper=%u con=0x%04x\n",
@@ -2258,6 +2260,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     multi_att_clear_ccc_config(con_handle);
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = hdl;
+    if (!rdx_hogp_keyboard_is_ready()) rdx_hogp_input_invalidate();
     rdx_ble_session_link_release(hdl, con_handle);
     rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_phase0b_adv_token_capture(hdl);

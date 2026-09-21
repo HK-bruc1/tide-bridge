@@ -486,6 +486,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_rtc.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_key.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_key_action.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_hogp_input.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_config.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_protocol.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_hogp_keymap_store.c \
