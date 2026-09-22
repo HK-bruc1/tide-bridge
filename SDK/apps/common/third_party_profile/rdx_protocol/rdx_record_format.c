@@ -91,6 +91,11 @@ static int rf_fail_at(unsigned line)
 
 #define rf_fail() rf_fail_at(__LINE__)
 
+void rdx_record_format_storage_fault(void)
+{
+    rf_error = -1;
+}
+
 int rdx_record_format_status(void)
 {
     return rf_error;

@@ -32,6 +32,7 @@
 #include "app_config.h"
 #include "rdx_record.h"
 #include "rdx_record_format.h"
+#include "rdx_record_storage.h"
 #include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "effects/eq_config.h"
@@ -96,7 +97,6 @@
 
 #define RDX_RECORD_STATE_BUSY_TIMEOUT                   (2000) //2s
 
-#define AUDIO_SEND_BUF_SIZE                             (100 * 80)
 #define RDX_RECORD_LIMIT_TIME                           ((5*60*60 - 2)* 1000) // 5 hours - 2s
 
 #define RECORD_MIC_0                                    (0)
@@ -286,8 +286,6 @@ void rdx_record_audio_start_exit(int result)
 
 static u16 record_set_process_state_timer = 0; //record process state set timer
 
-static u8 au_buf[AUDIO_SEND_BUF_SIZE];
-static u32 au_len = 0;
 static u16 rdx_record_max_timer = 0;
 
 static MicGainPara mic_gain;
@@ -2480,6 +2478,7 @@ static void rdx_record_task(void *arg)
                             record_status.run = RECORD_STATE_STOP;
                             translation_ear_recoder_close_all();
                             int saved = rdx_uxfile_finish_record();
+                            if (rdx_record_format_status() < 0) saved = -1;
                             record_initialized_generation = 0;
                             record_tone_session_active = false;
                             g_stream_only_session_active = 0;
@@ -2508,6 +2507,7 @@ static void rdx_record_task(void *arg)
                             record_status.run = RECORD_STATE_STOP;
                             translation_ear_recoder_close_all();
                             int saved = rdx_uxfile_finish_record();
+                            if (rdx_record_format_status() < 0) saved = -1;
                             record_initialized_generation = 0;
                             record_tone_session_active = false;
                             g_stream_only_session_active = 0;
@@ -2523,6 +2523,7 @@ static void rdx_record_task(void *arg)
                             /* PAUSE has no live stream but still owns an open
                              * recording context. Commit that context as well. */
                             int saved = rdx_uxfile_finish_record();
+                            if (rdx_record_format_status() < 0) saved = -1;
                             record_initialized_generation = 0;
                             usb_record_result = saved < 0 ? -1 : 0;
                             rdx_record_set_process_state_ready();
@@ -2548,6 +2549,7 @@ static void rdx_record_task(void *arg)
                             /* A paused session has no live sink to finalize it. */
                             if (msg[1] == RECORD_STATE_STOP) {
                                 int saved = rdx_uxfile_finish_record();
+                                if (rdx_record_format_status() < 0) saved = -1;
                                 if (saved < 0) {
                                     r_printf("[RECORD] stop save failed; USB handoff blocked\n");
                                 }
@@ -2595,8 +2597,10 @@ int rdx_record_task_create(void)
         r_printf("?????? rdx_record_task_create: task is created\r");
         return -1;
     }
+    if (rdx_record_storage_create()) return -EINVAL;
     int err = os_task_create(rdx_record_task, NULL, 3, 512, 256, RECORD_TASK_NAME);
     if (err != OS_NO_ERR) {
+        rdx_record_storage_destroy();
         return -EINVAL;
     }
 
@@ -2632,6 +2636,7 @@ int rdx_record_task_free(void)
         return -1;
     }
     os_task_del(RECORD_TASK_NAME);
+    rdx_record_storage_destroy();
 
     is_record_task_created = false;
     return 0;
@@ -3108,48 +3113,6 @@ void rdx_record_stream_resume_delayed(void)
     }
 }
 
-/* Local storage is a byte stream: an encoder frame may cross any block.
- * Keep the remainder for the next block (or the stop-time tail flush).
- * raw_write uses a negative result for failure; its implementation is in the
- * RDX library, so do not reinterpret nonnegative results as byte counts.
- */
-static int rdx_record_local_flush(u8 scene)
-{
-    int result;
-
-    if (!au_len) {
-        return 0;
-    }
-    result = rdx_uxfile_raw_write(au_buf, au_len, scene);
-    /* Clear before requesting stop so cleanup cannot resubmit this block. */
-    memset(au_buf, 0, sizeof(au_buf));
-    au_len = 0;
-    if (result < 0) {
-        r_printf("!!! stream write fail, stop record! \n");
-        rdx_record_stop();
-        return -1;
-    }
-    return 0;
-}
-
-static void rdx_record_local_append(const u8 *data, u32 len, u8 scene)
-{
-    while (len) {
-        u32 count = AUDIO_SEND_BUF_SIZE - au_len;
-        if (count > len) {
-            count = len;
-        }
-        memcpy(au_buf + au_len, data, count);
-        au_len += count;
-        data += count;
-        len -= count;
-        if (au_len == AUDIO_SEND_BUF_SIZE &&
-            rdx_record_local_flush(scene) < 0) {
-            return;
-        }
-    }
-}
-
 #if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
 
 /**************************************************************************
@@ -3176,9 +3139,6 @@ int rdx_record_run_init(void)
     if(rf_info->file_send_busy == true){
         rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
     }
-
-    memset(au_buf, 0, sizeof(au_buf));
-    au_len = 0;
 
     rp->ui_notify();
 
@@ -3241,6 +3201,11 @@ int rdx_record_run_init(void)
         rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 
+    if (!rdx_record_stream_only_session_is_active() &&
+        rdx_record_storage_begin(record_session_generation, rp->scene, rp->formate)) {
+        return -1;
+    }
+
     //start max record time.
     rdx_record_max_timer_start();
     record_initialized_generation = record_session_generation;
@@ -3286,11 +3251,7 @@ int rdx_record_run_data_handle(u8* d, u32 len)
 
     //local save.
     if(!rdx_record_stream_only_session_is_active()){
-        if (rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)) {
-            translation_ear_recoder_storage_fault();
-            return -1;
-        }
-        rdx_record_local_append(d, len, rp->scene);
+        if (rdx_record_storage_push(d, len)) return -1;
     }
     return 0;
 }
@@ -3311,9 +3272,8 @@ int rdx_record_run_exit(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if(!rdx_record_stream_only_session_is_active() && au_len > 0){
-        rdx_record_local_flush(rp->scene);
-    }
+    /* Drain before any save, context reset, READY state or power release. */
+    rdx_record_storage_end();
     //clear filter cnt.
 	rdx_record_set_filter_cnt(0);
 
@@ -3336,6 +3296,7 @@ int rdx_record_run_exit(void)
 
     if(!rdx_record_stream_only_session_is_active()){
         int saved = rdx_uxfile_finish_record();
+        if (rdx_record_format_status() < 0) saved = -1;
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
         }
@@ -3403,9 +3364,6 @@ int rdx_record_run_init(void)
         rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
     }
 
-    memset(au_buf, 0, sizeof(au_buf));
-    au_len = 0;
-
     rp->ui_notify();
 
     //stop limit timer.
@@ -3453,6 +3411,11 @@ int rdx_record_run_init(void)
     //set gain.
     // rdx_record_mic_gain_check();
 
+    if (rp->orig_mode == RECORD_MODE_OFFLINE &&
+        rdx_record_storage_begin(record_session_generation, rp->scene, rp->formate)) {
+        return -1;
+    }
+
     //start max record time.
     rdx_record_max_timer_start();
     record_initialized_generation = record_session_generation;
@@ -3495,11 +3458,7 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     rdx_record_set_process_state_ready();
 
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
-        if (rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)) {
-            translation_ear_recoder_storage_fault();
-            return -1;
-        }
-        rdx_record_local_append(d, len, rp->scene);
+        if (rdx_record_storage_push(d, len)) return -1;
     }else{
         if(0xffff != con_hdl && 0 != con_hdl &&
            rdx_record_online_session_is_current() &&
@@ -3528,9 +3487,8 @@ int rdx_record_run_exit(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if(au_len > 0){
-        rdx_record_local_flush(rp->scene);
-    }
+    /* Includes the partial aggregation block on both PAUSE and STOP. */
+    rdx_record_storage_end();
 	rdx_record_set_filter_cnt(0);
 	
     y_printf("%s --> con_hdl = %d, rp->mode = %d \r", __FUNCTION__, con_hdl, rp->mode);
@@ -3542,6 +3500,7 @@ int rdx_record_run_exit(void)
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
         // rdx_uxfile_mssg_1_save();
         int saved = rdx_uxfile_finish_record();
+        if (rdx_record_format_status() < 0) saved = -1;
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
         }

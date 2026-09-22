@@ -117,6 +117,7 @@ void rdx_uxfile_mssg_generate(bool is_new);
 void rdx_uxfile_mssg_1_generate(u8 scene);
 void rdx_uxfile_mssg_1_save(void);
 int rdx_uxfile_raw_write(u8* data_ptr,u32 data_len, u8 scene);
+uxfile_data_t *rdx_uxfile_get_operateFile_info(void);
 void rdx_uxfile_mssg_mic_rec_ctrl(int state);
 u32 rdx_uxfile_get_all_size(void);
 u16 rdx_uxfile_get_dat_cout(void);

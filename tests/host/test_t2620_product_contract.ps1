@@ -240,7 +240,7 @@ $holdRecordStorageOk = $RdxApp -match '(?s)!ret && stream_only && run == RECORD_
                        $RdxApp -match 'rdx_app_device_record_set\(scene, run, 0\)' -and
                        $RdxRecord -match '(?s)rdx_record_stream_only_start_consume\(token\);.*?rdx_record_online_session_bind\(token\);' -and
                        $RdxRecord -match '(?s)if\(rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_operate_file_init\(\);.*?else\s*\{.*?rdx_uxfile_dat_1_gen\(rp->scene\);' -and
-                       $RdxRecord -match '(?s)//local save\.\s*if\(!rdx_record_stream_only_session_is_active\(\)\)\{\s*if \(rdx_record_format_frame\(rdx_uxfile_get_operateFile_info\(\), rp->formate, d, len\)\).*?return -1;.*?rdx_record_local_append\(d, len, rp->scene\);' -and
+                       $RdxRecord -match '(?s)//local save\.\s*if\(!rdx_record_stream_only_session_is_active\(\)\)\{\s*if \(rdx_record_storage_push\(d, len\)\) return -1;' -and
                        $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
                        $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;'
 Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `

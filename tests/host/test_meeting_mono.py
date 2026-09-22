@@ -15,7 +15,8 @@ def main():
     assert recorder.index('NODE_IOC_SET_PRIV_FMT, (int)&policy') < recorder.index('err = jlstream_start(')
     assert 'global_ch_mode != AUDIO_CH_LR' in recorder
     assert 'fmt.channel_mode = AUDIO_CH_MIX;' in recorder
-    assert record.count('rdx_record_format_frame(rdx_uxfile_get_operateFile_info(), rp->formate, d, len)') == 2
+    assert record.count('rdx_record_storage_push(d, len)') == 2
+    assert 'rdx_record_format_frame(' not in record  # metadata I/O belongs to storage worker
     assert record.count('rdx_record_format_for_session(RECORD_SCENE_CHAT,') == 2
     policy = (ROOT / 'SDK/audio/effect/meeting_mono.h').read_text(encoding='utf-8-sig')
     codec = (ROOT / 'SDK/audio/st_opus_enc/opus_stenc_api.h').read_text(encoding='utf-8-sig')

@@ -29,7 +29,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_factory_usb.py` | SDK configuration matrix, storage admission/shutdown, CDC queues, stale sessions, partial I/O and bounded DMA |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |
-| `test_record_storage.py` | Aggregation, byte preservation, tail flush and write failures |
+| `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_meeting_mono.py` | Mono/selector integration, allocation cleanup, pairing faults, channel metadata, RAW playback and player draining |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay |
 
