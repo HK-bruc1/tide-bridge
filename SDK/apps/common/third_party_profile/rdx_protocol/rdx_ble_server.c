@@ -725,6 +725,7 @@ extern RecordStatus* rdx_record_get_status(void);
 extern u8 rdx_app_get_record_mode(void);
 extern int bt_modify_name(u8 *new_name);
 extern void rdx_protocol_record_state_indicate(void);
+extern u8 rdx_record_online_session_bind_current(void);
 extern u8 get_self_battery_level(void);
 extern u8 get_ota_status();
 extern void rdx_uxfile_datFileInfo_sendBuf_free(void);
@@ -1505,6 +1506,7 @@ static void rdx_ble_server_rdx_disconnected_cleanup_internal(void)
 
     rdx_record_stream_interrupt();
     rdx_record_on_ble_conn_changed(false);
+    rdx_app_record_transport_lost();
 
     //record stop.  //dons++ 20250326 离线录音时BLE断开后不停止录音
 #if (RDX_AI_SEL_APP & APP_NINGQU_EN) || (RDX_AI_SEL_APP & APP_JMEASY_EN) || (RDX_AI_SEL_APP & APP_RAYCON_EN) || (RDX_AI_SEL_APP & APP_CDJY_EN) || (RDX_AI_SEL_APP & APP_BRANDWORKS_EN) || (RDX_AI_SEL_APP & APP_LYNSE_EN) || (RDX_AI_SEL_APP & APP_YYS_EN) || (RDX_AI_SEL_APP & APP_FINDAI_EN) || (RDX_AI_SEL_APP & APP_NEVIEW_EN) || (RDX_AI_SEL_APP & APP_SHENGLANG_EN) || (RDX_AI_SEL_APP & APP_BEANSTALK_EN) || (RDX_AI_SEL_APP & APP_ZENCHORD_EN) || (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN) || (RDX_AI_SEL_APP & APP_DEEPMINER_EN)
@@ -2703,9 +2705,9 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
 
     y_printf("====== %s --> rp->run: %d, rp->mode: %d, rp->orig_mode: %d \r", __func__, rp->run, rp->mode, rp->orig_mode);
 
-    if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        y_printf("====== %s --> sync record state to app \r", __func__);
-        rdx_protocol_record_state_indicate();
+    if(rp->run != RECORD_STATE_STOP){
+        y_printf("====== %s --> sync record state to app (run=%d) \r", __func__, rp->run);
+        rdx_record_state_snapshot_indicate(&g_syn_data_token);
     } else {
         r_printf("====== %s --> record not running, skip sync. rp->run: %d \r", __func__, rp->run);
     }
@@ -2758,6 +2760,15 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     g_rdx_ble_server_info.stream_tx_ready = FALSE;
     rdx_ble_server_reset_send_fail_cnt();
     rdx_session_control_attach(link);
+    /* APP 接管 RDX 会话时，设备可能已经在进行离线录音。 */
+    {
+        RecordStatus *record = rdx_record_get_status();
+        if (record && record->run != RECORD_STATE_STOP &&
+            rdx_record_online_session_bind_current()) {
+            r_printf("[RDX_RECORD] offline session bound to owner con=0x%04x\r",
+                     link->con_handle);
+        }
+    }
     rdx_ble_server_rdx_connected_handle();
     if (had_hid_owner) {
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=HID+RDX\n",

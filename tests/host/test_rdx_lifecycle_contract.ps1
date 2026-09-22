@@ -108,7 +108,7 @@ $idleOk = Test-TokensInOrder $TryRearm @(
 )
 $idleOk = $idleOk -and
           $Idle -notmatch 'rdx_pc_storage_is_busy\s*\(' -and
-          $Idle -match 'rdx_app_storage_activity_is_busy\s*\(\s*"RDX_BLE_SESSION"\s*,\s*1\s*\)' -and
+          $Idle -match 'rdx_app_storage_activity_is_busy\s*\(\s*"RDX_BLE_SESSION"\s*,\s*1\s*,\s*1\s*\)' -and
           $StorageActivity -match 'rdx_record_get_status\s*\(' -and
           $StorageActivity -match 'rdx_record_process_is_busy_check\s*\(' -and
           $StorageActivity -match 'rdx_playback_get_info\s*\(' -and

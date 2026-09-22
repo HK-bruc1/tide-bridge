@@ -439,12 +439,26 @@ static u8 rdx_record_online_session_accepts(
     return rdx_record_token_equal(token, &g_record_session_token);
 }
 
+/* BLE 传输断开后，本地录音仍可继续。此放行条件仅用于
+ * 传输会话重置；存储接管仍须等待录音停止。 */
+u8 rdx_record_transport_is_detached(void)
+{
+    return !g_record_session_token_valid &&
+           !g_stream_only_session_active && record_status.stream_discont &&
+           (record_status.run == RECORD_STATE_START ||
+            record_status.run == RECORD_STATE_RESUME ||
+            record_status.run == RECORD_STATE_PAUSE);
+}
+
 u8 rdx_record_online_session_bind_current(void)
 {
     rdx_ble_async_token_t token;
 
     if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
         return 0;
+    }
+    if (g_record_session_token_valid) {
+        return rdx_record_token_equal(&token, &g_record_session_token);
     }
     rdx_record_online_session_bind(&token);
     return 1;
@@ -491,6 +505,52 @@ static void rdx_record_state_indicate_if_current(
         return;
     }
     rdx_protocol_record_state_indicate();
+}
+
+extern u8 rdx_app_get_record_mode(void);
+
+/* 重连时上报当前录音状态快照，而非最后一次开始或恢复命令的回执。
+ * 组装报文时不得临时改写共享录音状态。 */
+void rdx_record_state_snapshot_indicate(const rdx_ble_async_token_t *token)
+{
+    RecordStatus snapshot = *rdx_record_get_status();
+    char packet[128];
+    int len;
+    u8 state;
+    static const u8 sample_rates[] = {2, 1, 1, 0};
+    u8 sample = snapshot.formate < sizeof(sample_rates) ?
+                sample_rates[snapshot.formate] : 1;
+    u32 elapsed;
+
+    if (g_app_stop_pending || !rdx_record_online_session_token_is_current(token) ||
+        (snapshot.run != RECORD_STATE_START &&
+         snapshot.run != RECORD_STATE_RESUME && snapshot.run != RECORD_STATE_PAUSE)) {
+        return;
+    }
+    state = snapshot.run == RECORD_STATE_PAUSE ? 2 : 1;
+    elapsed = snapshot.orig_mode == RECORD_MODE_OFFLINE ?
+              rdx_record_get_active_offset_ms() : 0;
+    len = snprintf(packet, sizeof(packet), "*DEV#record#%u#%u#%u#%u#%u#%u#",
+                   state, snapshot.scene != RECORD_SCENE_CHAT, sample,
+                   rdx_app_get_record_mode(), snapshot.orig_mode, elapsed);
+#if defined(__UUX_FILE__)
+    uxfile_data_t *file = rdx_uxfile_get_operateFile_info();
+    if (len > 0 && len < sizeof(packet) && file->sn && file->filename[0]) {
+        int tail = snprintf(packet + len, sizeof(packet) - len, "%u#%s#",
+                            file->sn, file->filename);
+        if (tail < 0 || tail >= sizeof(packet) - len) {
+            return;
+        }
+        len += tail;
+    }
+#endif
+    if (len <= 0 || len >= sizeof(packet) ||
+        !rdx_record_online_session_token_is_current(token)) {
+        return;
+    }
+    y_printf("[RDX_RECORD_SNAPSHOT] run=%u state=%u origin=%u elapsed=%u packet=%s\r",
+             snapshot.run, state, snapshot.orig_mode, elapsed, packet);
+    rdx_protocol_packet_send_priority(packet, (u16)len);
 }
 
 static void rdx_record_state_on_app_core(rdx_record_state_request_t *request)
@@ -1279,6 +1339,14 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] drop stale command\r");
         return;
     }
+    /* 录音可能在离线时已经开始。处理首条有效在线命令前，
+     * 先将录音绑定到当前命令所属会话；暂停命令和重复控制请求
+     * 也需执行此绑定。 */
+    if (token && !g_record_session_token_valid &&
+        record_status.run != RECORD_STATE_STOP) {
+        rdx_record_online_session_bind(token);
+        r_printf("[RDX_RECORD] offline session adopted by command owner\r");
+    }
     if (token && !rdx_record_online_session_accepts(token)) {
         r_printf("[RDX_RECORD] drop command for another session\r");
         return;
@@ -1362,11 +1430,17 @@ static void rdx_record_cmd_handle_internal(
     if(r_info->cmd - 0x30 == record_status.run){
         //if the cmd is same as last time, do not handle it again.
         y_printf("====== %s --> record cmd job is same as current, cmd = %c \r", __FUNCTION__, r_info->cmd);
+        if (token && rdx_record_rdx_token_is_current(token)) {
+            rdx_record_state_indicate_if_current(token);
+        }
         return;
     }
     //check record process state.
     if(rdx_record_process_is_busy_check()){
         r_printf("====== %s --> record process change is busy, return \r", __FUNCTION__);
+        if (token && rdx_record_rdx_token_is_current(token)) {
+            rdx_record_state_indicate_if_current(token);
+        }
         return;
     }
     //set new record format and scene.d
@@ -3011,6 +3085,17 @@ void rdx_record_on_ble_conn_changed(u8 connected)
         if (record_start_tone_pending && g_record_session_token_valid) {
             rdx_record_start_tone_cancel();
         }
+        /* 新会话接管本地录音前，先撤销旧上报通道。
+         * 尚未执行的回调仍保留旧会话代次。 */
+        if (stream_resume_timer) {
+            sys_timeout_del(stream_resume_timer);
+            stream_resume_timer = 0;
+        }
+        g_stream_resume_token_valid = 0;
+        rdx_record_online_session_clear();
+        if (record_status.run != RECORD_STATE_STOP) {
+            record_status.stream_discont = true;
+        }
     }
 
     /* 仅 PAUSE 时参与决策; START/RESUME/STOP 一律 no-op, 保持原有 BLE 断开
@@ -3083,6 +3168,17 @@ void rdx_record_stream_resume(void* priv)
     stream_resume_timer = 0;
 }
 
+static void rdx_record_update_connection_mode(u16 con_hdl)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    rp->mode = (con_hdl != 0 && con_hdl != 0xffff &&
+                rdx_record_online_session_is_current()) ?
+               RECORD_MODE_ONLINE : RECORD_MODE_OFFLINE;
+    if (record_initialized_generation != record_session_generation) {
+        rp->orig_mode = rp->mode;
+    }
+}
+
 /**************************************************************************
  * function: rdx_record_stream_resume_delayed
  * description: Start a 3-second timer to resume stream after BLE reconnection
@@ -3144,18 +3240,8 @@ int rdx_record_run_init(void)
 
     //stop limit timer.
     rdx_record_max_timer_stop();
-    //check way of record.
-    if(0xffff == con_hdl || 0 == con_hdl ||
-       !rdx_record_online_session_is_current()){
-        rp->mode = RECORD_MODE_OFFLINE;
-        rp->orig_mode = RECORD_MODE_OFFLINE;
-        y_printf("%s --> not connected, rp->mode = %d, rp->scene = %d \r", __FUNCTION__, rp->mode, rp->scene);
-    }else{
-        rp->mode = RECORD_MODE_ONLINE;
-        rp->orig_mode = RECORD_MODE_ONLINE;
-        y_printf("%s --> connected, rp->mode = %d \r", __FUNCTION__, rp->mode);
-    }
-    // 现在 RECORD_SCENE_xxx 与 COMMAND_RECORD_SCENE_xxx 值一致，无需映射
+    // 暂停、恢复及 APP 接管时，保留录音开始时的模式。
+    rdx_record_update_connection_mode(con_hdl);
     if(rdx_record_stream_only_session_is_active()){
         if(record_initialized_generation != record_session_generation){
             rdx_uxfile_operate_file_init();
@@ -3241,8 +3327,9 @@ int rdx_record_run_data_handle(u8* d, u32 len)
     RecordStatus* rp = rdx_record_get_status();
     rdx_record_set_process_state_ready();
 
-    //online stream send.
-    if(0xffff != con_hdl && 0 != con_hdl &&
+    // 离线开始的录音在 APP 接管控制后仍仅保存在本地。
+    if(rp->orig_mode == RECORD_MODE_ONLINE &&
+       0xffff != con_hdl && 0 != con_hdl &&
        rdx_record_online_session_is_current() &&
        rp->stream_discont == false &&
        rdx_ble_server_is_stream_tx_ready()){

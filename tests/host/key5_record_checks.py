@@ -33,6 +33,8 @@ enum { RECORD_STATE_STOP, RECORD_STATE_START, RECORD_STATE_RESUME, RECORD_STATE_
 typedef struct { int run, scene, formate, mode, orig_mode, process_state, key_trigger; } RecordStatus;
 typedef struct { int dummy; } rdx_ble_async_token_t;
 static RecordStatus status, set_rp;
+static u8 hold_record_disconnect_pending;
+static int stream_active, release_calls, release_done=1;
 static u8 hold_record_stop_queued, hold_record_pressed, hold_record_session_active;
 static u8 hold_record_busy_wait_armed, hold_record_scene, key5_online_hold_routed;
 static u8 key5_local_hold_routed, hold_record_local, key_press_record_ready_flag;
@@ -71,7 +73,9 @@ static int rdx_record_audio_fault_stop(void) {
     if(stop_fail) return 0;
     ++stops; status.run=RECORD_STATE_STOP; return 1;
 }
-static int rdx_record_stream_only_release(void) { return 1; }
+static int rdx_record_stream_only_release(void) { ++release_calls; return release_done; }
+static int rdx_record_stream_only_session_is_active(void) { return stream_active; }
+static void rdx_record_stream_only_release_complete(void) {}
 static int rdx_record_stream_only_is_releasing(void) { return 0; }
 static void rdx_record_stream_only_start_arm(rdx_ble_async_token_t *t) {}
 static void rdx_app_record_state_upload_timer_start(void) {}
@@ -102,6 +106,23 @@ static void key(int event) {
     int message=APP_MSG_NULL;
     rdx_app_key5_remap(&message,event,1);
     handle(message);
+}
+int test_disconnect(void) {
+    hold_record_local=0; hold_record_pressed=1; hold_record_session_active=1;
+    key5_online_hold_routed=1; stream_active=1; release_done=0; release_calls=0;
+    rdx_app_record_transport_lost();
+    CHECK(hold_record_disconnect_pending && !hold_record_pressed);
+    rdx_app_hold_record_pump();
+    CHECK(release_calls==1 && hold_record_disconnect_pending && hold_record_retry_timer);
+    release_done=1; rdx_app_hold_record_pump();
+    CHECK(!hold_record_disconnect_pending && !hold_record_session_active);
+    CHECK(key5_online_hold_routed && !hold_record_retry_timer);
+    int calls=release_calls; rdx_app_hold_record_pump(); CHECK(release_calls==calls);
+    stream_active=0; hold_record_local=1; hold_record_pressed=1;
+    rdx_app_record_transport_lost(); CHECK(!hold_record_disconnect_pending && hold_record_pressed);
+    hold_record_local=0; hold_record_pressed=0;
+    rdx_app_record_transport_lost(); CHECK(!hold_record_disconnect_pending);
+    return 0;
 }
 int test_local_hold_and_double(void) {
     reset(); playback=1;
@@ -212,7 +233,7 @@ def main():
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
-        'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
+        'rdx_app_record_transport_lost', 'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_key5_remap', 'rdx_app_local_player_key_remap',
         'rdx_app_local_player_message_blocked',
         'rdx_app_device_record_set', 'rdx_app_device_record_handle'))

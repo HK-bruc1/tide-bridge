@@ -170,6 +170,7 @@ u8 rdx_record_online_session_token_is_current(
  * local save + record state indications).  Returns 0 when no live RDX
  * runtime-active link exists, leaving the caller in offline behavior. */
 u8 rdx_record_online_session_bind_current(void);
+u8 rdx_record_transport_is_detached(void);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);
@@ -195,6 +196,7 @@ int rdx_record_run_data_handle(u8* d, u32 len);
 
 int rdx_record_add_mark(u8 source);
 u32 rdx_record_get_active_offset_ms(void);
+void rdx_record_state_snapshot_indicate(const rdx_ble_async_token_t *token);
 void rdx_record_clear_marks(void);
 
 u8 rdx_record_get_marks(u32 *out, u8 max);

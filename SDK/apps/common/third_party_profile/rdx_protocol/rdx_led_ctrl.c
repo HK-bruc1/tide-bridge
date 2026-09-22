@@ -584,6 +584,25 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         scene != RDX_LED_SCENE_FINALPACK_DONE) {
         scene = RDX_LED_SCENE_DUT_ENTER;
     }
+    /* 连接、断开及广播超时不能覆盖持续录音；关机和存储切换仍优先。 */
+    if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        (scene == RDX_LED_SCENE_OFF ||
+         scene == RDX_LED_SCENE_BLE_ADV_START ||
+         scene == RDX_LED_SCENE_BLE_CONNECTED ||
+         scene == RDX_LED_SCENE_BLE_DISCONNECTED ||
+         scene == RDX_LED_SCENE_BLE_FAST_ADV)) {
+        RecordStatus *rp = rdx_record_get_status();
+        if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
+            /* 保留正在显示的标记提示和呼吸相位，避免 BLE 事件重启灯效。 */
+            if (g_active_effect &&
+                (g_current_scene == RDX_LED_SCENE_RECORD_START ||
+                 (g_current_scene == RDX_LED_SCENE_RECORD_MARK &&
+                  g_effect_elapsed_ms < g_active_effect->timeout_ms))) {
+                return;
+            }
+            scene = RDX_LED_SCENE_RECORD_START;
+        }
+    }
     if (on_usb_charge) {
         bool new_mark = scene == RDX_LED_SCENE_RECORD_MARK;
         scene = _rdx_led_resolve_on_usb_charge(scene);

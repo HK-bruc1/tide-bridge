@@ -4,10 +4,13 @@ Hardware latency and library behavior still require on-device acceptance.
 import re
 import tempfile
 from pathlib import Path
-from host_c_test_lib import ROOT, run_c_checks
+from host_c_test_lib import ROOT, function, run_c_checks
 
 
 def main():
+    check_reconnect()
+    check_stream()
+    check_snapshot()
     base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     source = (base / 'rdx_record_storage.c').read_text(encoding='utf-8')
     source = re.sub(r'^#include .*\n', '', source, flags=re.M)
@@ -176,6 +179,275 @@ int test_storage(void) {
         path.write_text(stubs + source + tests, encoding='utf-8')
         run_c_checks(path, ['test_storage'])
     print('Recording async storage/lifecycle behavioral checks passed.')
+
+
+# 模式切换的关键回归：重连准入、音频去向与状态报文。
+def check_reconnect():
+    base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
+    record = (base / 'rdx_record.c').read_text(encoding='utf-8')
+    app = (base / 'rdx_app.c').read_text(encoding='utf-8')
+    source = r'''
+typedef unsigned char u8;
+#define true 1
+#define false 0
+#define NULL ((void*)0)
+#define r_printf(...) ((void)0)
+#define RECORD_STATE_START 0
+#define RECORD_STATE_PAUSE 1
+#define RECORD_STATE_RESUME 2
+#define RECORD_STATE_STOP 3
+#define RDX_STORAGE_PLAYBACK_PREEMPT 2
+typedef struct { int run, stream_discont; } RecordStatus;
+static RecordStatus record_status;
+static int g_record_session_token_valid, g_stream_only_session_active;
+static int stream_resume_timer, g_stream_resume_token_valid;
+static int record_start_tone_pending, cancelled_timer, pause_timer;
+void rdx_record_stream_only_start_cancel(void) {}
+void rdx_record_start_tone_cancel(void) { record_start_tone_pending=0; }
+void sys_timeout_del(int timer) { cancelled_timer=timer; }
+void rdx_record_online_session_clear(void) { g_record_session_token_valid=0; }
+void rdx_record_pause_timeout_stop(void) { pause_timer=0; }
+void rdx_record_pause_timeout_start(void) { pause_timer=1; }
+static int hold_record_disconnect_pending;
+static int rdx_app_init_flag=1, worker, transfer, sync_busy, loading, scan, format, ota;
+typedef struct { int file_send_busy; } ReqFileInfo;
+typedef struct { int send_pending, bulk_sending; } BLE_SendData;
+typedef struct { int busy, bulk_flag; } BleBulkSendData;
+static ReqFileInfo info;
+static BLE_SendData send;
+static BleBulkSendData bulk;
+RecordStatus *rdx_record_get_status(void) { return &record_status; }
+int rdx_record_process_is_busy_check(void) { return worker; }
+ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &info; }
+BLE_SendData *rdx_protocol_get_ble_send_data(void) { return &send; }
+BleBulkSendData *rdx_protocol_get_bulk_send_data(void) { return &bulk; }
+int rdx_is_file_transfer_active(void) { return transfer; }
+int rdx_is_file_sync_busy(void) { return sync_busy; }
+u8 rdx_uxfile_is_datFileInfo_loading(void) { return loading; }
+u8 rdx_uxfile_is_scan_active(void) { return scan; }
+u8 rdx_uxfile_is_formatting(void) { return format; }
+int rdx_uxfile_sd_format_status_check(void) { return format; }
+int get_ota_status(void) { return ota; }
+'''
+    source += function(record, 'rdx_record_transport_is_detached')
+    source += function(record, 'rdx_record_on_ble_conn_changed')
+    for name in ['rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
+                 'rdx_app_rdx_rebind_is_idle']:
+        source += function(app, name)
+    source += r'''
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_reconnect(void) {
+    for (int state=0; state<3; ++state) {
+        record_status.run=state;
+        record_status.stream_discont=0;
+        g_record_session_token_valid=1;
+        stream_resume_timer=42;
+        g_stream_resume_token_valid=1;
+        record_start_tone_pending=1;
+        rdx_record_on_ble_conn_changed(0);
+        CHECK(record_status.run==state && record_status.stream_discont);
+        CHECK(!g_record_session_token_valid && !g_stream_resume_token_valid);
+        CHECK(!stream_resume_timer && cancelled_timer==42);
+        CHECK(!record_start_tone_pending);
+        CHECK(pause_timer==(state==RECORD_STATE_PAUSE));
+        rdx_record_on_ble_conn_changed(1);
+        CHECK(!pause_timer);
+        /* 已脱离传输的开始、暂停和恢复状态仅放行传输重置，不放行存储接管。 */
+        CHECK(rdx_app_rdx_rebind_is_idle());
+        CHECK(rdx_pc_storage_is_busy());
+        CHECK(rdx_app_storage_activity_is_busy("FORMAT", 2, 0));
+        /* 仍绑定会话、处于纯推流模式或传输未中断时，拒绝重新绑定。 */
+        g_record_session_token_valid=1;
+        CHECK(!rdx_app_rdx_rebind_is_idle());
+        g_record_session_token_valid=0;
+        g_stream_only_session_active=1;
+        CHECK(!rdx_app_rdx_rebind_is_idle());
+        g_stream_only_session_active=0;
+        record_status.stream_discont=0;
+        CHECK(!rdx_app_rdx_rebind_is_idle());
+        record_status.stream_discont=1;
+        int *busy_flags[]={&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
+            &info.file_send_busy,&send.send_pending,&send.bulk_sending,
+            &bulk.busy,&bulk.bulk_flag};
+        for (int i=0; i<12; ++i) {
+            *busy_flags[i]=1;
+            CHECK(!rdx_app_rdx_rebind_is_idle());
+            *busy_flags[i]=0;
+            CHECK(rdx_app_rdx_rebind_is_idle());
+        }
+    }
+    record_status.run=RECORD_STATE_STOP;
+    CHECK(rdx_app_rdx_rebind_is_idle());
+    CHECK(!rdx_pc_storage_is_busy());
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-reconnect-') as work:
+        path = Path(work) / 'reconnect.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_reconnect'], native=True)
+
+
+def check_stream():
+    record = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c').read_text(encoding='utf-8')
+    source = r'''
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+#define false 0
+#define RECORD_MODE_OFFLINE 0
+#define RECORD_MODE_ONLINE 1
+typedef struct { int mode, orig_mode, stream_discont; } RecordStatus;
+static RecordStatus status;
+static int record_initialized_generation, record_session_generation=1;
+static int current, ready, only, sent, saved, allowed=1;
+static u16 conn=0xffff;
+RecordStatus *rdx_record_get_status(void) { return &status; }
+int rdx_record_online_session_is_current(void) { return current; }
+int rdx_record_session_allowed(void) { return allowed; }
+u16 rdx_ble_server_get_conn_handle(void) { return conn; }
+u8 rdx_record_get_filter_cnt(void) { return 10; }
+void rdx_record_set_filter_cnt(u8 c) {}
+void rdx_record_set_process_state_ready(void) {}
+int rdx_ble_server_is_stream_tx_ready(void) { return ready; }
+int rdx_record_stream_only_session_is_active(void) { return only; }
+int rdx_protocol_audio_data_indicate(u8 *d, u32 len) { ++sent; return 0; }
+int rdx_record_storage_push(u8 *d, u32 len) { ++saved; return 0; }
+'''
+    source += function(record, 'rdx_record_update_connection_mode')
+    source += function(record, 'rdx_record_run_data_handle')
+    source += r'''
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_stream(void) {
+    u8 data=0;
+    rdx_record_update_connection_mode(conn);
+    CHECK(status.orig_mode==RECORD_MODE_OFFLINE);
+    record_initialized_generation=record_session_generation;
+    for (int i=0; i<3; ++i) {
+        conn=1; current=ready=1;
+        /* 恢复录音的初始化必须保留原始离线模式。 */
+        rdx_record_update_connection_mode(conn);
+        CHECK(status.mode==RECORD_MODE_ONLINE);
+        CHECK(status.orig_mode==RECORD_MODE_OFFLINE);
+        status.stream_discont=0;
+        CHECK(!rdx_record_run_data_handle(&data,1));
+        CHECK(!sent && saved==i*2+1);
+        conn=0xffff; current=ready=0;
+        rdx_record_update_connection_mode(conn);
+        CHECK(!rdx_record_run_data_handle(&data,1));
+        CHECK(!sent && saved==i*2+2);
+    }
+    /* 新开始的在线录音仍支持本地保存和实时推流。 */
+    ++record_session_generation;
+    conn=1; current=ready=1;
+    rdx_record_update_connection_mode(conn);
+    CHECK(status.orig_mode==RECORD_MODE_ONLINE);
+    CHECK(!rdx_record_run_data_handle(&data,1));
+    CHECK(sent==1 && saved==7);
+    current=0;
+    rdx_record_run_data_handle(&data,1);
+    current=1; ready=0;
+    rdx_record_run_data_handle(&data,1);
+    ready=1; status.stream_discont=1;
+    rdx_record_run_data_handle(&data,1);
+    CHECK(sent==1 && saved==10);
+    status.stream_discont=0; only=1;
+    rdx_record_run_data_handle(&data,1);
+    CHECK(sent==2 && saved==10);
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-record-stream-') as work:
+        path = Path(work) / 'stream.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_stream'], native=True)
+
+
+def check_snapshot():
+    import ctypes
+    from llvmlite import binding as llvm
+
+    # Windows 下 MCJIT 不会自动解析 UCRT 的 snprintf 符号，需显式注册。
+    crt = ctypes.CDLL('msvcrt')
+    for name in ('snprintf', 'memcpy', 'memcmp', 'strcmp'):
+        llvm.add_symbol(name, ctypes.cast(getattr(crt, '_snprintf' if name == 'snprintf' else name), ctypes.c_void_p).value)
+    base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
+    record = (base / 'rdx_record.c').read_text(encoding='utf-8')
+    source = r'''
+typedef unsigned long long size_t;
+extern int snprintf(char *, size_t, const char *, ...);
+extern void *memcpy(void *, const void *, size_t);
+extern int memcmp(const void *, const void *, size_t);
+extern int strcmp(const char *, const char *);
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+typedef struct { int epoch; } rdx_ble_async_token_t;
+typedef struct { u8 run, formate, scene, orig_mode; } RecordStatus;
+typedef struct { u32 sn; char filename[32]; } uxfile_data_t;
+#define RECORD_STATE_START 0
+#define RECORD_STATE_PAUSE 1
+#define RECORD_STATE_RESUME 2
+#define RECORD_STATE_STOP 3
+#define RECORD_MODE_OFFLINE 0
+#define RECORD_SCENE_CHAT 0
+#define __UUX_FILE__ 1
+#define y_printf(...) ((void)0)
+static RecordStatus status;
+static uxfile_data_t file={6,"d9e348.raw"};
+static int g_app_stop_pending, current=1, sends;
+static char sent[128];
+RecordStatus *rdx_record_get_status(void) { return &status; }
+uxfile_data_t *rdx_uxfile_get_operateFile_info(void) { return &file; }
+int rdx_record_online_session_token_is_current(const rdx_ble_async_token_t *t) {
+    return t && t->epoch==current;
+}
+u32 rdx_record_get_active_offset_ms(void) { return 102705; }
+u8 rdx_app_get_record_mode(void) { return 0; }
+int rdx_protocol_packet_send_priority(void *p, u16 n) {
+    memcpy(sent,p,n); sent[n]=0; ++sends; return 0;
+}
+'''
+    source += function(record, 'rdx_record_state_snapshot_indicate')
+    source += r'''
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_snapshot(void) {
+    status.formate=1;
+    for (int cycle=1; cycle<=3; ++cycle) {
+        current=cycle;
+        rdx_ble_async_token_t token={cycle};
+        for (int state=0; state<3; ++state) {
+            status.run=state;
+            RecordStatus before=status;
+            rdx_record_state_snapshot_indicate(&token);
+            CHECK(!memcmp(&before,&status,sizeof(status)));
+            CHECK(!strcmp(sent,state==1 ?
+                "*DEV#record#2#0#1#0#0#102705#6#d9e348.raw#" :
+                "*DEV#record#1#0#1#0#0#102705#6#d9e348.raw#"));
+        }
+        int count=sends;
+        token.epoch=cycle-1;
+        rdx_record_state_snapshot_indicate(&token);
+        CHECK(sends==count);
+    }
+    rdx_ble_async_token_t token={current};
+    status.run=3;
+    int count=sends;
+    rdx_record_state_snapshot_indicate(&token);
+    CHECK(sends==count);
+    status.run=2; g_app_stop_pending=1;
+    rdx_record_state_snapshot_indicate(&token);
+    CHECK(sends==count);
+    g_app_stop_pending=0; status.orig_mode=1;
+    rdx_record_state_snapshot_indicate(&token);
+    CHECK(!strcmp(sent,"*DEV#record#1#0#1#0#1#0#6#d9e348.raw#"));
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-snapshot-') as work:
+        path = Path(work) / 'snapshot.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_snapshot'], native=True)
 
 
 if __name__ == '__main__':

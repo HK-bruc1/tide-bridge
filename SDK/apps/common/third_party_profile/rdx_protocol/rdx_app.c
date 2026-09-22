@@ -175,6 +175,7 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 static u16 record_state_upload_timer = 0;
 static u32 record_state_upload_generation;
 static u8 hold_record_stop_queued;
+static u8 hold_record_disconnect_pending;
 static rdx_ble_async_token_t record_state_upload_token;
 static u8 record_state_upload_token_valid = 0;
 static RdxWifiInfo wifiInfo;
@@ -419,14 +420,16 @@ void rdx_app_set_power_ready_flag(void)
 #define RDX_STORAGE_PLAYBACK_PREEMPT  2
 
 static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
-                                           u8 allow_paused_playback)
+                                           u8 allow_paused_playback,
+                                           u8 allow_detached_recording)
 {
     if (!rdx_app_init_flag) {
         return false;
     }
 
     RecordStatus *record = rdx_record_get_status();
-    if (!record || record->run != RECORD_STATE_STOP) {
+    if (!record || (record->run != RECORD_STATE_STOP &&
+        !(allow_detached_recording && rdx_record_transport_is_detached()))) {
         r_printf("[%s] busy: record state=%d\n", log_tag,
                  record ? record->run : -1);
         return true;
@@ -485,7 +488,7 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
 
 u8 rdx_pc_storage_is_busy(void)
 {
-    return rdx_app_storage_activity_is_busy("PC-STORAGE", 0);
+    return rdx_app_storage_activity_is_busy("PC-STORAGE", 0, 0);
 }
 
 u8 rdx_app_rdx_rebind_is_idle(void)
@@ -493,7 +496,8 @@ u8 rdx_app_rdx_rebind_is_idle(void)
     BLE_SendData *send_data = rdx_protocol_get_ble_send_data();
     BleBulkSendData *bulk_data = rdx_protocol_get_bulk_send_data();
 
-    if (rdx_app_storage_activity_is_busy("RDX_BLE_SESSION", 1)) {
+    if (hold_record_disconnect_pending ||
+        rdx_app_storage_activity_is_busy("RDX_BLE_SESSION", 1, 1)) {
         return 0;
     }
 
@@ -801,6 +805,7 @@ static void rdx_app_hold_record_retry_cancel(void)
 static void rdx_app_hold_record_reset(void)
 {
     hold_record_stop_queued = 0;
+    hold_record_disconnect_pending = 0;
     rdx_app_hold_record_retry_cancel();
     hold_record_pressed = 0;
     hold_record_session_active = 0;
@@ -816,6 +821,20 @@ void rdx_app_record_binding_reset(void)
     key_press_record_ready_flag = 0;
     rdx_app_hold_record_reset();
     rdx_app_record_state_upload_timer_stop();
+}
+
+/* 断连回调仅提交收尾请求，由 app_core 关闭纯推流录音并重试队列拥塞。 */
+void rdx_app_record_transport_lost(void)
+{
+    if (hold_record_local ||
+        (!hold_record_session_active && !hold_record_pressed &&
+         !rdx_record_stream_only_session_is_active())) {
+        return;
+    }
+    rdx_app_hold_record_retry_cancel();
+    hold_record_disconnect_pending = 1;
+    hold_record_pressed = 0;
+    rdx_app_hold_record_retry_cb(NULL);
 }
 
 static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
@@ -839,6 +858,20 @@ static void rdx_app_hold_record_pump(void)
     RecordStatus *rp = rdx_record_get_status();
     int ret;
 
+    if (hold_record_disconnect_pending) {
+        if (!rdx_record_stream_only_release()) {
+            rdx_app_hold_record_retry_schedule();
+            return;
+        }
+        rdx_record_stream_only_release_complete();
+        /* 保留本次按键的松键归属，避免断连后松键误入离线按键逻辑。 */
+        u8 routed = key5_online_hold_routed;
+        rdx_app_hold_record_reset();
+        key5_online_hold_routed = routed;
+        key_press_record_ready_flag = 0;
+        g_printf("[RDX_HOLD_RECORD] transport lost: cleanup complete\r");
+        return;
+    }
     if (hold_record_pressed && !rdx_record_binding_allowed()) {
         rdx_app_hold_record_reset();
         return;
@@ -3732,7 +3765,7 @@ static void rdx_app_sd_format_on_app_core(
     }
 
     if (!rdx_app_storage_activity_is_busy(
-            "SD-FORMAT", RDX_STORAGE_PLAYBACK_PREEMPT) &&
+            "SD-FORMAT", RDX_STORAGE_PLAYBACK_PREEMPT, 0) &&
         rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         rdx_app_format_handle();
         rejected = 0;
@@ -3757,7 +3790,7 @@ static void rdx_app_bound_unbind_on_app_core(
         return;
     }
     if (rdx_app_storage_activity_is_busy(
-            "BOUND-UNBIND", RDX_STORAGE_PLAYBACK_PREEMPT)) {
+            "BOUND-UNBIND", RDX_STORAGE_PLAYBACK_PREEMPT, 0)) {
         if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
             g_protocol_ops) {
             g_protocol_ops->bound_result_ack_indicate(1);
@@ -3794,7 +3827,7 @@ static void rdx_app_unbound_on_app_core(rdx_app_unbound_request_t *request)
         return;
     }
     if (rdx_app_storage_activity_is_busy(
-            "UNBOUND", RDX_STORAGE_PLAYBACK_PREEMPT)) {
+            "UNBOUND", RDX_STORAGE_PLAYBACK_PREEMPT, 0)) {
         if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&
             g_protocol_ops) {
             g_protocol_ops->unbound_ack_indicate(
@@ -4321,6 +4354,9 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
         case PROTOCOL_EVENT_CMD_RECMARK: {
             if(!data || len < 1) break;
             u8 src = *(u8*)data;
+            /* 将正在进行的离线录音绑定到当前 APP 所属会话，
+             * 使标记结果与录音控制回执使用同一上报通道。 */
+            rdx_record_online_session_bind_current();
             rdx_record_add_mark(src);
             break;
         }
