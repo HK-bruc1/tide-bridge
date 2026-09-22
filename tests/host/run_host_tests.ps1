@@ -23,6 +23,7 @@ $Behavior = @(
     'test_meeting_mono.py',
     'test_record_format.py',
     'test_hogp_hold.py'
+    'test_keymap_factory_reset.py'
 )
 $Tests = @()
 if ($Suite -ne 'behavior') { $Tests += $Contracts }

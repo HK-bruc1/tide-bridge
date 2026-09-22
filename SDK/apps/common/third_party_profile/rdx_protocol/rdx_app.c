@@ -3881,12 +3881,32 @@ static void rdx_app_bound_tone_play(void)
     }
 }
 
+/* Acknowledge factory reset only after the persistent defaults are committed. */
+static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
+{
+    int ret;
+    if (!token) {
+        return;
+    }
+    if (!rdx_ble_session_rdx_token_resolve(token, 1)) {
+        free(token);
+        return;
+    }
+    ret = rdx_vm_reset_defaults_no_poweroff();
+    if (rdx_ble_session_rdx_token_resolve(token, 1) && g_protocol_ops) {
+        g_protocol_ops->sys_set_default_ack_indicate(ret ? 1 : 0);
+    }
+    free(token);
+    if (!ret) {
+        rdx_app_time_to_reset();
+    }
+}
+
 /**
  * 协议层 → app 业务统一事件回调入口
  *   @param event 协议事件类型 (rdx_protocol.h 中 ProtocolEvents)
  *   @param data  事件数据指针, 具体类型见 ProtocolEvents 各项注释
  *   @param len   事件数据长度 (字节)
- *
  */
 static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
@@ -4016,11 +4036,22 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                 ops->sys_set_default_ack_indicate(1);
                 break;
             }
-            ops->sys_set_default_ack_indicate(0);
-            int msg[2];
-            msg[0] = (int)rdx_vm_sys_reset_to_defaults;
-            msg[1] = 0;
-            if(os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)){
+            rdx_ble_async_token_t *token = malloc(sizeof(*token));
+            if (!token) {
+                ops->sys_set_default_ack_indicate(1);
+                break;
+            }
+            if (!rdx_ble_session_rdx_token_capture(token, 1)) {
+                free(token);
+                break;
+            }
+            int msg[3];
+            msg[0] = (int)rdx_app_factory_reset_on_app_core;
+            msg[1] = 1;
+            msg[2] = (int)token;
+            if(os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)){
+                free(token);
+                ops->sys_set_default_ack_indicate(1);
                 log_info("[APP CMD] sys_reset taskq post err\r");
             }
             break;

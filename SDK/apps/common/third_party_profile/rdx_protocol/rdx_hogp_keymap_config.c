@@ -56,6 +56,7 @@ static u32 s_rdx_hogpkm_current_revision;
 static u32 s_rdx_hogpkm_current_keymap_crc32;
 static u8 s_rdx_hogpkm_active_slot = RDX_HOGPKM_VM_SLOT_NONE;
 static volatile u32 s_rdx_hogpkm_generation;
+static volatile u8 s_rdx_hogpkm_factory_reset;
 static rdx_hogpkm_owned_request_t s_rdx_hogpkm_pending;
 static rdx_hogpkm_cache_t s_rdx_hogpkm_cache;
 
@@ -616,7 +617,7 @@ static void rdx_hogpkm_process_pending(void)
     rdx_hogpkm_request_t *request = &owned_request.frame;
     u8 access_status;
 
-    if (!s_rdx_hogpkm_pending.frame.valid) {
+    if (s_rdx_hogpkm_factory_reset || !s_rdx_hogpkm_pending.frame.valid) {
         return;
     }
     memcpy(&owned_request, &s_rdx_hogpkm_pending, sizeof(owned_request));
@@ -673,6 +674,7 @@ void rdx_hogp_keymap_config_init(void)
 {
     static rdx_hogpkm_store_entry_t entry;
 
+    s_rdx_hogpkm_factory_reset = 0;
     memset(&s_rdx_hogpkm_pending, 0, sizeof(s_rdx_hogpkm_pending));
     memset(&s_rdx_hogpkm_cache, 0, sizeof(s_rdx_hogpkm_cache));
     s_rdx_hogpkm_generation++;
@@ -713,7 +715,7 @@ void rdx_hogp_keymap_config_handle_custom(const char *value)
     u8 can_respond;
     int msg[2];
 
-    if (value == NULL) {
+    if (s_rdx_hogpkm_factory_reset || value == NULL) {
         HOGPKM_TRACE("[HOGPKM] rx null value\n");
         return;
     }
@@ -784,11 +786,54 @@ void rdx_hogp_keymap_config_on_disconnect(void)
                  s_rdx_hogpkm_generation);
 }
 
+int rdx_hogp_keymap_config_factory_reset(void)
+{
+    rdx_hogpkm_store_transaction_t transaction;
+    u8 committed_slot;
+    u32 crc = rdx_hogpkm_crc32(s_rdx_hogpkm_default_keymap,
+                              RDX_HOGPKM_KEYMAP_LEN);
+
+    /* Serialized with commits on app_core. Also fence incoming requests for
+     * the delayed reboot / factory packaging completion interval. */
+    s_rdx_hogpkm_factory_reset = 1;
+    rdx_hogp_keymap_config_on_disconnect();
+    if (memcmp(s_rdx_hogpkm_current_keymap, s_rdx_hogpkm_default_keymap,
+               RDX_HOGPKM_KEYMAP_LEN) == 0) {
+        return 0;
+    }
+    if (s_rdx_hogpkm_current_revision == 0xFFFFFFFFU ||
+        rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,
+                                 s_rdx_hogpkm_current_revision + 1,
+                                 s_rdx_hogpkm_default_keymap, crc, &transaction)) {
+        goto failed;
+    }
+    if (rdx_hogpkm_apply_payload(s_rdx_hogpkm_default_keymap)) {
+        goto failed;
+    }
+    if (rdx_hogpkm_store_commit(&transaction, &committed_slot)) {
+        rdx_hogpkm_apply_payload(s_rdx_hogpkm_current_keymap);
+        goto failed;
+    }
+    memcpy(s_rdx_hogpkm_current_keymap, s_rdx_hogpkm_default_keymap,
+           RDX_HOGPKM_KEYMAP_LEN);
+    ++s_rdx_hogpkm_current_revision;
+    s_rdx_hogpkm_current_keymap_crc32 = crc;
+    s_rdx_hogpkm_active_slot = committed_slot;
+    y_printf("[HOGPKM] factory reset ok rev=%u\n", s_rdx_hogpkm_current_revision);
+    return 0;
+
+failed:
+    s_rdx_hogpkm_factory_reset = 0;
+    y_printf("[HOGPKM] factory reset failed\n");
+    return -1;
+}
+
 #else
 
 void rdx_hogp_keymap_config_init(void) {}
 void rdx_hogp_keymap_config_handle_custom(const char *value) { (void)value; }
 void rdx_hogp_keymap_config_on_disconnect(void) {}
+int rdx_hogp_keymap_config_factory_reset(void) { return 0; }
 __attribute__((weak)) int rdx_hogp_keymap_product_authorized(void) { return 0; }
 
 #endif

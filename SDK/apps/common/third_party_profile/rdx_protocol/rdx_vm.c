@@ -41,6 +41,7 @@
 #include "rdx_hogp_input.h"
 #include "rdx_util.h"
 #include "rdx_hogp_subscription_store.h"
+#include "rdx_hogp_keymap_config.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
 #pragma bss_seg(".rdx_vm.data.bss")
@@ -815,6 +816,12 @@ int rdx_vm_reset_defaults_no_poweroff(void)
     ReqFileInfo* r_file = rdx_protocol_get_uploadfileInfo();
     if(r_file->file_send_busy == true){
         y_printf("\r =====%s --> command reject, now is file transferring \r", __func__);
+        return -1;
+    }
+
+    /* Persist HID defaults before deleting bonds or scheduling a restart. */
+    if (rdx_hogp_keymap_config_factory_reset()) {
+        y_printf("[RDX_VM] factory reset aborted: HID keymap reset failed\n");
         return -1;
     }
 

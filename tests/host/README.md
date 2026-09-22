@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs five source-contract scripts and seven C behavioral harnesses
-as **12 independent processes**. A failed module does not suppress the others;
+The entry point runs five source-contract scripts and eight C behavioral harnesses
+as **13 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -24,6 +24,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 
 | C behavioral harness | Production behavior exercised with mocked boundaries |
 | --- | --- |
+| `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
 | `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries |
 | `test_factory_usb.py` | SDK configuration matrix, storage admission/shutdown, CDC queues, stale sessions, partial I/O and bounded DMA |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
@@ -33,6 +34,15 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay |
 
 ## Keeping the suite small
+
+Factory reset board regression: save a non-default HID map with the PC App,
+send the phone App's `*APP#default#`, then reconnect after reboot and verify
+KEY1–KEY5 are F13–F17. Power-cycle again and query the map to check persistence.
+Repeat when the map is already default and with a held HID key; verify no stuck
+key remains. The shared packaging reset must restore the same map without
+rebooting. Storage failure must return failure and must not schedule a reboot.
+Factory reset fences further App keymap commands until init/reboot; the dedicated
+PC `RESET_KEYMAP` continues to support online editing without this fence.
 
 Keep stable protocol/configuration boundaries and failure-path behavior. Prefer
 observable outcomes over variable names, comments, exact call counts or copied

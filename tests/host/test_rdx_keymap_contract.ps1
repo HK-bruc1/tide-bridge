@@ -13,6 +13,24 @@ $Store = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_store.c"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $Internal = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_hogp_keymap_internal.h"
+$Vm = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_vm.c"
+$FactoryReset = Get-SourceSlice $Vm `
+    'int rdx_vm_reset_defaults_no_poweroff(void)' `
+    'void rdx_vm_sys_reset_to_defaults(void)'
+Assert-Contract 'FACTORY_RESET_PERSISTS_HID_BEFORE_BONDS' `
+    ((Test-TokensInOrder $FactoryReset @('rdx_hogp_keymap_config_factory_reset()',
+       'return -1;', 'rdx_vm_ble_pairing_state_reset()')) -and
+     $Service -match 'if \(s_rdx_hogpkm_factory_reset \|\| !s_rdx_hogpkm_pending.frame.valid\)' -and
+     $Service -match 'if \(s_rdx_hogpkm_factory_reset \|\| value == NULL\)') `
+    'factory reset must stop on HID storage failure and fence queued/new keymap commands'
+$FactoryCallback = Get-SourceSlice $App `
+    'static void rdx_app_factory_reset_on_app_core(' `
+    'static void rdx_app_protocol_handle('
+Assert-Contract 'FACTORY_RESET_ACK_AFTER_RESULT' `
+    ((Test-TokensInOrder $FactoryCallback @('rdx_ble_session_rdx_token_resolve(token, 1)',
+       'rdx_vm_reset_defaults_no_poweroff()', 'sys_set_default_ack_indicate(ret ? 1 : 0)',
+       'if (!ret)', 'rdx_app_time_to_reset()'))) `
+    'App reset must validate its owner and acknowledge completion before successful reboot'
 
 $Commit = Get-SourceSlice $Service `
     'static int rdx_hogpkm_commit(' `
