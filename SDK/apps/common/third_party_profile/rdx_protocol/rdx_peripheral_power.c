@@ -18,6 +18,7 @@
 #include "rdx_charge.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_adv_policy.h"
 #include "rdx_playback.h"
 #include "rdx_protocol.h"
 #include "rdx_record.h"
@@ -352,6 +353,30 @@ static u32 rdx_peripheral_power_vdd_busy_snapshot(void)
     return busy;
 }
 
+u32 rdx_adv_policy_hold_snapshot(void)
+{
+    u32 mask = 0;
+    ReqFileInfo *file = rdx_protocol_get_uploadfileInfo();
+    if (rdx_record_adv_busy()) mask |= RDX_SHARED_VDD_BUSY_RECORD;
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    pb_public_info_t pb = {0};
+    rdx_playback_get_info(&pb);
+    if (pb.state != PB_STATE_UNREADY && pb.state != PB_STATE_STOPPED)
+        mask |= RDX_SHARED_VDD_BUSY_PLAYBACK;
+#endif
+    if ((file && file->file_send_busy) || rdx_is_file_transfer_active() ||
+        rdx_is_file_sync_busy() || rdx_uxfile_sync_is_in_progress() ||
+        rdx_uxfile_is_datFileInfo_loading() || rdx_uxfile_is_scan_active())
+        mask |= RDX_SHARED_VDD_BUSY_FILE_OP;
+    if (app_in_mode(APP_MODE_PC) || g_rdx_shared_vdd.usb_reserved ||
+        g_rdx_shared_vdd.owner == RDX_SHARED_VDD_OWNER_USB_HOST)
+        mask |= RDX_SHARED_VDD_BUSY_USB_MSC;
+    if (rdx_uxfile_is_formatting() || rdx_uxfile_sd_format_status_check())
+        mask |= RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY;
+    if (rdx_app_get_dut_status() || get_ota_status()) mask |= 0x100;
+    return mask;
+}
+
 static const char *rdx_peripheral_power_vdd_first_busy_name(u32 busy)
 {
     if (busy & RDX_SHARED_VDD_BUSY_BLE_LINK) {
@@ -412,7 +437,7 @@ static void rdx_peripheral_power_vdd_idle_recheck_cb(void *priv)
 
     (void)priv;
     g_rdx_shared_vdd.idle_recheck_timer = 0;
-    if (!g_rdx_shared_vdd.slow_adv ||
+    if ((!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid()) ||
         epoch != g_rdx_shared_vdd.slow_adv_epoch) {
         return;
     }
@@ -426,7 +451,7 @@ static void rdx_peripheral_power_vdd_idle_recheck_cb(void *priv)
 
 static void rdx_peripheral_power_vdd_idle_recheck_schedule(u32 epoch)
 {
-    if (!g_rdx_shared_vdd.slow_adv ||
+    if ((!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid()) ||
         g_rdx_shared_vdd.state != RDX_SHARED_VDD_STATE_ON_READY ||
         g_rdx_shared_vdd.idle_recheck_timer) {
         return;
@@ -518,7 +543,7 @@ static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch)
     if (g_rdx_shared_vdd.wake_requested ||
         g_rdx_shared_vdd.wake_epoch != stop_epoch ||
         rdx_ble_server_get_connected_count() ||
-        g_rdx_shared_vdd.busy_mask || !g_rdx_shared_vdd.slow_adv) {
+        g_rdx_shared_vdd.busy_mask || (!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid())) {
         rdx_peripheral_power_vdd_stop_abort("POST_TAKEOVER_RECHECK");
         goto __exit;
     }
@@ -543,7 +568,7 @@ static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch)
     canceled = g_rdx_shared_vdd.wake_requested ||
                g_rdx_shared_vdd.wake_epoch != stop_epoch ||
                g_rdx_shared_vdd.busy_mask ||
-               !g_rdx_shared_vdd.slow_adv;
+               (!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid());
     if (!canceled) {
 #if TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_POWER_CUT
         rdx_peripheral_power_vdd_storage_io_safe();
@@ -578,7 +603,7 @@ static void rdx_peripheral_power_vdd_idle_evaluate(u32 idle_epoch)
 
     g_rdx_shared_vdd.busy_mask =
         rdx_peripheral_power_vdd_busy_snapshot();
-    if (!g_rdx_shared_vdd.slow_adv) {
+    if ((!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid())) {
         rdx_peripheral_power_vdd_reject_log(
             RDX_SHARED_VDD_REJECT_NOT_SLOW);
         return;
@@ -639,6 +664,7 @@ static void rdx_peripheral_power_vdd_event_on_app_core(int event, int epoch)
         break;
 
     case RDX_SHARED_VDD_EVENT_SLOW_ADV:
+        if (!rdx_adv_policy_idle_valid()) break;
         if ((u32)epoch != g_rdx_shared_vdd.wake_epoch) {
             r_printf("[PWR] stale_idle_ignored event_epoch=%u wake_epoch=%u\n",
                      (u32)epoch, g_rdx_shared_vdd.wake_epoch);
@@ -686,7 +712,7 @@ static void rdx_peripheral_power_vdd_event_on_app_core(int event, int epoch)
         }
         g_rdx_shared_vdd.busy_mask =
             rdx_peripheral_power_vdd_busy_snapshot();
-        if (g_rdx_shared_vdd.slow_adv) {
+        if (g_rdx_shared_vdd.slow_adv && rdx_adv_policy_idle_valid()) {
             /* A business completion event is a fresh idle observation while
              * advertising is still slow. */
             g_rdx_shared_vdd.slow_adv_epoch =
@@ -746,6 +772,7 @@ void rdx_peripheral_power_vdd_ble_links_changed_notify(void)
 
 void rdx_peripheral_power_vdd_business_changed_notify(void)
 {
+    rdx_adv_policy_changed();
     rdx_peripheral_power_vdd_event_post(
         RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED,
         g_rdx_shared_vdd.wake_epoch);
@@ -756,6 +783,7 @@ int rdx_peripheral_power_vdd_usb_prepare(void)
     int err;
 
     g_rdx_shared_vdd.usb_reserved = 1;
+    rdx_adv_policy_activity();
     err = rdx_peripheral_power_vdd_ensure_on(
         RDX_SHARED_VDD_WAKE_USB_MSC);
     rdx_peripheral_power_vdd_idle_recheck_cancel();
@@ -862,6 +890,7 @@ void rdx_peripheral_power_vdd_ble_links_changed_notify(void)
 
 void rdx_peripheral_power_vdd_business_changed_notify(void)
 {
+    rdx_adv_policy_changed();
 }
 
 int rdx_peripheral_power_vdd_usb_prepare(void)

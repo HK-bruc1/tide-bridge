@@ -58,6 +58,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_adv_policy.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "jiffies.h"
@@ -2161,7 +2162,7 @@ void rdx_record_auto_run(RecordStatus* rp)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_record_process(void)
+static void rdx_record_process_impl(void)
 {
     if (!rdx_record_session_allowed() &&
         (record_status.run == RECORD_STATE_START || record_status.run == RECORD_STATE_RESUME)) {
@@ -2332,7 +2333,7 @@ void rdx_record_process(void)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_record_process(void)
+static void rdx_record_process_impl(void)
 {
     if (!rdx_record_session_allowed() &&
         (record_status.run == RECORD_STATE_START || record_status.run == RECORD_STATE_RESUME)) {
@@ -3674,6 +3675,21 @@ int rdx_record_err_reboot_flag_write_into_vm(u8 err_reboot_flag)
         log_info("rdx_record_err_reboot_flag_write_into_vm fail \r");
     }
     return ret;
+}
+
+u8 rdx_record_adv_busy(void)
+{
+    return record_status.run != RECORD_STATE_STOP ||
+           record_status.process_state == REC_PROCESS_STATE_BUSY ||
+           record_start_tone_pending || g_record_cmd_delay_timer ||
+           g_app_stop_pending || dut_record_stopping || record_binding_revoke_pending;
+}
+
+void rdx_record_process(void)
+{
+    if (rdx_adv_policy_business_enter()) return;
+    rdx_record_process_impl();
+    rdx_adv_policy_business_exit();
 }
 
 #endif

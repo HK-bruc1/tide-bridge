@@ -91,10 +91,10 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs five source contracts and eight C behavioral harnesses
+The host test runner runs five source contracts and nine C behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 13 modules. The source contracts cover:
+focused run; the default runs all 14 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.

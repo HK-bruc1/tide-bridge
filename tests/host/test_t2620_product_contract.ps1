@@ -36,6 +36,7 @@ $RdxServerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_p
 $RdxAppConfig = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app_config.h'
 $PeripheralPower = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.c'
 $PeripheralPowerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.h'
+$AdvPolicy = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_adv_policy.c'
 $AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
 $RdxLibraryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp.ps1'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
@@ -126,7 +127,8 @@ $sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transi
 Assert-Contract 'T2620_SHARED_VDD_TRANSITIONS_SERIALIZED' $sharedVddTransitionSerializationOk `
     'stop/restore transitions must be mutex-serialized and revalidate the exact slow-advertising epoch'
 
-$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv;\s*if\s*\(!canceled\)' -and
+$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv\s*\|\|\s*!rdx_adv_policy_idle_valid\(\)\);\s*if\s*\(!canceled\)' -and
+                                  $AdvPolicy -match '(?s)u8 rdx_adv_policy_idle_valid\(void\)\s*\{\s*return adv.enabled && adv.qualified && !adv.pending &&\s*adv.consumed == adv.version;\s*\}' -and
                                   $PeripheralPower -notmatch '(?s)local_irq_disable\(\);(?:(?!local_irq_enable\(\);).)*rdx_ble_server_get_connected_count\(\)'
 Assert-Contract 'T2620_SHARED_VDD_FINAL_RECHECK_IS_IRQ_SAFE' $sharedVddIrqSafeFinalRecheckOk `
     'the IRQ-disabled final commit must use atomic wake facts and never call the mutex-backed JL BLE wrapper API'
@@ -137,7 +139,9 @@ $sharedVddDualAclOk = $RdxServerH -match 'u8\s+rdx_ble_server_get_connected_coun
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_connected.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_disconnected.*?rdx_ble_session_link_release.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_adv_interval_change_timer_cb.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
-                       $RdxServer -match '(?s)rdx_ble_server_fast_adv_restart.*?rdx_peripheral_power_vdd_fast_adv_notify\(\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_BLE_ADV_START\)'
+                       $RdxServer -match '(?s)void rdx_ble_server_fast_adv_restart\(void\).*?rdx_adv_policy_activity\(\)' -and
+                       $RdxServer -match '(?s)int rdx_adv_policy_radio_set\(u8 slow\).*?if \(!slow\).*?rdx_peripheral_power_vdd_fast_adv_notify\(\)' -and
+                       $RdxServer -match '(?s)void rdx_adv_policy_slow_committed\(void\).*?!rdx_adv_policy_idle_valid\(\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)'
 Assert-Contract 'T2620_SHARED_VDD_USES_DUAL_ACL_AND_ADV_EVENTS' $sharedVddDualAclOk `
     'shared VDD decisions must use both physical wrappers and receive slow/fast advertising lifecycle events'
 
@@ -264,7 +268,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '2D844D806F0F26B03BE03C8ACE7495A456CB8A4D19E381E4423C50FDA7518C64' -and
+                           $PatchedRdxArchiveHash -eq '1DC74ACEFE58C78D3C9035F6A69A32A934D6B523F21EF0F20EFF0146AD726D58' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -286,8 +290,9 @@ $recordToneWait = Get-SourceSlice $RdxRecord `
     'static bool rdx_record_start_tone_wait(' 'static int rdx_record_stop_tone_callback('
 $recordUi = Get-SourceSlice $RdxRecord `
     'void rdx_record_ui_notify(void)' 'void rdx_record_auto_run(' -Last
-$recordProcessBranches = [regex]::Matches($RdxRecord, '(?s)void rdx_record_process\(void\)\s*\{.*?(?=\r?\n\})')
-$recordToneOrderingOk = $recordProcessBranches.Count -gt 0
+$recordProcessBranches = [regex]::Matches($RdxRecord, '(?s)static void rdx_record_process_impl\(void\)\s*\{.*?(?=\r?\n\})')
+$recordToneOrderingOk = $recordProcessBranches.Count -eq 2 -and
+    $RdxRecord -match '(?s)void rdx_record_process\(void\)\s*\{\s*if \(rdx_adv_policy_business_enter\(\)\) return;\s*rdx_record_process_impl\(\);\s*rdx_adv_policy_business_exit\(\);'
 foreach ($branch in $recordProcessBranches) {
     $recordToneOrderingOk = $recordToneOrderingOk -and (Test-TokensInOrder $branch.Value @(
         'rdx_record_start_tone_wait()', 'rdx_record_set_process_state_busy()', 'case RECORD_STATE_START:'
@@ -510,7 +515,7 @@ Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
     (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'rdx_storage_lifecycle_pc_returned()')) -and
     $DipSwitch -match '(?s)rdx_storage_lifecycle_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
     $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_storage_lifecycle_business_blocked\(\).*?enable = 0;' -and
-    $RdxRecord -match '(?s)void rdx_record_process\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
+    $RdxRecord -match '(?s)static void rdx_record_process_impl\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
     $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_storage_lifecycle_business_blocked' -and
     $StoragePatch -match 'rdx_storage_boot_refresh_post' -and
     $StorageIr -match '(?s)rdx_storage_boot_reconcile.*?rdx_uxfile_sync_files_with_dat.*?store volatile i32 %state, i32\* @rdx_storage_refresh'
@@ -548,7 +553,7 @@ Assert-Contract 'RECORD_BINDING_ENTRY_AND_ASYNC_GATES' (
 
 Assert-Contract 'RECORD_BINDING_LOW_LEVEL_COVERAGE' (
     $BindingRecorder -match '#include "app_config.h"' -and
-    ([regex]::Matches($RdxRecord, 'void rdx_record_process\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
+    ([regex]::Matches($RdxRecord, 'static void rdx_record_process_impl\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
     ([regex]::Matches($RdxRecord, 'int rdx_record_run_init\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
     ([regex]::Matches($BindingDut, 'if \(!dut_business_ready\(\) \|\| !rdx_record_dut_authorize\(\)').Count -eq 2) -and
     ([regex]::Matches($BindingRecorder, 'int translation_ear_recoder_open(?:_all)?_impl\([^\n]+\)\s*\{\s*#if[^\n]+\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and

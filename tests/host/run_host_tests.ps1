@@ -16,6 +16,7 @@ $Contracts = @(
     'test_rdx_keymap_contract.ps1'
 )
 $Behavior = @(
+    'test_adv_policy.py',
     'test_factory_usb.py',
     'test_finalpack.py',
     'test_dut_keys_speaker.py',

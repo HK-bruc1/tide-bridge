@@ -87,6 +87,7 @@
 #include "led_pt0807.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_adv_policy.h"
 #include "rdx_dut.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
@@ -2353,6 +2354,7 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
  **************************************************************************/
 void rdx_app_single_click_handle(void)
 {
+    rdx_ble_server_fast_adv_restart();
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2664,6 +2666,7 @@ int rdx_app_msg_handler(int *msg)
     case APP_MSG_REC_FR:
     case APP_MSG_REC_FF:
     case APP_MSG_REC_PLAY_TOGGLE:
+        rdx_adv_policy_activity();
         if (rdx_peripheral_power_vdd_ensure_on(
                 RDX_SHARED_VDD_WAKE_BUSINESS)) {
             r_printf("[PWR] business_deferred msg=0x%x state=%u\n",

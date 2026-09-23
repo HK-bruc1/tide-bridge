@@ -9,6 +9,7 @@
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_adv_policy.h"
 #include "rdx_uxfile.h"
 #include "dev_flow_player.h"
 #include "fs/fs.h"
@@ -770,13 +771,13 @@ static int pb_switch_track(pb_direction_t direction)
     return pb_navigate_from(pb.selected_sn, direction, 0, transition_state);
 }
 
-int rdx_playback_prev(void)
+static int rdx_playback_prev_impl(void)
 {
     // Recording SN increases with creation order: previous selects an older recording.
     return pb_switch_track(PB_DIRECTION_OLDER);
 }
 
-int rdx_playback_next(void)
+static int rdx_playback_next_impl(void)
 {
     return pb_switch_track(PB_DIRECTION_NEWER);
 }
@@ -866,7 +867,7 @@ static int pb_play(void)
     return pb.last_error;
 }
 
-int rdx_playback_play(void)
+static int rdx_playback_play_impl(void)
 {
     pb_state_t previous_state = pb.state;
     int ret = pb_play();
@@ -879,7 +880,7 @@ int rdx_playback_play(void)
     return ret;
 }
 
-int rdx_playback_pause(void)
+static int rdx_playback_pause_impl(void)
 {
     if (pb.state == PB_STATE_PAUSED) {
         pb.last_error = PB_RESULT_OK;
@@ -916,7 +917,7 @@ int rdx_playback_pause(void)
     return PB_RESULT_OK;
 }
 
-int rdx_playback_toggle(void)
+static int rdx_playback_toggle_impl(void)
 {
     switch (pb.state) {
     case PB_STATE_PLAYING:
@@ -1062,6 +1063,51 @@ void rdx_playback_fr(void)
     if (ret != PB_RESULT_OK) {
         PB_LOG("fr failed: ret=%d", ret);
     }
+}
+
+int rdx_playback_prev(void)
+{
+    int ret;
+    if (rdx_adv_policy_business_enter()) return PB_RESULT_NOT_READY;
+    ret = rdx_playback_prev_impl();
+    rdx_adv_policy_business_exit();
+    return ret;
+}
+
+int rdx_playback_next(void)
+{
+    int ret;
+    if (rdx_adv_policy_business_enter()) return PB_RESULT_NOT_READY;
+    ret = rdx_playback_next_impl();
+    rdx_adv_policy_business_exit();
+    return ret;
+}
+
+int rdx_playback_play(void)
+{
+    int ret;
+    if (rdx_adv_policy_business_enter()) return PB_RESULT_NOT_READY;
+    ret = rdx_playback_play_impl();
+    rdx_adv_policy_business_exit();
+    return ret;
+}
+
+int rdx_playback_pause(void)
+{
+    int ret;
+    if (rdx_adv_policy_business_enter()) return PB_RESULT_NOT_READY;
+    ret = rdx_playback_pause_impl();
+    rdx_adv_policy_business_exit();
+    return ret;
+}
+
+int rdx_playback_toggle(void)
+{
+    int ret;
+    if (rdx_adv_policy_business_enter()) return PB_RESULT_NOT_READY;
+    ret = rdx_playback_toggle_impl();
+    rdx_adv_policy_business_exit();
+    return ret;
 }
 
 #endif

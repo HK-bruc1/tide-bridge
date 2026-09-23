@@ -244,3 +244,6 @@ int rdx_record_dut_stop_poll(u32 ticket);
 #endif
 
 #endif
+
+/* 涵盖已接纳的启动请求、提示音和清理过程，不仅检查运行状态。 */
+u8 rdx_record_adv_busy(void);

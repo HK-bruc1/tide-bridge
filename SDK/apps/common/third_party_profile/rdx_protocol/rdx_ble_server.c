@@ -70,6 +70,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_adv_policy.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -3440,8 +3441,49 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
     return offset;
 }
 
+u8 rdx_adv_policy_allowed(void)
+{
+    return !rdx_ble_server_get_connected_count() &&
+           !rdx_storage_lifecycle_business_blocked() &&
+           !rdx_app_get_poweroff_flag() && g_rdx_ble_advertising_hdl;
+}
+
+int rdx_adv_policy_radio_set(u8 slow)
+{
+    void *hdl = g_rdx_ble_advertising_hdl;
+    int err, fallback;
+    if (!hdl) return -1;
+    if (!slow) (void)rdx_peripheral_power_vdd_fast_adv_notify();
+    /* 恢复期间可能让出执行权，从而处理连接或模式切换事件。 */
+    if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return -1;
+    err = app_ble_adv_enable(hdl, 0);
+    if (!err) err = app_ble_set_adv_param(hdl,
+        slow ? RDX_BLE_ADV_INTERVAL_LOW : g_rdx_ble_server_info.adv_interval_min,
+        ADV_IND, ADV_CHANNEL_ALL);
+    if (!err) err = app_ble_adv_enable(hdl, 1);
+    if (!err && !app_ble_adv_state_get(hdl)) err = -1;
+    if (err) {
+        fallback = app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min,
+                                        ADV_IND, ADV_CHANNEL_ALL);
+        /* 即使参数恢复失败，也尝试恢复广播，使设备可被发现。 */
+        int enable_err = app_ble_adv_enable(hdl, 1);
+        r_printf("[ADV_POLICY] radio update failed err=%d fallback_param=%d enable=%d active=%u\n",
+                 err, fallback, enable_err, app_ble_adv_state_get(hdl));
+    }
+    return err;
+}
+
+void rdx_adv_policy_slow_committed(void)
+{
+    if (!rdx_adv_policy_idle_valid()) return;
+    if (rdx_led_ctrl_get_scene() == RDX_LED_SCENE_BLE_ADV_START)
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+    rdx_peripheral_power_vdd_slow_adv_notify();
+}
+
 void rdx_ble_server_adv_interval_change_timer_stop(void)
 {
+    rdx_adv_policy_disable();
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -3467,6 +3509,7 @@ void rdx_ble_server_adv_interval_change_timer_stop(void)
  * **************************************************************************/
 void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
 {
+    if (!rdx_ble_server_get_connected_count()) return;
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
@@ -3516,6 +3559,10 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
  * **************************************************************************/
 void rdx_ble_server_adv_interval_change_timer_start(void)
 {
+    if (!rdx_ble_server_get_connected_count()) {
+        rdx_adv_policy_enable();
+        return;
+    }
     /*----------------------------------------------------------------*/
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
@@ -3541,59 +3588,9 @@ void rdx_ble_server_adv_interval_change_timer_start(void)
  * **************************************************************************/
 void rdx_ble_server_fast_adv_restart(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    uint8_t adv_type = ADV_IND;
-    uint8_t adv_channel = ADV_CHANNEL_ALL;
-    void *adv_hdl;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    y_printf("=== %s --> 按键唤醒，重新进入快速广播 \r", __func__);
-    
-    // 如果已连接，不需要重启广播
-    if (
-        rdx_ble_server_phase0a_connected_count() >= RDX_BLE_PHASE0A_WRAPPER_MAX
-    ) {
-        y_printf("=== %s --> BLE 已连接，无需重启广播 \r", __func__);
-        return;
-    }
-    
-    if (rdx_peripheral_power_vdd_fast_adv_notify()) {
-        r_printf("[PWR] fast_adv_restart deferred until shared VDD restore\n");
-        return;
-    }
-
-    // 停止当前定时器
-    rdx_ble_server_adv_interval_change_timer_stop();
-
-    adv_hdl = g_rdx_ble_advertising_hdl;
-    if (!adv_hdl) {
-        rdx_ble_server_adv_enable(1);
-        return;
-    }
-    
-    // 检查广播是否开启
-    if (0 == app_ble_adv_state_get(adv_hdl)) {
-        // 广播未开启，直接开启快速广播
-        rdx_ble_server_adv_enable(1);
-        return;
-    }
-    
-    // 切换回快速广播间隔
-    app_ble_adv_enable(adv_hdl, 0);
-    app_ble_set_adv_param(adv_hdl, g_rdx_ble_server_info.adv_interval_min, adv_type, adv_channel);
-    app_ble_adv_enable(adv_hdl, 1);
-    
-    // 重新启动 2 分钟定时器
-    rdx_ble_server_adv_interval_change_timer_start();
-    
-    // 点亮 BLE 广播 LED 灯效，但WiFi传输中不改变灯效
-    RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    if(wifi_info->onoff != TRANSFER_BY_WIFI_ON){
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
-    }
+    if (rdx_ble_server_get_connected_count() ||
+        rdx_storage_lifecycle_business_blocked() || rdx_app_get_poweroff_flag()) return;
+    rdx_adv_policy_activity();
 }
 
 /**************************************************************************
@@ -3664,13 +3661,13 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
             app_ble_rsp_data_set(hdl, rspData, len);
         }
         g_rdx_ble_server_info.adv_refresh_pending = FALSE;
-        //start adv interval change timer.
-        rdx_ble_server_adv_interval_change_timer_start();
     }
     int ret = app_ble_adv_enable(hdl, enable);
     if (ret == 0) {
         if (enable) {
             g_rdx_ble_advertising_hdl = hdl;
+            /* 在 app_core 策略运行前发布当前广播句柄。 */
+            rdx_ble_server_adv_interval_change_timer_start();
         } else if (g_rdx_ble_advertising_hdl == hdl) {
             g_rdx_ble_advertising_hdl = NULL;
         }

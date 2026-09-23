@@ -499,6 +499,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_storage_lifecycle.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_playback.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_peripheral_power.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_adv_policy.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_le_port.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_setting.c \
