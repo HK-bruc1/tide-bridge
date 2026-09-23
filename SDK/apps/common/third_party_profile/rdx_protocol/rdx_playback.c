@@ -5,6 +5,7 @@
 #include "system/includes.h"
 #include "rdx_app.h"
 #include "rdx_record.h"
+#include "rdx_led_ctrl.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "rdx_peripheral_power.h"
@@ -780,7 +781,7 @@ int rdx_playback_next(void)
     return pb_switch_track(PB_DIRECTION_NEWER);
 }
 
-int rdx_playback_play(void)
+static int pb_play(void)
 {
     if (pb.state == PB_STATE_PLAYING || pb.state == PB_STATE_DRAINING) {
         pb.last_error = PB_RESULT_OK;
@@ -865,6 +866,19 @@ int rdx_playback_play(void)
     return pb.last_error;
 }
 
+int rdx_playback_play(void)
+{
+    pb_state_t previous_state = pb.state;
+    int ret = pb_play();
+
+    /* 仅开始或恢复播放成功时提示；切歌、重复播放和失败不触发。 */
+    if (ret == PB_RESULT_OK && pb.state == PB_STATE_PLAYING &&
+        previous_state != PB_STATE_PLAYING && previous_state != PB_STATE_DRAINING) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_PLAYBACK_PLAY);
+    }
+    return ret;
+}
+
 int rdx_playback_pause(void)
 {
     if (pb.state == PB_STATE_PAUSED) {
@@ -896,6 +910,8 @@ int rdx_playback_pause(void)
     pb.state = PB_STATE_PAUSED;
     pb.intent = PB_INTENT_NONE;
     pb.last_error = PB_RESULT_OK;
+    /* 暂停状态提交后提示，失败及重复暂停不触发。 */
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_PLAYBACK_PAUSE);
     PB_LOG("pause: sn=%u, frame=%u", pb.resume_sn, pb.resume_frame);
     return PB_RESULT_OK;
 }

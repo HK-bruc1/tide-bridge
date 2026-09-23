@@ -87,6 +87,9 @@ typedef enum {
     RDX_LED_SCENE_USB_SWITCH_FAILED,
     RDX_LED_SCENE_DUT_LED_TEST,   /* DUT LED test */
     RDX_LED_SCENE_FINALPACK_DONE, /* Solid red until manual DIP shutdown */
+    RDX_LED_SCENE_BIND_SUCCESS,  /* APP 绑定成功并持久化：复用蓝灯提示 */
+    RDX_LED_SCENE_PLAYBACK_PLAY,  /* 本地播放成功：黄色常亮两秒后恢复智能场景 */
+    RDX_LED_SCENE_PLAYBACK_PAUSE, /* 本地暂停成功：黄色常亮两秒后恢复智能场景 */
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 

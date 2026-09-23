@@ -853,6 +853,20 @@ static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
     return 1;
 }
 
+/* 根据录音会话归属识别按住录音，松键停止重试期间仍保留常亮灯效。 */
+u8 rdx_app_record_is_hold_active(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    if (!rp || (rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME)) {
+        return 0;
+    }
+    if (rdx_record_stream_only_session_is_active()) {
+        return 1;
+    }
+    return hold_record_local && hold_record_session_active &&
+           hold_record_local_generation == rdx_record_generation_get();
+}
+
 static void rdx_app_hold_record_pump(void)
 {
     RecordStatus *rp = rdx_record_get_status();
@@ -1058,7 +1072,7 @@ u8 rdx_app_hogp_input_route(void)
 
 void rdx_app_online_key_down(u8 key_value)
 {
-    if (key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM3) {
+    if (key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM4) {
         /* The scan callback must not operate the shared LED rail directly. */
         int msg[3] = {(int)rdx_app_online_key_battery_cb, 1, 0};
         if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
@@ -3907,6 +3921,7 @@ static void rdx_app_bound_tone_play(void)
     if (app_var.goto_poweroff_flag || !rdx_vm_get_bound_status()) {
         return;
     }
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BIND_SUCCESS);
     const char *tone_file = get_tone_files()->conn;
     if (tone_file && play_tone_file_callback(tone_file, NULL,
                                             rdx_app_bound_tone_callback)) {

@@ -38,6 +38,8 @@ extern "C" {
 #endif
 
 void rdx_app_record_transport_lost(void);
+/* 当前录音是否由按住手势触发，供灯效仲裁使用。 */
+u8 rdx_app_record_is_hold_active(void);
 
 /******************************************************************************
 * Macro Define Section

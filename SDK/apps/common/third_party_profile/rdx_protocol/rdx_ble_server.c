@@ -1815,7 +1815,7 @@ static void rdx_ble_server_rdx_connected_handle(void)
     //start force disconnect timer.
     rdx_ble_server_start_force_disconnect_timer();
 
-    //LED控制：BLE连接后常亮1s后熄灭
+    /* 蓝灯常亮五秒后，根据实时业务状态恢复场景灯效。 */
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_EMMC) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)

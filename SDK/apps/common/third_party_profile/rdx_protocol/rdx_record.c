@@ -2212,7 +2212,7 @@ void rdx_record_process(void)
                 tws_api_auto_role_switch_disable();
             #endif
 
-                //LED控制：录音时呼吸灯
+                // LED控制：根据录音触发方式选择白色常亮或呼吸灯
                 rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
 
                 // if(record_status.scene == RECORD_SCENE_CHAT){
@@ -2241,7 +2241,7 @@ void rdx_record_process(void)
                 tws_api_auto_role_switch_disable();
             #endif
 
-                //LED控制：录音时呼吸灯
+                // LED控制：根据录音触发方式选择白色常亮或呼吸灯
                 rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
 
                 // if(record_status.scene == RECORD_SCENE_CHAT){

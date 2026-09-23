@@ -143,6 +143,7 @@ typedef enum {
     RDX_LED_EFFECT_USB_SWITCH_FAILED,
     RDX_LED_EFFECT_DUT_LED_TEST,
     RDX_LED_EFFECT_FINALPACK_DONE,
+    RDX_LED_EFFECT_RECORD_SOLID,    /* 按住录音：白色常亮 */
     RDX_LED_EFFECT_MAX,
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
@@ -157,10 +158,14 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     [RDX_LED_SCENE_OFF]              = RDX_LED_EFFECT_OFF,
     [RDX_LED_SCENE_BLE_ADV_START]    = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_BLE_CONNECTED]    = RDX_LED_EFFECT_BLE_CONNECTED,
+    [RDX_LED_SCENE_BIND_SUCCESS]     = RDX_LED_EFFECT_BLE_CONNECTED,
     [RDX_LED_SCENE_BLE_DISCONNECTED] = RDX_LED_EFFECT_BLE_ADV_BLINK,
     [RDX_LED_SCENE_BLE_FAST_ADV]     = RDX_LED_EFFECT_BLE_ADV_BLINK,
-    [RDX_LED_SCENE_RECORD_START]     = RDX_LED_EFFECT_RECORD_BREATH,
+    [RDX_LED_SCENE_RECORD_START]     = RDX_LED_EFFECT_SMART,
     [RDX_LED_SCENE_RECORD_MARK]      = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
+    /* 播放、暂停与录音标记共用黄色两秒提示参数，业务场景保持独立。 */
+    [RDX_LED_SCENE_PLAYBACK_PLAY]    = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
+    [RDX_LED_SCENE_PLAYBACK_PAUSE]   = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     [RDX_LED_SCENE_RECORD_STOP]      = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
     [RDX_LED_SCENE_OTA_START]        = RDX_LED_EFFECT_OTA_YELLOW_SOLID,
     [RDX_LED_SCENE_OTA_STOP]         = RDX_LED_EFFECT_BLE_ADV_BLINK,
@@ -209,13 +214,19 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .mode        = RDX_LED_MODE_SOLID_TIMEOUT,
         .r = 0, .g = 0, .b = 255,                /* 蓝色 */
         .brightness  = 200,
-        .on_ms       = 5000,                     /* 长亮5秒后熄灭 */
+        .timeout_ms  = 5000,                     /* 超时后恢复实时业务场景 */
+        .on_ms       = 5000,                     /* 连接与绑定成功共用蓝灯提示 */
     },
     [RDX_LED_EFFECT_RECORD_BREATH] = {
         .mode        = RDX_LED_MODE_BREATH,
         .r = 181, .g = 82, .b = 255,            /* 白色：按 800:1500:600 最大光强反比校准 */
         .brightness  = 255,
         .cycle_ms    = 4000,
+    },
+    [RDX_LED_EFFECT_RECORD_SOLID] = {
+        .mode        = RDX_LED_MODE_SOLID,
+        .r = 181, .g = 82, .b = 255,             /* 与录音呼吸灯共用校准后的白色 */
+        .brightness  = 255,
     },
     [RDX_LED_EFFECT_RECORD_MARK_YELLOW] = {
         .mode        = RDX_LED_MODE_SOLID_TIMEOUT,

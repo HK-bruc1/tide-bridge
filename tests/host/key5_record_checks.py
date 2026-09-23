@@ -128,17 +128,34 @@ int test_local_hold_and_double(void) {
     reset(); playback=1;
     key(KEY_ACTION_LONG);
     CHECK(starts==1 && !playback && playback_stops==1 && hold_record_session_active);
+    CHECK(rdx_app_record_is_hold_active());
     key(KEY_ACTION_CLICK); CHECK(!playback && marks==1 && !rdx_playback_can_start());
     key(KEY_ACTION_HOLD); CHECK(starts==1 && !stops);
     key(KEY_ACTION_UP); CHECK(stops==1 && status.run==RECORD_STATE_STOP);
+    CHECK(!rdx_app_record_is_hold_active());
     key(KEY_ACTION_UP); CHECK(stops==1);
     key(KEY_ACTION_CLICK); CHECK(playback);
     reset(); key(KEY_ACTION_DOUBLE_CLICK); CHECK(starts==1);
+    CHECK(!rdx_app_record_is_hold_active());
     key(KEY_ACTION_LONG); key(KEY_ACTION_HOLD); key(KEY_ACTION_UP);
     CHECK(status.run==RECORD_STATE_START && !stops && starts==1);
     key(KEY_ACTION_DOUBLE_CLICK); CHECK(status.run==RECORD_STATE_STOP);
     CHECK(key_table_io_num4_normal[KEY_ACTION_CLICK]==APP_MSG_REC_PLAY_TOGGLE);
     CHECK(APP_MSG_RECORD_LOCAL_HOLD_STOP <= 255);
+    return 0;
+}
+int test_hold_led_session_identity(void) {
+    reset(); key(KEY_ACTION_LONG);
+    connected=1; ready=1;
+    CHECK(rdx_app_record_is_hold_active());
+    status.run=RECORD_STATE_PAUSE; CHECK(!rdx_app_record_is_hold_active());
+    status.run=RECORD_STATE_RESUME; CHECK(rdx_app_record_is_hold_active());
+    ++generation; CHECK(!rdx_app_record_is_hold_active());
+    reset(); status.run=RECORD_STATE_START; stream_active=1;
+    CHECK(rdx_app_record_is_hold_active());
+    status.run=RECORD_STATE_STOP; CHECK(!rdx_app_record_is_hold_active());
+    status.run=RECORD_STATE_START; stream_active=0;
+    CHECK(!rdx_app_record_is_hold_active());
     return 0;
 }
 int test_local_release_ownership(void) {
@@ -153,6 +170,7 @@ int test_local_release_ownership(void) {
     status.process_state=0; rdx_app_hold_record_pump(); CHECK(!starts && !stops);
     reset(); key(KEY_ACTION_LONG); stop_fail=1; key(KEY_ACTION_UP);
     CHECK(hold_record_session_active && hold_record_retry_timer && !stops);
+    CHECK(rdx_app_record_is_hold_active());
     stop_fail=0; rdx_app_hold_record_pump(); CHECK(stops==1 && !hold_record_session_active);
     return 0;
 }
@@ -233,6 +251,7 @@ def main():
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
+        'rdx_app_record_is_hold_active',
         'rdx_app_record_transport_lost', 'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_key5_remap', 'rdx_app_local_player_key_remap',
         'rdx_app_local_player_message_blocked',

@@ -91,6 +91,7 @@ static void _rdx_led_restore_system_state(void);
 static bool _rdx_led_is_transfer_active(void);
 static bool _rdx_led_can_show_transfer_effect(void);
 static bool _rdx_led_refresh_transfer_scene(void);
+static bool _rdx_led_success_should_yield(void);
 
 static bool _rdx_led_low_battery_reminder_needed(void)
 {
@@ -115,15 +116,26 @@ static bool _rdx_led_can_show_battery(void)
 
 void rdx_led_ctrl_show_battery(void)
 {
-    if (!_rdx_led_can_show_battery()) {
-        return;
-    }
-    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
-        /* Extend the visible red reminder without changing its repeat timer. */
-        g_effect_elapsed_ms = 0;
-        return;
-    }
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_BATTERY_QUERY);
+}
+
+/* 手动电量查询仅可覆盖空闲或基础灯态，不排队、不重复启动，
+ * 独立的周期性低电提醒保持原有策略。 */
+static bool _rdx_led_can_start_battery_query(void)
+{
+    if (!_rdx_led_can_show_battery() || _rdx_led_success_should_yield() ||
+        rdx_storage_lifecycle_transition_led()) {
+        return false;
+    }
+    switch (g_current_scene) {
+    case RDX_LED_SCENE_OFF:
+    case RDX_LED_SCENE_BLE_ADV_START:
+    case RDX_LED_SCENE_BLE_DISCONNECTED:
+    case RDX_LED_SCENE_BLE_FAST_ADV:
+        return true;
+    default:
+        return g_active_effect && g_active_effect->mode == RDX_LED_MODE_OFF;
+    }
 }
 
 static void _rdx_led_low_battery_timer_cb(void *priv)
@@ -209,8 +221,7 @@ static bool _rdx_led_is_transfer_active(void)
 
 static bool _rdx_led_can_show_transfer_effect(void)
 {
-    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY ||
-        g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) {
+    if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
         return false;
     }
     if (rdx_app_get_dut_status() || get_ota_status()) {
@@ -352,11 +363,30 @@ static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
            RDX_LED_SCENE_CHARGE_FULL : RDX_LED_SCENE_CHARGE_PLUG_IN;
 }
 
+/* 连接、绑定及播放/暂停成功共用临时提示的仲裁与恢复规则。 */
+static bool _rdx_led_is_success_scene(rdx_led_scene_e scene)
+{
+    return scene == RDX_LED_SCENE_BLE_CONNECTED ||
+           scene == RDX_LED_SCENE_BIND_SUCCESS ||
+           scene == RDX_LED_SCENE_PLAYBACK_PLAY ||
+           scene == RDX_LED_SCENE_PLAYBACK_PAUSE;
+}
+
+static bool _rdx_led_success_should_yield(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+    u8 charge = rdx_app_get_charge_state();
+    return (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) ||
+           rdx_app_get_dut_status() || get_ota_status() ||
+           _rdx_led_is_transfer_active() ||
+           charge == RDX_CHARGE_IN || charge == RDX_CHARGE_FULL;
+}
+
 static void _rdx_led_restore_system_state(void)
 {
     RecordStatus* rp = rdx_record_get_status();
 
-    if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+    if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
         return;
     }
@@ -562,6 +592,11 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
+    /* 在场景仲裁或唤醒灯效供电前，先检查原始查询请求是否允许显示。 */
+    if (scene == RDX_LED_SCENE_BATTERY_QUERY &&
+        !_rdx_led_can_start_battery_query()) {
+        return;
+    }
     /* Packaging completion stays visible until the physical shutdown begins. */
     if (g_current_scene == RDX_LED_SCENE_FINALPACK_DONE &&
         !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
@@ -588,7 +623,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
         (scene == RDX_LED_SCENE_OFF ||
          scene == RDX_LED_SCENE_BLE_ADV_START ||
-         scene == RDX_LED_SCENE_BLE_CONNECTED ||
+         _rdx_led_is_success_scene(scene) ||
          scene == RDX_LED_SCENE_BLE_DISCONNECTED ||
          scene == RDX_LED_SCENE_BLE_FAST_ADV)) {
         RecordStatus *rp = rdx_record_get_status();
@@ -602,6 +637,12 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
             }
             scene = RDX_LED_SCENE_RECORD_START;
         }
+    }
+    /* 临时成功提示均按统一的实时业务优先级让出灯效。 */
+    if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        _rdx_led_is_success_scene(scene) && _rdx_led_success_should_yield()) {
+        _rdx_led_restore_system_state();
+        return;
     }
     if (on_usb_charge) {
         bool new_mark = scene == RDX_LED_SCENE_RECORD_MARK;
@@ -649,6 +690,12 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     g_current_scene = scene;
 
     switch (scene) {
+    case RDX_LED_SCENE_RECORD_START:
+        /* 按住录音常亮；双击及其他普通录音保持呼吸，恢复场景时同样适用。 */
+        _rdx_led_apply_effect(rdx_app_record_is_hold_active() ?
+                RDX_LED_EFFECT_RECORD_SOLID : RDX_LED_EFFECT_RECORD_BREATH);
+        return;
+
     case RDX_LED_SCENE_BATTERY_QUERY:
         _rdx_led_apply_effect(get_vbat_percent() < RDX_LED_LOW_BATTERY_PERCENT ?
                 RDX_LED_EFFECT_LOW_BATTERY_SOLID : RDX_LED_EFFECT_BATTERY_GREEN);
@@ -767,6 +814,14 @@ void rdx_led_ctrl_update(void)
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
         return;
     }
+    /* 业务状态未通过灯效事件更新时，重新仲裁正在显示的提示。 */
+    if (!transition &&
+        (_rdx_led_is_success_scene(g_current_scene) ||
+         g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) &&
+        _rdx_led_success_should_yield()) {
+        _rdx_led_restore_system_state();
+        return;
+    }
     if (!transition && _rdx_led_refresh_transfer_scene()) {
         return;
     }
@@ -807,7 +862,8 @@ void rdx_led_ctrl_update(void)
             g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) {
             g_current_scene = RDX_LED_SCENE_OFF;
             _rdx_led_restore_system_state();
-        } else if (g_current_scene == RDX_LED_SCENE_RECORD_MARK) {
+        } else if (g_current_scene == RDX_LED_SCENE_RECORD_MARK ||
+                   _rdx_led_is_success_scene(g_current_scene)) {
             _rdx_led_restore_system_state();
         } else {
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
