@@ -97,6 +97,28 @@ void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
     local_irq_enable();
 }
 
+/* Feedback tracks the same physical cycle in every route, without granting
+ * offline business admission or HID report permission. */
+u32 rdx_hogp_input_feedback_epoch(u8 value)
+{
+    u32 epoch = 0;
+    if (!product_key(value)) return 0;
+    local_irq_disable();
+    if (!scan_filtered && !cleanup_pending &&
+        cycle_epoch[value - KEY_IO_NUM0] == input_epoch) epoch = input_epoch;
+    local_irq_enable();
+    return epoch;
+}
+
+u8 rdx_hogp_input_feedback_epoch_valid(u32 epoch)
+{
+    u8 valid;
+    local_irq_disable();
+    valid = epoch && epoch == input_epoch && !cleanup_pending && !scan_filtered;
+    local_irq_enable();
+    return valid;
+}
+
 u32 rdx_hogp_input_gesture_epoch(u8 value)
 {
     u32 epoch = 0;

@@ -27,6 +27,8 @@ u8 rdx_hogp_input_current_locked(u32 epoch);
 void rdx_hogp_input_init(void);
 void rdx_hogp_input_invalidate(void);
 void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered);
+u32 rdx_hogp_input_feedback_epoch(u8 value);
+u8 rdx_hogp_input_feedback_epoch_valid(u32 epoch);
 u32 rdx_hogp_input_gesture_epoch(u8 value);
 u8 rdx_hogp_input_epoch_valid(u32 epoch);
 void rdx_hogp_input_gesture(const struct key_event *key, u32 epoch);

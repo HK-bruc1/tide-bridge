@@ -10,6 +10,7 @@
 #include "app_config.h"
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_hogp_input.h"
+#include "rdx_app.h"
 static u32 product_click_epoch;
 static u32 product_hold_epoch;
 #endif
@@ -311,14 +312,13 @@ void key_event_handler(struct key_event *key)
     /* Only invalidate product accumulation. KEY5 retains its original state.
      * NO_KEY belongs to the pending accumulation, not the current snapshot. */
     if (notify_value >= KEY_IO_NUM0 && notify_value <= KEY_IO_NUM3 &&
-        !rdx_hogp_input_epoch_valid(product_click_epoch)) {
+        !rdx_hogp_input_feedback_epoch_valid(product_click_epoch)) {
         click_cnt = 0;
         notify_value = NO_KEY;
     }
-    /* A consumed HID click leaves no accumulation for its delayed NO_KEY.
-     * Keep a pending KEY5 accumulation, but never translate an empty one. */
+    /* Never translate an empty accumulation after a route change. */
     if (key->event == KEY_ACTION_NO_KEY && notify_value == NO_KEY) return;
-    if (!rdx_hogp_input_epoch_valid(product_hold_epoch)) {
+    if (!rdx_hogp_input_feedback_epoch_valid(product_hold_epoch)) {
         for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); ++i) {
             if (key_hold_hdl[i].value >= KEY_IO_NUM0 && key_hold_hdl[i].value <= KEY_IO_NUM3) {
                 key_hold_hdl[i].value = NO_KEY;
@@ -329,8 +329,8 @@ void key_event_handler(struct key_event *key)
     }
     if (product) {
         product_epoch = key->event == KEY_ACTION_NO_KEY ? product_click_epoch :
-                        rdx_hogp_input_gesture_epoch(source_value);
-        if (!rdx_hogp_input_epoch_valid(product_epoch)) {
+                        rdx_hogp_input_feedback_epoch(source_value);
+        if (!rdx_hogp_input_feedback_epoch_valid(product_epoch)) {
             struct key_hold *old = get_key_hold(source_value, 0);
             if (old) {
                 old->value = NO_KEY;
@@ -355,7 +355,15 @@ void key_event_handler(struct key_event *key)
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     if (product) {
-        rdx_hogp_input_gesture(key, product_epoch);
+        if (rdx_hogp_input_epoch_valid(product_epoch)) {
+            if (rdx_hogp_input_gesture_epoch(key->value) == product_epoch) {
+                rdx_hogp_input_gesture(key, product_epoch);
+            }
+        } else {
+            /* HID/unready links still use the SDK single/double-click result.
+             * Only local feedback is allowed; never replay offline actions. */
+            rdx_app_key_click(key->value, key->event);
+        }
         return;
     }
     // y_printf("==== %s --> key->event = %d, key->value = %d \r", __FUNCTION__, key->event, key->value);

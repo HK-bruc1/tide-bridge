@@ -1047,17 +1047,15 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
     }
 }
 
-static void rdx_app_online_key_battery_cb(void *priv)
+/* Local battery feedback is independent of BLE connection/readiness. */
+static void rdx_app_key_battery_cb(void *priv)
 {
-    if (rdx_dut_test_keys_active()) return;
-    bool online = rdx_app_rdx_key_route_ready();
-#if TCFG_RDX_HOGP_ENABLE
-    online = online || rdx_hogp_keyboard_is_ready();
-#endif
-    if (online &&
-        !app_in_mode(APP_MODE_PC) && !rdx_uxfile_sd_format_status_check()) {
-        rdx_led_ctrl_show_battery();
+    if (!rdx_app_business_started() || rdx_storage_lifecycle_business_blocked() ||
+        rdx_dut_test_keys_active() || app_var.goto_poweroff_flag ||
+        app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
+        return;
     }
+    rdx_led_ctrl_show_battery();
 }
 
 u8 rdx_app_hogp_input_route(void)
@@ -1071,11 +1069,12 @@ u8 rdx_app_hogp_input_route(void)
     return rdx_ble_server_has_active_link() ? RDX_HOGP_INPUT_DISCARD : RDX_HOGP_INPUT_OFFLINE;
 }
 
-void rdx_app_online_key_down(u8 key_value)
+void rdx_app_key_click(u8 key_value, u8 action)
 {
-    if (key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM4) {
-        /* The scan callback must not operate the shared LED rail directly. */
-        int msg[3] = {(int)rdx_app_online_key_battery_cb, 1, 0};
+    if (action == KEY_ACTION_CLICK &&
+        key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM4) {
+        /* The key adapter must not operate the shared LED rail directly. */
+        int msg[3] = {(int)rdx_app_key_battery_cb, 1, 0};
         if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
             y_printf("[KEY] battery indication queue full\n");
         }
@@ -3069,6 +3068,11 @@ int rdx_app_key_msg_handler(int *msg)
 
     
     rdx_app_earphone_key_remap(&key_msg, msg);
+    /* Resolved gestures only. Playback/recording feedback owns these clicks. */
+    if (key->type == KEY_DRIVER_TYPE_IO &&
+        key_msg != APP_MSG_REC_PLAY_TOGGLE) {
+        rdx_app_key_click(key->value, key->event);
+    }
     // log_info("key_msg:%d\n", key_msg);
 
     if(key_msg){

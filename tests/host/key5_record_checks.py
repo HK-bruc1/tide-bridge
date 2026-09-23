@@ -44,6 +44,14 @@ static int rdx_app_init_flag=1, poweroff_ready_flag, rdx_dut_mode, mode_switch_k
 static int connected, ready, bound=1, blocked, queue_fail, stop_fail, stops, playback, playback_stops, starts;
 static int online_starts, online_stops, ota, formatting;
 static int marks;
+#define KEY_IO_NUM0 65
+#define KEY_IO_NUM4 69
+static int battery_queries, battery_posts;
+#define y_printf(...) ((void)0)
+static struct { int goto_poweroff_flag; } app_var;
+static int rdx_app_business_started(void) { return rdx_app_init_flag; }
+static int rdx_dut_test_keys_active(void) { return rdx_dut_mode; }
+static void rdx_led_ctrl_show_battery(void) { ++battery_queries; }
 static RecordStatus *rdx_record_get_status(void) { return &status; }
 static int rdx_record_binding_allowed(void) { return bound; }
 static int rdx_storage_lifecycle_business_blocked(void) { return blocked; }
@@ -64,6 +72,7 @@ static void rdx_record_process(void) {}
 static void rdx_playback_stop(void) { playback=0; ++playback_stops; }
 static int os_taskq_post_type(const char *t,int q,int n,int *m) {
     if(queue_fail) return -1;
+    ++battery_posts;
     if(status.run==RECORD_STATE_START) ++starts;
     return 0;
 }
@@ -106,6 +115,25 @@ static void key(int event) {
     int message=APP_MSG_NULL;
     rdx_app_key5_remap(&message,event,1);
     handle(message);
+}
+int test_battery_single_click_only(void) {
+    reset(); battery_queries=0; app_var.goto_poweroff_flag=0;
+    rdx_app_key_battery_cb(NULL); CHECK(battery_queries==1);
+    connected=1; ready=0;
+    rdx_app_key_battery_cb(NULL); CHECK(battery_queries==2);
+    blocked=1; rdx_app_key_battery_cb(NULL);
+    CHECK(battery_queries==2); blocked=0;
+    app_var.goto_poweroff_flag=1; rdx_app_key_battery_cb(NULL);
+    CHECK(battery_queries==2); app_var.goto_poweroff_flag=0;
+    battery_posts=0;
+    rdx_app_key_click(KEY_IO_NUM4,KEY_ACTION_DOUBLE_CLICK);
+    rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_LONG);
+    rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_UP);
+    CHECK(battery_posts==0);
+    rdx_app_key_click(KEY_IO_NUM4,KEY_ACTION_CLICK);
+    rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_CLICK);
+    CHECK(battery_posts==2);
+    return 0;
 }
 int test_disconnect(void) {
     hold_record_local=0; hold_record_pressed=1; hold_record_session_active=1;
@@ -251,7 +279,7 @@ def main():
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
-        'rdx_app_record_is_hold_active',
+        'rdx_app_record_is_hold_active', 'rdx_app_key_battery_cb', 'rdx_app_key_click',
         'rdx_app_record_transport_lost', 'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_key5_remap', 'rdx_app_local_player_key_remap',
         'rdx_app_local_player_message_blocked',

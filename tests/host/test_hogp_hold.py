@@ -56,6 +56,8 @@ u16 sys_timer_add(void *p, void (*f)(void *), u32 ms) { return 1; }
 int offline, key5, route, ready, fail_down, fail_up, reports, attempts;
 u8 report_bytes[512][8];
 int offline_event;
+static int feedback_clicks;
+void rdx_app_key_click(u8 value,u8 action) { if(action==0) ++feedback_clicks; }
 int rdx_app_key_msg_handler(int *msg);
 int key5_events[32];
 int app_send_message_from(int a,int b,int *c);
@@ -217,6 +219,30 @@ static void boot(int online) {
 }
 static void reconnect(void) {
     rdx_hogp_input_invalidate(); ready=1; route=2; ++s_hid_epoch; tick();
+}
+int test_feedback_uses_resolved_gestures(void) {
+    for(int mode=0;mode<2;mode++) {
+        for(int clicks=1;clicks<=3;clicks++) {
+            boot(1);
+            if(mode==0) { route=0; ready=0; tick(); settle(); }
+            feedback_clicks=0;
+            for(int i=0;i<clicks;i++) { sample(KEY_IO_NUM0); sample(NO_KEY); }
+            CHECK(feedback_clicks==0);
+            settle();
+            CHECK(feedback_clicks==(clicks==1?1:0));
+            CHECK(!offline);
+        }
+    }
+    boot(1); feedback_clicks=0;
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM0); tick(); }
+    sample(NO_KEY); settle(); CHECK(!feedback_clicks && !offline);
+    boot(1); feedback_clicks=0;
+    sample(KEY_IO_NUM0); sample(NO_KEY); reconnect(); settle();
+    CHECK(!feedback_clicks && !offline);
+    boot(0); admission=0;
+    sample(KEY_IO_NUM0); sample(NO_KEY); settle();
+    CHECK(!offline); /* Feedback must not grant offline business admission. */
+    return 0;
 }
 int test_short_long_and_fast_cycles(void) {
     boot(1); CHECK(admission);

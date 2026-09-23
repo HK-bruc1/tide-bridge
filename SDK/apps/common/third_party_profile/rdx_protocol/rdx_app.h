@@ -118,7 +118,8 @@ typedef struct{
 }RdxWifiInfo;
 
 
-void rdx_app_online_key_down(u8 key_value);
+/* Called only after the SDK multi-click translator resolves the gesture. */
+void rdx_app_key_click(u8 key_value, u8 action);
 /* Returns enum rdx_hogp_input_route; business admission is owned by RDX. */
 u8 rdx_app_hogp_input_route(void);
 int rdx_app_key_msg_handler(int *msg);
