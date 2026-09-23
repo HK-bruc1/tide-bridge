@@ -52,7 +52,7 @@ struct { int dut_mode, current_func, key_dut_disabled; } rdx_dut_info;
 struct { int goto_poweroff_flag; int auto_off_time; } app_var;
 struct { u8 bound_state; } rdx_bound_info;
 u32 bound_epoch, bound_token;
-bool g_finalpack_end_pending, g_finalpack_format_waiting;
+bool g_finalpack_end_pending, g_finalpack_format_waiting, g_finalpack_committed;
 #define FT_DUT "ft_dut"
 int replies, reset_requests;
 int strcmp(const char *a, const char *b) {
@@ -110,7 +110,7 @@ static void boot(void) {
     rdx_dut_info.dut_mode=1; rdx_dut_info.current_func=0;
     rdx_dut_info.key_dut_disabled=0; record.run=0; files.file_send_busy=0;
     app_var.goto_poweroff_flag=0;
-    g_finalpack_end_pending=g_finalpack_format_waiting=0; timer_cb=NULL;
+    g_finalpack_end_pending=g_finalpack_format_waiting=g_finalpack_committed=0; timer_cb=NULL;
 }
 static void finish(int result) {
     rdx_dut_finalpack_end_format_cb(result);
@@ -120,6 +120,7 @@ int test_finalpack_success(void) {
     boot(); rdx_dut_finalpack_end();
     CHECK(formats==1 && timers==0 && resets==0 && flash[1]==1 && flash[0]==0xff);
     CHECK(done_led==RDX_LED_SCENE_DUT_ENTER);
+    CHECK(rdx_dut_shutdown_busy());
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "0") && replies==1);
     CHECK(g_finalpack_end_pending && done_led==RDX_LED_SCENE_DUT_ENTER);
     rdx_dut_finalpack_end(); CHECK(formats==1);
@@ -128,6 +129,7 @@ int test_finalpack_success(void) {
     CHECK(flash[0]==0xaa && rdx_dut_info.key_dut_disabled && timers==0 && g_finalpack_end_pending);
     rdx_dut_finalpack_end_format_cb(1); CHECK(posts==1);
     CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE && !auto_off);
+    CHECK(!rdx_dut_shutdown_busy());
     CHECK(!disconnects && !poweroffs && !timers && !reset_requests);
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "0"));
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "1") && replies==3);
@@ -160,6 +162,7 @@ int test_finalpack_failures(void) {
             finish(1);
             CHECK(!timers && !poweroffs && done_led==RDX_LED_SCENE_DUT_ENTER && !g_finalpack_end_pending);
             CHECK(!rdx_dut_info.key_dut_disabled);
+            CHECK(rdx_dut_shutdown_busy());
             if(id==1) CHECK(rdx_bound_info.bound_state==1 && !revokes && flash[0]==0xff);
         }
     }
@@ -202,6 +205,7 @@ def main():
     dut = (base / 'rdx_dut.c').read_text(encoding='utf-8')
     vm = (base / 'rdx_vm.c').read_text(encoding='utf-8')
     names = [
+        'bool rdx_dut_shutdown_busy(',
         'static bool rdx_dut_finalpack_mode_ack(',
         'static void rdx_dut_finalpack_fail(', 'static int rdx_dut_key_dut_store(',
         'static void rdx_dut_finalpack_commit(',

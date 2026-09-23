@@ -91,6 +91,9 @@ extern void rdx_app_normal_poweroff(void);
 ******************************************************************************/ 
 static bool g_finalpack_end_pending;
 static bool g_finalpack_format_waiting;
+/* 只有封箱格式化及参数持久化全部成功后，才允许拨码进入关机收尾。 */
+static bool g_finalpack_committed;
+
 extern bool rdx_uxfile_sd_format_status_check(void);
 static volatile u8 factory_key_dut_ready;
 
@@ -1196,8 +1199,14 @@ void rdx_dut_poweroff(void)
 * Function Section - 7. 包装测试 / 按键进DUT禁用
 ******************************************************************************/ 
 
+bool rdx_dut_shutdown_busy(void)
+{
+    return rdx_dut_info.dut_mode && !g_finalpack_committed;
+}
+
 static void rdx_dut_finalpack_fail(void)
 {
+    g_finalpack_committed = false;
     g_finalpack_end_pending = false;
     g_finalpack_format_waiting = false;
     DUT_LOG("Finalpack FAILED; remain in DUT, no automatic poweroff\r");
@@ -1234,6 +1243,7 @@ static void rdx_dut_finalpack_commit(int result)
         return;
     }
     DUT_LOG("Finalpack committed: bound=0, key DUT disabled (verified)\r");
+    g_finalpack_committed = true;
     rdx_ble_server_auto_shut_down_enable(0);
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_FINALPACK_DONE);
     DUT_LOG("Finalpack complete: solid red LED; turn DIP switch OFF to power off\r");
@@ -1278,6 +1288,7 @@ void rdx_dut_finalpack_end(void)
         return;
     }
     g_finalpack_end_pending = true;
+    g_finalpack_committed = false;
     g_finalpack_format_waiting = true;
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
     rdx_uxfile_device_sd_format(rdx_dut_finalpack_end_format_cb);

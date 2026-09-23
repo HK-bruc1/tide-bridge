@@ -428,6 +428,7 @@ extern void rdx_app_all_init(void);
 extern void rdx_app_all_exit(void);
 u8 rdx_pc_storage_is_busy(void);
 u8 rdx_app_business_started(void);
+u8 rdx_app_business_ready(void);
 u8 rdx_app_rdx_rebind_is_idle(void);
 
 
