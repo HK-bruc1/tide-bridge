@@ -268,7 +268,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '1DC74ACEFE58C78D3C9035F6A69A32A934D6B523F21EF0F20EFF0146AD726D58' -and
+                           $PatchedRdxArchiveHash -eq '4F9EC030EB2F995B187C1ADE3D98F6F2D617478B68A87556830023F06519DB9D' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -278,7 +278,7 @@ $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_pro
                            $RdxRecord -match '(?s)#if !TCFG_SD_ALWAY_ONLINE_ENABLE\s*int err = dev_manager_add\("sd0"\);.*?#endif' -and
                            $RdxApp -match '(?s)run == RECORD_STATE_START && !stream_only.*?rdx_uxfile_sync_is_in_progress.*?local start rejected: UXFILE is busy'
 Assert-Contract 'RDX_UXFILE_STARTUP_RECOVERY' $uxfileStartupRecoveryOk `
-    'the patched library must commit a missing DAT as an empty index without boot fscan, persist its marker, and serialize recording against recovery'
+    'the hash-pinned library must serialize recording against the worker-owned management index recovery'
 
 $recordToneFinish = Get-SourceSlice $RdxRecord `
     'static void rdx_record_start_tone_finish(' 'static void rdx_record_start_tone_complete('
@@ -346,7 +346,7 @@ Assert-Contract 'USB_EXPORT_AND_CHARGING_ARE_INDEPENDENT' (
     $StorageLifecycle -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
     $Dip -match 'rdx_storage_lifecycle_service\(on, vbus\)' -and
     $Makefile -match 'rdx_storage_lifecycle\.c'
-) 'Disabling export must close PC admission without removing charging, SD or the shutdown fence'
+) 'Disabling export must close PC admission without removing charging, SD or native shutdown'
 
 $bootPreserve = Get-SourceSlice $DevManager `
     '#if (TCFG_SD0_ENABLE && TCFG_T2620_STORAGE_PRESERVE_ON_BOOT)' `
@@ -502,24 +502,35 @@ Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
 $StoragePatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_storage.ps1'
 $StorageIr = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_patch.ll'
 $DipSwitch = $StorageLifecycle
-Assert-Contract 'USB_HOT_SWITCH_REQUIRES_REAL_COMPLETION' (
-    $DipSwitch -match '(?s)s_usb_switch = USB_SWITCH_DRAIN.*?rdx_record_usb_quiesce_request' -and
-    (Test-TokensInOrder $DipSwitch @('rdx_record_usb_quiesce_poll', 'rdx_ble_server_usb_quiesce', 'saved == 0 && ble_idle', 'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll', 'else if (!result)', 'rdx_cpu_reset()')) -and
-    $DipSwitch -match '(?s)rdx_usb_switch_fail\(.*?USB_SWITCH_FAILED.*?no export/reset' -and
-    $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag' -and
-    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_storage_lifecycle_shutdown_deferred\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
-    $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_USB_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?usb_record_done = ' -and
-    $RdxServer -match '(?s)int rdx_ble_server_usb_quiesce\(void\).*?app_ble_disconnect.*?rdx_ble_server_rdx_runtime_try_rearm\(\)'
-) 'Hot switch must close recording, drain real BLE lifecycle and freeze UXFILE before reset; cold export and failure protection remain intact'
+$RecoveryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_recovery.ps1'
+Assert-Contract 'NATIVE_OFF_NOT_STORAGE_FENCED' (
+    $DipSwitch -notmatch 'USB_SWITCH_DRAIN|USB_SWITCH_FAILED|rdx_record_usb_quiesce_request|rdx_uxfile_fence_request' -and
+    $Poweroff -notmatch 'rdx_storage_lifecycle_shutdown_deferred\(' -and
+    $Poweroff -notmatch 'rdx_dip_switch_shutdown_begin\(' -and
+    $Dip -match '(?s)rdx_dip_switch_shutdown_begin\(\);.*?app_send_message\(APP_MSG_REQUEST_POWEROFF' -and
+    $Poweroff -match 'app_send_message\(APP_MSG_RECORD_OFF, 0\)' -and
+    $Dip -match 'usr_timer_add\(NULL, rdx_dip_switch_guard, 100, 0\)' -and
+    $Dip -match 's_shutdown_ticks >= 30' -and
+    $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag'
+) 'OFF must retain native cleanup and an independent deadline, without storage/record/BLE save vetoes'
+Assert-Contract 'WORKER_OWNS_INDEX_BEFORE_CACHE' (
+    $RdxApp -notmatch 'if \(!rdx_record_format_boot\(\)\)' -and
+    $RecoveryPatch -match 'call i32 @rdx_record_format_boot' -and
+    $RecoveryPatch -match 'call i32 @rdx_uxfile_dat_init_impl' -and
+    $RecoveryPatch -match 'rdx_record_format_service_status' -and
+    $RecoveryPatch -match 'rdx_uxfile_delete_checked' -and
+    $RdxApp -match 'rdx_app_file_delete_worker' -and
+    $RdxApp -match 'rdx_uxfile_delete_submit'
+) 'File task must recover before cache handoff; APP deletion acknowledgement follows actual worker completion'
 Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
     (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'rdx_storage_lifecycle_pc_returned()')) -and
     $DipSwitch -match '(?s)rdx_storage_lifecycle_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
-    $RdxServer -match '(?s)int rdx_ble_server_adv_enable\(u8 enable\).*?rdx_storage_lifecycle_business_blocked\(\).*?enable = 0;' -and
+    $RdxServer -notmatch 'rdx_storage_lifecycle_business_blocked\('  -and
     $RdxRecord -match '(?s)static void rdx_record_process_impl\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
     $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_storage_lifecycle_business_blocked' -and
     $StoragePatch -match 'rdx_storage_boot_refresh_post' -and
     $StorageIr -match '(?s)rdx_storage_boot_reconcile.*?rdx_uxfile_sync_files_with_dat.*?store volatile i32 %state, i32\* @rdx_storage_refresh'
-) 'PC return must stop USB/remount before reconciliation and gate BLE, recording and playback until completion'
+) 'PC return must stop USB/remount before reconciliation; storage may gate files but never BLE/HID availability'
 Assert-Contract 'UXFILE_PATCH_QUIET_AND_ERROR_BOUNDARY' (
     $Makefile -match '(?m)^\$\(OUT_ELF\): apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a Makefile \| pre_build' -and
     $RdxLibraryPatch -match 'Update-RdxStorageIr' -and

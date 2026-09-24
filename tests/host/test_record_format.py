@@ -10,14 +10,22 @@ from host_c_test_lib import ROOT, function, run_c_checks
 STUBS = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
+typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,orig_pack_num; int loading; } uxfile_datfile_info_t;
 #define RECORD_FORMATE_OPUS_16K_MONO 1
 #define RECORD_FORMATE_OPUS_16K_STERO 2
+#define RDX_RECORD_DELETE_REJECTED (-2)
 typedef struct { u32 sn; char filename[64]; u8 record_scene; u32 start_time, frame_size; } uxfile_data_t;
-typedef struct { char name[80]; u8 data[16000]; u32 size, pos; int present, opened; } mock_file;
-static mock_file files[32];
+typedef struct { char name[80]; u8 data[65536]; u32 size, pos; int present, opened; } mock_file;
+static mock_file files[640];
+static int fail_delete;
 static int fail_write, fail_flush, fail_close, fail_truncate, fail_read, handles;
 static const char *fail_path;
 static int writes;
+static int fail_alloc;
+static void *format_malloc(size_t n) { return fail_alloc ? NULL : malloc(n); }
+static void *format_realloc(void *p,size_t n) { return fail_alloc ? NULL : realloc(p,n); }
+#define malloc format_malloc
+#define realloc format_realloc
 #define FILE mock_file
 #define fopen mock_open
 #define fclose mock_close
@@ -26,12 +34,12 @@ static int writes;
 #define ftell mock_tell
 #define printf(...) ((void)0)
 static mock_file *lookup(const char *name) {
-    for (u32 i=0; i<32; ++i) if (files[i].present && !strcmp(files[i].name,name)) return &files[i];
+    for (u32 i=0; i<640; ++i) if (files[i].present && !strcmp(files[i].name,name)) return &files[i];
     return NULL;
 }
 FILE *mock_open(const char *name, const char *mode) {
     FILE *f=lookup(name);
-    if (!f && mode[0]=='w') for (u32 i=0; i<32; ++i) if (!files[i].present) {
+    if (!f && mode[0]=='w') for (u32 i=0; i<640; ++i) if (!files[i].present) {
         f=&files[i]; memset(f,0,sizeof(*f)); strcpy(f->name,name); f->present=1; break;
     }
     if (f) { if(f->opened) return NULL; f->pos=0; f->opened=1; ++handles; }
@@ -57,19 +65,21 @@ int flen(FILE *f) { return f->size; }
 int mock_tell(FILE *f) { return f->pos; }
 int ftruncate(FILE *f,u32 n) { if(fail_truncate || n>sizeof(f->data)) return -1; f->size=n; return 0; }
 int f_flush_wbuf(const char *p) { return fail_flush || strcmp(p,"storage/sd0/C/") ? -1 : 0; }
-int fdelete_by_name(const char *p) { FILE *f=lookup(p); if(!f) return -1; f->present=0; return 0; }
-struct vfscan { u32 file_number; FILE *items[32]; };
+int fdelete_by_name(const char *p) { if(fail_delete) return -1; FILE *f=lookup(p); if(!f) return -1; f->present=0; return 0; }
+struct vfscan { u32 file_number; FILE *items[640]; };
 #define FSEL_BY_NUMBER 5
 static struct vfscan scan_data;
 struct vfscan *fscan(const char *root,const char *args,u8 depth) {
     memset(&scan_data,0,sizeof(scan_data));
-    for(u32 i=0;i<32;++i) if(files[i].present && strstr(files[i].name,".mta"))
+    for(u32 i=0;i<640;++i) if(files[i].present && strstr(files[i].name, strstr(args,"MTA") ? ".mta" : ".raw"))
         scan_data.items[scan_data.file_number++]=&files[i];
     return &scan_data;
 }
 FILE *fselect(struct vfscan *s,int mode,int n) { return mock_open(s->items[n-1]->name,"r"); }
 void fscan_release(struct vfscan *s) {}
 void wdt_clear(void) {}
+void os_time_dly(int n) {}
+int frename(FILE *f,const char *name) { strcpy(f->name,"storage/sd0/C/"); strcat(f->name,name); return 0; }
 void rdx_app_emmc_poweron(u8 check) {}
 void sd_set_power_user(u8 en) {}
 int dev_manager_list_check_by_logo(const char *s) { return 1; }
@@ -84,8 +94,9 @@ static uxfile_data_t current;
 static u8 audio[4000];
 static int recover(void) { rf_boot_started=0; return rdx_record_format_boot(); }
 static void reset(void) {
+    fail_alloc=0;
     memset(files,0,sizeof(files)); memset(&rf_current,0,sizeof(rf_current));
-    rf_boot_started=0; rf_error=fail_write=fail_flush=fail_close=fail_truncate=fail_read=handles=writes=0; fail_path=NULL;
+    rf_deleted_name[0]=0; fail_delete=0; rf_boot_started=0; rf_error=fail_write=fail_flush=fail_close=fail_truncate=fail_read=handles=writes=0; fail_path=NULL;
     memset(&current,0,sizeof(current)); current.sn=7; current.start_time=100;
     current.frame_size=40; strcpy(current.filename,"abc123.raw");
     for(u32 i=0;i<sizeof(audio);++i) audio[i]=(i*19+3)&255;
@@ -172,27 +183,27 @@ int test_format_recovery(void) {
     return 0;
 }
 int test_format_fail_closed(void) {
+    /* 文件错误应体现在条目中，不得升级为整机准入错误。 */
     reset(); CHECK(seed_mono()==0);
     lookup(RF_ROOT "abc123.mta")->data[0]^=1;
-    CHECK(recover()<0 && !lookup(RF_DAT) && handles==0);
+    CHECK(recover()==0 && lookup(RF_DAT) && handles==0);
+    cJSON *root=read_dat(); CHECK(cJSON_GetArraySize(root)==1);
+    CHECK(num(cJSON_GetArrayItem(root,0),"frame_size")==1); cJSON_Delete(root);
     reset(); CHECK(seed_mono()==0); lookup(RF_ROOT "abc123.raw")->data[0]^=1;
-    CHECK(recover()<0 && !lookup(RF_DAT) && handles==0);
+    CHECK(recover()==0 && lookup(RF_DAT) && handles==0);
     reset(); CHECK(seed_mono()==0); lookup(RF_ROOT "abc123.raw")->size=3999;
-    CHECK(recover()<0 && !lookup(RF_DAT) && handles==0);
+    CHECK(recover()==0 && lookup(RF_DAT) && handles==0);
+    CHECK(lookup(RF_ROOT "abc123.raw")->size==3999); /* 不得静默截断 */
     reset(); CHECK(seed_mono()==0); fdelete_by_name(RF_ROOT "abc123.raw");
-    CHECK(recover()==0 && !lookup(RF_DAT)); /* no resurrection */
-    lookup(RF_ROOT "abc123.mta")->size=3; /* cut before RAW creation */
-    CHECK(recover()==0 && handles==0);
+    CHECK(recover()==0 && lookup(RF_DAT)); /* 孤立 MTA 仍可管理 */
+    root=read_dat(); CHECK(cJSON_GetArraySize(root)==1);
+    CHECK(!strcmp(cJSON_GetObjectItem(cJSON_GetArrayItem(root,0),"name")->valuestring,"abc123.mta")); cJSON_Delete(root);
     reset(); CHECK(seed_mono()==0);
-    const char *bad="[{\"sn\":7,\"name\":\"def123.raw\"}]";
+    const char *bad="[{\"sn\":3";
     CHECK(rf_write(RF_DAT,bad,strlen(bad))==0);
-    int unchanged=writes;
-    CHECK(recover()<0 && handles==0 && writes==unchanged);
-    CHECK(lookup(RF_DAT)->size==strlen(bad) && !memcmp(lookup(RF_DAT)->data,bad,strlen(bad)));
-    reset(); CHECK(seed_mono()==0); bad="[{\"sn\":3";
-    CHECK(rf_write(RF_DAT,bad,strlen(bad))==0);
-    CHECK(recover()<0 && handles==0);
-    CHECK(lookup(RF_DAT)->size==strlen(bad));
+    CHECK(recover()==0 && handles==0);
+    CHECK(lookup(RF_ROOT "rf000000.bak")->size==strlen(bad));
+    root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==1); cJSON_Delete(root);
     return 0;
 }
 int test_format_replay(void) {
@@ -204,9 +215,85 @@ int test_format_replay(void) {
     reset(); CHECK(seed_mono()==0); fail_write=1; fail_path=RF_DAT;
     CHECK(recover()<0 && lookup(RF_COMMIT));
     fail_write=rf_error=0; fail_path=NULL; lookup(RF_TMP)->data[1]^=1;
-    CHECK(recover()<0 && lookup(RF_COMMIT) && handles==0);
+    CHECK(recover()==0 && !lookup(RF_COMMIT) && handles==0);
+    CHECK(lookup(RF_ROOT "rf000000.bak"));
     return 0;
 }
+int test_allocation_failure(void) {
+    reset(); CHECK(seed_mono()==0); CHECK(recover()==0);
+    FILE *dat=lookup(RF_DAT); CHECK(dat);
+    u32 length=dat->size, hash=rf_hash(dat->data,length);
+    fail_alloc=1;
+    CHECK(recover()<0);
+    CHECK(dat->size==length && rf_hash(dat->data,length)==hash);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    uxfile_datfile_info_t info={0};
+    CHECK(rdx_record_format_list(&info)==&info && !info.data && !info.data_len);
+    CHECK(handles==0);
+    fail_alloc=0; CHECK(recover()==0);
+    CHECK(rdx_record_format_list(&info)==&info && info.data_len==length);
+    free(info.data); CHECK(handles==0);
+    return 0;
+}
+int test_delete_durable_identity(void) {
+    reset(); CHECK(seed_mono()==0); CHECK(recover()==0);
+    CHECK(rdx_record_format_delete(9,"abc123.raw")==RDX_RECORD_DELETE_REJECTED);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    CHECK(rdx_record_format_delete(7,"../abc.raw")==RDX_RECORD_DELETE_REJECTED);
+    fail_delete=1;
+    CHECK(rdx_record_format_delete(7,"abc123.raw")<0);
+    CHECK(lookup(RF_DELETE));
+    fail_delete=0;
+    CHECK(rdx_record_format_delete(7,"abc123.raw")==0);
+    CHECK(!lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+    CHECK(!lookup(RF_DELETE) && !lookup(RF_COMMIT));
+    CHECK(rdx_record_format_delete(7,"abc123.raw")==0);
+    CHECK(recover()==0 && handles==0);
+    cJSON *root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==0); cJSON_Delete(root);
+    return 0;
+}
+int test_delete_interrupted_index(void) {
+    reset(); CHECK(seed_mono()==0);
+    CHECK(rf_write(RF_ROOT "def123.raw",audio,40)==0);
+    CHECK(recover()==0);
+    fail_write=1; fail_path=RF_DAT;
+    CHECK(rdx_record_format_delete(7,"abc123.raw")<0);
+    CHECK(lookup(RF_DELETE) && lookup(RF_COMMIT));
+    fail_write=0; fail_path=NULL; rf_error=0;
+    CHECK(recover()==0 && handles==0);
+    CHECK(!lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "def123.raw"));
+    CHECK(!lookup(RF_DELETE) && !lookup(RF_COMMIT));
+    cJSON *root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==1); cJSON_Delete(root);
+    return 0;
+}
+int test_more_than_300_and_duplicate_sn(void) {
+    reset();
+    for(int i=0;i<301;++i) {
+        char name[40]; sprintf(name,RF_ROOT "%06x.raw",i+1);
+        CHECK(rf_write(name,audio,40)==0);
+    }
+    CHECK(recover()==0 && handles==0);
+    cJSON *root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==301); cJSON_Delete(root);
+    uxfile_datfile_info_t info={0};
+    CHECK(rdx_record_format_list(&info)==&info && info.data_len>0);
+    root=cJSON_Parse((char*)info.data); CHECK(root && cJSON_GetArraySize(root)==301);
+    CHECK(info.orig_pack_num==(info.data_len+459)/460);
+    cJSON_Delete(root); free(info.data);
+    CHECK(rdx_record_format_delete(0x10000000u+301,"00012d.raw")==0);
+    CHECK(recover()==0);
+    root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==300); cJSON_Delete(root);
+    reset(); CHECK(seed_mono()==0);
+    strcpy(current.filename,"def123.raw");
+    CHECK(rdx_record_format_begin(&current,1)==0);
+    CHECK(rdx_record_format_frame(&current,1,audio,40)==0);
+    CHECK(rf_write(RF_ROOT "def123.raw",audio,40)==0);
+    CHECK(recover()==0);
+    root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==2);
+    CHECK(num(cJSON_GetArrayItem(root,0),"sn")!=num(cJSON_GetArrayItem(root,1),"sn"));
+    cJSON_Delete(root);
+    return 0;
+}
+
 '''
 
 
@@ -237,6 +324,7 @@ void *memset(void *,int,size_t);
 int memcmp(const void *,const void *,size_t);
 size_t strlen(const char *);
 char *strcpy(char *,const char *);
+char *strcat(char *,const char *);
 char *strstr(const char *,const char *);
 char *strrchr(const char *,int);
 int strcmp(const char *,const char *);
@@ -249,9 +337,13 @@ double fabs(double);
 """
     path.write_text(libc + header + json_source + STUBS + crc + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_format_persistence', 'test_format_recovery',
-                        'test_format_fail_closed', 'test_format_replay'], native=True)
+                        'test_format_fail_closed', 'test_format_replay',
+                        'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
+                        'test_more_than_300_and_duplicate_sn'], native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 
 if __name__ == '__main__':
     main()
+    from file_delete_checks import run_delete_checks
+    run_delete_checks()

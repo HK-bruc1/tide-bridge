@@ -2732,7 +2732,7 @@ static u8 rdx_ble_server_phase2_claim_to_att_error(
 
 static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
 {
-    if (rdx_storage_lifecycle_business_blocked()) {
+    if (app_var.goto_poweroff_flag) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
     rdx_ble_claim_result_t claim_result;
@@ -3196,7 +3196,7 @@ static void rdx_ble_server_app_rx_ascii_dump(const u8 *buffer, u16 buffer_size)
  **************************************************************************/
 static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connection_handle, uint16_t att_handle, uint16_t transaction_mode, uint16_t offset, uint8_t *buffer, uint16_t buffer_size)
 {
-    if (rdx_storage_lifecycle_business_blocked()) {
+    if (app_var.goto_poweroff_flag) {
         return RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
     }
     /*----------------------------------------------------------------*/
@@ -3444,7 +3444,7 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
 u8 rdx_adv_policy_allowed(void)
 {
     return !rdx_ble_server_get_connected_count() &&
-           !rdx_storage_lifecycle_business_blocked() &&
+           !app_var.goto_poweroff_flag &&
            !rdx_app_get_poweroff_flag() && g_rdx_ble_advertising_hdl;
 }
 
@@ -3589,7 +3589,7 @@ void rdx_ble_server_adv_interval_change_timer_start(void)
 void rdx_ble_server_fast_adv_restart(void)
 {
     if (rdx_ble_server_get_connected_count() ||
-        rdx_storage_lifecycle_business_blocked() || rdx_app_get_poweroff_flag()) return;
+        app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag()) return;
     rdx_adv_policy_activity();
 }
 
@@ -3688,7 +3688,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
 
 int rdx_ble_server_adv_enable(u8 enable)
 {
-    if (enable && rdx_storage_lifecycle_business_blocked()) {
+    if (enable && app_var.goto_poweroff_flag) {
         enable = 0;
     }
     u8 index;
@@ -4148,7 +4148,7 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
 ***************************************************************************/
 static u8 rdx_ble_server_broadcast_suppressed(void)
 {
-    if (rdx_storage_lifecycle_business_blocked()) {
+    if (app_var.goto_poweroff_flag) {
         return 1;
     }
     RdxWifiInfo* k = rdx_app_get_wifi_info();

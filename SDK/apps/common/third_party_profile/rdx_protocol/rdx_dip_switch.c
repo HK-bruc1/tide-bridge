@@ -14,7 +14,58 @@
 #include "rdx_storage_lifecycle.h"
 
 static bool s_init_done;
-static bool s_business_mode_entered;
+static volatile bool s_business_mode_entered;
+static volatile u8 s_shutdown_ticks;
+static volatile u8 s_guard_off_samples;
+static volatile u8 s_shutdown_pending;
+static volatile u8 s_irq_pending;
+
+static u8 rdx_dip_switch_idle(void)
+{
+    /* 保留正常 ON 状态的休眠，但接受 OFF 后或处于中断消抖窗口时
+     * 禁止休眠，以保证优先级为 0 的 usr_timer 按周期运行。 */
+    return !s_shutdown_pending && !s_irq_pending &&
+           (get_power_on_status() || (!s_business_mode_entered && get_charge_online_flag()));
+}
+
+REGISTER_LP_TARGET(rdx_dip_switch_lp_target) = {
+    .name = "rdx_dip",
+    .is_idle = rdx_dip_switch_idle,
+};
+
+/* 硬件定时器上下文：仅采样 GPIO 和调用 SDK 的 P33 复位接口。
+ * 此回调不操作 FAT、输出日志、投递任务队列或销毁蓝牙栈。
+ * 拨回 ON、重复请求或 USB 状态变化均不得延长截止期限。
+ * 长时间屏蔽中断或硬件故障仍需平台看门狗兜底。 */
+static void rdx_dip_switch_guard(void *priv)
+{
+    (void)priv;
+    if (!s_shutdown_pending) {
+        if (get_power_on_status()) {
+            s_guard_off_samples = 0;
+            s_irq_pending = 0;
+        } else if (++s_guard_off_samples >= 2) {
+            s_guard_off_samples = 2;
+            s_irq_pending = 0;
+            if (s_business_mode_entered || !get_charge_online_flag()) {
+                s_shutdown_pending = 1;
+            }
+        }
+    }
+    if (s_shutdown_pending && ++s_shutdown_ticks >= 30) {
+        cpu_reset();
+    }
+}
+
+void rdx_dip_switch_shutdown_begin(void)
+{
+    s_shutdown_pending = 1;
+}
+
+int rdx_dip_switch_shutdown_pending(void)
+{
+    return s_shutdown_pending;
+}
 
 
 void rdx_dip_switch_note_business_mode(void)
@@ -73,12 +124,16 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     s_last_on = on;
     s_last_usb = usb;
     s_last_vbus = vbus;
-    if (rdx_storage_lifecycle_service(on, vbus)) {
-        return;
-    }
     if (app_var.goto_poweroff_flag) {
         return;
     }
+    if (s_shutdown_pending || (!on && (!rdx_dip_switch_cold_service() || !vbus))) {
+        rdx_dip_switch_shutdown_begin();
+        /* 关机一旦接受，即使用户拨回 ON 也须完成退出流程。 */
+        app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
+        return;
+    }
+    rdx_storage_lifecycle_service(on, vbus);
     if (s_retry_ticks) {
         --s_retry_ticks;
         return;
@@ -121,8 +176,9 @@ static void rdx_dip_switch_deferred_handle(void *priv)
 
 void rdx_dip_switch_p33_irq(P33_IO_WKUP_EDGE edge)
 {
-    /* Sampling runs on app_core, never block in the ISR. */
+    /* P33 上下文中不操作任务队列、文件系统或销毁协议栈。 */
     (void)edge;
+    s_irq_pending = 1;
 }
 
 void rdx_dip_switch_init(void)
@@ -131,10 +187,15 @@ void rdx_dip_switch_init(void)
         return;
     }
     gpio_set_mode(IO_PORT_SPILT(TCFG_DIP_SWITCH_POWER_IO), PORT_INPUT_PULLUP_10K);
+    p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO,
+                      get_power_on_status() ? RISING_EDGE : FALLING_EDGE);
     /* Also observes OTG identification after cold boot. Each callback reads
      * current inputs; queued USB events cannot select an obsolete mode. */
     u16 timer = sys_timer_add(NULL, rdx_dip_switch_deferred_handle, 100);
     ASSERT(timer != 0);
+    /* 独立于 app_core 运行，覆盖启动或存储回调阻塞的情况。 */
+    u16 guard = usr_timer_add(NULL, rdx_dip_switch_guard, 100, 0);
+    ASSERT(guard != 0);
     s_init_done = true;
 }
 #endif

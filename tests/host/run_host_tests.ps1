@@ -23,6 +23,7 @@ $Behavior = @(
     'test_record_storage.py',
     'test_meeting_mono.py',
     'test_record_format.py',
+    'test_power_recovery.py',
     'test_hogp_hold.py'
     'test_keymap_factory_reset.py'
 )

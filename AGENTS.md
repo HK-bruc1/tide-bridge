@@ -91,10 +91,10 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs five source contracts and nine C behavioral harnesses
+The host test runner runs five source contracts and ten C behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 14 modules. The source contracts cover:
+focused run; the default runs all 15 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
@@ -180,7 +180,7 @@ Current overlay rules:
 - `TCFG_T2620_PC_STORAGE_ENABLE` defaults to 0 and owns only optional USB MSC export. When enabled it requires tool-configured SD0 + USB MSC; when disabled it forces PC mode off.
 - `TCFG_T2620_FACTORY_USB_CDC_ENABLE` defaults to 0 and enables physical-key DUT CDC independently of optional PC/MSC export. CDC admission uses the storage lifecycle guards.
 - `TCFG_T2620_CHARGE_COEXIST_ENABLE` defaults to 1 and independently preserves ON charging with BLE/recording.
-- `rdx_storage_lifecycle.c/h` owns the storage shutdown fence and PC-return admission gates independently of USB export; `rdx_dip_switch.c` owns input sampling and mode requests. See `docs/7-1.T2620充电与USB存储模块边界.md`.
+- `rdx_storage_lifecycle.c/h` owns file-service admission and PC-return reconciliation, never shutdown. `rdx_dip_switch.c` owns debounced OFF admission and an independent 3-second reset guard. Accepted OFF enters native shutdown without a storage veto; normal shutdown retains platform uninit and RTC save. Historical recording errors do not gate BLE/HOGP. See `docs/7-1.T2620充电与USB存储模块边界.md`.
 - Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay
 - The SD0 board configuration forces the soldered SD NAND always-online policy independently of PC export in `t2620_project_config.h`; `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` bypasses automatic and forced boot formatting, including mount failure with a missing VM marker. Initial provisioning/recovery requires an explicit format operation; the board header retains only the generic fallback policy.
 - Do **not** add `TCFG_DIP_SWITCH_POWER*` macros to `sdk_config.h`, `sdk_config.c`, or `iokey_config.c`

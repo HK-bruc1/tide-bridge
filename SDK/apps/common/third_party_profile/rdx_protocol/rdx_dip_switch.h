@@ -18,6 +18,8 @@ void rdx_dip_switch_init(void);
 int rdx_dip_switch_pc_allowed(void);
 int rdx_dip_switch_cold_service(void);
 void rdx_dip_switch_note_business_mode(void);
+void rdx_dip_switch_shutdown_begin(void);
+int rdx_dip_switch_shutdown_pending(void);
 
 #endif // TCFG_DIP_SWITCH_POWER_ENABLE
 

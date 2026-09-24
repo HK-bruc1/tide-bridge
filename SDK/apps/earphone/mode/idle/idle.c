@@ -21,6 +21,7 @@
 #include "audio_config.h"
 #include "app_default_msg_handler.h"
 #include "pwm_led/led_ui_api.h"
+#include "rdx_dip_switch.h"
 
 
 #if TCFG_SMART_VOICE_ENABLE
@@ -51,6 +52,19 @@ static void wait_led_ui_stop_timeout(void *p)
 static void app_idle_enter_softoff(void)
 {
 
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (rdx_dip_switch_shutdown_pending()) {
+        /* 接受 OFF 后若拨回 ON，重建全新运行时，不恢复正在退出的蓝牙栈。 */
+        if (get_power_on_status() || get_charge_online_flag()) {
+            cpu_reset();
+        }
+        p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO, FALLING_EDGE);
+        if (get_power_on_status()) {
+            cpu_reset();
+        }
+    }
+#endif
+
 #if TCFG_CHARGE_ENABLE
     if (get_lvcmp_det() && (0 == get_charge_full_flag())) {
         log_info("charge inset, system reset!\n");
@@ -59,7 +73,11 @@ static void app_idle_enter_softoff(void)
 #endif
 
 #if TCFG_PWMLED_ENABLE
-    if (!led_ui_state_is_idle()) {
+    if (!led_ui_state_is_idle()
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        && !rdx_dip_switch_shutdown_pending()
+#endif
+       ) {
         sys_timeout_add(NULL, wait_led_ui_stop_timeout, 50);
         return;
     }
@@ -72,6 +90,11 @@ static void app_idle_enter_softoff(void)
     dac_power_off();    // 关机前先关dac
 
     dlog_flush2flash(100);
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (rdx_dip_switch_shutdown_pending() && get_power_on_status()) {
+        cpu_reset();
+    }
+#endif
     power_set_soft_poweroff();
 }
 
@@ -97,7 +120,14 @@ static int idle_mode_enter(int param)
                 vm_flush2flash(1);
             }
             os_taskq_flush();
-            int ret = play_tone_file_callback(get_tone_files()->power_off, NULL,
+            int ret;
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+            if (rdx_dip_switch_shutdown_pending()) {
+                app_send_message(APP_MSG_SOFT_POWEROFF, 0);
+                break;
+            }
+#endif
+            ret = play_tone_file_callback(get_tone_files()->power_off, NULL,
                                               app_power_off_tone_cb);
             printf("power_off tone play ret:%d", ret);
             if (ret) {

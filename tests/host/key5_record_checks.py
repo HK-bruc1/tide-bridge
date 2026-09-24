@@ -122,9 +122,9 @@ int test_battery_single_click_only(void) {
     connected=1; ready=0;
     rdx_app_key_battery_cb(NULL); CHECK(battery_queries==2);
     blocked=1; rdx_app_key_battery_cb(NULL);
-    CHECK(battery_queries==2); blocked=0;
+    CHECK(battery_queries==3); blocked=0;
     app_var.goto_poweroff_flag=1; rdx_app_key_battery_cb(NULL);
-    CHECK(battery_queries==2); app_var.goto_poweroff_flag=0;
+    CHECK(battery_queries==3); app_var.goto_poweroff_flag=0;
     battery_posts=0;
     rdx_app_key_click(KEY_IO_NUM4,KEY_ACTION_DOUBLE_CLICK);
     rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_LONG);

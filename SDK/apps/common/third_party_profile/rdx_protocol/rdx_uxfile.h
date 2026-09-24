@@ -137,6 +137,9 @@ void rdx_uxfile_device_sd_format(uxfile_format_cb cb);
  * persisted the entry; callers must not invalidate/free that cache after
  * enqueueing the request. */
 int rdx_uxfile_recordFile_delete_handle(int fnum, char* fname);
+/* 经校验的 APP 删除：将上下文提交至 UXFILE，由完成回调回复结果。 */
+int rdx_uxfile_delete_submit(void *context);
+int rdx_uxfile_delete_checked(u32 sn, const char *name);
 
 // [优化] DAT 缓存管理（WiFi传输前调用释放内存）
 void rdx_uxfile_free_dat_cache(void);

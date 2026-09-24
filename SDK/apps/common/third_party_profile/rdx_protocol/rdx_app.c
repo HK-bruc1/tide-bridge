@@ -1050,7 +1050,7 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
 /* Local battery feedback is independent of BLE connection/readiness. */
 static void rdx_app_key_battery_cb(void *priv)
 {
-    if (!rdx_app_business_started() || rdx_storage_lifecycle_business_blocked() ||
+    if (!rdx_app_business_started() ||
         rdx_dut_test_keys_active() || app_var.goto_poweroff_flag ||
         app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
         return;
@@ -1060,7 +1060,7 @@ static void rdx_app_key_battery_cb(void *priv)
 
 u8 rdx_app_hogp_input_route(void)
 {
-    if (!rdx_app_business_started() || rdx_storage_lifecycle_business_blocked() ||
+    if (!rdx_app_business_started() ||
         rdx_dut_test_keys_active() || app_in_mode(APP_MODE_PC) ||
         rdx_uxfile_sd_format_status_check() || app_var.goto_poweroff_flag) return RDX_HOGP_INPUT_DISCARD;
 #if TCFG_RDX_HOGP_ENABLE
@@ -1118,10 +1118,6 @@ static void rdx_app_local_player_key_remap(int *value, int num_idx, int index, i
 
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
-    if (rdx_storage_lifecycle_business_blocked()) {
-        *value = APP_MSG_NULL;
-        return;
-    }
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
     /*----------------------------------------------------------------*/
@@ -2318,9 +2314,6 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     if (strcmp(cmd, RDX_LIFECYCLE_CUSTOM_CMD) == 0 &&
         rdx_ble_server_rdx_lifecycle_barrier_match(value)) {
         rdx_ble_server_rdx_lifecycle_barrier_complete();
-        return;
-    }
-    if (rdx_storage_lifecycle_business_blocked()) {
         return;
     }
     if (strcmp(cmd, RDX_SESSION_CUSTOM_CMD) == 0) {
@@ -3756,6 +3749,8 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
 typedef struct {
     ProtocolFileDeleteParams params;
     rdx_ble_async_token_t token;
+    int result;
+    int previous_service;
 } rdx_app_file_delete_request_t;
 
 typedef struct {
@@ -3874,7 +3869,7 @@ static void rdx_app_unbound_on_app_core(rdx_app_unbound_request_t *request)
     rdx_vm_choose_to_unbound_handle(params.user_para, params.format_en);
 }
 
-static void rdx_app_file_delete_on_app_core(
+static void rdx_app_file_delete_complete(
     rdx_app_file_delete_request_t *request)
 {
     ProtocolFileDeleteParams *params;
@@ -3898,8 +3893,7 @@ static void rdx_app_file_delete_on_app_core(
     }
 #endif
 
-    ret = rdx_uxfile_recordFile_delete_handle(
-        params->file_sn, params->file_name);
+    ret = request->result;
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (ret >= 0) {
         rdx_playback_on_file_deleted((u32)params->file_sn);
@@ -3912,6 +3906,46 @@ static void rdx_app_file_delete_on_app_core(
             (ret < 0) ? 1 : 0, params->file_sn, params->file_name);
     }
     free(request);
+}
+
+void rdx_app_file_delete_worker(void *context)
+{
+    rdx_app_file_delete_request_t *request = context;
+    request->result = rdx_uxfile_delete_checked(
+        request->params.file_sn, request->params.file_name);
+    /* 请求被拒绝时恢复原准入状态；真实存储失败仍关闭文件服务。 */
+    rdx_record_format_service_ready(request->result == RDX_RECORD_DELETE_REJECTED ?
+                                    request->previous_service : request->result);
+    int msg[3] = { (int)rdx_app_file_delete_complete, 1, (int)request };
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        /* 不得虚报成功；重新连接后可安全地重试请求。 */
+        free(request);
+    }
+}
+
+static void rdx_app_file_delete_on_app_core(rdx_app_file_delete_request_t *request)
+{
+    if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
+        free(request);
+        return;
+    }
+    if (rdx_record_format_service_status() > 0 ||
+        rdx_app_storage_activity_is_busy("DELETE", RDX_STORAGE_PLAYBACK_PREEMPT, 0)) {
+        request->result = -1;
+        rdx_app_file_delete_complete(request);
+        return;
+    }
+    /* 在工作任务完成索引与缓存交接前，阻止新的文件操作。 */
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    rdx_playback_stop();
+#endif
+    request->previous_service = rdx_record_format_service_status();
+    rdx_record_format_service_ready(1);
+    if (rdx_uxfile_delete_submit(request)) {
+        rdx_record_format_service_ready(request->previous_service);
+        request->result = -1;
+        rdx_app_file_delete_complete(request);
+    }
 }
 
 static int rdx_app_bound_tone_callback(void *priv, enum stream_event event)
@@ -3965,9 +3999,6 @@ static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
  */
 static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
 {
-    if (rdx_storage_lifecycle_business_blocked()) {
-        return;
-    }
     const RdxProtocolIndicateOps* ops = g_protocol_ops;
     if(!ops) return;
     if (rdx_ble_session_rdx_runtime_state_get() !=
@@ -4405,10 +4436,9 @@ void rdx_app_tasks_init(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
 #if defined(__UUX_FILE__)
-    /* Format recovery owns DAT exclusively before the library starts. */
-    if (!rdx_record_format_boot()) {
-        rdx_uxfile_init();
-    }
+    /* 文件工作任务串行完成恢复后，再接管 DAT。
+     * 蓝牙启动不等待历史录音扫描或 CRC 校验。 */
+    rdx_uxfile_init();
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     if (!rdx_storage_lifecycle_business_blocked()) {
         rdx_playback_refresh_playlist();

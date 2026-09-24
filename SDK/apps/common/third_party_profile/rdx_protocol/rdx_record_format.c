@@ -20,8 +20,9 @@ extern void sd_set_power_user(u8 en);
 #define RF_DAT RF_ROOT "uxfile.dat"
 #define RF_TMP RF_ROOT "rfmt.tmp"
 #define RF_COMMIT RF_ROOT "rfmt.cmt"
+#define RF_DELETE RF_ROOT "rfdel.cmt"
 #define RF_MAGIC 0x31464d52u
-#define RF_MAX_FILES 300
+#define RF_MAX_FILES 65535
 #define RF_OBJECT_SIZE 640
 
 typedef struct {
@@ -34,11 +35,25 @@ typedef struct {
     rf_meta meta;
     u32 size;
     u8 found;
+    u8 health; /* 0 可信，1 不完整，2 格式未知，3 旧版文件 */
 } rf_entry;
 
 static rf_meta rf_current;
 static volatile int rf_error;
 static u8 rf_boot_started;
+static volatile int rf_service = 1;
+static char rf_deleted_name[12];
+
+int rdx_record_format_service_status(void)
+{
+    return rf_service;
+}
+
+void rdx_record_format_service_ready(int result)
+{
+    rf_service = result < 0 ? -1 : result > 0 ? 1 : 0;
+    printf("[REC_FORMAT] file service=%d\n", rf_service);
+}
 /* Boot is serialized before RDX initialization; cJSON owns parsed strings. */
 static char rf_json[RF_OBJECT_SIZE];
 static struct {
@@ -85,7 +100,7 @@ static void rf_path(char *path, const char *name, int metadata)
 static int rf_fail_at(unsigned line)
 {
     rf_error = -1;
-    printf("[REC_FORMAT] storage format error line=%u; admission closed\n", line);
+    printf("[REC_FORMAT] file service error line=%u; BLE/power remain available\n", line);
     return -1;
 }
 
@@ -144,10 +159,11 @@ static int rf_save_meta(rf_meta *meta)
 
 int rdx_record_format_begin(const uxfile_data_t *file, u8 format)
 {
-    if (rf_error || !file || !file->sn || !rf_frame_bytes(format) ||
+    if (!file || !file->sn || !rf_frame_bytes(format) ||
         !rf_name_valid(file->filename)) {
         return rf_fail();
     }
+    rf_error = 0; /* 上一次会话的失败不得影响新会话。 */
     memset(&rf_current, 0, sizeof(rf_current));
     rf_current.magic = RF_MAGIC;
     rf_current.sn = file->sn;
@@ -183,6 +199,13 @@ int rdx_record_format_frame(const uxfile_data_t *file, u8 format,
 /* A completed temp file plus its checked commit record is replayable after
  * power loss during DAT replacement. Never treat a partial temp as committed.
  */
+static void rf_cooperate(u32 bytes)
+{
+    static u32 budget;
+    budget += bytes;
+    if (budget >= 16384) { budget = 0; os_time_dly(1); }
+}
+
 static int rf_file_hash(const char *path, u32 *hash, u32 *size)
 {
     u8 buf[256];
@@ -196,6 +219,7 @@ static int rf_file_hash(const char *path, u32 *hash, u32 *size)
         for (u32 i = 0; i < n; ++i) h = (h ^ buf[i]) * 16777619u;
         remaining -= n;
         wdt_clear();
+        rf_cooperate(n);
     }
     if (fclose(f)) ok = 0;
     *hash = h;
@@ -227,6 +251,7 @@ static int rf_replay(void)
         }
         remaining -= n;
         wdt_clear();
+        rf_cooperate(n);
     }
     if (ok && ftruncate(dst, size)) ok = 0;
     if (fclose(src)) ok = 0;
@@ -280,8 +305,8 @@ static int rf_object(FILE *f, char *buf)
             else if (c == '\\') escape = 1;
             else if (c == '"') quoted = 0;
         } else if (c == '"') quoted = 1;
-        else if (c == '{') ++depth;
-        else if (c == '}') --depth;
+        else if (c == '{' || c == '[') { if (++depth > 8) return -1; }
+        else if (c == '}' || c == ']') --depth;
     }
     buf[n] = 0;
     return 0;
@@ -290,8 +315,7 @@ static int rf_object(FILE *f, char *buf)
 static int rf_emit(FILE *dst, cJSON *obj, u32 *count)
 {
     char *buf = rf_json;
-    if (*count >= RF_MAX_FILES ||
-        !cJSON_PrintPreallocated(obj, buf, RF_OBJECT_SIZE, 0)) return -1;
+    if (!cJSON_PrintPreallocated(obj, buf, RF_OBJECT_SIZE, 0)) return -1;
     u32 n = strlen(buf);
     if (dst && *count && fwrite(",", 1, 1, dst) != 1) return -1;
     if (dst && fwrite(buf, 1, n, dst) != n) return -1;
@@ -310,29 +334,60 @@ static int rf_number(cJSON *obj, const char *key, u32 value)
     return cJSON_AddNumberToObject(obj, key, value) ? 0 : -1;
 }
 
+static u32 rf_entry_frame(const rf_entry *e)
+{
+    /* 明确标记为不支持的格式；旧解码器会将 0 解释为旧版双声道。 */
+    return e->health ? 1 : rf_frame_bytes(e->meta.format);
+}
+
+static u32 rf_entry_opus(const rf_entry *e)
+{
+    return e->health ? 0 : rdx_protocol_calc_opus_format(e->meta.format);
+}
+
 static int rf_fix_object(cJSON *obj, rf_entry *entries, u32 total, int *changed)
 {
     cJSON *name = cJSON_GetObjectItemCaseSensitive(obj, "name");
     cJSON *sn = cJSON_GetObjectItemCaseSensitive(obj, "sn");
-    if (!cJSON_IsString(name) || !cJSON_IsNumber(sn)) return -1;
+    if (!cJSON_IsString(name) || !cJSON_IsNumber(sn) ||
+        sn->valuedouble < 1 || sn->valuedouble > 0x7ffffffeu ||
+        sn->valuedouble != (u32)sn->valuedouble) return -1;
+    char safe[12];
+    u32 length = strlen(name->valuestring);
+    if (length >= sizeof(safe) || length < 7) return -1;
+    strcpy(safe, name->valuestring);
+    if (!strcmp(safe + length - 4, ".mta")) strcpy(safe + length - 3, "raw");
+    if (!rf_name_valid(safe)) return -1;
     for (u32 i = 0; i < total; ++i) {
         rf_entry *e = &entries[i];
         if (strcmp(name->valuestring, e->meta.name)) {
-            if (sn->valuedouble == e->meta.sn) return -1;
+
             continue;
         }
-        if (e->found || sn->valuedouble != e->meta.sn) return -1;
+        if (e->found) return -1;
+        /* 以现有有效 DAT 中的管理标识为准，MTA 可能已经过期。 */
+        e->meta.sn = (u32)sn->valuedouble;
+        for (u32 j = 0; j < total; ++j) {
+            if (entries[j].found && entries[j].meta.sn == e->meta.sn) {
+                e->meta.sn = (strstr(e->meta.name, ".mta") ? 0x12000000u : 0x10000000u) +
+                             strtoul(e->meta.name, NULL, 16);
+                if (rf_number(obj, "sn", e->meta.sn)) return -1;
+                *changed = 1;
+                break;
+            }
+        }
+        if (e->health == 3) { e->found = 1; continue; }
         e->found = 1;
         cJSON *frame = cJSON_GetObjectItemCaseSensitive(obj, "frame_size");
         cJSON *opus = cJSON_GetObjectItemCaseSensitive(obj, "opus");
         if (!cJSON_IsNumber(frame) ||
-            frame->valuedouble != rf_frame_bytes(e->meta.format) ||
+            frame->valuedouble != rf_entry_frame(e) ||
             !cJSON_IsNumber(opus) ||
-            opus->valuedouble != rdx_protocol_calc_opus_format(e->meta.format)) {
+            opus->valuedouble != rf_entry_opus(e)) {
             *changed = 1;
         }
-        if (rf_number(obj, "frame_size", rf_frame_bytes(e->meta.format)) ||
-            rf_number(obj, "opus", rdx_protocol_calc_opus_format(e->meta.format))) return -1;
+        if (rf_number(obj, "frame_size", rf_entry_frame(e)) ||
+            rf_number(obj, "opus", rf_entry_opus(e))) return -1;
     }
     return 0;
 }
@@ -341,7 +396,7 @@ static cJSON *rf_restore_object(const rf_entry *e)
 {
     char path[40], crc_text[16];
     u8 buf[512];
-    u32 crc = 0, remaining = e->size;
+    u32 crc = 0, remaining = e->health ? 0 : e->size;
     rf_path(path, e->meta.name, 0);
     FILE *f = fopen(path, "r");
     if (!f) return NULL;
@@ -352,6 +407,7 @@ static cJSON *rf_restore_object(const rf_entry *e)
         crc = rdx_util_crc32(buf, n, &crc);
         remaining -= n;
         wdt_clear();
+        rf_cooperate(n);
     }
     if (fclose(f)) ok = 0;
     if (!ok) return NULL;
@@ -364,9 +420,9 @@ static cJSON *rf_restore_object(const rf_entry *e)
         rf_number(obj, "sn", e->meta.sn) || rf_number(obj, "size", e->size) ||
         rf_number(obj, "scene", e->meta.scene) ||
         rf_number(obj, "start_time", e->meta.start) ||
-        rf_number(obj, "end_time", e->meta.start + e->size / rf_frame_bytes(e->meta.format) / 50) ||
-        rf_number(obj, "frame_size", rf_frame_bytes(e->meta.format)) ||
-        rf_number(obj, "opus", rdx_protocol_calc_opus_format(e->meta.format))) {
+        rf_number(obj, "end_time", e->meta.start + (rf_frame_bytes(e->meta.format) ? e->size / rf_frame_bytes(e->meta.format) / 50 : 0)) ||
+        rf_number(obj, "frame_size", rf_entry_frame(e)) ||
+        rf_number(obj, "opus", rf_entry_opus(e))) {
         cJSON_Delete(obj);
         return NULL;
     }
@@ -395,13 +451,18 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
             char *buf = rf_json;
             if (rf_object(src, buf)) { ok = 0; break; }
             cJSON *obj = cJSON_ParseWithOpts(buf, NULL, 1);
-            if (!obj || rf_fix_object(obj, entries, total, &changed) || rf_emit(dst, obj, &count)) ok = 0;
+            cJSON *name = obj ? cJSON_GetObjectItemCaseSensitive(obj, "name") : NULL;
+            if (cJSON_IsString(name) && rf_deleted_name[0] &&
+                !strcmp(name->valuestring, rf_deleted_name)) {
+                changed = 1;
+            } else if (!obj || rf_fix_object(obj, entries, total, &changed) || rf_emit(dst, obj, &count)) ok = 0;
             cJSON_Delete(obj);
             c = rf_nonspace(src);
             if (c != ',') break;
             c = rf_nonspace(src);
             if (c != '{') ok = 0;
             wdt_clear();
+        rf_cooperate(RF_OBJECT_SIZE);
         }
         if (c != ']' || rf_nonspace(src) != -1 || rf_reader.error) ok = 0;
     }
@@ -431,72 +492,265 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
     return rf_replay();
 }
 
+
+/* 使用未占用的名称保留损坏索引或事务，不覆盖之前的故障现场。
+ * 重命名结果刷写完成后，再构建替代文件。 */
+static int rf_preserve(const char *path)
+{
+    FILE *src = fopen(path, "r");
+    if (!src) return 0;
+    char name[16], full[40];
+    for (u32 n = 0; n < 1000; ++n) {
+        sprintf(name, "rf%06u.bak", n);
+        sprintf(full, RF_ROOT "%s", name);
+        FILE *old = fopen(full, "r");
+        if (old) { fclose(old); continue; }
+        int result = frename(src, name);
+        if (fclose(src)) result = -1;
+        if (f_flush_wbuf(RF_ROOT)) result = -1;
+        return result;
+    }
+    fclose(src);
+    return -1;
+}
+
+static int rf_manage_name(const char *name)
+{
+    char raw[12];
+    u32 n = name ? strlen(name) : 0;
+    if (n < 7 || n >= sizeof(raw)) return 0;
+    strcpy(raw, name);
+    if (!strcmp(raw + n - 4, ".mta")) strcpy(raw + n - 3, "raw");
+    return rf_name_valid(raw);
+}
+
+static int rf_unlink(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return 0; /* 兼容上次已完成删除后的重试 */
+    if (fclose(f)) return -1;
+    return fdelete_by_name(path);
+}
+
+static int rf_delete_replay(void)
+{
+    rf_meta mark = {0};
+    FILE *f = fopen(RF_DELETE, "r");
+    if (!f) return 0;
+    int valid = flen(f) == sizeof(mark) && fread(&mark, 1, sizeof(mark), f) == sizeof(mark);
+    if (fclose(f)) valid = 0;
+    if (!valid || mark.magic != RF_MAGIC || mark.name[sizeof(mark.name)-1] ||
+        !rf_manage_name(mark.name) || mark.hash != rf_hash(&mark, sizeof(mark)-sizeof(mark.hash))) {
+        return rf_preserve(RF_DELETE);
+    }
+    char path[40];
+    rf_path(path, mark.name, 0);
+    if (rf_unlink(path)) return -1;
+    if (strstr(mark.name, ".raw")) {
+        rf_path(path, mark.name, 1);
+        if (rf_unlink(path)) return -1;
+    }
+    if (f_flush_wbuf(RF_ROOT)) return -1;
+    strcpy(rf_deleted_name, mark.name);
+    int result = rf_merge(NULL, 0, 1);
+    rf_deleted_name[0] = 0;
+    if (result || rf_unlink(RF_DELETE) || f_flush_wbuf(RF_ROOT)) return -1;
+    return 0;
+}
+
+/* 仅由文件工作任务在持有库 DAT 互斥锁且刷写脏缓存后调用。
+ * 创建持久化删除意图前，必须同时校验两个身份字段。 */
+int rdx_record_format_delete(u32 sn, const char *name)
+{
+    if (!rf_manage_name(name) || !sn) return RDX_RECORD_DELETE_REJECTED;
+    if (rf_replay() || rf_delete_replay()) return -1;
+    FILE *src = fopen(RF_DAT, "r");
+    if (!src) return -1;
+    memset(&rf_reader, 0, sizeof(rf_reader));
+    rf_reader.remaining = flen(src);
+    int ok = rf_nonspace(src) == '[', found = 0, mismatch = 0;
+    int c = rf_nonspace(src);
+    while (ok && c == '{') {
+        if (rf_object(src, rf_json)) { ok = 0; break; }
+        cJSON *obj = cJSON_ParseWithOpts(rf_json, NULL, 1);
+        cJSON *n = obj ? cJSON_GetObjectItemCaseSensitive(obj, "name") : NULL;
+        cJSON *id = obj ? cJSON_GetObjectItemCaseSensitive(obj, "sn") : NULL;
+        if (!cJSON_IsString(n) || !cJSON_IsNumber(id)) ok = 0;
+        else if (!strcmp(n->valuestring, name)) {
+            if (id->valuedouble == sn) found = 1;
+            else mismatch = 1;
+        }
+        cJSON_Delete(obj);
+        c = rf_nonspace(src);
+        if (c != ',') break;
+        c = rf_nonspace(src);
+        if (c != '{') ok = 0;
+    }
+    if (c != ']' || rf_nonspace(src) != -1 || rf_reader.error) ok = 0;
+    if (fclose(src)) ok = 0;
+    if (!ok) return -1;
+    if (mismatch) return RDX_RECORD_DELETE_REJECTED;
+    if (!found) {
+        char path[40];
+        rf_path(path, name, 0);
+        FILE *existing = fopen(path, "r");
+        if (existing) { fclose(existing); return RDX_RECORD_DELETE_REJECTED; }
+        return 0; /* 幂等重试；不得删除未纳入索引的替代文件 */
+    }
+    rf_meta mark = {0};
+    mark.magic = RF_MAGIC;
+    mark.sn = sn;
+    strcpy(mark.name, name);
+    mark.hash = rf_hash(&mark, sizeof(mark)-sizeof(mark.hash));
+    if (rf_write(RF_DELETE, &mark, sizeof(mark))) return -1;
+    return rf_delete_replay();
+}
+
+/* 传输层已将 DAT 分为每包 460 字节；此处读取完整的持久化管理索引，
+ * 避免只返回库缓存中的前 300 条记录。调用前，
+ * 库须持有 DAT 互斥锁并刷写脏条目。 */
+uxfile_datfile_info_t *rdx_record_format_list(uxfile_datfile_info_t *info)
+{
+    if (info->data_len) return info;
+    FILE *f = fopen(RF_DAT, "r");
+    if (!f) return info;
+    u32 size = flen(f);
+    u8 *data = size && size < 0x7fffffffu ? malloc(size + 1) : NULL;
+    int ok = data && fread(data, 1, size, f) == size;
+    if (fclose(f)) ok = 0;
+    if (!ok) {
+        printf("[REC_FORMAT] list unavailable bytes=%u allocated=%u\n", size, data != NULL);
+        free(data);
+        return info;
+    }
+    data[size] = 0;
+    free(info->data);
+    info->data = data;
+    info->data_len = size;
+    info->orig_pack_num = (size + 459) / 460;
+    return info;
+}
+
+static int rf_scan_entries(rf_entry **out, u32 *total)
+{
+    u32 capacity = *total;
+    /* 独立于 MTA 枚举 RAW，防止元数据缺失或损坏导致用户录音
+     * 被隐藏；第二轮保留孤立元数据，以便用户删除。 */
+    for (int pass = 0; pass < 2; ++pass) {
+        struct vfscan *scan = fscan(RF_ROOT, pass ? "-tMTA -sn" : "-tRAW -sn", 1);
+        if (!scan) return -1;
+        int ok = 1;
+        for (u32 i = 1; i <= scan->file_number; ++i) {
+            FILE *f = fselect(scan, FSEL_BY_NUMBER, i);
+            if (!f) { ok = 0; break; }
+            rf_entry e = {0};
+            int n = fget_name(f, (u8 *)e.meta.name, sizeof(e.meta.name) - 1);
+            e.size = flen(f);
+            if (fclose(f)) { ok = 0; break; }
+            if (n < 7 || n > 10) continue;
+            for (int j = 0; j < n; ++j) {
+                if (e.meta.name[j] >= 'A' && e.meta.name[j] <= 'Z') e.meta.name[j] += 'a' - 'A';
+            }
+            char raw[12], path[40];
+            strcpy(raw, e.meta.name);
+            strcpy(raw + n - 3, "raw");
+            if (!rf_name_valid(raw)) continue;
+            if (pass) {
+                rf_path(path, raw, 0);
+                f = fopen(path, "r");
+                if (f) { fclose(f); continue; }
+                e.health = 2;
+            } else {
+                rf_meta m = {0};
+                rf_path(path, raw, 1);
+                f = fopen(path, "r");
+                e.health = f ? 2 : 3;
+                if (f) {
+                    int valid = flen(f) == sizeof(m) && fread(&m, 1, sizeof(m), f) == sizeof(m);
+                    if (fclose(f)) valid = 0;
+                    if (valid && m.magic == RF_MAGIC && m.sn && m.sn < 0x7ffffffeu &&
+                        m.ready == 1 && !m.name[sizeof(m.name)-1] &&
+                        !strcmp(m.name, raw) && rf_frame_bytes(m.format) &&
+                        m.hash == rf_hash(&m, sizeof(m)-sizeof(m.hash))) {
+                        u8 first[80];
+                        u32 frame = rf_frame_bytes(m.format);
+                        rf_path(path, raw, 0);
+                        f = fopen(path, "r");
+                        valid = f && e.size >= frame && fread(first, 1, frame, f) == frame &&
+                                rf_hash(first, frame) == m.first_hash;
+                        if (f && fclose(f)) valid = 0;
+                        if (valid) { e.meta = m; e.health = e.size % frame ? 1 : 0; }
+                    }
+                }
+            }
+            if (e.health >= 2) {
+                /* 根据固件使用的十六进制文件名生成唯一标识；
+                 * 孤立 MTA 使用独立编号范围，不信任损坏的 SN。 */
+                e.meta.sn = (pass ? 0x12000000u : 0x10000000u) + strtoul(raw, NULL, 16);
+            }
+            for (u32 j = 0; j < *total; ++j) {
+                if ((*out)[j].meta.sn == e.meta.sn) {
+                    if (++e.meta.sn >= 0x7ffffffeu) { ok = 0; break; }
+                    j = (u32)-1; /* 重新与此前所有标识逐一检查冲突 */
+                }
+            }
+            if (!ok) break;
+            if (*total >= RF_MAX_FILES) { ok = 0; break; }
+            if (*total == capacity) {
+                /* 分批扩容，避免每枚举一个文件都搬移整个数组。
+                 * 分配失败必须终止本轮恢复，不发布不完整索引。 */
+                u32 next = capacity + 32;
+                if (next > RF_MAX_FILES) next = RF_MAX_FILES;
+                rf_entry *grown = realloc(*out, next * sizeof(e));
+                if (!grown) {
+                    printf("[REC_FORMAT] scan allocation failed entries=%u\n", next);
+                    ok = 0;
+                    break;
+                }
+                *out = grown;
+                capacity = next;
+            }
+            (*out)[(*total)++] = e;
+            if (e.health) printf("[REC_FORMAT] manageable name=%s health=%u size=%u\n", e.meta.name, e.health, e.size);
+            os_time_dly(1);
+        }
+        fscan_release(scan);
+        if (!ok) return -1;
+    }
+    return 0;
+}
+
 int rdx_record_format_boot(void)
 {
-    /* Repeated app task initialization must never edit a live library cache. */
     if (rf_boot_started) return rf_error;
     rf_boot_started = 1;
     rdx_app_emmc_poweron(0);
     sd_set_power_user(1);
     if (!dev_manager_list_check_by_logo("sd0") && dev_manager_add("sd0")) return rf_fail();
-    if (rf_replay()) return rf_fail();
-    struct vfscan *scan = fscan(RF_ROOT, "-tMTA -sn", 1);
-    if (!scan) return rf_fail();
-    u32 total = 0;
-    int ok = 1;
-    rf_entry *entries = NULL;
-    if (scan->file_number) entries = zalloc(sizeof(*entries) * RF_MAX_FILES);
-    if (scan->file_number && !entries) ok = 0;
-    for (u32 i = 1; ok && i <= scan->file_number; ++i) {
-        FILE *f = fselect(scan, FSEL_BY_NUMBER, i);
-        rf_meta meta;
-        if (!f) { ok = 0; break; }
-        char name[12] = {0};
-        int name_len = fget_name(f, (u8 *)name, sizeof(name) - 1);
-        int valid = flen(f) == sizeof(meta) && fread(&meta, 1, sizeof(meta), f) == sizeof(meta);
-        if (fclose(f)) valid = 0;
-        if (name_len < 7 || name_len > 10) { ok = 0; break; }
-        for (u32 j = 0; j < sizeof(name) && name[j]; ++j) {
-            if (name[j] >= 'A' && name[j] <= 'Z') name[j] += 'a' - 'A';
-        }
-        if (strcmp(name + name_len - 4, ".mta")) { ok = 0; break; }
-        strcpy(name + name_len - 3, "raw");
-        if (!rf_name_valid(name)) { ok = 0; break; }
-        char path[40];
-        rf_path(path, name, 0);
-        f = fopen(path, "r");
-        /* Metadata is durable BEFORE RAW. A cut during its write may leave
-         * an incomplete orphan: it cannot describe any saved audio. */
-        if (!f) continue;
-        if (!valid || meta.magic != RF_MAGIC || !meta.sn || meta.ready != 1 ||
-            meta.name[sizeof(meta.name) - 1] || !rf_name_valid(meta.name) ||
-            strcmp(meta.name, name) ||
-            !rf_frame_bytes(meta.format) ||
-            meta.hash != rf_hash(&meta, sizeof(meta) - sizeof(meta.hash))) {
-            fclose(f); ok = 0; break;
-        }
-        u32 size = flen(f), frame = rf_frame_bytes(meta.format);
-        u8 first[80];
-        valid = size >= frame && fread(first, 1, frame, f) == frame &&
-                rf_hash(first, frame) == meta.first_hash;
-        if (fclose(f)) { ok = 0; break; }
-        if (!valid) { ok = 0; break; }
-        if (size % frame || total == RF_MAX_FILES) { ok = 0; break; }
-        for (u32 j = 0; j < total; ++j) {
-            if (entries[j].meta.sn == meta.sn || !strcmp(entries[j].meta.name, meta.name)) ok = 0;
-        }
-        if (!ok) break;
-        entries[total].meta = meta;
-        entries[total++].size = size;
-        wdt_clear();
+    if (rf_replay()) {
+        /* 过期提交记录不得在下次启动时恢复已删除条目。 */
+        if (rf_preserve(RF_COMMIT) || rf_preserve(RF_TMP)) return rf_fail();
     }
-    fscan_release(scan);
-    if (ok && total) {
+    /* 若删除中断后遇到损坏的 DAT，先在下方重建索引，再
+     * 完成删除意图；不得恢复已经删除的 RAW。 */
+    int delete_pending = rf_delete_replay();
+    rf_entry *entries = NULL;
+    u32 total = 0;
+    int ok = !rf_scan_entries(&entries, &total);
+    if (ok) {
         int changed = rf_merge(entries, total, 0);
-        if (changed < 0 || (changed && rf_merge(entries, total, 1))) ok = 0;
+        if (changed < 0) {
+            /* 保留原件，仅将经过校验的重建结果交给
+             * 闭源解析器，原始音频文件保持不变。 */
+            ok = !rf_preserve(RF_DAT);
+            changed = 1;
+        }
+        if (ok && changed && rf_merge(entries, total, 1)) ok = 0;
     }
     free(entries);
+    if (ok && delete_pending && rf_delete_replay()) ok = 0;
     if (!ok) return rf_fail();
+    rf_error = 0;
     printf("[REC_FORMAT] boot reconciled files=%u\n", total);
     return 0;
 }

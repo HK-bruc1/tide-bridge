@@ -258,13 +258,7 @@ static void wait_exit_btstack_flag(void *_reason)
 
 void sys_enter_soft_poweroff(enum poweroff_reason reason)
 {
-    /* Unplugging while OFF can request normal poweroff independently of DIP.
-     * Let an in-progress product handoff finish; low-voltage protection wins. */
-    if (reason == POWEROFF_NORMAL && rdx_storage_lifecycle_shutdown_deferred() &&
-        !get_vbat_need_shutdown()) {
-        log_info("[USB-SWITCH] defer normal poweroff until storage is quiet");
-        return;
-    }
+    /* 存储错误不得否决用户拨动开关发起的 OFF 请求。 */
     log_info("===> sys_enter_soft_poweroff: %d, app_var.goto_poweroff_flag: %d\n", reason, app_var.goto_poweroff_flag);
 
 #if ((TCFG_OTG_MODE & OTG_SLAVE_MODE) && (TCFG_OTG_MODE & OTG_CHARGE_MODE))
@@ -283,7 +277,9 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
     usb_factory_shutdown(); /* notification; never gates poweroff/reset */
 #endif
     app_var.goto_poweroff_flag = 1;
+    /* 拨码 OFF 由拨码模块独立锁存；普通关机不得冒充拨码关机。 */
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    app_send_message(APP_MSG_RECORD_OFF, 0); /* 尽力通知，不等待保存屏障 */
     rdx_dut_test_cancel();
 #endif
     app_var.goto_poweroff_cnt = 0;

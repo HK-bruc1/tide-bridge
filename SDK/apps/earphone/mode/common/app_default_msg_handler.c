@@ -357,6 +357,13 @@ static void app_common_app_event_handler(int *msg)
         break;
     case APP_MSG_REQUEST_POWEROFF:
 #if TCFG_DIP_SWITCH_POWER_ENABLE
+        if (rdx_dip_switch_shutdown_pending() &&
+            !rdx_dip_switch_cold_service() && !rdx_app_business_started()) {
+            /* 已进入蓝牙模式但初始化尚未完成，不得
+             * 销毁半初始化的协议栈；重启后优先采样 OFF。 */
+            cpu_reset();
+            break;
+        }
         if (rdx_dip_switch_cold_service()) {
             /* Cold USB service has no BT stack to detach. PC already stopped
              * USB; the native idle path performs final poweroff. */

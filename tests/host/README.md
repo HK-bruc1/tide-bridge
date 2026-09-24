@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs five source-contract scripts and nine C behavioral harnesses
-as **14 independent processes**. A failed module does not suppress the others;
+The entry point runs five source-contract scripts and ten C behavioral harnesses
+as **15 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -16,7 +16,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 
 | Source contract | Essential boundary |
 | --- | --- |
-| `test_t2620_product_contract.ps1` | Product configuration, power/charging, storage fences, recording admission and SDK integration |
+| `test_t2620_product_contract.ps1` | Product configuration, power/charging, bounded shutdown, recording admission and SDK integration |
 | `test_hogp_profile_contract.ps1` | HID protocol bytes, security, readiness and peer-scoped bonded CCC |
 | `test_rdx_transport_contract.ps1` | Dual-wrapper ownership, sends/retries, advertising and persisted binding |
 | `test_rdx_lifecycle_contract.ps1` | FIFO/worker reconnect barrier, RDX-only release, OTA cancellation and recording STOP |
@@ -32,7 +32,8 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_meeting_mono.py` | Mono/selector integration, allocation cleanup, pairing faults, channel metadata, RAW playback and player draining |
-| `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay |
+| `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures |
+| `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
 
 ## Keeping the suite small
 
@@ -89,3 +90,5 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 and CDC TEST firmware. Use the CDC port, not the debug log port. This independent
 tool checks startup bytes and four echoes; host validation never opens a port.
 See [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
+
+Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.

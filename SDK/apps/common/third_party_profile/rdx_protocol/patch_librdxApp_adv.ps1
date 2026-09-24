@@ -1,4 +1,4 @@
-# 仅在 patch_librdxApp.ps1 校验原始静态库哈希通过后应用。
+﻿# 仅在 patch_librdxApp.ps1 校验原始静态库哈希通过后应用。
 function Update-RdxAdvIr {
     param([string]$Ir)
 
