@@ -10,14 +10,12 @@ int rdx_storage_lifecycle_service(int on, int vbus);
 int rdx_storage_lifecycle_business_blocked(void);
 int rdx_storage_lifecycle_transition_led(void);
 int rdx_storage_lifecycle_shutdown_deferred(void);
-int rdx_storage_lifecycle_defer_normal_poweroff(void);
 void rdx_storage_lifecycle_pc_returned(void);
 #else
 static inline int rdx_storage_lifecycle_service(int on, int vbus) { return 0; }
 static inline int rdx_storage_lifecycle_business_blocked(void) { return 0; }
 static inline int rdx_storage_lifecycle_transition_led(void) { return 0; }
 static inline int rdx_storage_lifecycle_shutdown_deferred(void) { return 0; }
-static inline int rdx_storage_lifecycle_defer_normal_poweroff(void) { return 0; }
 static inline void rdx_storage_lifecycle_pc_returned(void) {}
 #endif
 

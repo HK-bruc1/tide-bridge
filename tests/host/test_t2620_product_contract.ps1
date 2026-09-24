@@ -507,7 +507,7 @@ Assert-Contract 'USB_HOT_SWITCH_REQUIRES_REAL_COMPLETION' (
     (Test-TokensInOrder $DipSwitch @('rdx_record_usb_quiesce_poll', 'rdx_ble_server_usb_quiesce', 'saved == 0 && ble_idle', 'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll', 'else if (!result)', 'rdx_cpu_reset()')) -and
     $DipSwitch -match '(?s)rdx_usb_switch_fail\(.*?USB_SWITCH_FAILED.*?no export/reset' -and
     $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag' -and
-    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_storage_lifecycle_defer_normal_poweroff\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
+    $Poweroff -match '(?s)void sys_enter_soft_poweroff\(enum poweroff_reason reason\).*?reason == POWEROFF_NORMAL && rdx_storage_lifecycle_shutdown_deferred\(\) &&.*?!get_vbat_need_shutdown\(\).*?return;' -and
     $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_USB_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?usb_record_done = ' -and
     $RdxServer -match '(?s)int rdx_ble_server_usb_quiesce\(void\).*?app_ble_disconnect.*?rdx_ble_server_rdx_runtime_try_rearm\(\)'
 ) 'Hot switch must close recording, drain real BLE lifecycle and freeze UXFILE before reset; cold export and failure protection remain intact'

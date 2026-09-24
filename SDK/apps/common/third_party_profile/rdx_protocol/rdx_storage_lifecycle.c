@@ -5,7 +5,6 @@
 #include "poweroff.h"
 #include "app_main.h"
 #include "rdx_app.h"
-#include "rdx_dut.h"
 #include "rdx_uxfile.h"
 #include "rdx_record.h"
 #include "rdx_record_format.h"
@@ -31,6 +30,7 @@ static u8 s_pc_refresh_pending;
 extern void rdx_app_emmc_poweroff_check_timer_stop(void);
 extern void rdx_app_wifi_handle(u8 cmd);
 extern u8 get_ota_status(void);
+extern bool rdx_app_get_dut_status(void);
 
 void rdx_storage_lifecycle_pc_returned(void)
 {
@@ -49,14 +49,6 @@ int rdx_storage_lifecycle_business_blocked(void)
 int rdx_storage_lifecycle_shutdown_deferred(void)
 {
     return s_usb_switch != USB_SWITCH_IDLE || s_wait_busy;
-}
-
-int rdx_storage_lifecycle_defer_normal_poweroff(void)
-{
-    /* USB 拔出等独立入口可能早于第一次拨码采样。
-     * 业务模式下的 OFF 交给消抖和收尾处理，冷关机保持原路径。 */
-    return rdx_storage_lifecycle_shutdown_deferred() ||
-           (!get_power_on_status() && !rdx_dip_switch_cold_service());
 }
 
 int rdx_storage_lifecycle_transition_led(void)
@@ -105,23 +97,14 @@ int rdx_storage_lifecycle_service(int on, int vbus)
             s_wait_busy = 0;
             return 0;
         }
-        if (rdx_dip_switch_cold_service()) {
+        if (rdx_dip_switch_cold_service() || !rdx_app_business_started() ||
+            (!vbus && !s_wait_busy)) {
             return 0;
         }
-        /* 进入蓝牙模式时，异步协议初始化可能尚未完成。
-         * 此期间不要提交原生蓝牙栈退出请求。 */
-        if (!rdx_app_business_ready()) {
-            s_wait_busy = 1;
-            return 1;
-        }
-        /* 电池供电下拨到 OFF，也需要与 USB 供电关机相同的收尾屏障。
-         * 快速开关机时，原生 btstack_exit 可能与启动或安全处理发生竞争。
-         * 保留蓝牙栈资源，完成存储收尾后复位；重新启动时先采样
-         * 拨码及 VBUS 状态，再决定是否允许业务运行。 */
         /* 等待正在进行的 OTA、格式化或 DUT 操作结束，避免中途断开传输。
          * 开始收尾前拨回 ON，可取消本次等待。 */
         if (get_ota_status() || rdx_uxfile_is_formatting() ||
-            rdx_dut_shutdown_busy()) {
+            rdx_app_get_dut_status()) {
             if (!s_wait_busy) {
                 r_printf("[USB-SWITCH] waiting for OTA/format/DUT; ON cancels wait\n");
             }

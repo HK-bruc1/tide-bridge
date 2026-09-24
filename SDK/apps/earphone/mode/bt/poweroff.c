@@ -258,9 +258,9 @@ static void wait_exit_btstack_flag(void *_reason)
 
 void sys_enter_soft_poweroff(enum poweroff_reason reason)
 {
-    /* USB 拔出可独立请求关机，必须覆盖首次采样前和初始化等待阶段。
-     * 正常关机由产品收尾流程接管，低电压紧急保护仍优先执行。 */
-    if (reason == POWEROFF_NORMAL && rdx_storage_lifecycle_defer_normal_poweroff() &&
+    /* Unplugging while OFF can request normal poweroff independently of DIP.
+     * Let an in-progress product handoff finish; low-voltage protection wins. */
+    if (reason == POWEROFF_NORMAL && rdx_storage_lifecycle_shutdown_deferred() &&
         !get_vbat_need_shutdown()) {
         log_info("[USB-SWITCH] defer normal poweroff until storage is quiet");
         return;

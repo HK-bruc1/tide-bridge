@@ -149,12 +149,6 @@ u8 rdx_app_business_started(void)
     return rdx_business_started;
 }
 
-/* 仅表示产品任务和接口初始化完成，不代表所有蓝牙后台计算已经结束。 */
-u8 rdx_app_business_ready(void)
-{
-    return rdx_app_init_flag;
-}
-
 static RecordStatus set_rp;
 
 /* LED PT0807 配置 */

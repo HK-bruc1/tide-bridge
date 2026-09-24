@@ -62,13 +62,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     /* Require two matching samples before reacting to a mechanical edge. */
     if (on != s_sample_on) {
         s_sample_on = on;
-        if (!rdx_storage_lifecycle_shutdown_deferred()) {
-            return;
-        }
-        /* 开关抖动不能阻碍已开始的收尾及其超时检查。
-         * 使用上一次消抖后的输入继续处理；只有稳定的 ON 才能
-         * 取消收尾前的忙等待。复位后重新采样实际引脚电平。 */
-        on = s_last_on;
+        return;
     }
     p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO,
                        on ? RISING_EDGE : FALLING_EDGE);

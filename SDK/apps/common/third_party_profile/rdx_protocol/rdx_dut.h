@@ -94,8 +94,6 @@ void rdx_dut_init(void);
 rdx_dut_info_t* rdx_dut_get_info(void);
 
 bool rdx_dut_is_in_mode(void);
-/* 封箱提交成功后允许关机；测试或封箱未完成时仍等待。 */
-bool rdx_dut_shutdown_busy(void);
 void rdx_dut_close_current_func(void);
 
 /******************************************************************************
