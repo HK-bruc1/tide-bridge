@@ -697,8 +697,8 @@
 #define WIFI_AP_SSID                           "GensparkVoicePad"
 #define WIFI_AP_PASSWORD                       "88888888"
 
-#define FIRMWARE_VERSION                       "1.0.6"
-#define FIRMWARE_VERSION_HEX                   0x00010006
+#define FIRMWARE_VERSION                       "1.0.7"
+#define FIRMWARE_VERSION_HEX                   0x00010007
 #define HARDWARE_VERSION                       "0.0.1"
 #define HARDWARE_VERSION_HEX                   0x00000001
 
