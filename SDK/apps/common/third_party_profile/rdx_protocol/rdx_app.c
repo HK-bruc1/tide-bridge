@@ -4667,8 +4667,12 @@ void rdx_app_all_init(void)
         motor_init();
     #endif
 
-        //LED PT0807 init and test.
+        /* 正常开机初始化灯后立即显示 BLE 广播蓝灯，后续由业务事件接管。 */
         rdx_led_hardware_init();
+        if (led_pt0807_config.initialized) {
+            g_printf("[RDX_LED_BOOT] request BLE advertising indication after LED init\n");
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        }
         rdx_app_emmc_poweroff_check();
 
         rdx_app_tasks_init();

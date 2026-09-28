@@ -2,6 +2,10 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Worktree policy
+
+Work directly in the current working directory by default. Do not create, reuse, switch to, or otherwise use a Git worktree unless the user explicitly requests it. A request to implement a feature or fix an issue does not authorize worktree use.
+
 ## Project overview
 
 This is a **JieLi (JL) AC701N / BR28 TWS earphone firmware** project. The application is built on top of JL's SDK (`SDK/`) with product-specific configuration in `src/` and output images in `output/`.
