@@ -96,17 +96,7 @@ static u32 current_max_sn(void)
 
 static u32 pb_find_latest_valid_sn(void)
 {
-    u32 sn = pb_max_sn;
-
-    while (sn != 0) {
-        uxfile_data_t *fi = rdx_uxfile_get_file_data_by_sn(sn, 0, 0);
-        if (fi && fi->filename[0] != '\0') {
-            return sn;
-        }
-        sn--;
-    }
-
-    return 0;
+    return rdx_uxfile_neighbor_sn(0, -1);
 }
 
 static bool pb_has_active_track(void)
@@ -691,15 +681,7 @@ static pb_candidate_result_t pb_start_candidate(uxfile_data_t *fi,
 
 static u32 pb_step_probe_sn(u32 sn, pb_direction_t direction)
 {
-    if (pb_max_sn == 0) {
-        return 0;
-    }
-
-    if (direction == PB_DIRECTION_NEWER) {
-        return (sn == 0 || sn >= pb_max_sn) ? 1 : sn + 1;
-    }
-
-    return (sn <= 1 || sn > pb_max_sn) ? pb_max_sn : sn - 1;
+    return rdx_uxfile_neighbor_sn(sn, direction);
 }
 
 static int pb_navigate_from(u32 anchor_sn, pb_direction_t direction,
@@ -707,14 +689,14 @@ static int pb_navigate_from(u32 anchor_sn, pb_direction_t direction,
 {
     pb_state_t previous_state = pb.state;
     u32 probe_sn = anchor_sn;
-    u32 probed_slots = 0;
     u16 candidate_count = 0;
 
-    while (probed_slots < pb_max_sn && candidate_count < pb.total_count) {
+    while (candidate_count < pb.total_count) {
         probe_sn = pb_step_probe_sn(probe_sn, direction);
-        probed_slots++;
+        candidate_count++;
 
-        if (probe_sn == 0 || probe_sn == excluded_sn) {
+        if (probe_sn == 0) break;
+        if (probe_sn == excluded_sn) {
             continue;
         }
 
@@ -723,7 +705,6 @@ static int pb_navigate_from(u32 anchor_sn, pb_direction_t direction,
             continue;
         }
 
-        candidate_count++;
         pb_candidate_result_t result = pb_start_candidate(fi, transition_state);
         if (result == PB_CANDIDATE_STARTED) {
             return PB_RESULT_OK;

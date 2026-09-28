@@ -109,6 +109,8 @@ typedef struct{
 ******************************************************************************/ 
 void rdx_uxfile_init(void);
 int rdx_uxfile_dat_init(void);
+/* 按缓存实际条目选择相邻编号，方向为负时选择较旧文件，末尾环回。 */
+u32 rdx_uxfile_neighbor_sn(u32 sn, int direction);
 int rdx_uxfile_sync_files_with_dat(void);
 void rdx_uxfile_print_file_list(void);
 void rdx_uxfile_start_timer(void);

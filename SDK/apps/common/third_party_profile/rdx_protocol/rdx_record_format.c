@@ -367,15 +367,6 @@ static int rf_fix_object(cJSON *obj, rf_entry *entries, u32 total, int *changed)
         if (e->found) return -1;
         /* 以现有有效 DAT 中的管理标识为准，MTA 可能已经过期。 */
         e->meta.sn = (u32)sn->valuedouble;
-        for (u32 j = 0; j < total; ++j) {
-            if (entries[j].found && entries[j].meta.sn == e->meta.sn) {
-                e->meta.sn = (strstr(e->meta.name, ".mta") ? 0x12000000u : 0x10000000u) +
-                             strtoul(e->meta.name, NULL, 16);
-                if (rf_number(obj, "sn", e->meta.sn)) return -1;
-                *changed = 1;
-                break;
-            }
-        }
         if (e->health == 3) { e->found = 1; continue; }
         e->found = 1;
         cJSON *frame = cJSON_GetObjectItemCaseSensitive(obj, "frame_size");
@@ -432,6 +423,38 @@ static cJSON *rf_restore_object(const rf_entry *e)
 /* First pass is read-only: a consistent DAT must not be rewritten each boot.
  * The second pass uses the same parser and the existing durable transaction.
  * Both passes run before the archive owns the index. */
+/* 已输出的 DAT 优先保留编号；新增或冲突条目只取未占用编号。 */
+static int rf_claim_sn(u32 *sn, rf_entry *entries, u32 total,
+                       u32 **used, u32 *count)
+{
+    u32 candidate = *sn;
+    for (u32 i = 0; i < *count; ++i) {
+        if ((*used)[i] != candidate) continue;
+        candidate = 1;
+        for (;;) {
+            int occupied = 0;
+            for (u32 j = 0; j < *count; ++j)
+                if ((*used)[j] == candidate) occupied = 1;
+            for (u32 j = 0; j < total; ++j)
+                if (entries[j].meta.sn == candidate) occupied = 1;
+            if (!occupied) break;
+            if (++candidate >= 0x7ffffffeu) return -1;
+        }
+        break;
+    }
+    if (*count >= RF_MAX_FILES) return -1;
+    if (!(*count % 32)) {
+        /* JL 的 realloc 不支持空指针，首次分配使用 malloc。 */
+        u32 bytes = (*count + 32) * sizeof(u32);
+        u32 *grown = *used ? realloc(*used, bytes) : malloc(bytes);
+        if (!grown) return -1;
+        *used = grown;
+    }
+    (*used)[(*count)++] = candidate;
+    *sn = candidate;
+    return 0;
+}
+
 static int rf_merge(rf_entry *entries, u32 total, int persist)
 {
     for (u32 i = 0; i < total; ++i) entries[i].found = 0;
@@ -440,7 +463,8 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
     if (persist && !dst) { if (src) fclose(src); return -1; }
     int changed = !src;
     int ok = !persist || fwrite("[", 1, 1, dst) == 1;
-    u32 count = 0;
+    u32 count = 0, used_count = 0;
+    u32 *used = NULL;
     if (src && ok) {
         memset(&rf_reader, 0, sizeof(rf_reader));
         rf_reader.remaining = flen(src);
@@ -455,7 +479,23 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
             if (cJSON_IsString(name) && rf_deleted_name[0] &&
                 !strcmp(name->valuestring, rf_deleted_name)) {
                 changed = 1;
-            } else if (!obj || rf_fix_object(obj, entries, total, &changed) || rf_emit(dst, obj, &count)) ok = 0;
+            } else {
+                cJSON *id = obj ? cJSON_GetObjectItemCaseSensitive(obj, "sn") : NULL;
+                if (!cJSON_IsNumber(id) || id->valuedouble < 1 ||
+                    id->valuedouble > 0x7ffffffeu ||
+                    id->valuedouble != (u32)id->valuedouble) {
+                    ok = 0;
+                } else {
+                    u32 sn = (u32)id->valuedouble;
+                    if (rf_claim_sn(&sn, entries, total, &used, &used_count)) ok = 0;
+                    if (sn != (u32)id->valuedouble) {
+                        cJSON_SetNumberValue(id, sn);
+                        changed = 1;
+                    }
+                    if (ok && (rf_fix_object(obj, entries, total, &changed) ||
+                               rf_emit(dst, obj, &count))) ok = 0;
+                }
+            }
             cJSON_Delete(obj);
             c = rf_nonspace(src);
             if (c != ',') break;
@@ -470,6 +510,10 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
     for (u32 i = 0; ok && i < total; ++i) {
         if (entries[i].found) continue;
         changed = 1;
+        if (rf_claim_sn(&entries[i].meta.sn, entries, total, &used, &used_count)) {
+            ok = 0;
+            break;
+        }
         if (!persist) {
             if (count >= RF_MAX_FILES) ok = 0;
             else ++count;
@@ -479,6 +523,7 @@ static int rf_merge(rf_entry *entries, u32 total, int persist)
         if (!obj || rf_emit(dst, obj, &count)) ok = 0;
         cJSON_Delete(obj);
     }
+    free(used);
     if (!persist) return ok ? changed : -1;
     if (ok && fwrite("]", 1, 1, dst) != 1) ok = 0;
     /* JL w+ need not truncate an existing file. */
@@ -627,7 +672,8 @@ uxfile_datfile_info_t *rdx_record_format_list(uxfile_datfile_info_t *info)
     free(info->data);
     info->data = data;
     info->data_len = size;
-    info->orig_pack_num = (size + 459) / 460;
+    /* 列表应答和分包请求均使用 divpack 作为总包数。 */
+    info->divpack = (size + 459) / 460;
     return info;
 }
 
@@ -701,7 +747,9 @@ static int rf_scan_entries(rf_entry **out, u32 *total)
                  * 分配失败必须终止本轮恢复，不发布不完整索引。 */
                 u32 next = capacity + 32;
                 if (next > RF_MAX_FILES) next = RF_MAX_FILES;
-                rf_entry *grown = realloc(*out, next * sizeof(e));
+                /* JL 的 realloc 不支持空指针，首次分配使用 malloc。 */
+                u32 bytes = next * sizeof(e);
+                rf_entry *grown = *out ? realloc(*out, bytes) : malloc(bytes);
                 if (!grown) {
                     printf("[REC_FORMAT] scan allocation failed entries=%u\n", next);
                     ok = 0;

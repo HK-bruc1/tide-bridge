@@ -23,7 +23,8 @@ static const char *fail_path;
 static int writes;
 static int fail_alloc;
 static void *format_malloc(size_t n) { return fail_alloc ? NULL : malloc(n); }
-static void *format_realloc(void *p,size_t n) { return fail_alloc ? NULL : realloc(p,n); }
+/* JL 的 realloc(NULL, n) 返回 NULL，首次分配必须显式 malloc。 */
+static void *format_realloc(void *p,size_t n) { return fail_alloc || !p ? NULL : realloc(p,n); }
 #define malloc format_malloc
 #define realloc format_realloc
 #define FILE mock_file
@@ -232,6 +233,7 @@ int test_allocation_failure(void) {
     CHECK(handles==0);
     fail_alloc=0; CHECK(recover()==0);
     CHECK(rdx_record_format_list(&info)==&info && info.data_len==length);
+    CHECK(info.divpack==1);
     free(info.data); CHECK(handles==0);
     return 0;
 }
@@ -277,7 +279,18 @@ int test_more_than_300_and_duplicate_sn(void) {
     uxfile_datfile_info_t info={0};
     CHECK(rdx_record_format_list(&info)==&info && info.data_len>0);
     root=cJSON_Parse((char*)info.data); CHECK(root && cJSON_GetArraySize(root)==301);
-    CHECK(info.orig_pack_num==(info.data_len+459)/460);
+    CHECK(info.divpack==(info.data_len+459)/460);
+    /* 按协议使用的总包数读取，确保大目录可以完整传输。 */
+    u32 received=0;
+    for (u32 pack=1; pack<=info.divpack; ++pack) {
+        u32 offset=(pack-1)*460;
+        CHECK(offset<info.data_len);
+        u32 bytes=info.data_len-offset;
+        if(bytes>460) bytes=460;
+        CHECK(!memcmp(info.data+offset,lookup(RF_DAT)->data+offset,bytes));
+        received+=bytes;
+    }
+    CHECK(received==info.data_len);
     cJSON_Delete(root); free(info.data);
     CHECK(rdx_record_format_delete(0x10000000u+301,"00012d.raw")==0);
     CHECK(recover()==0);
@@ -296,6 +309,27 @@ int test_more_than_300_and_duplicate_sn(void) {
 
 '''
 
+
+TESTS += r'''
+int test_dat_mta_collision(void) {
+    reset(); CHECK(seed_mono()==0);
+    current.sn=8; strcpy(current.filename,"def123.raw");
+    CHECK(rdx_record_format_begin(&current,1)==0);
+    CHECK(rdx_record_format_frame(&current,1,audio,40)==0);
+    CHECK(rf_write(RF_ROOT "def123.raw",audio,sizeof(audio))==0);
+    const char *dat="[{\"sn\":8,\"name\":\"abc123.raw\",\"frame_size\":40,\"opus\":1084752896}]";
+    CHECK(rf_write(RF_DAT,dat,strlen(dat))==0 && recover()==0);
+    cJSON *root=read_dat(); CHECK(cJSON_GetArraySize(root)==2);
+    int duplicate=num(cJSON_GetArrayItem(root,0),"sn")==num(cJSON_GetArrayItem(root,1),"sn");
+    CHECK(num(cJSON_GetArrayItem(root,0),"sn")==8);
+    cJSON_Delete(root); CHECK(!duplicate);
+    CHECK(recover()==0);
+    root=read_dat(); CHECK(cJSON_GetArraySize(root)==2);
+    CHECK(num(cJSON_GetArrayItem(root,0),"sn")==8);
+    CHECK(num(cJSON_GetArrayItem(root,1),"sn")!=8);
+    cJSON_Delete(root); return 0;
+}
+'''
 
 def main():
     directory = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
@@ -339,7 +373,7 @@ double fabs(double);
     run_c_checks(path, ['test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
-                        'test_more_than_300_and_duplicate_sn'], native=True)
+                        'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision'], native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 
@@ -347,3 +381,5 @@ if __name__ == '__main__':
     main()
     from file_delete_checks import run_delete_checks
     run_delete_checks()
+    from recovery_regression_checks import run_recovery_checks
+    run_recovery_checks()

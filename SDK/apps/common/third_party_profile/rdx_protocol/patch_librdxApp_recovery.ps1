@@ -12,7 +12,19 @@ function Update-RdxRecoveryIr {
         '  %29 = add i32 0, -1' 'no app_core index recovery fallback'
     $Ir = Replace-ExactlyOnce $Ir 'define i32 @rdx_uxfile_dat_init() local_unnamed_addr #0 !dbg !4935 {' `
         'define i32 @rdx_uxfile_dat_init_impl() local_unnamed_addr #0 !dbg !4935 {' 'exclusive file worker cache handoff'
+    # 初始化必须传播真实加载结果，不能把 loaded 标志当作成功返回值。
+    $pattern = '(?ms)^define i32 @rdx_uxfile_dat_init_impl\([^\n]*\{.*?^\}'
+    $init = [regex]::Match($Ir, $pattern).Value
+    if (!$init) { throw 'Missing cache init implementation' }
+    $patched = [regex]::Replace($init, '(?m)^(  %4 = tail call fastcc i32 @rdx_dat_cache_load\(\)[^\n]*)$', '$1' + "`n  %rdx_loaded_ok = icmp sge i32 %4, 0`n  %rdx_load_status = select i1 %rdx_loaded_ok, i32 0, i32 -1`n  store i32 %rdx_load_status, i32* @rdx_cache_load_result`n  store i1 %rdx_loaded_ok, i1* @g_dat_cache.3`n  store i1 %rdx_loaded_ok, i1* @dat_init_flag")
+    $patched = $patched.Replace('  ret i32 0,', "  %rdx_result = load i32, i32* @rdx_cache_load_result`n  ret i32 %rdx_result,")
+    if ($patched -eq $init -or !$patched.Contains('store i32 %rdx_load_status, i32* @rdx_cache_load_result')) { throw 'Cache result patch mismatch' }
+    $Ir = Replace-ExactlyOnce $Ir $init $patched 'propagate cache load result'
     $Ir += @'
+
+@rdx_cache_load_result = internal global i32 -1
+@rdx_empty_file = internal global %struct.uxfile_data_t zeroinitializer
+@rdx_empty_list = internal global %struct.uxfile_datfile_info_t zeroinitializer
 
 declare i32 @rdx_record_format_boot()
 declare i32 @rdx_record_format_service_status()
@@ -122,12 +134,16 @@ done:
         }
         $Ir = Replace-ExactlyOnce $Ir $m.Value ($m.Value.Replace("@$name(", "@${name}_ready(")) "file gate $name"
         $fallback = if ($ret.EndsWith('*')) {
-            if ($name -eq 'rdx_uxfile_get_datFileInfo') { '@uxDatFileInfo' } else { '@uxReadFileData' }
+            if ($name -eq 'rdx_uxfile_get_datFileInfo') { '@rdx_empty_list' } else { '@rdx_empty_file' }
         } elseif ($name -match 'get_all_size|get_dat_cout') { '0' } else { '-1' }
         $Ir += "`ndefine $returnAttrs$ret @$name($($args -join ', ')) {`n  %state = call i32 @rdx_record_format_service_status()`n  %ready = icmp eq i32 %state, 0`n  br i1 %ready, label %run, label %busy`nrun:`n  %result = call $returnAttrs$ret @${name}_ready($($call -join ', '))`n  ret $ret %result`nbusy:`n  ret $ret $fallback`n}`n"
     }
-    $needle = "define internal void @rdx_uxfile_flush_cache_timer_cb(i8* %arg) {`n"
-    $Ir = Replace-ExactlyOnce $Ir $needle ($needle + "  %boot = call i32 @rdx_record_format_service_status()`n  %boot_ready = icmp eq i32 %boot, 0`n  br i1 %boot_ready, label %check, label %done`ncheck:`n") 'flush after cache handoff'
+    # 先遵守静默/关闭门禁；临时恢复忙时沿用现有 defer 续调。
+    $pattern = '(?ms)^define internal void @rdx_uxfile_flush_cache_timer_cb\(i8\* %arg\) \{.*?^\}'
+    $timer = [regex]::Match($Ir, $pattern).Value
+    $patched = $timer.Replace("run:`n  call void", "run:`n  %boot = call i32 @rdx_record_format_service_status()`n  %boot_ready = icmp eq i32 %boot, 0`n  br i1 %boot_ready, label %flush, label %boot_busy`nboot_busy:`n  %retry = icmp sgt i32 %boot, 0`n  br i1 %retry, label %defer, label %done`nflush:`n  call void")
+    if (!$timer -or $patched -eq $timer) { throw 'Missing flush retry gate' }
+    $Ir = Replace-ExactlyOnce $Ir $timer $patched 'flush after cache handoff'
     $pattern = '(?m)^define [^\n]*@rdx_uxfile_get_datFileInfo_ready\([^\n]+\{'
     $m = [regex]::Match($Ir, $pattern)
     if (!$m.Success) { throw 'Missing complete management list adapter' }
@@ -147,6 +163,79 @@ done:
   %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @dat_opera_mutex)
   ret %struct.uxfile_datfile_info_t* @uxDatFileInfo
 }
+
+; 在互斥锁内遍历实际缓存，忽略失效条目并支持首尾环回。
+define i32 @rdx_uxfile_neighbor_sn(i32 %anchor, i32 %direction) {
+entry:
+  %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @dat_opera_mutex, i32 0)
+  %service = call i32 @rdx_record_format_service_status()
+  %ready = icmp eq i32 %service, 0
+  br i1 %ready, label %ensure, label %done
+ensure:
+  ; 录音保存会使缓存失效，播放查找前按需重新加载。
+  %was_loaded = load i1, i1* @g_dat_cache.3
+  br i1 %was_loaded, label %inspect, label %reload
+reload:
+  %load_result = call fastcc i32 @rdx_dat_cache_load()
+  %load_ok = icmp sge i32 %load_result, 0
+  store i1 %load_ok, i1* @g_dat_cache.3
+  br i1 %load_ok, label %inspect, label %done
+inspect:
+  %entries = load %struct.dat_entry_t*, %struct.dat_entry_t** @g_dat_cache.0
+  %present = icmp ne %struct.dat_entry_t* %entries, null
+  %loaded = load i1, i1* @g_dat_cache.3
+  %usable = and i1 %ready, %present
+  %ok = and i1 %usable, %loaded
+  br i1 %ok, label %prepare, label %done
+prepare:
+  %count16 = load i16, i16* @g_dat_cache.1
+  %count = zext i16 %count16 to i32
+  %newer = icmp sgt i32 %direction, 0
+  br label %loop
+loop:
+  %i = phi i32 [0, %prepare], [%next, %body]
+  %best = phi i32 [0, %prepare], [%best_next, %body]
+  %wrap = phi i32 [0, %prepare], [%wrap_next, %body]
+  %end = icmp eq i32 %i, %count
+  br i1 %end, label %found, label %body
+body:
+  %idp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %entries, i32 %i, i32 0
+  %id = load i32, i32* %idp
+  %validp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %entries, i32 %i, i32 8
+  %validbyte = load i8, i8* %validp
+  %valid = icmp ne i8 %validbyte, 0
+  %nonzero = icmp ne i32 %id, 0
+  %active = and i1 %valid, %nonzero
+  %above = icmp ugt i32 %id, %anchor
+  %below = icmp ult i32 %id, %anchor
+  %side = select i1 %newer, i1 %above, i1 %below
+  %smaller = icmp ult i32 %id, %best
+  %larger = icmp ugt i32 %id, %best
+  %closer = select i1 %newer, i1 %smaller, i1 %larger
+  %empty = icmp eq i32 %best, 0
+  %better = or i1 %empty, %closer
+  %eligible = and i1 %active, %side
+  %pick = and i1 %eligible, %better
+  %best_next = select i1 %pick, i32 %id, i32 %best
+  %wrap_small = icmp ult i32 %id, %wrap
+  %wrap_large = icmp ugt i32 %id, %wrap
+  %wrap_closer = select i1 %newer, i1 %wrap_small, i1 %wrap_large
+  %wrap_empty = icmp eq i32 %wrap, 0
+  %wrap_better = or i1 %wrap_empty, %wrap_closer
+  %wrap_pick = and i1 %active, %wrap_better
+  %wrap_next = select i1 %wrap_pick, i32 %id, i32 %wrap
+  %next = add i32 %i, 1
+  br label %loop
+found:
+  %has_best = icmp ne i32 %best, 0
+  %selected = select i1 %has_best, i32 %best, i32 %wrap
+  br label %done
+done:
+  %result = phi i32 [0, %entry], [0, %reload], [0, %inspect], [%selected, %found]
+  %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @dat_opera_mutex)
+  ret i32 %result
+}
+
 '@
     return $Ir
 }
