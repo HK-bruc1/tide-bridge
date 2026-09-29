@@ -38,6 +38,7 @@
 #include "rdx_hogp_key_action.h"
 #include "rdx_dut.h"
 #include "rdx_record.h"
+#include "rdx_factory_audio.h"
 #include "rdx_protocol.h"
 #include "rdx_ble_server.h"
 #include "rdx_uxfile.h"
@@ -427,7 +428,7 @@ static int dut_enqueue(u8 command, u8 value)
 
 void rdx_dut_test_session_revoke(void)
 {
-    rdx_record_dut_authorization_revoke();
+    rdx_record_dut_ble_revoke();
     /* BLE task: revoke producers immediately; timer performs app_core cleanup. */
     dut_ble_revoked_id = dut_owner.id;
     dut_ble_revoked = 1; /* app_core checks resource ownership before cleanup. */
@@ -598,6 +599,8 @@ static void dut_service(void *priv)
         }
         int result = dut_record_posted ? rdx_record_dut_stop_poll(dut_record_ticket) : -2;
         if (result != -2) {
+            if (dut_owner.source == 1) rdx_factory_audio_stopped(
+                dut_last.command == DUT_CMD_REC && !dut_last.value ? dut_last.id : 0, result);
             if (result < 0) {
                 dut_record_failed = 1;
                 dut_finish(dut_last.id, "IO");
@@ -727,6 +730,8 @@ static void dut_poll_action(void)
     if (dut_last.command == DUT_CMD_FORMAT || dut_last.command == DUT_CMD_FINALPACK_END)
         return; /* Explicit callback completion, never infer success from idle. */
     if (dut_record_wait || dut_stopping || dut_waiting) return;
+    if (dut_last.source == 1 && dut_last.command == DUT_CMD_REC && dut_last.value &&
+        rdx_dut_info.current_func == DUT_FUNC_REC && !rdx_factory_audio_started()) return;
     if (dut_last.command == DUT_CMD_DUT_MODE) {
         dut_finish(dut_last.id, !!rdx_dut_info.dut_mode == !!dut_last.value ? NULL : "STATE");
     } else if (dut_last.command == DUT_CMD_KEY_DUT_ENABLE ||
@@ -749,6 +754,12 @@ static void dut_poll_action(void)
 static const char *dut_accept(struct dut_request *request)
 {
     int target = dut_target_func(request->command);
+    if (request->source == 1 && request->command == DUT_CMD_REC && request->value &&
+        !rdx_factory_audio_ready(request->generation)) return "STATE";
+    /* A live recording can only be stopped/changed by its initiating source. */
+    if ((rdx_dut_rec_is_running() || rdx_dut_rec_call_is_running()) &&
+        (request->source != dut_owner.source ||
+         (request->source == 1 && request->generation != dut_owner.generation))) return "BUSY";
     int active = rdx_dut_info.current_func;
     int exit = request->command == DUT_CMD_DUT_MODE && !request->value;
     int cleanup = exit || request->command == DUT_CMD_POWEROFF;
@@ -804,6 +815,17 @@ static const char *dut_accept(struct dut_request *request)
     return NULL;
 }
 
+void rdx_dut_factory_record_stop(void)
+{
+    if (dut_owner.source != 1 || dut_record_wait || !rdx_factory_audio_owned()) return;
+    struct dut_request request = dut_owner;
+    request.command = DUT_CMD_REC;
+    request.value = 0;
+    if (!dut_accept(&request)) return;
+    dut_finish(dut_last.id, "IO");
+    dut_record_stop();
+}
+
 void rdx_dut_cdc_status(char *out, unsigned int capacity, int keys)
 {
     if (keys) {
@@ -831,13 +853,14 @@ void rdx_dut_cdc_request(u32 generation, const char *name, u8 value, char *out, 
     request.value = value;
     if (!strcmp(name, "FT_DUT")) request.command = DUT_CMD_DUT_MODE;
     else if (!strcmp(name, "FT_LED_CYCLE") || !strcmp(name, "FT_OLED")) request.command = DUT_CMD_OLED;
+    else if (!strcmp(name, "FT_REC") || !strcmp(name, "FT_REC_CHAT")) request.command = DUT_CMD_REC;
     else if (!strcmp(name, "FT_SPEAKER")) request.command = DUT_CMD_SPEAKER;
     else if (!strcmp(name, "FT_KEY_LAYOUT")) request.command = DUT_CMD_KEY_LAYOUT;
     else if (!strcmp(name, "FT_KEY")) request.command = DUT_CMD_KEY_STOP;
     else if (!strcmp(name, "FT_FINALPACK_END")) request.command = DUT_CMD_FINALPACK_END;
     else {
         const char *error = "CMD";
-        static const char *unsupported[] = {"FT_MOTOR", "FT_VIBRATE", "FT_REC", "FT_REC_CHAT",
+        static const char *unsupported[] = {"FT_MOTOR", "FT_VIBRATE",
             "FT_REC_CALL", "FT_WIFI", "FT_FORMAT", "FT_POWEROFF",
             "FT_KEY_DUT_ENABLE", "FT_KEY_DUT_DISABLED"};
         for (int i = 0; i < ARRAY_SIZE(unsupported); ++i)
@@ -1195,6 +1218,10 @@ bool rdx_dut_motor_is_running(void)
 void rdx_dut_record_reset(void)
 {
     rdx_record_dut_authorization_revoke();
+    if (dut_owner.source == 1 && rdx_factory_audio_owned()) {
+        dut_record_stop();
+        return;
+    }
     if (dut_record_wait) return;
     if (rdx_dut_info.current_func == DUT_FUNC_REC ||
         rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
@@ -1211,8 +1238,13 @@ void rdx_dut_rec_start(void)
         return;
     }
     
-    if (!dut_business_ready() || !rdx_record_dut_authorize()) {
+    if (!dut_business_ready() ||
+        !(dut_owner.source == 1 ? rdx_record_dut_authorize_usb(dut_owner.generation) : rdx_record_dut_authorize())) {
         DUT_LOG("Record test rejected: session/audio/storage not ready\n");
+        return;
+    }
+    if (dut_owner.source == 1 && rdx_factory_audio_begin(dut_owner.generation, dut_owner.id)) {
+        rdx_record_dut_authorization_revoke();
         return;
     }
 
@@ -1223,7 +1255,7 @@ void rdx_dut_rec_start(void)
     if(rp->run == RECORD_STATE_STOP){
         /* 与APP下发record指令保持一致: 绑定当前RDX会话为在线录音会话,
          * 走在线流+本地落盘+状态上报; 无RDX连接时维持原离线落盘行为 */
-        if(rdx_record_online_session_bind_current()){
+        if(dut_owner.source != 1 && rdx_record_online_session_bind_current()){
             DUT_LOG("Chat record online session bound (stream + local save)\r");
         }else{
             DUT_LOG("No live RDX link, chat record falls back to offline\r");

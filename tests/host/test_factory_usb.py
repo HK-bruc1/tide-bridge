@@ -260,9 +260,14 @@ int test_poweroff_gate(void) {
     check_station()
     from test_factory_protocol import check_protocol
     check_protocol()
+    from test_factory_audio import check_audio
+    check_audio()
 
 
 CDC_STUBS = r'''
+static int poll_ms;
+void usr_timer_modify(int timer, int ms) { poll_ms=ms; }
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -286,7 +291,7 @@ int os_taskq_post_msg(const char *task, int count, int message) {
     if (post_fail) return -1;
     ++queued; return 0;
 }
-u16 usr_timer_add(void *p, void (*f)(void *), u32 ms, u8 prio) { return !timer_fail; }
+u16 usr_timer_add(void *p, void (*f)(void *), u32 ms, u8 prio) { poll_ms=ms; return !timer_fail; }
 void usr_timer_del(u16 timer) {}
 int cdc_factory_configured(void) { return 1; }
 int cdc_factory_tx_busy(void) { return busy; }
@@ -419,6 +424,24 @@ int test_transport(void) {
     boot(); factory_cdc_stop(); timer_fail=1; factory_cdc_start();
     CHECK(factory_cdc_needs_restart() && !factory_cdc_generation());
     CHECK(!irq_depth && !violation);
+    /* 50 audio lines/sec plus control traffic must drain without FIFO growth.
+     * Emulate immediate host consumption, but honor actual requested cadence. */
+    boot(); unsigned next_tick=10, expected=0;
+    for(now=0;now<2200;++now) {
+        busy=0;
+        if(now<2000 && now%20==0) {
+            CHECK(factory_cdc_send(factory_cdc_generation(),data,126)==0); expected+=126;
+        }
+        if(now<2000 && now%200==0) {
+            CHECK(factory_cdc_send(factory_cdc_generation(),data,48)==0); expected+=48;
+        }
+        if(now>=next_tick) {
+            factory_cdc_kick(NULL);
+            if(queued) { --queued; factory_cdc_process(); }
+            next_tick=now+poll_ms;
+        }
+    }
+    CHECK(wire_len==expected && !transport.count && !transport.tx_wait && poll_ms==10);
     return 0;
 }
 '''

@@ -48,6 +48,9 @@ class Station:
         self.port, self.report, self.ask = port, report, ask
         self.clock, self.sleep = clock, sleep
         self.last_id = None
+        self.audio = None
+        self.audio_dir = None
+        self.ffmpeg = None
 
     def note(self, step, outcome='PASS', visible=True, **details):
         self.report['steps'].append(dict(step=step, outcome=outcome, **details))
@@ -59,12 +62,15 @@ class Station:
         # Record the request here; validated identity fields are stored by foundation.
         self.report['last_request'] = command
         try:
-            return request(self.port, command)
+            reply = self.audio.request(command) if self.audio else request(self.port, command)
+            if reply.startswith('ERR '):
+                self.report['device_error'] = dict(command=command, response=reply)
+            return reply
         except (OSError, RuntimeError) as error:
             raise StationError('UNKNOWN', '通信中断/超时，结果未知；不重发，请检查设备并重建会话') from error
 
     def foundation(self, expected_addr=None, expected_fw=None):
-        total = 3 if self.report.get('scope') == 'packaging' else 5
+        total = 3 if self.report.get('scope') == 'packaging' else 7 if self.report.get('scope') == 'full' else 5
         print(f'\n[1/{total}] 基础信息', flush=True)
         if self.query('PING') != 'OK PONG':
             raise StationError('FAIL', 'PING 失败，检查 CDC=1 / TEST=0 固件')
@@ -155,7 +161,7 @@ class Station:
         for stage, command, active, prompt in (
                 ('[2/5] 灯光测试', 'ft_led_cycle', 'OLED', '观察 LED：绿灯持续常亮（确认后发送停止命令），颜色、亮度是否正常'),
                 ('[3/5] 喇叭测试', 'ft_speaker', 'SPEAKER', '试听喇叭：是否有声且无明显杂音')):
-            print('\n' + stage, flush=True)
+            print('\n' + stage.replace('/5]', '/7]' if self.audio else '/5]'), flush=True)
             self.action(command, 1, active, '1')
             passed = self.observe(prompt)
             self.action(command, 0, 'NONE', '1')
@@ -164,7 +170,7 @@ class Station:
             if not passed:
                 self.action('ft_dut', 0, 'NONE', '0')
                 raise StationError('FAIL', '人工测试未通过，已停止测试并退出 DUT')
-        print('\n[4/5] 五键测试', flush=True)
+        print('\n[4/7] 五键测试' if self.audio else '\n[4/5] 五键测试', flush=True)
         test_id = self.action('ft_key_layout', 1, 'KEY', '1')
         print(f'请在 {key_timeout} 秒内逐个按下 A～E 五个键，顺序不限。0=未检测，1=已检测。', flush=True)
         deadline = self.clock() + key_timeout
@@ -193,8 +199,12 @@ class Station:
                 print(flush=True)
         self.action('ft_key', 0, 'NONE', '1')
         self.note('五键测试', 'PASS' if seen == '11111' else 'FAIL', seen=seen, layout=layout)
-        print('\n[5/5] 结束测试', flush=True)
-        self.action('ft_dut', 0, 'NONE', '0')
+        if self.audio and seen == '11111':
+            from factory_cdc_audio import run
+            run(self)
+        else:
+            print('\n[5/5] 结束测试', flush=True)
+            self.action('ft_dut', 0, 'NONE', '0')
         if seen != '11111':
             raise StationError('FAIL', '未检测到按键：' + '、'.join(k for k, bit in zip('ABCDE', seen) if bit == '0') + '；已停止测试并退出产测')
         if self.query('PING') != 'OK PONG':
@@ -229,8 +239,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='T2620 CDC 终端测试（不等同整机产测验收）')
     parser.add_argument('--list-ports', action='store_true', help='列举串口，不打开设备')
     parser.add_argument('--port', help='例如 COM6')
-    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full'), default='controls',
-                        help='foundation=基础；controls=普通测试；packaging=包装测试；full=控制后报告音频闭环尚未实现')
+    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full'), default='full',
+                        help='foundation=基础；controls=普通测试；packaging=包装测试；full=普通测试含录音及文件下载')
     parser.add_argument('--expect-addr', type=str.upper, help='烧录记录的 12 位 BLE 地址')
     parser.add_argument('--expect-fw', help='预期产品版本')
     parser.add_argument('--key-timeout', type=int, default=30, help='五键测试等待秒数，1~300')
@@ -265,18 +275,32 @@ def main(argv=None):
     try:
         with serial.Serial(args.port, 115200, timeout=2, write_timeout=2) as port:
             station = Station(port, report)
-            station.foundation(args.expect_addr, args.expect_fw)
-            if args.mode == 'packaging':
-                station.packaging()
-            elif args.mode != 'foundation':
-                station.controls(args.key_timeout)
-            if args.mode == 'full':
-                raise StationError('BLOCKED', '录音保存结果、文件下载及音质判定尚未接入；未执行录音/整包')
-            message = ('包装提交及红灯检查通过，请拨码 OFF；不代表普通测试或完整产测通过'
-                       if args.mode == 'packaging' else '本轮测试通过；尚未覆盖录音、文件下载及最终包装')
-            report.update(outcome='PASS', message=message)
+            try:
+                station.foundation(args.expect_addr, args.expect_fw)
+                if args.mode == 'full':
+                    from factory_cdc_audio import prepare
+                    prepare(station, path.parent / (path.stem + '-audio'))
+                if args.mode == 'packaging':
+                    station.packaging()
+                elif args.mode != 'foundation':
+                    station.controls(args.key_timeout)
+                message = ('包装提交及红灯检查通过，请拨码 OFF；不代表普通测试或完整产测通过'
+                           if args.mode == 'packaging' else '普通测试通过，含实时流与文件下载回放；包装需单独执行'
+                           if args.mode == 'full' else '本轮控制测试通过；未覆盖录音、文件下载及最终包装')
+                report.update(outcome='PASS', message=message)
+            finally:
+                if station.audio:
+                    station.audio.close()
+                    partial = station.audio_dir / 'stream.raw'
+                    if not partial.exists():
+                        partial.write_bytes(station.audio.frames)
+                    report['audio']['stream'].update(frames=station.audio.frame_count,
+                        bytes=len(station.audio.frames), raw=str(partial.resolve()),
+                        receiver_error=station.audio.error)
     except StationError as error:
         report.update(outcome=error.outcome, message=str(error))
+    except RuntimeError as error:
+        report.update(outcome='FAIL', message=str(error))
     except (KeyboardInterrupt, EOFError):
         report.update(outcome='UNKNOWN', message='操作中断；未发送自动清理命令，请检查设备状态')
     except (OSError, serial.SerialException):

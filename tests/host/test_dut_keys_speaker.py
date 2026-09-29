@@ -9,6 +9,12 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 STUBS = r'''
+int rdx_factory_audio_ready(unsigned g) { return g != 0; }
+int rdx_factory_audio_begin(unsigned g, unsigned id) { return 0; }
+int rdx_factory_audio_owned(void) { return 0; }
+int rdx_factory_audio_started(void) { return 1; }
+void rdx_factory_audio_stopped(unsigned id, int result) {}
+
 void rdx_hogp_key_action_reset(void) {}
 typedef int bool;
 #define true 1
@@ -207,6 +213,24 @@ static void key_start(void) { dut_parse_test(FT_KEY_LAYOUT,"1"); dut_service(NUL
 static void speaker_start(void) { dut_parse_test(FT_SPEAKER,"1"); dut_service(NULL); }
 static void playing(void) { audio_state=DUT_AUDIO_PLAYING; dut_service(NULL); }
 static void finished(void) { audio_state=DUT_AUDIO_DONE; dut_service(NULL); }
+int test_cdc_record_authorization(void) {
+    char reply[258]; boot(); connected=0; product_binding=0;
+    rdx_dut_cdc_request(1,"FT_REC",1,reply,sizeof(reply));
+    CHECK(strstr(reply,"OK ID=") && record_starts==1 && dut_last_state==2);
+    u32 grant=rdx_record_session_token_capture(); CHECK(grant);
+    CHECK(!rdx_record_binding_allowed());
+    rdx_dut_test_session_revoke(); dut_service(NULL);
+    CHECK(rdx_record_session_token_is_current(grant) && !record_requests);
+    connected=1; dut_enqueue(DUT_CMD_REC,0); dut_service(NULL);
+    CHECK(!record_requests && rdx_dut_rec_is_running());
+    usb_generation=2; CHECK(!rdx_record_session_token_is_current(grant));
+    rdx_dut_cdc_request(2,"FT_REC",0,reply,sizeof(reply)); CHECK(strstr(reply,"ERR BUSY"));
+    boot(); rdx_dut_cdc_request(1,"FT_REC",1,reply,sizeof(reply));
+    rdx_dut_cdc_request(1,"FT_REC",0,reply,sizeof(reply));
+    CHECK(dut_record_wait && record_requests==1 && dut_last_state==1);
+    record_result=0; dut_service(NULL); CHECK(dut_last_state==2 && !dut_record_wait);
+    return 0;
+}
 int test_layout_and_keys(void) {
     boot(); capture_during_send=1; key_start();
     CHECK(!strcmp(wire,"*DEV#custom#ft_key_layout#A,B&C,D&E#"));

@@ -171,4 +171,5 @@ bool rdx_dut_is_formatting(void);
 }
 #endif
 
+void rdx_dut_factory_record_stop(void);
 #endif

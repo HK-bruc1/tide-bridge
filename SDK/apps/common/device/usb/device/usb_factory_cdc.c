@@ -18,7 +18,7 @@ static struct {
     u32 queued_generation;
     u16 timer;
     u16 tx_pending_length;
-    u8 active, ready, posted, restart;
+    u8 active, ready, posted, restart, fast_poll;
 #if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
     u8 test_open_pending;
 #endif
@@ -250,6 +250,7 @@ int factory_cdc_start(void)
     if (!transport.receive) transport.receive = factory_cdc_test_receive;
 #endif
     local_irq_enable();
+    transport.fast_poll = 0;
     transport.timer = usr_timer_add(NULL, factory_cdc_kick, 10, 1);
     if (!transport.timer) {
         local_irq_disable();
@@ -360,6 +361,14 @@ void factory_cdc_process(void)
         } else if (written > (int)n) {
             factory_cdc_invalidate(FACTORY_CDC_TIMEOUT);
         }
+    }
+    /* Keep one packet per dispatch, but give multi-packet audio frames enough
+     * throughput. Idle returns to the original 10ms cadence. usb_stack alone
+     * owns this timer change and its lifetime; no protocol work enters IRQ. */
+    u8 fast = !!(transport.count || transport.tx_wait || transport.zlp);
+    if (transport.timer && transport.fast_poll != fast) {
+        transport.fast_poll = fast;
+        usr_timer_modify(transport.timer, fast ? 2 : 10);
     }
     /* One packet and one callback per dispatch. A rejecting consumer keeps
      * the packet pending; do not drain hardware into an unbounded queue. */

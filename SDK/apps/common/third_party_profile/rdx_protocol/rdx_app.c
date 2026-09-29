@@ -90,6 +90,7 @@
 #include "rdx_adv_policy.h"
 #include "rdx_dut.h"
 #include "rdx_factory_cdc.h"
+#include "rdx_factory_audio.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
@@ -434,6 +435,7 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
         return false;
     }
 
+    if (rdx_factory_audio_file_busy()) return true;
     RecordStatus *record = rdx_record_get_status();
     if (!record || (record->run != RECORD_STATE_STOP &&
         !(allow_detached_recording && rdx_record_transport_is_detached()))) {
@@ -491,6 +493,12 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
 #endif
 
     return false;
+}
+
+/* Paused playback has closed its track; CDC reads do not export the volume. */
+u8 rdx_app_factory_file_is_busy(void)
+{
+    return rdx_app_storage_activity_is_busy("CDC-FILE", 1, 0);
 }
 
 u8 rdx_pc_storage_is_busy(void)
@@ -1734,6 +1742,11 @@ void rdx_app_normal_poweroff_cb(void* priv)
     /*----------------------------------------------------------------*/
     // rdx_protocol_task_free();
     rdx_record_task_free();
+    if (rdx_factory_audio_shutdown()) {
+        /* File worker may still own SD: reset without running power-down. */
+        cpu_reset();
+        return;
+    }
     rdx_uxfile_task_free();
 #if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
     oled_task_free();
@@ -3987,7 +4000,8 @@ static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
         free(token);
         return;
     }
-    ret = rdx_vm_reset_defaults_no_poweroff();
+    if (rdx_factory_audio_file_busy() || rdx_factory_audio_owned()) ret = -1;
+    else ret = rdx_vm_reset_defaults_no_poweroff();
     if (rdx_ble_session_rdx_token_resolve(token, 1) && g_protocol_ops) {
         g_protocol_ops->sys_set_default_ack_indicate(ret ? 1 : 0);
     }
@@ -4773,6 +4787,11 @@ static void rdx_app_idle_handle(void* priv)
 
     // rdx_protocol_task_free();
     rdx_record_task_free();
+    if (rdx_factory_audio_shutdown()) {
+        /* File worker may still own SD: reset without running power-down. */
+        cpu_reset();
+        return;
+    }
     rdx_uxfile_task_free();
 
     sd_set_power(0);

@@ -187,6 +187,10 @@ def check_reconnect():
     record = (base / 'rdx_record.c').read_text(encoding='utf-8')
     app = (base / 'rdx_app.c').read_text(encoding='utf-8')
     source = r'''
+static int cdc_file_busy;
+int rdx_factory_audio_file_busy(void) { return cdc_file_busy; }
+void rdx_factory_audio_frame(const void *d, unsigned n) {}
+
 typedef unsigned char u8;
 #define true 1
 #define false 0
@@ -197,6 +201,12 @@ typedef unsigned char u8;
 #define RECORD_STATE_RESUME 2
 #define RECORD_STATE_STOP 3
 #define RDX_STORAGE_PLAYBACK_PREEMPT 2
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
+enum { PB_STATE_UNREADY, PB_STATE_STOPPED, PB_STATE_STARTING, PB_STATE_PLAYING,
+       PB_STATE_PAUSED, PB_STATE_SWITCHING, PB_STATE_DRAINING };
+typedef struct { int state; } pb_public_info_t;
+static int playback_state;
+void rdx_playback_get_info(pb_public_info_t *p) { p->state=playback_state; }
 typedef struct { int run, stream_discont; } RecordStatus;
 static RecordStatus record_status;
 static int g_record_session_token_valid, g_stream_only_session_active;
@@ -232,7 +242,7 @@ int get_ota_status(void) { return ota; }
     source += function(record, 'rdx_record_transport_is_detached')
     source += function(record, 'rdx_record_on_ble_conn_changed')
     for name in ['rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
-                 'rdx_app_rdx_rebind_is_idle']:
+                 'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
         source += function(app, name)
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
@@ -279,6 +289,24 @@ int test_reconnect(void) {
     record_status.run=RECORD_STATE_STOP;
     CHECK(rdx_app_rdx_rebind_is_idle());
     CHECK(!rdx_pc_storage_is_busy());
+    playback_state=PB_STATE_PAUSED;
+    CHECK(rdx_pc_storage_is_busy()); /* MSC admission remains strict. */
+    CHECK(!rdx_app_factory_file_is_busy());
+    int *file_flags[]={&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
+        &info.file_send_busy,&cdc_file_busy};
+    for (int i=0;i<9;++i) {
+        *file_flags[i]=1;
+        CHECK(rdx_app_factory_file_is_busy());
+        *file_flags[i]=0;
+    }
+    record_status.run=RECORD_STATE_START;
+    CHECK(rdx_app_factory_file_is_busy());
+    record_status.run=RECORD_STATE_STOP;
+    for (int state=0;state<=PB_STATE_DRAINING;++state) {
+        playback_state=state;
+        CHECK(!!rdx_app_factory_file_is_busy()==
+              (state!=PB_STATE_UNREADY && state!=PB_STATE_STOPPED && state!=PB_STATE_PAUSED));
+    }
     return 0;
 }
 '''
@@ -291,6 +319,9 @@ int test_reconnect(void) {
 def check_stream():
     record = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c').read_text(encoding='utf-8')
     source = r'''
+int rdx_factory_audio_file_busy(void) { return 0; }
+void rdx_factory_audio_frame(const void *d, unsigned n) {}
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -374,6 +405,9 @@ def check_snapshot():
     base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     record = (base / 'rdx_record.c').read_text(encoding='utf-8')
     source = r'''
+int rdx_factory_audio_file_busy(void) { return 0; }
+void rdx_factory_audio_frame(const void *d, unsigned n) {}
+
 typedef unsigned long long size_t;
 extern int snprintf(char *, size_t, const char *, ...);
 extern void *memcpy(void *, const void *, size_t);

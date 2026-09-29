@@ -10,19 +10,21 @@ def main():
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
     print('T2620 CDC 产测\n请拨码 ON、插好 USB 数据线，并关闭占用串口的其他工具。\n')
-    print('1. 普通测试（基本信息、灯、喇叭、五键；暂不含录音）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）')
+    print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）')
     while True:
         choice = input('选择测试，回车选 1，q 退出：').strip().lower()
         if choice == 'q':
             return 0
         if choice in ('', '1', '2'):
-            mode = 'packaging' if choice == '2' else 'controls'
+            mode = 'packaging' if choice == '2' else 'full'
             break
         print('请输入 1 或 2。')
     try:
         import serial.tools.list_ports
+        if mode == 'full':
+            import imageio_ffmpeg
     except ImportError:
-        print('首次运行：正在安装串口依赖 pyserial，需要联网……')
+        print('首次运行：正在安装串口与音频解码依赖，需要联网……')
         result = subprocess.run([sys.executable, '-m', 'pip', 'install',
                                  '-r', str(root / 'tests/board/requirements.txt')])
         if result.returncode:

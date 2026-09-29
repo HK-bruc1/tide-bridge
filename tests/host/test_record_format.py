@@ -8,8 +8,17 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 
 STUBS = r'''
+
+
 typedef unsigned char u8;
 typedef unsigned int u32;
+#define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
+#define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0
+#define MIN(a,b) ((a)<(b)?(a):(b))
+#define SEEK_SET 0
+static int factory_busy;
+int rdx_factory_audio_file_busy(void) { return factory_busy; }
+u32 rdx_factory_audio_crc(u32 crc, const u8 *data, u32 length);
 typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,orig_pack_num; int loading; } uxfile_datfile_info_t;
 #define RECORD_FORMATE_OPUS_16K_MONO 1
 #define RECORD_FORMATE_OPUS_16K_STERO 2
@@ -63,6 +72,7 @@ int mock_write(void *buf,u32 size,u32 count,FILE *f) {
 }
 int fget_name(FILE *f,u8 *buf,int len) { const char *p=strrchr(f->name,'/'); if(!p) p=f->name; else ++p; u32 n=strlen(p); if(n>(u32)len) n=len; memcpy(buf,p,n); return n; }
 int flen(FILE *f) { return f->size; }
+int fseek(FILE *f,u32 pos,int mode) { f->pos=pos; return 0; }
 int mock_tell(FILE *f) { return f->pos; }
 int ftruncate(FILE *f,u32 n) { if(fail_truncate || n>sizeof(f->data)) return -1; f->size=n; return 0; }
 int f_flush_wbuf(const char *p) { return fail_flush || strcmp(p,"storage/sd0/C/") ? -1 : 0; }
@@ -111,6 +121,22 @@ static cJSON *read_dat(void) {
     f->data[f->size]=0; return cJSON_Parse((char *)f->data);
 }
 static u32 num(cJSON *obj,const char *key) { cJSON *n=cJSON_GetObjectItem(obj,key); return n ? n->valuedouble : 0xffffffffu; }
+int test_factory_file_identity(void) {
+    reset(); CHECK(seed_mono()==0); rf_service=0; factory_busy=1;
+    u32 size=0,crc=0;
+    FILE *f=rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc);
+    CHECK(f && handles==1 && f->pos==0 && size==4000);
+    CHECK(crc==rdx_factory_audio_crc(0,audio,4000)); fclose(f);
+    CHECK(rdx_record_format_service_status()==1);
+    CHECK(!rdx_record_format_factory_open(8,"abc123.raw",100,&size,&crc));
+    CHECK(!rdx_record_format_factory_open(7,"abc123.raw",101,&size,&crc));
+    CHECK(!rdx_record_format_factory_open(7,"../abc.raw",100,&size,&crc));
+    lookup(RF_ROOT "abc123.raw")->data[0]^=1;
+    CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+    CHECK(handles==0); factory_busy=0;
+    CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+    return 0;
+}
 int test_format_persistence(void) {
     reset(); CHECK(seed_mono()==0); CHECK(handles==0);
     int before=writes; CHECK(rdx_record_format_frame(&current,1,audio+40,40)==0);
@@ -369,8 +395,9 @@ double strtod(const char *,char **);
 unsigned long strtoul(const char *,char **,int);
 double fabs(double);
 """
-    path.write_text(libc + header + json_source + STUBS + crc + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ['test_format_persistence', 'test_format_recovery',
+    factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
+    path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
+    run_c_checks(path, ['test_factory_file_identity', 'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision'], native=True)

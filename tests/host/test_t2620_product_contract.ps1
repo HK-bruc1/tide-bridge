@@ -570,13 +570,13 @@ Assert-Contract 'RECORD_BINDING_LOW_LEVEL_COVERAGE' (
     $BindingRecorder -match '#include "app_config.h"' -and
     ([regex]::Matches($RdxRecord, 'static void rdx_record_process_impl\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
     ([regex]::Matches($RdxRecord, 'int rdx_record_run_init\(void\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
-    ([regex]::Matches($BindingDut, 'if \(!dut_business_ready\(\) \|\| !rdx_record_dut_authorize\(\)').Count -eq 2) -and
+    ($BindingDut.Contains('rdx_record_dut_authorize_usb(dut_owner.generation)') -and $BindingDut.Contains('!rdx_record_dut_authorize()')) -and
     ([regex]::Matches($BindingRecorder, 'int translation_ear_recoder_open(?:_all)?_impl\([^\n]+\)\s*\{\s*#if[^\n]+\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
     $RdxRecord -match 'rdx_record_session_token_is_current\(\(u32\)msg\[3\]\)'
 ) 'Both recorder variants and queued worker starts must enforce recording authorization; DUT uses an explicit session grant'
 
 Assert-Contract 'RECORD_DUT_ENTRY_GATES' (
-    $BindingDut -match '(?s)void rdx_dut_test_session_revoke\(void\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
+    $BindingDut -match '(?s)void rdx_dut_test_session_revoke\(void\)\s*\{\s*rdx_record_dut_ble_revoke\(\)' -and
     $RdxRecord -match '(?s)int rdx_record_dut_stop_request\(u32 ticket\)\s*\{\s*rdx_record_dut_authorization_revoke\(\)' -and
     ([regex]::Matches($RdxRecord, 'int rdx_record_run_data_handle\([^\n]+\)\s*\{\s*if \(!rdx_record_session_allowed\(\)').Count -eq 2) -and
     $BindingRecorder -match 'translation_ear_recoder_open_all_bound\(ch_mode, rdx_record_binding_token_capture\(\)\)'

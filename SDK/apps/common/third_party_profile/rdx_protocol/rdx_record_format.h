@@ -21,4 +21,7 @@ int rdx_record_format_begin(const uxfile_data_t *file, u8 format);
 /* Pin the first encoded frame before any RAW bytes are written. */
 int rdx_record_format_frame(const uxfile_data_t *file, u8 format,
                             const u8 *data, u32 len);
+/* Factory reader: called only by CDC file worker while holding file-service
+ * admission. Validates MTA identity and first frame, returns a private FILE*. */
+void *rdx_record_format_factory_open(u32 sn, const char *name, u32 start, u32 *size, u32 *crc);
 #endif

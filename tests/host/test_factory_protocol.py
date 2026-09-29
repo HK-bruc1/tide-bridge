@@ -5,6 +5,10 @@ from llvmlite import binding as llvm
 from host_c_test_lib import ROOT, run_c_checks
 
 STUBS = r'''
+int rdx_factory_audio_command(unsigned g, const char *s, char *o, unsigned c) { return 0; }
+void rdx_factory_audio_service(unsigned g) {}
+void rdx_factory_audio_send(unsigned g) {}
+
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;

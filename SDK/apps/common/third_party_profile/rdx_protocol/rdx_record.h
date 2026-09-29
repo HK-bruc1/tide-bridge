@@ -141,6 +141,8 @@ u32 rdx_record_binding_token_capture(void);
 u8 rdx_record_binding_token_is_current(u32 token);
 /* Internal recording pipeline. Ordinary command/key admission stays bound-only. */
 u8 rdx_record_dut_authorize(void);
+u8 rdx_record_dut_authorize_usb(u32 generation);
+void rdx_record_dut_ble_revoke(void);
 void rdx_record_dut_authorization_revoke(void);
 u32 rdx_record_session_token_capture(void);
 u8 rdx_record_session_token_is_current(u32 token);

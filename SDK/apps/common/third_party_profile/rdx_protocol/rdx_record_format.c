@@ -4,6 +4,7 @@
 #include "cJSON.h"
 #include "rdx_record_format.h"
 #include "rdx_record.h"
+#include "rdx_factory_audio.h"
 #include "rdx_protocol.h"
 #include "rdx_app.h"
 #include "dev_manager.h"
@@ -46,7 +47,7 @@ static char rf_deleted_name[12];
 
 int rdx_record_format_service_status(void)
 {
-    return rf_service;
+    return rf_service ? rf_service : (rdx_factory_audio_file_busy() ? 1 : 0);
 }
 
 void rdx_record_format_service_ready(int result)
@@ -802,3 +803,40 @@ int rdx_record_format_boot(void)
     printf("[REC_FORMAT] boot reconciled files=%u\n", total);
     return 0;
 }
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+void *rdx_record_format_factory_open(u32 sn, const char *name, u32 start, u32 *size, u32 *crc)
+{
+    if (!rdx_factory_audio_file_busy() || !rf_name_valid(name) || !sn || rf_error || rf_service) return NULL;
+    char path[40];
+    rf_meta meta = {0};
+    rf_path(path, name, 1);
+    FILE *f = fopen(path, "r");
+    if (!f) return NULL;
+    int valid = flen(f) == sizeof(meta) && fread(&meta, 1, sizeof(meta), f) == sizeof(meta);
+    if (fclose(f)) valid = 0;
+    if (!valid || meta.magic != RF_MAGIC || meta.sn != sn || meta.start != start ||
+        meta.ready != 1 || meta.name[sizeof(meta.name)-1] || strcmp(meta.name, name) ||
+        meta.format != RECORD_FORMATE_OPUS_16K_MONO ||
+        meta.hash != rf_hash(&meta, sizeof(meta)-sizeof(meta.hash))) return NULL;
+    rf_path(path, name, 0);
+    f = fopen(path, "r");
+    if (!f) return NULL;
+    u32 length = flen(f), remaining = length, hash = 0;
+    u8 buf[240];
+    /* Factory session is capped at 15 seconds. Refuse unrelated/oversized files. */
+    if (!length || length > 40000 || length % 40) valid = 0;
+    while (valid && remaining) {
+        u32 n = MIN(remaining, sizeof(buf));
+        if (fread(buf, 1, n, f) != n) { valid = 0; break; }
+        if (remaining == length && rf_hash(buf, 40) != meta.first_hash) { valid = 0; break; }
+        hash = rdx_factory_audio_crc(hash, buf, n);
+        remaining -= n;
+        wdt_clear();
+        os_time_dly(1);
+    }
+    if (!valid || fseek(f, 0, SEEK_SET)) { fclose(f); return NULL; }
+    *size = length; *crc = hash;
+    return f;
+}
+#endif

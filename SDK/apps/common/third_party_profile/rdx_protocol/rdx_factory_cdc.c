@@ -5,6 +5,7 @@
 #include "rdx_vm.h"
 #include "rdx_app_config.h"
 #include "rdx_dut.h"
+#include "rdx_factory_audio.h"
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
 extern char *rdx_ble_server_get_local_name(void);
@@ -144,6 +145,9 @@ static void factory_dispatch(void)
     } else if (!strcmp(line, "GET_STATUS") || !strcmp(line, "GET_KEY_STATUS")) {
         rdx_dut_cdc_status(factory_protocol.response, sizeof(factory_protocol.response), !strcmp(line, "GET_KEY_STATUS"));
         reply = NULL;
+    } else if (rdx_factory_audio_command(factory_protocol.generation, line,
+                 factory_protocol.response, sizeof(factory_protocol.response))) {
+        reply = NULL;
     } else if (!strncmp(line, "DUT ", 4)) {
         char *name = line + 4;
         char *value = strchr(name, ' ');
@@ -187,6 +191,7 @@ static void factory_service(void *priv)
         factory_protocol.length = factory_protocol.response_length = 0;
         factory_protocol.cr = factory_protocol.error = 0;
     }
+    rdx_factory_audio_service(generation);
     if (!generation) return;
     while (bytes < 256 && responses < 4) {
         if (factory_cdc_generation() != generation) return;
@@ -204,7 +209,10 @@ static void factory_service(void *priv)
             ++responses;
         } else {
             u8 byte;
-            if (!factory_pop_byte(generation, &byte)) return;
+            if (!factory_pop_byte(generation, &byte)) {
+                rdx_factory_audio_send(generation);
+                return;
+            }
             ++bytes;
             factory_byte(byte);
         }

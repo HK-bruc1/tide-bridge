@@ -125,6 +125,8 @@ code += r'''
 typedef struct { int valid; } rdx_ble_async_token_t;
 int result, reset_calls, reset_attempts, ack, freed;
 int rdx_ble_session_rdx_token_resolve(rdx_ble_async_token_t *p,int ready) { return p->valid; }
+int rdx_factory_audio_file_busy(void) { return 0; }
+int rdx_factory_audio_owned(void) { return 0; }
 int rdx_vm_reset_defaults_no_poweroff(void) { ++reset_attempts; return result; }
 void acknowledge(int value) { ack=value; }
 struct { void (*sys_set_default_ack_indicate)(int); } ops={acknowledge}, *g_protocol_ops=&ops;

@@ -33,6 +33,8 @@
 #include "rdx_record.h"
 #include "rdx_record_format.h"
 #include "rdx_record_storage.h"
+#include "rdx_factory_audio.h"
+#include "usb/device/usb_factory_cdc.h"
 #include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "effects/eq_config.h"
@@ -205,11 +207,40 @@ u8 rdx_record_binding_token_is_current(u32 token)
 #define RDX_RECORD_DUT_TOKEN_BIT 0x80000000UL
 static u32 dut_record_generation;
 static volatile u32 dut_record_token;
+static u32 dut_record_usb_generation;
 static rdx_ble_async_token_t dut_record_owner;
 
 void rdx_record_dut_authorization_revoke(void)
 {
     dut_record_token = 0;
+    dut_record_usb_generation = 0;
+}
+
+void rdx_record_dut_ble_revoke(void)
+{
+    local_irq_disable();
+    if (!dut_record_usb_generation) rdx_record_dut_authorization_revoke();
+    local_irq_enable();
+}
+
+u8 rdx_record_dut_authorize_usb(u32 generation)
+{
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+    if (!generation || generation != factory_cdc_generation() ||
+        !rdx_app_get_dut_status() || app_var.goto_poweroff_flag ||
+        rdx_app_get_poweroff_flag() || record_binding_revoke_pending || dut_record_stopping ||
+        rdx_storage_lifecycle_business_blocked() ||
+        record_status.run != RECORD_STATE_STOP || record_status.process_state == REC_PROCESS_STATE_BUSY)
+        return 0;
+    rdx_record_dut_authorization_revoke();
+    dut_record_usb_generation = generation;
+    dut_record_generation = (dut_record_generation + 1) & ~RDX_RECORD_DUT_TOKEN_BIT;
+    if (!dut_record_generation) ++dut_record_generation;
+    dut_record_token = dut_record_generation | RDX_RECORD_DUT_TOKEN_BIT;
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 u8 rdx_record_dut_authorize(void)
@@ -244,7 +275,13 @@ u8 rdx_record_session_token_is_current(u32 token)
            !app_var.goto_poweroff_flag && !rdx_app_get_poweroff_flag() &&
            !rdx_storage_lifecycle_business_blocked() &&
            !rdx_storage_lifecycle_shutdown_deferred() &&
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+           (dut_record_usb_generation ?
+            dut_record_usb_generation == factory_cdc_generation() :
+            !!rdx_ble_session_rdx_token_resolve(&dut_record_owner, 1)) &&
+#else
            rdx_ble_session_rdx_token_resolve(&dut_record_owner, 1) &&
+#endif
            token == dut_record_token;
 }
 
@@ -1329,8 +1366,8 @@ static void rdx_record_cmd_handle_internal(
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    if (!r_info) {
-        return;
+    if (!r_info || rdx_factory_audio_owned()) {
+        return; /* CDC factory recording cannot be taken over by an APP command. */
     }
     if (rdx_storage_lifecycle_business_blocked() &&
         r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
@@ -3337,6 +3374,8 @@ int rdx_record_run_data_handle(u8* d, u32 len)
         rdx_protocol_audio_data_indicate(d, len);
     }
 
+    rdx_factory_audio_frame(d, len);
+
     //local save.
     if(!rdx_record_stream_only_session_is_active()){
         if (rdx_record_storage_push(d, len)) return -1;
@@ -3385,6 +3424,7 @@ int rdx_record_run_exit(void)
     if(!rdx_record_stream_only_session_is_active()){
         int saved = rdx_uxfile_finish_record();
         if (rdx_record_format_status() < 0) saved = -1;
+        rdx_factory_audio_saved(saved);
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
         }
