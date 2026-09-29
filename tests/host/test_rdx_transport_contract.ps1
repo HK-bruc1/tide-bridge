@@ -249,4 +249,7 @@ Assert-Contract 'TEST_APPKEY_LIST_HAS_STATIC_LIFETIME_AND_TERMINATOR' `
     ($App -match 'static const char\s*\*\s*const rdx_test_appkey_mac_list\[\]\s*=\s*\{\s*TCFG_RDX_TEST_APPKEY_MAC_LIST\s+NULL\s*\}') `
     'the binary retains the list pointer and traverses until NULL, including empty configuration'
 
+& python -X utf8 (Join-Path $PSScriptRoot 'test_ble_download.py')
+if ($LASTEXITCODE -ne 0) { throw 'BLE download policy behavior failed' }
+
 Write-Host 'RDX transport contracts passed.'

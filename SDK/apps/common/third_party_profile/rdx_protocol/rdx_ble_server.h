@@ -145,6 +145,7 @@ void rdx_ble_server_post_transfer_lowpower(void);
 
 /* Binary compatibility only. Source modules must use the narrow queries
  * above instead of reading connection fields from this legacy structure. */
+/* 旧库只读兼容视图；下载时 ble_mtu_size 可作为分片提示，不代表真实协商 MTU。 */
 rdx_ble_server_info_t * rdx_ble_server_get_info(void);
 
 int rdx_ble_server_bt_name_set_handle(u8 has_value, const char* in_name, char* out_name, u16 out_cap);

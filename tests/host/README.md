@@ -92,3 +92,5 @@ tool checks startup bytes and four echoes; host validation never opens a port.
 See [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
 
 Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
+
+BLE 下载参数行为测试 `test_ble_download.py` 由传输契约组调用，执行实际 C 策略，覆盖连续下载延迟省电、旧回调隔离、有限重试、投递失败和244字节提交兼容视图。手机参数协商、PHY/DLE 事件转发、吞吐与功耗需要实机验证。
