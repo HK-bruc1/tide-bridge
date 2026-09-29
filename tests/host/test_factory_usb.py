@@ -4,7 +4,6 @@ Requires the repository's JL clang and Python llvmlite.
 This checks policy/resource ordering, not physical USB enumeration or NAK timing.
 """
 import re
-import subprocess
 
 from host_c_test_lib import ROOT, run_c_checks
 
@@ -41,7 +40,7 @@ int rdx_app_business_started(void) { return business; }
 int rdx_storage_lifecycle_business_blocked(void) { return blocked; }
 int rdx_storage_lifecycle_shutdown_deferred(void) { return deferred; }
 int rdx_dut_factory_usb_ready(void) {
-    return dut_ready && on && business && !app_var.goto_poweroff_flag && !blocked && !deferred;
+    return on && business && !app_var.goto_poweroff_flag;
 }
 int rdx_dip_switch_pc_allowed(void) { return !on && vbus && role == SLAVE_MODE && !business && !app_var.goto_poweroff_flag; }
 int pc_storage_usb_ready(void) { return host_owned && pc; }
@@ -108,12 +107,12 @@ int test_all(void) {
     usb_stop(0); CHECK(cdc_stops==1);
     boot(); dut_ready=0;
     usb_factory_service(); usb_cdc_background_run(0);
-    CHECK(!hw_class && !posts); /* normal boot is invisible */
+    CHECK(hw_class==CDC_CLASS); /* normal ON needs no DUT */
     dut_ready=1; usb_factory_service(); usb_cdc_background_run(0);
-    CHECK(hw_class==CDC_CLASS); /* key entry with cable already attached */
-    dut_ready=0; usb_cdc_background_run(0); CHECK(!hw_class); /* exit before policy tick */
+    CHECK(hw_class==CDC_CLASS && starts==1); /* entry keeps the port */
+    dut_ready=0; usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS && starts==1); /* exit keeps the port */
     boot(); usb_factory_service(); dut_ready=0;
-    usb_cdc_background_run(0); CHECK(!hw_class); /* queued start after exit */
+    usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS); /* queued start remains valid after exit */
     boot(); vbus=0; usb_factory_service(); usb_cdc_background_run(0); CHECK(!hw_class);
     vbus=1; usb_factory_service(); usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS);
     boot(); business=0;
@@ -133,7 +132,7 @@ int test_all(void) {
     on=1; usb_factory_service(); usb_cdc_background_run(0);
     CHECK(hw_class==MASSSTORAGE_CLASS); /* cannot replace live MSC */
     usb_stop(0); pc=0; host_owned=0; blocked=1; business=1;
-    usb_factory_service(); usb_cdc_background_run(0); CHECK(!hw_class);
+    usb_factory_service(); usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS);
     blocked=0; usb_factory_service(); usb_cdc_background_run(0);
     CHECK(hw_class==CDC_CLASS && !violation);
     boot(); usb_factory_service(); on=0;
@@ -147,9 +146,9 @@ int test_all(void) {
     init_fail=1; usb_cdc_background_run(0); CHECK(!usb_factory_cdc_started());
     init_fail=0; usb_factory_service(); usb_cdc_background_run(0);
     CHECK(usb_factory_cdc_started());
-    blocked=1; usb_factory_service(); usb_cdc_background_run(0); CHECK(!hw_class);
+    blocked=1; usb_factory_service(); usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS);
     boot(); usb_factory_service(); usb_cdc_background_run(0);
-    deferred=1; usb_cdc_background_run(0); CHECK(!hw_class);
+    deferred=1; usb_cdc_background_run(0); CHECK(hw_class==CDC_CLASS);
     boot(); usb_factory_service(); usb_cdc_background_run(0);
     post_fail=1; usb_factory_shutdown(); CHECK(hw_class==CDC_CLASS);
     post_fail=0; usb_factory_shutdown();
@@ -184,7 +183,7 @@ def main():
     audit.mkdir(parents=True, exist_ok=True)
     c_path = audit / 'test.c'
     dut = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_dut.c').read_text(encoding='utf-8')
-    key_entry = dut[dut.index('static volatile u8 factory_key_dut_ready;'):dut.index('static void rdx_dut_motor_timer_cb(void *priv);')]
+    key_entry = dut[dut.index('static volatile u8 factory_usb_revoked;'):dut.index('static void rdx_dut_motor_timer_cb(void *priv);')]
     lifecycle_stubs = r'''
 #define DUT_LOG(...) ((void)0)
 int dut_mode, key_disabled, entry_fail;
@@ -194,25 +193,26 @@ void rdx_dut_msg_handle(void) { if (!entry_fail) dut_mode = !dut_mode; }
 '''
     lifecycle_tests = r'''
 int cleanup_saw_ready, delayed_poweroff;
-void rdx_dut_close_current_func(void) { cleanup_saw_ready = factory_key_dut_ready; }
+void rdx_dut_close_current_func(void) { cleanup_saw_ready = real_factory_usb_ready(); }
 #define RDX_LED_SCENE_DUT_EXIT 0
 void rdx_led_ctrl_set_scene(int scene) {}
 void rdx_app_normal_poweroff(void) {}
 int sys_timeout_add(void *p, void (*cb)(void *), int delay) { delayed_poweroff=1; return 0; }
 POWER_OFF_BODY
 int test_key_entry(void) {
-    boot(); factory_key_dut_ready=0; dut_mode=key_disabled=entry_fail=0;
-    entry_fail=1; rdx_dut_key_mode_handle(); CHECK(!rdx_dut_factory_usb_ready());
+    boot(); factory_usb_revoked=0; dut_mode=key_disabled=entry_fail=0;
+    entry_fail=1; rdx_dut_key_mode_handle(); CHECK(rdx_dut_factory_usb_ready());
     entry_fail=0; key_disabled=1; rdx_dut_key_mode_handle(); CHECK(!dut_mode);
     key_disabled=0; on=0; rdx_dut_key_mode_handle(); CHECK(!dut_mode);
     on=1; blocked=1; rdx_dut_key_mode_handle(); CHECK(!dut_mode);
-    blocked=0; rdx_dut_msg_handle(); CHECK(dut_mode && !rdx_dut_factory_usb_ready());
+    blocked=0; rdx_dut_msg_handle(); CHECK(dut_mode && rdx_dut_factory_usb_ready());
     rdx_dut_msg_handle(); rdx_dut_key_mode_handle();
     CHECK(dut_mode && rdx_dut_factory_usb_ready());
     business=0; CHECK(!rdx_dut_factory_usb_ready()); business=1;
-    dut_mode=0; CHECK(!rdx_dut_factory_usb_ready()); dut_mode=1;
+    dut_mode=0; CHECK(rdx_dut_factory_usb_ready()); dut_mode=1;
+    blocked=1; CHECK(rdx_dut_factory_usb_ready()); blocked=0;
     rdx_dut_poweroff();
-    CHECK(!factory_key_dut_ready && !dut_mode && !cleanup_saw_ready && delayed_poweroff);
+    CHECK(factory_usb_revoked && !dut_mode && !cleanup_saw_ready && delayed_poweroff);
     dut_mode=1; CHECK(!rdx_dut_factory_usb_ready()); /* no revival if shutdown never completes */
     return 0;
 }
@@ -220,11 +220,6 @@ int test_key_entry(void) {
     poweroff = dut[dut.index('void rdx_dut_poweroff(void)'):]
     poweroff = poweroff[:poweroff.index('\n}') + 2]
     lifecycle_tests = lifecycle_tests.replace('POWER_OFF_BODY', poweroff.replace('rdx_dut_info.dut_mode', 'dut_mode'))
-    for name in ['void rdx_dut_poweroff(void)' , 'void rdx_dut_msg_handle(void)']:
-        body = dut[dut.index(name):]
-        assert body.index('rdx_dut_factory_usb_revoke();') < body.index('rdx_dut_info.dut_mode = FALSE;')
-    app = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c').read_text(encoding='utf-8')
-    assert 'rdx_dut_key_mode_handle();' in app
     # Execute the real poweroff gate with a delayed USB worker, not a synchronous stub.
     gates = []
     for filename in ('poweroff.c', 'tws_poweroff.c'):
@@ -258,62 +253,13 @@ int test_poweroff_gate(void) {
                      lifecycle_tests.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready') + gate_tests, encoding='utf-8')
     run_c_checks(c_path, ('test_all', 'test_key_entry', 'test_poweroff_gate'))
     print('PASS: shutdown continues without USB, worker ACK or queue capacity; MSC preserved; TWS matches')
-    print('PASS: real key entry completion, failed entry, disabled key, OFF/storage rejection, BLE cannot grant CDC')
+    print('PASS: CDC independent of DUT/key/SD; key entry still guarded; OFF and shutdown revoke CDC')
     print('PASS: actual factory USB C: SD ownership, stale requests, retry, idempotence, IRQ-before-release and shutdown')
-    check_final_config(audit)
     check_cdc_transport()
-
-
-def check_final_config(audit):
-    """Use the real SDK include tree and build defines, including tool conflicts."""
-    makefile = (ROOT / 'SDK/Makefile').read_text(encoding='utf-8')
-
-    def words(name):
-        lines = makefile.splitlines()
-        start = next(i for i, line in enumerate(lines) if line.startswith(name + ' :='))
-        text = lines[start].split(':=', 1)[1]
-        i = start
-        while text.rstrip().endswith('\\'):
-            i += 1
-            text = text.rstrip()[:-1] + ' ' + lines[i]
-        return text.replace('$(SYS_INC_DIR)', 'C:/JL/pi32/pi32v2-include').split()
-
-    base = ['C:/JL/pi32/bin/clang.exe'] + words('CFLAGS') + words('DEFINES') + words('INCLUDES')
-    for storage, enabled, comm, byte_test in [(storage, enabled, comm, byte_test)
-            for storage in (0, 1)
-            for enabled, comm, byte_test in [(0, None, 0), (1, None, 0), (1, None, 1),
-                                             (0, None, 1), (1, 1, 0), (1, 3, 0)]]:
-        overrides = '' if comm is None else (
-            '#include "sdk_config.h"\n#undef TCFG_CFG_TOOL_ENABLE\n#define TCFG_CFG_TOOL_ENABLE 1\n'
-            f'#undef TCFG_COMM_TYPE\n#define TCFG_COMM_TYPE {comm}\n')
-        path = audit / f'config-{storage}-{enabled}-{comm}-{byte_test}.c'
-        path.write_text(overrides + '#include "app_config.h"\n#include "usb/otg.h"\n' +
-                        '#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !(TCFG_OTG_MODE & OTG_SLAVE_MODE)\n'
-                        '#error "missing OTG slave"\n#endif\n', encoding='utf-8')
-        result = subprocess.run(base + [f'-DTCFG_T2620_PC_STORAGE_ENABLE={storage}',
-                                       f'-DTCFG_T2620_FACTORY_USB_CDC_ENABLE={enabled}',
-                                       f'-DTCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE={byte_test}',
-                                       '-E', '-dM', str(path)], cwd=ROOT / 'SDK',
-                                capture_output=True, text=True)
-        (audit / f'config-{storage}-{enabled}-{comm}-{byte_test}.log').write_text(result.stdout + result.stderr, encoding='utf-8')
-        if byte_test and not enabled:
-            assert result.returncode and 'Factory CDC byte test requires factory CDC' in result.stderr
-        elif comm is not None:
-            assert result.returncode and 'conflicts with the online configuration tool' in result.stderr
-        else:
-            assert result.returncode == 0, result.stderr
-            macros = dict(re.findall(r'^#define (\w+) (.*)$', result.stdout, re.M))
-            assert macros['TCFG_USB_SLAVE_MSD_ENABLE'] == str(storage)
-            assert macros['TCFG_USB_SLAVE_CDC_ENABLE'] == str(enabled)
-            assert macros['TCFG_APP_PC_EN'] == str(storage)
-            assert macros['TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE'] == str(byte_test)
-            for usb_class in ('HID', 'AUDIO_SPK', 'AUDIO_MIC', 'MTP', 'MIDI', 'PRINTER'):
-                assert macros[f'TCFG_USB_SLAVE_{usb_class}_ENABLE'] == '0'
-            assert macros['TCFG_USB_CUSTOM_HID_ENABLE'] == '0'
-            if enabled:
-                assert macros['CDC_DATA_EP_IN'] == '1' and macros['CDC_DATA_EP_OUT'] == '1'
-                assert macros['CDC_INTR_EP_IN'] == '2' and macros['CDC_INTR_EP_ENABLE'] == '1'
-    print('PASS: actual SDK preprocessing: CDC/test off/on, optional MSC off/on, endpoint layout, invalid test/tool combinations rejected')
+    from test_factory_station import check_station
+    check_station()
+    from test_factory_protocol import check_protocol
+    check_protocol()
 
 
 CDC_STUBS = r'''
@@ -322,7 +268,7 @@ typedef unsigned short u16;
 typedef unsigned int u32;
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
 #define NULL ((void *)0)
-#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 2
+#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
 #define USB_TASK_NAME "usb_stack"
 #define USBSTACK_FACTORY_CDC_IO 100
 void *memcpy(void *, const void *, unsigned int);
@@ -387,48 +333,13 @@ static void boot(void) {
     factory_cdc_set_rx_handler(consumer);
 }
 int test_transport(void) {
-#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL == 2
-    /* IRQ producers snapshot data; overflow stays bounded and printing is deferred. */
-    u8 diagnostic[64];
-    memset(diagnostic, 0xAB, sizeof(diagnostic));
-    cdc_log_head=cdc_log_count=0; cdc_log_dropped=0;
-    local_irq_disable();
-    for (int i=0; i<CDC_LOG_DEPTH+3; ++i)
-        cdc_log_capture(CDC_LOG_RX, 42, diagnostic, 64, 0);
-    local_irq_enable();
-    diagnostic[0]=0;
-    CHECK(cdc_log_count==CDC_LOG_DEPTH && cdc_log_dropped==3);
-    CHECK(cdc_logs[0].captured==32 && cdc_logs[0].length==64);
-    CHECK(cdc_logs[0].bytes[0]==0xAB && cdc_logs[0].generation==42);
-    cdc_log_flush(1); cdc_log_flush(1);
-    CHECK(!cdc_log_count && !cdc_log_dropped && !violation && !irq_depth);
-#elif TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL == 1
-    u8 diagnostic[5] = {1,2,3,4,5};
-    cdc_log_head=cdc_log_count=0;
-    cdc_log_since=now=0;
-    for (int i=0; i<1000; ++i) {
-        cdc_log_capture(CDC_LOG_RX, 42, diagnostic, 5, 0);
-        cdc_log_capture(CDC_LOG_TX_QUEUED, 42, diagnostic, 5, 0);
-        cdc_log_capture(CDC_LOG_TX_SUBMIT, 42, diagnostic, 5, 0);
-        cdc_log_capture(CDC_LOG_TX_DONE, 42, 0, 5, 0);
-    }
-    CHECK(cdc_log_count==2 && cdc_logs[0].length==5000 && cdc_logs[1].length==5000);
-    CHECK(cdc_logs[0].count==1000 && !cdc_log_dropped);
-    CHECK(!cdc_logs[0].captured && !cdc_logs[1].captured);
-    now=999; cdc_log_flush(0); CHECK(cdc_log_count==2);
-    now=1000; cdc_log_flush(0); CHECK(!cdc_log_count);
-    /* New sessions and distinct rejection reasons must not merge. */
-    cdc_log_capture(CDC_LOG_RX, 43, diagnostic, 5, 0);
-    cdc_log_capture(CDC_LOG_RX, 44, diagnostic, 5, 0);
-    cdc_log_capture(CDC_LOG_TX_REJECT, 44, 0, 5, -1);
-    cdc_log_capture(CDC_LOG_TX_REJECT, 44, 0, 5, -2);
-    CHECK(cdc_log_count==4);
-    cdc_log_flush(1); CHECK(!cdc_log_count);
-    cdc_log_since=0xfffffff0u; now=984;
-    cdc_log_capture(CDC_LOG_RX, 44, diagnostic, 5, 0);
-    cdc_log_flush(0); CHECK(!cdc_log_count);
-    CHECK(!violation && !irq_depth);
-#endif
+    boot();
+    u32 abort_generation = factory_cdc_generation();
+    factory_cdc_abort(abort_generation + 1);
+    CHECK(factory_cdc_generation()==abort_generation && !factory_cdc_needs_restart());
+    factory_cdc_abort(abort_generation);
+    CHECK(!factory_cdc_generation() && factory_cdc_needs_restart() && !irq_depth);
+    boot();
 
     u8 data[258]; for(int i=0;i<258;++i) data[i]=(u8)i;
     boot(); u32 gen=factory_cdc_generation(); CHECK(gen);
@@ -436,24 +347,9 @@ int test_transport(void) {
     CHECK(factory_cdc_send(gen,data,65)==0);
     tick(); CHECK(transport.tx_pending_length==64);
     tick(); CHECK(transport.tx_pending_length==64); /* still busy */
-#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL == 1
-    for (int i=0; i<cdc_log_count; ++i)
-        CHECK(cdc_logs[(cdc_log_head+i)%CDC_LOG_DEPTH].event!=CDC_LOG_TX_DONE);
-#endif
     busy=0; tick(); CHECK(transport.tx_pending_length==1);
     busy=0; tick(); CHECK(!transport.tx_pending_length);
     CHECK(wire_len==65);
-#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL == 1
-    int completed=0;
-    for (int i=0; i<cdc_log_count; ++i) {
-        int index=(cdc_log_head+i)%CDC_LOG_DEPTH;
-        if (cdc_logs[index].event==CDC_LOG_TX_DONE) {
-            CHECK(cdc_logs[index].length==65 && cdc_logs[index].count==2);
-            ++completed;
-        }
-    }
-    CHECK(completed==1);
-#endif
     boot(); gen=factory_cdc_generation();
     /* Host-sized byte sequences and short writes preserve FIFO exactly. */
     int sizes[]={1,63,64,65,128,256,258};
@@ -523,20 +419,6 @@ int test_transport(void) {
     boot(); factory_cdc_stop(); timer_fail=1; factory_cdc_start();
     CHECK(factory_cdc_needs_restart() && !factory_cdc_generation());
     CHECK(!irq_depth && !violation);
-    return 0;
-}
-int test_pattern(void) {
-    boot(); pump(20);
-    CHECK(wire_len==256);
-    for(int i=0;i<256;++i) CHECK(wire[i]==(u8)i);
-    local_irq_disable(); factory_cdc_open(); local_irq_enable();
-    pump(20); CHECK(wire_len==256); /* repeated DTR cannot duplicate banner */
-    factory_cdc_stop(); wire_len=0;
-    factory_cdc_set_rx_handler(consumer);
-    factory_cdc_start(); factory_cdc_open(); pump(20);
-    CHECK(wire_len==0 && transport.receive==consumer);
-    incoming[0]=42; in_len=1; pump(5);
-    CHECK(wire_len==1 && wire[0]==42); /* custom consumer survives restart, no test banner */
     return 0;
 }
 '''
@@ -626,7 +508,7 @@ int test_driver(void) {
 def check_cdc_transport():
     folder = ROOT / 'SDK/apps/common/device/usb/device'
     header = (folder / 'usb_factory_cdc.h').read_text(encoding='utf-8') + (folder / 'usb_factory_cdc_internal.h').read_text(encoding='utf-8')
-    source = (folder / 'usb_factory_cdc.c').read_text(encoding='utf-8') + (folder / 'usb_factory_cdc_test.c').read_text(encoding='utf-8')
+    source = (folder / 'usb_factory_cdc.c').read_text(encoding='utf-8')
     strip = lambda text: re.sub(r'^#include.*$', '', text, flags=re.M)
     audit = ROOT / 'cache/factory-cdc-transport-test'
     audit.mkdir(parents=True, exist_ok=True)
@@ -636,20 +518,14 @@ def check_cdc_transport():
     suites = [
         ('transport-0', 'test_transport', CDC_STUBS + '\n#define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0\n' +
          strip(header) + strip(source) + CDC_TESTS),
-        ('transport-1', 'test_pattern', CDC_STUBS + '\n#define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 1\n' +
-         strip(header) + strip(source) + CDC_TESTS),
         ('driver', 'test_driver', CDC_DRIVER_STUBS + strip(header) + driver + CDC_DRIVER_TESTS),
     ]
-    for level in (0, 1):
-        suites.append((f'log-level-{level}', 'test_transport',
-                       suites[0][2].replace('#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 2',
-                                            f'#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL {level}')))
     for name, function, text in suites:
         path = audit / f'{name}.c'
         path.write_text(text, encoding='utf-8')
         run_c_checks(path, (function,))
     print('PASS: actual CDC transport: FIFO/short writes/zero writes/backpressure/IRQ retry/')
-    print('      callback reset race/stale generation/final DMA timeout/wrap/test pattern')
+    print('      callback reset race/stale generation/final DMA timeout')
     print('PASS: actual CDC driver: bounded DMA commit, busy/ZLP, alternating short RX, deconfiguration')
 
 

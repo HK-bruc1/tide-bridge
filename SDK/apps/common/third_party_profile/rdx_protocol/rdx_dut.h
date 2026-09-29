@@ -60,6 +60,10 @@ extern "C" {
 #define FT_KEY_EVENT            "ft_key_event"
 #define FT_SPEAKER              "ft_speaker"
 
+/* app_core only: shared admission and bounded text snapshots. */
+void rdx_dut_cdc_status(char *out, unsigned int capacity, int keys);
+void rdx_dut_cdc_request(u32 generation, const char *name, u8 value, char *out, unsigned int capacity);
+
 #define KEY_DUT_DISABLED_FLAG       (0xAA)
 
 /******************************************************************************

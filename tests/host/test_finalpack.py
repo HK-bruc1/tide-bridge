@@ -53,6 +53,11 @@ struct { int goto_poweroff_flag; int auto_off_time; } app_var;
 struct { u8 bound_state; } rdx_bound_info;
 u32 bound_epoch, bound_token;
 bool g_finalpack_end_pending, g_finalpack_format_waiting;
+static unsigned int dut_format_id, dut_completion_id;
+static int dut_completion_result;
+static struct { unsigned int id; } dut_last = {1};
+static void dut_finish(unsigned int id, const char *error) {}
+
 #define FT_DUT "ft_dut"
 int replies, reset_requests;
 int strcmp(const char *a, const char *b) {
@@ -114,7 +119,7 @@ static void boot(void) {
 }
 static void finish(int result) {
     rdx_dut_finalpack_end_format_cb(result);
-    if (!posts_fail) rdx_dut_finalpack_commit(result);
+    if (dut_completion_id) { dut_completion_id=0; rdx_dut_finalpack_commit(dut_completion_result); }
 }
 int test_finalpack_success(void) {
     boot(); rdx_dut_finalpack_end();
@@ -126,7 +131,7 @@ int test_finalpack_success(void) {
     finish(MEM_FORMAT_RESULT_OK);
     CHECK(flash[1]==0 && rdx_bound_info.bound_state==0 && bound_token==0 && revokes==1);
     CHECK(flash[0]==0xaa && rdx_dut_info.key_dut_disabled && timers==0 && g_finalpack_end_pending);
-    rdx_dut_finalpack_end_format_cb(1); CHECK(posts==1);
+    rdx_dut_finalpack_end_format_cb(1); CHECK(posts==0);
     CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE && !auto_off);
     CHECK(!disconnects && !poweroffs && !timers && !reset_requests);
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "0"));
@@ -148,8 +153,8 @@ int test_finalpack_failures(void) {
     CHECK(!timers && !resets && flash[1]==1 && flash[0]==0xff && !g_finalpack_end_pending);
     CHECK(done_led==RDX_LED_SCENE_DUT_ENTER);
     boot(); rdx_dut_finalpack_end(); posts_fail=1; finish(1);
-    CHECK(!timers && !resets && !g_finalpack_end_pending);
-    CHECK(done_led==RDX_LED_SCENE_DUT_ENTER);
+    CHECK(!timers && resets==1 && g_finalpack_end_pending); /* Completion slot survives a full task queue. */
+    CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE);
     boot(); rdx_dut_finalpack_end(); resets_fail=1; finish(1);
     CHECK(!timers && flash[1]==1 && flash[0]==0xff);
     CHECK(done_led==RDX_LED_SCENE_DUT_ENTER);
@@ -212,8 +217,8 @@ def main():
     assert 'rdx_app_time_to_reset(' not in no_off
     assert 'rdx_vm_reset_defaults_no_poweroff()' in function(vm, 'void rdx_vm_sys_reset_to_defaults(')
     for name in ['static void rdx_dut_cmd_async_handle(', 'void rdx_dut_ble_cmd_handle(',
-                 'void rdx_dut_key_handle(']:
-        assert 'if (g_finalpack_end_pending)' in function(dut, name)
+                 'static const char *dut_accept(']:
+        assert 'g_finalpack_end_pending' in function(dut, name)
     ble = (base / 'rdx_ble_server.c').read_text(encoding='utf-8')
     source = STUBS + function(ble[ble.rindex('void rdx_ble_server_auto_shut_down_enable('):],
                               'void rdx_ble_server_auto_shut_down_enable(')

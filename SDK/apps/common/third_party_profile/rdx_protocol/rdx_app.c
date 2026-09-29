@@ -89,6 +89,7 @@
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
 #include "rdx_dut.h"
+#include "rdx_factory_cdc.h"
 #include "rdx_wifi_event.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
@@ -147,6 +148,11 @@ static bool rdx_business_started;
 u8 rdx_app_business_started(void)
 {
     return rdx_business_started;
+}
+
+u8 rdx_app_initialized(void)
+{
+    return rdx_app_init_flag;
 }
 
 static RecordStatus set_rp;
@@ -4485,6 +4491,7 @@ void rdx_app_tasks_init(void)
     rdx_dut_init();
 
     rdx_app_init_flag = true;
+    rdx_factory_cdc_init();
 }
 
 /**************************************************************************

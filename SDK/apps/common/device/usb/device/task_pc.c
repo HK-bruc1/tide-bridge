@@ -112,7 +112,8 @@ static int factory_cdc_allowed(void)
     }
     /* requested schedules reconciliation; it is not an authorization token.
      * RDX owns the live, read-only admission query. Recheck at execution so
-     * queued work cannot revive DUT after its owner revokes it. */
+     * queued work cannot revive CDC after OFF or shutdown. DUT and SD health
+     * do not own this transport; live MSC still retains its USB resources. */
     return factory_cdc_requested && rdx_dut_factory_usb_ready() &&
            !factory_usb_shutdown &&
            get_charge_online_flag() && usb_otg_online(0) == SLAVE_MODE &&

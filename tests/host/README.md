@@ -27,7 +27,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
 | `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries |
-| `test_factory_usb.py` | SDK configuration matrix, storage admission/shutdown, CDC queues, stale sessions, partial I/O and bounded DMA |
+| `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery and bounded identity fields |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
@@ -86,6 +86,11 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 
 ## Optional board check
 
+正式 CDC 协议终端工具见 [board README](../board/README.md)。`factory_cdc_flow.py`
+提供基础检查、受固件能力门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
+由 factory USB 组调用，覆盖旧固件阻断、超时不重发、LAST 覆盖、AUTH 完整显示/保存及控制顺序；
+使用模拟串口，不打开硬件。完整录音/文件/包装流程尚未实现。
+
 `python tests/board/factory_cdc_bytes.py --port COM6` requires `pyserial`, a DUT
 and CDC TEST firmware. Use the CDC port, not the debug log port. This independent
 tool checks startup bytes and four echoes; host validation never opens a port.
@@ -94,3 +99,5 @@ See [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
 Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
 
 BLE 下载参数行为测试 `test_ble_download.py` 由传输契约组调用，执行实际 C 策略，覆盖连续下载延迟省电、旧回调隔离、有限重试、投递失败和244字节提交兼容视图。手机参数协商、PHY/DLE 事件转发、吞吐与功耗需要实机验证。
+
+CDC 主机检查已收敛到正式配置（TEST=0、LOG_LEVEL=1）：保留生命周期、传输/背压/旧会话隔离、驱动边界、协议分帧/身份及终端主流程；不再运行配置组合矩阵、历史 TEST=1 图样或日志统计内部细节。配置可编译性通过正常固件构建验证，未覆盖的宏组合需另行验证。

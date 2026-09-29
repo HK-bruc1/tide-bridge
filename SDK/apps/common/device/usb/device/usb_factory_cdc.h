@@ -23,6 +23,9 @@ void factory_cdc_set_rx_handler(factory_cdc_rx_cb handler);
  * or snapshot. Capacity is bounded; never retries an expired generation. */
 int factory_cdc_send(u32 generation, const u8 *bytes, u32 length);
 u32 factory_cdc_generation(void); /* 0 while not ready */
+/* Invalidate only this session, without waiting or releasing USB resources.
+ * usb_stack observes restart on its next tick and owns reenumeration. */
+void factory_cdc_abort(u32 generation);
 
 #endif
 #endif

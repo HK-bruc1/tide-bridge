@@ -120,10 +120,10 @@
 #define TCFG_PC_ENABLE                            TCFG_APP_PC_EN
 
 /* -------------------------------------------------------------------------- */
-/* USB CDC 产测：仅在台架测试固件中显式启用。 */
+/* USB CDC 产测：默认开启正式协议，可由构建参数显式关闭。 */
 /* -------------------------------------------------------------------------- */
 #ifndef TCFG_T2620_FACTORY_USB_CDC_ENABLE
-#define TCFG_T2620_FACTORY_USB_CDC_ENABLE          0
+#define TCFG_T2620_FACTORY_USB_CDC_ENABLE          1
 #endif
 
 /* 原始数据回显及主动发送 00..FF 测试数据；禁止与第三阶段协议同时启用。 */
@@ -140,6 +140,10 @@
 
 #if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_ENABLE
 #error "Factory CDC byte test requires factory CDC"
+#endif
+
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE && TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL == 2
+#error "Factory CDC protocol forbids payload logging"
 #endif
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE

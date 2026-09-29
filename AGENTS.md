@@ -182,7 +182,7 @@ Current overlay rules:
 
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
 - `TCFG_T2620_PC_STORAGE_ENABLE` defaults to 0 and owns only optional USB MSC export. When enabled it requires tool-configured SD0 + USB MSC; when disabled it forces PC mode off.
-- `TCFG_T2620_FACTORY_USB_CDC_ENABLE` defaults to 0 and enables physical-key DUT CDC independently of optional PC/MSC export. CDC admission uses the storage lifecycle guards.
+- `TCFG_T2620_FACTORY_USB_CDC_ENABLE` defaults to 1 and enables ON-mode CDC independently of DUT, physical-key entry, SD health, and optional PC/MSC export. USB role/class ownership and shutdown still gate enumeration. With TEST=0, `rdx_factory_cdc.c` implements PING/GET_INFO, shared GET_STATUS/GET_KEY_STATUS and DUT entry/exit, LED, speaker and key controls; CDC finalpack reuses the shared packaging flow; recording/files remain pending. TEST=1 retains the historical byte test; protocol builds reject payload logging (LOG_LEVEL=2).
 - `TCFG_T2620_CHARGE_COEXIST_ENABLE` defaults to 1 and independently preserves ON charging with BLE/recording.
 - `rdx_storage_lifecycle.c/h` owns file-service admission and PC-return reconciliation, never shutdown. `rdx_dip_switch.c` owns debounced OFF admission and an independent 3-second reset guard. Accepted OFF enters native shutdown without a storage veto; normal shutdown retains platform uninit and RTC save. Historical recording errors do not gate BLE/HOGP. See `docs/7-1.T2620充电与USB存储模块边界.md`.
 - Because PB1 is reserved for the DIP power switch, keep `TCFG_ADKEY_ENABLE` and `TCFG_LP_TOUCH_KEY_ENABLE` disabled in the JL visual configuration tool; do not repeat them in the project overlay

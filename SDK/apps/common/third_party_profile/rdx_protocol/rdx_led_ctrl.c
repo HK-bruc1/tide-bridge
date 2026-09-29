@@ -612,6 +612,16 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
             return;
         }
     }
+    /* Charging continues during DUT, but its notifications must not replace
+     * the active factory indication (including the LED test's off phase).
+     * Explicit DUT stop/exit still selects its own next scene. */
+    if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        rdx_app_get_dut_status() &&
+        (scene == RDX_LED_SCENE_CHARGE_PLUG_IN ||
+         scene == RDX_LED_SCENE_CHARGE_FULL ||
+         scene == RDX_LED_SCENE_CHARGE_PLUG_OUT)) {
+        return;
+    }
     /* Until packaging commits, ordinary events retain the DUT indication. */
     if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
         rdx_app_get_dut_status() &&
@@ -909,7 +919,7 @@ void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness)
  */
 void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
 {
-    if (_rdx_led_on_usb_charge()) {
+    if (_rdx_led_on_usb_charge() || rdx_app_get_dut_status()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
         return;
     }
@@ -924,6 +934,13 @@ void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
  */
 void rdx_led_ctrl_restore_system_state(void)
 {
+    /* Unplugging USB must not end a factory LED test. */
+    if (rdx_app_get_dut_status() &&
+        g_current_scene == RDX_LED_SCENE_DUT_LED_TEST &&
+        !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        !rdx_storage_lifecycle_transition_led()) {
+        return;
+    }
     if (g_led_config == NULL || !g_led_initialized) {
         return;
     }

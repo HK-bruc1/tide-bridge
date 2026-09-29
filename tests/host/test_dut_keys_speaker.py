@@ -75,6 +75,17 @@ RecordStatus *rdx_record_get_status(void) { return &record; }
 int rdx_uxfile_sd_format_status_check(void) { return 0; }
 int get_ota_status(void) { return 0; }
 bool g_finalpack_end_pending;
+#define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
+#define MEM_FORMAT_RESULT_OK 1
+u32 usb_generation=1;
+u32 factory_cdc_generation(void) { return usb_generation; }
+int client_file_is_transfer_in_progress(void) { return 0; }
+struct { int file_send_busy; } files;
+void *rdx_protocol_get_uploadfileInfo(void);
+#define rdx_protocol_get_uploadfileInfo() (&files)
+int finalpack_commits, finalpack_result;
+static void rdx_dut_finalpack_commit(int result) { ++finalpack_commits; finalpack_result=result; }
+
 typedef struct { u8 slot_index; u32 slot_generation, transport_epoch; } rdx_ble_async_token_t;
 typedef struct { int rdx_ccc_configured, rdx_stream_tx_ready, mtu_size; } rdx_ble_link_state_t;
 rdx_ble_link_state_t link;
@@ -146,14 +157,17 @@ int rdx_record_dut_stop_request(u32 ticket) {
     rdx_record_dut_authorization_revoke(); ++record_requests; return record_post_fail;
 }
 int rdx_record_dut_stop_poll(u32 ticket) { return record_result; }
-void rdx_dut_msg_handle(void) { rdx_dut_info.dut_mode=0; rdx_dut_test_cancel(); }
+static void dut_mode_apply(void) { rdx_dut_info.dut_mode=0; rdx_dut_test_cancel(); }
 '''
 
 TESTS = r'''
 static void rdx_dut_cmd_async_handle(u8 type, u8 value) {
     ++legacy_dispatches;
-    if (type==DUT_CMD_DUT_MODE) rdx_dut_info.dut_mode=value;
+    if (type==DUT_CMD_DUT_MODE) { rdx_dut_info.dut_mode=value; if (!value) rdx_dut_close_current_func(); }
+    if (type==DUT_CMD_OLED && !value) rdx_dut_oled_stop();
     if (type==DUT_CMD_POWEROFF) ++poweroffs;
+    if (type==DUT_CMD_FORMAT && value) rdx_dut_info.current_func=DUT_FUNC_FORMAT;
+    if (type==DUT_CMD_FINALPACK_END) g_finalpack_end_pending=1;
     if (type==DUT_CMD_REC && !value) dut_record_stop();
     if (value && rdx_dut_info.current_func==DUT_FUNC_NONE) {
         if (type==DUT_CMD_REC) rdx_dut_rec_start();
@@ -168,6 +182,10 @@ static void boot(void) {
     connected=powered=1; blocked=deferred=0; epoch=1; jiffies=100;
     link.rdx_ccc_configured=link.rdx_stream_tx_ready=1; link.mtu_size=20;
     dut_head=dut_count=dut_emergency_cancel=dut_queue_abort=dut_key_gate=0;
+    dut_next_id=dut_key_test_id=dut_key_seen=dut_last_state=dut_ble_revoked=dut_completion_id=0;
+    dut_last_error="NONE"; usb_generation=1; files.file_send_busy=0;
+    finalpack_commits=finalpack_result=0;
+    memset(&dut_last,0,sizeof(dut_last)); memset(&dut_owner,0,sizeof(dut_owner));
     rdx_dut_info.motor_timer=rdx_dut_info.motor_run=0;
     motor_power=timer_deleted=wifi_power=show_count=0;
     dut_waiting=dut_stopping=dut_record_wait=dut_record_posted=0;
@@ -505,6 +523,141 @@ int test_legacy_overflow_cleanup(void) {
     CHECK(motor_power && rdx_dut_info.current_func==DUT_FUNC_MOTOR);
     return 0;
 }
+int test_ble_disconnect_preserves_format_completion(void) {
+    for (int packaging=0; packaging<2; ++packaging) {
+        for (int result=0; result<=MEM_FORMAT_RESULT_OK; ++result) {
+            boot();
+            struct dut_request request = {0};
+            request.command=packaging ? DUT_CMD_FINALPACK_END : DUT_CMD_FORMAT;
+            request.value=1;
+            CHECK(!dut_accept(&request) && dut_last_state==1);
+            connected=0;
+            rdx_dut_test_session_revoke(); dut_service(NULL);
+            CHECK(dut_last_state==1);
+            dut_completion_result=result;
+            dut_completion_id=request.id;
+            dut_service(NULL);
+            CHECK(!dut_completion_id);
+            if (packaging) {
+                CHECK(finalpack_commits==1 && finalpack_result==result);
+            } else {
+                CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE);
+                CHECK(dut_last_state==(result==MEM_FORMAT_RESULT_OK ? 2 : 3));
+            }
+            dut_service(NULL);
+            CHECK(finalpack_commits==packaging);
+        }
+    }
+    return 0;
+}
+int test_cdc_controls_and_identity(void) {
+    char out[256];
+    boot(); connected=0; rdx_dut_info.dut_mode=0;
+    rdx_dut_cdc_request(1,"FT_DUT",1,out,sizeof(out));
+    CHECK(dut_last.id==1 && dut_last_state==2 && rdx_dut_info.dut_mode);
+    rdx_dut_cdc_request(1,"FT_LED_CYCLE",1,out,sizeof(out));
+    CHECK(dut_last.id==2 && dut_last_state==2 && rdx_dut_info.current_func==DUT_FUNC_OLED);
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR BUSY\r\n") && dut_last.id==2);
+    rdx_dut_cdc_request(1,"FT_LED_CYCLE",0,out,sizeof(out));
+    CHECK(dut_last.id==3 && dut_last_state==2 && !rdx_dut_info.current_func);
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out));
+    CHECK(dut_last.id==4 && dut_last_state==1 && opens==1 && !sends);
+    rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR BUSY\r\n") && dut_last.id==4);
+    audio_state=DUT_AUDIO_PLAYING; dut_service(NULL);
+    CHECK(dut_last_state==2 && !sends);
+    rdx_dut_cdc_request(1,"FT_SPEAKER",0,out,sizeof(out));
+    CHECK(dut_last.id==5 && dut_last_state==1 && dut_stopping);
+    audio_state=DUT_AUDIO_DONE; dut_service(NULL);
+    CHECK(dut_last_state==2 && !rdx_dut_info.current_func);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(dut_key_test_id==6 && dut_last_state==2 && dut_key_gate);
+    for(int i=0;i<5;++i) dut_key_event(dut_key_generation,KEY_IO_NUM0+i);
+    rdx_dut_cdc_status(out,sizeof(out),1);
+    CHECK(!strcmp(out,"OK TEST_ID=6;LAYOUT=A,B&C,D&E;SEEN=11111;ACTIVE=1\r\n") && !sends);
+    u32 generation=dut_key_generation;
+    rdx_dut_cdc_request(1,"FT_KEY",0,out,sizeof(out));
+    CHECK(dut_last.id==7 && !dut_key_gate && dut_key_seen==31);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    dut_key_event(generation,KEY_IO_NUM0);
+    CHECK(dut_key_test_id==8 && !dut_key_seen);
+    rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
+    CHECK(dut_last.id==9 && !rdx_dut_info.dut_mode && dut_last_state==2);
+    return 0;
+}
+int test_cdc_packaging_admission_and_disconnect(void) {
+    char out[256]; boot();
+    rdx_dut_cdc_request(1,"FT_FINALPACK_END",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR ARG\r\n") && !dut_last.id);
+    rdx_dut_cdc_request(1,"FT_FINALPACK_END",1,out,sizeof(out));
+    CHECK(dut_last_state==1 && g_finalpack_end_pending && dut_owner.source==1);
+    usb_generation=2; dut_service(NULL);
+    CHECK(dut_last_state==1);
+    dut_completion_id=dut_last.id; dut_completion_result=MEM_FORMAT_RESULT_OK;
+    dut_service(NULL);
+    CHECK(finalpack_commits==1);
+    rdx_dut_cdc_request(2,"FT_DUT",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR BUSY\r\n"));
+    return 0;
+}
+int test_cdc_generation_and_source_cleanup(void) {
+    char out[256]; boot();
+    rdx_dut_cdc_request(0,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(!dut_last.id && !dut_key_gate);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    rdx_dut_test_session_revoke(); ++epoch; dut_service(NULL);
+    CHECK(dut_key_gate && dut_last_state==2);
+    usb_generation=2; dut_service(NULL); CHECK(!dut_key_gate);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(dut_last.id==1 && !dut_key_gate);
+    rdx_dut_cdc_request(2,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(dut_last.id==2 && dut_key_gate);
+    rdx_dut_cdc_request(2,"FT_KEY",0,out,sizeof(out));
+    CHECK(!dut_key_gate);
+    key_start(); CHECK(dut_owner.source==0 && dut_key_gate);
+    usb_generation=3; dut_service(NULL); CHECK(dut_key_gate);
+    ++epoch; dut_service(NULL); CHECK(!dut_key_gate);
+    return 0;
+}
+int test_cdc_speaker_disconnect_and_ble_overflow(void) {
+    char out[256]; boot();
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out));
+    audio_state=DUT_AUDIO_PLAYING; dut_service(NULL);
+    rdx_dut_test_session_revoke(); dut_service(NULL);
+    CHECK(!cancels && rdx_dut_info.current_func==DUT_FUNC_SPEAKER);
+    for(int i=0;i<DUT_QUEUE_CAPACITY+1;++i) dut_enqueue(DUT_CMD_OLED,1);
+    dut_service(NULL); CHECK(!cancels && !dut_count && dut_last.id==1);
+    usb_generation=2; dut_service(NULL); CHECK(cancels && dut_stopping);
+    rdx_dut_cdc_request(2,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR BUSY\r\n") && dut_last.id==1);
+    audio_state=DUT_AUDIO_DONE; dut_service(NULL);
+    rdx_dut_cdc_request(2,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    CHECK(dut_last.id==2 && dut_key_gate);
+    return 0;
+}
+int test_cdc_failures_and_ids(void) {
+    char out[256]; boot(); connected=0; open_fail=1;
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out));
+    CHECK(dut_last.id==1 && dut_last_state==3 && !strcmp(dut_last_error,"IO"));
+    open_fail=0; rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out));
+    CHECK(dut_last.id==2 && dut_last_state==1);
+    jiffies+=2001; dut_service(NULL);
+    CHECK(dut_last_state==3 && dut_stopping);
+    rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR BUSY\r\n") && dut_last.id==2);
+    audio_state=DUT_AUDIO_DONE; dut_service(NULL); CHECK(dut_last_state==3);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out));
+    post_fail=1; rdx_dut_key_scan(KEY_IO_NUM0,NO_KEY);
+    rdx_dut_cdc_status(out,sizeof(out),1);
+    CHECK(strstr(out,"ACTIVE=0"));
+    dut_service(NULL); CHECK(!dut_key_gate && !dut_key_seen);
+    dut_next_id=0xffffffffu;
+    rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR STATE\r\n") && dut_next_id==0xffffffffu);
+    return 0;
+}
+
 '''
 
 AUDIO_STUBS = r'''
@@ -760,6 +913,11 @@ def main():
         path = Path(temp) / 'dut.c'
         path.write_text(audio + enums + '\n' + defines + STUBS + authorization + core + legacy + TESTS, encoding='utf-8')
         run_c_checks(path, tests, native=True)
+        off = Path(temp) / 'dut_cdc_off.c'
+        off.write_text(path.read_text(encoding='utf-8').replace(
+            '#define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1',
+            '#define TCFG_T2620_FACTORY_USB_CDC_ENABLE 0'), encoding='utf-8')
+        run_c_checks(off, [test for test in tests if not test.startswith('test_cdc_')], native=True)
         check_key_scan(temp)
         speaker = (BASE / 'rdx_dut_speaker.c').read_text(encoding='utf-8')
         speaker = re.sub(r'^#include.*$', '', speaker, flags=re.M)

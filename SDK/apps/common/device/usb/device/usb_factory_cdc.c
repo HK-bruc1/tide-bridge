@@ -202,6 +202,15 @@ u32 factory_cdc_generation(void)
     return generation;
 }
 
+void factory_cdc_abort(u32 generation)
+{
+    local_irq_disable();
+    if (transport.ready && generation == transport.generation) {
+        factory_cdc_invalidate(FACTORY_CDC_TIMEOUT);
+    }
+    local_irq_enable();
+}
+
 int factory_cdc_send(u32 generation, const u8 *bytes, u32 length)
 {
     int result = FACTORY_CDC_OK;

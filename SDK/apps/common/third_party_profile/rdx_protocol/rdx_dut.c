@@ -56,6 +56,7 @@
 #include "rdx_dut_speaker.h"
 #include "key_driver.h"
 #include "generic/jiffies.h"
+#include "usb/device/usb_factory_cdc.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -83,7 +84,6 @@ extern void bt_bredr_enter_dut_mode(u8 a, u8 b);
 extern void bt_bredr_exit_dut_mode(void);
 extern u8 get_ota_status(void);
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
-extern bool client_file_is_transfer_in_progress(void);
 extern void rdx_app_normal_poweroff(void);
 
 /******************************************************************************
@@ -92,26 +92,25 @@ extern void rdx_app_normal_poweroff(void);
 static bool g_finalpack_end_pending;
 static bool g_finalpack_format_waiting;
 extern bool rdx_uxfile_sd_format_status_check(void);
-static volatile u8 factory_key_dut_ready;
+static volatile u8 factory_usb_revoked;
 
 int rdx_dut_factory_usb_ready(void)
 {
     /* RDX owns product admission; USB retains cable/role/resource checks. */
-    return factory_key_dut_ready && rdx_dut_is_in_mode() &&
+    return !factory_usb_revoked &&
         get_power_on_status() && rdx_app_business_started() &&
-        !app_var.goto_poweroff_flag && !rdx_storage_lifecycle_business_blocked() &&
-        !rdx_storage_lifecycle_shutdown_deferred();
+        !app_var.goto_poweroff_flag;
 }
 
 static void rdx_dut_factory_usb_revoke(void)
 {
-    factory_key_dut_ready = 0;
+    factory_usb_revoked = 1;
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
     usb_factory_service();
 #endif
 }
 
-/* Only the physical-key dispatcher calls this entry. BLE entry cannot expose USB. */
+/* Physical entry keeps its own qualification; USB communication is independent. */
 void rdx_dut_key_mode_handle(void)
 {
 #if !TCFG_T2620_FACTORY_USB_CDC_ENABLE
@@ -125,10 +124,6 @@ void rdx_dut_key_mode_handle(void)
         return;
     }
     rdx_dut_msg_handle();
-    if (entering && rdx_dut_is_in_mode()) {
-        factory_key_dut_ready = 1;
-        DUT_LOG("Factory key entry complete; CDC admission ready\r");
-    }
     usb_factory_service();
 #endif
 }
@@ -183,6 +178,9 @@ struct dut_request {
     rdx_ble_async_token_t token;
     u8 command;
     u8 value;
+    u8 source; /* 0 BLE, 1 CDC, 2 physical key */
+    u32 generation;
+    u32 id;
 };
 static struct dut_request dut_queue[DUT_QUEUE_CAPACITY];
 static u8 dut_head, dut_count;
@@ -196,6 +194,22 @@ static u32 dut_key_cutoff[5];
 static u8 dut_key_quarantined[5];
 static rdx_ble_async_token_t dut_test_token;
 static struct dut_request dut_pending;
+static struct dut_request dut_owner;
+static struct dut_request dut_last;
+static u32 dut_next_id, dut_key_test_id;
+static u8 dut_key_seen;
+static u8 dut_last_state; /* 0 NONE, 1 RUNNING, 2 DONE, 3 FAILED */
+static const char *dut_last_error = "NONE";
+static u32 dut_action_since;
+static volatile u8 dut_ble_revoked;
+static volatile u32 dut_ble_revoked_id;
+static volatile u32 dut_completion_id;
+static volatile int dut_completion_result;
+static u32 dut_format_id;
+static void rdx_dut_finalpack_commit(int result);
+static void dut_poll_action(void);
+static const char *dut_accept(struct dut_request *request);
+static void dut_mode_apply(void);
 static u8 dut_waiting; /* 1=start, 2=stop */
 static u8 dut_stopping;
 static u32 dut_wait_started;
@@ -211,6 +225,23 @@ static bool dut_token_ready(const rdx_ble_async_token_t *token)
 {
     rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 1);
     return link && link->rdx_ccc_configured && link->rdx_stream_tx_ready;
+}
+
+static bool dut_request_ready(const struct dut_request *request)
+{
+    if (request->source == 2) return true;
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (request->source == 1) return request->generation &&
+        request->generation == factory_cdc_generation();
+#endif
+    return request->source == 0 && dut_token_ready(&request->token);
+}
+
+static void dut_finish(u32 id, const char *error)
+{
+    if (!id || id != dut_last.id || dut_last_state != 1) return;
+    dut_last_state = error ? 3 : 2;
+    dut_last_error = error ? error : "NONE";
 }
 
 static bool dut_business_ready(void)
@@ -286,11 +317,13 @@ static void dut_key_event(u32 generation, u32 value)
     char id[2] = {0};
     if (!dut_key_gate || generation != dut_key_generation ||
         rdx_dut_info.current_func != DUT_FUNC_KEY || !dut_business_ready() ||
-        !dut_token_ready(&dut_test_token)) {
+        !dut_request_ready(&dut_owner)) {
         return;
     }
     for (int i = 0; i < ARRAY_SIZE(dut_keys); ++i) {
         if (dut_keys[i].value == value) {
+            dut_key_seen |= 1 << i;
+            if (dut_owner.source != 0) return;
             id[0] = dut_keys[i].id;
             if (dut_send(&dut_test_token, FT_KEY_EVENT, id)) {
                 rdx_dut_test_cancel();
@@ -364,7 +397,7 @@ void rdx_dut_test_cancel(void)
 
 static int dut_enqueue(u8 command, u8 value)
 {
-    struct dut_request request;
+    struct dut_request request = {0};
     request.command = command;
     request.value = value;
     if (!dut_service_timer ||
@@ -374,7 +407,7 @@ static int dut_enqueue(u8 command, u8 value)
         /* Fail closed, including an unqueueable stop. The service timer is
          * independent of app_core's Q_CALLBACK capacity. */
         if (dut_count == DUT_QUEUE_CAPACITY) dut_queue_abort = 1;
-        dut_emergency_cancel = 1;
+        if (dut_owner.source != 1) dut_emergency_cancel = 1;
         local_irq_enable();
         DUT_LOG("DUT queue full; cancel requested\n");
         return -1;
@@ -396,16 +429,16 @@ void rdx_dut_test_session_revoke(void)
 {
     rdx_record_dut_authorization_revoke();
     /* BLE task: revoke producers immediately; timer performs app_core cleanup. */
-    dut_key_gate = 0;
-    dut_emergency_cancel = 1;
-    rdx_dut_speaker_cancel();
+    dut_ble_revoked_id = dut_owner.id;
+    dut_ble_revoked = 1; /* app_core checks resource ownership before cleanup. */
 }
 
 static void dut_execute_test(const struct dut_request *request)
 {
     u8 command = request->command;
     u8 value = request->value;
-    if (!dut_business_ready() || !dut_token_ready(&request->token)) {
+    if (!dut_business_ready() || !dut_request_ready(request)) {
+        dut_finish(request->id, "STATE");
         DUT_LOG("Test command rejected: DUT/session not ready\n");
         return;
     }
@@ -438,18 +471,22 @@ static void dut_execute_test(const struct dut_request *request)
         dut_key_gate = 0;
         ++dut_key_generation;
         dut_test_token = request->token;
+        dut_owner = *request;
+        dut_key_test_id = request->id;
+        dut_key_seen = 0;
         rdx_dut_info.current_func = keys ? DUT_FUNC_KEY : DUT_FUNC_NONE;
         /* Enable capture before enqueueing the layout. Scan events execute
          * later on app_core, after the complete layout has been accepted. */
         dut_key_gate = keys != 0;
-        if (dut_send(&request->token, FT_KEY_LAYOUT, layout)) {
+        if (request->source == 0 && dut_send(&request->token, FT_KEY_LAYOUT, layout)) {
+            dut_finish(request->id, "IO");
             rdx_dut_test_cancel();
         }
         return;
     }
     if (!value) {
         if (rdx_dut_info.current_func != DUT_FUNC_SPEAKER) {
-            dut_send(&request->token, FT_SPEAKER, "0");
+            if (request->source == 0) dut_send(&request->token, FT_SPEAKER, "0");
             return;
         }
         dut_stopping = 1;
@@ -461,7 +498,7 @@ static void dut_execute_test(const struct dut_request *request)
     }
     if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
         if (!dut_stopping && rdx_dut_speaker_state() == DUT_AUDIO_PLAYING &&
-            dut_send(&request->token, FT_SPEAKER, "1")) {
+            request->source == 0 && dut_send(&request->token, FT_SPEAKER, "1")) {
             rdx_dut_test_cancel();
         }
         return;
@@ -473,9 +510,11 @@ static void dut_execute_test(const struct dut_request *request)
     rdx_hogp_key_action_reset();
     rdx_dut_info.current_func = DUT_FUNC_SPEAKER;
     dut_test_token = request->token;
+    dut_owner = *request;
     dut_stopping = 0;
     if (rdx_dut_speaker_open()) {
         rdx_dut_info.current_func = DUT_FUNC_NONE;
+        dut_finish(request->id, "IO");
         DUT_LOG("Speaker open rejected\n");
         return;
     }
@@ -486,6 +525,19 @@ static void dut_execute_test(const struct dut_request *request)
 
 static void dut_service(void *priv)
 {
+    if (dut_completion_id) {
+        u32 id = dut_completion_id;
+        int result = dut_completion_result;
+        dut_completion_id = 0;
+        if (id == dut_last.id && dut_last_state == 1) {
+            if (dut_last.command == DUT_CMD_FINALPACK_END) rdx_dut_finalpack_commit(result);
+            else {
+                rdx_dut_info.current_func = DUT_FUNC_NONE;
+                dut_finish(id, result == MEM_FORMAT_RESULT_OK ? NULL : "IO");
+                rdx_dut_show();
+            }
+        }
+    }
     u16 period = (rdx_dut_info.dut_mode || dut_count || dut_stopping ||
                   dut_record_wait || rdx_dut_test_keys_active()) ? 10 : 1000;
     if (period != dut_service_period) {
@@ -493,9 +545,37 @@ static void dut_service(void *priv)
         dut_service_period = period;
     }
     if (rdx_dut_info.dut_mode && rdx_dut_test_keys_active() && !get_power_on_status()) {
-        rdx_dut_msg_handle();
+        dut_mode_apply();
+    }
+    if (dut_ble_revoked) {
+        dut_ble_revoked = 0;
+        /* Accepted format/finalpack operations outlive the BLE session.
+         * Keep their completion eligible; only the real result or action
+         * timeout may finish them, never a transport disconnect. */
+        if (dut_owner.source == 0 && dut_owner.id == dut_ble_revoked_id &&
+            dut_last.command != DUT_CMD_FORMAT &&
+            dut_last.command != DUT_CMD_FINALPACK_END) {
+            if (rdx_dut_rec_is_running() || rdx_dut_rec_call_is_running())
+                rdx_dut_close_current_func();
+            else rdx_dut_test_cancel();
+            dut_finish(dut_last.id, "STATE");
+        }
+    }
+    if (dut_owner.source == 1 && !dut_request_ready(&dut_owner) &&
+        rdx_dut_test_keys_active()) {
+        dut_finish(dut_last.id, "STATE");
+        rdx_dut_test_cancel();
+    }
+    if (dut_queue_abort && dut_owner.source == 1 && !dut_emergency_cancel) {
+        /* A saturated BLE producer cannot revoke a CDC-owned resource. */
+        local_irq_disable();
+        dut_head = dut_count = dut_queue_abort = dut_emergency_cancel = 0;
+        local_irq_enable();
     }
     if (dut_emergency_cancel) {
+        dut_finish(dut_last.id, "IO");
+        /* A lost key event invalidates this capture even after start DONE. */
+        if (rdx_dut_info.current_func == DUT_FUNC_KEY) dut_key_seen = 0;
         local_irq_disable();
         u8 abort_all = dut_queue_abort;
         dut_head = dut_count = 0;
@@ -520,6 +600,7 @@ static void dut_service(void *priv)
         if (result != -2) {
             if (result < 0) {
                 dut_record_failed = 1;
+                dut_finish(dut_last.id, "IO");
                 DUT_LOG("Record save FAILED; exit/poweroff allowed, reboot required\n");
             }
             dut_record_wait = dut_record_posted = 0;
@@ -528,11 +609,13 @@ static void dut_service(void *priv)
                 rdx_dut_info.current_func = DUT_FUNC_NONE;
             }
         } else {
+            dut_poll_action();
             return; /* Retain ownership until the worker acknowledges cleanup. */
         }
     }
     if (rdx_dut_test_keys_active() &&
-        (!dut_business_ready() || !dut_token_ready(&dut_test_token))) {
+        (!dut_business_ready() || !dut_request_ready(&dut_owner))) {
+        dut_finish(dut_last.id, "STATE");
         rdx_dut_test_cancel();
     }
     int state = rdx_dut_speaker_state();
@@ -541,20 +624,24 @@ static void dut_service(void *priv)
         if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
             rdx_dut_info.current_func = DUT_FUNC_NONE;
         }
-        if (dut_waiting == 2 && dut_business_ready()) {
+        if (dut_waiting == 1) dut_finish(dut_pending.id, "IO");
+        if (dut_waiting == 2 && dut_business_ready() && dut_pending.source == 0) {
             dut_send(&dut_pending.token, FT_SPEAKER, "0");
         }
         dut_waiting = dut_stopping = 0;
     } else if (dut_waiting == 1 && state == DUT_AUDIO_PLAYING) {
         dut_waiting = 0;
-        if (dut_send(&dut_pending.token, FT_SPEAKER, "1")) {
+        if (dut_pending.source == 0 && dut_send(&dut_pending.token, FT_SPEAKER, "1")) {
+            dut_finish(dut_pending.id, "IO");
             rdx_dut_test_cancel();
         }
     } else if (dut_waiting == 1 &&
                (u32)(jiffies_to_msecs(jiffies) - dut_wait_started) > 2000) {
+        dut_finish(dut_pending.id, "IO");
         DUT_LOG("Speaker start timeout\n");
         rdx_dut_test_cancel();
     }
+    dut_poll_action();
     if (dut_waiting || dut_stopping) return;
     for (int i = 0; i < DUT_QUEUE_CAPACITY; ++i) {
         struct dut_request request;
@@ -567,28 +654,10 @@ static void dut_service(void *priv)
         dut_head = (dut_head + 1) % DUT_QUEUE_CAPACITY;
         --dut_count;
         local_irq_enable();
-        /* Legacy factory mode entry precedes APP write-ready. Keep owner /
-         * epoch validation, but reserve the TX-ready gate for new tests. */
-        if (!rdx_ble_session_rdx_token_resolve(&request.token, 1)) continue;
-        if (dut_record_failed && request.command != DUT_CMD_POWEROFF &&
-            !(request.command == DUT_CMD_DUT_MODE && !request.value)) {
-            DUT_LOG("DUT command rejected: record save failed, reboot required\n");
-            continue;
-        }
-        if (request.command >= DUT_CMD_KEY_LAYOUT) {
-            dut_execute_test(&request);
-        } else {
-            /* Factory APP advances from the layout/key page directly to
-             * legacy tests, without ft_key#0. Release only key ownership;
-             * speaker and recording resources retain their stop fences. */
-            if (rdx_dut_info.current_func == DUT_FUNC_KEY && request.value == 1 &&
-                (request.command == DUT_CMD_OLED || request.command == DUT_CMD_MOTOR ||
-                 request.command == DUT_CMD_REC || request.command == DUT_CMD_REC_CALL ||
-                 request.command == DUT_CMD_WIFI || request.command == DUT_CMD_FORMAT)) {
-                rdx_dut_test_cancel();
-            }
-            rdx_dut_cmd_async_handle(request.command, request.value);
-        }
+        /* Admission and LAST belong to app_core, never the BLE producer. */
+        if (request.source == 0 &&
+            !rdx_ble_session_rdx_token_resolve(&request.token, 1)) continue;
+        dut_accept(&request);
         if (dut_waiting || dut_stopping || dut_record_wait) break;
     }
 }
@@ -622,6 +691,169 @@ static bool dut_parse_test(const char *cmd, const char *value)
     }
     return false;
 }
+
+static const char *dut_command_name(u8 command)
+{
+    static const char *names[] = {
+        "ft_dut", "ft_led_cycle", "ft_motor", "ft_rec", "ft_rec_call",
+        "ft_wifi", "ft_format", "ft_poweroff", "ft_finalpack_end",
+        "ft_key_dut_enable", "ft_key_dut_disabled", "ft_key_layout", "ft_key", "ft_speaker"
+    };
+    return command < ARRAY_SIZE(names) ? names[command] : "NONE";
+}
+
+static int dut_target_func(u8 command)
+{
+    switch (command) {
+    case DUT_CMD_OLED: return DUT_FUNC_OLED;
+    case DUT_CMD_MOTOR: return DUT_FUNC_MOTOR;
+    case DUT_CMD_REC: return DUT_FUNC_REC;
+    case DUT_CMD_REC_CALL: return DUT_FUNC_REC_CALL;
+    case DUT_CMD_WIFI: return DUT_FUNC_WIFI;
+    case DUT_CMD_FORMAT: return DUT_FUNC_FORMAT;
+    case DUT_CMD_KEY_LAYOUT: case DUT_CMD_KEY_STOP: return DUT_FUNC_KEY;
+    case DUT_CMD_SPEAKER: return DUT_FUNC_SPEAKER;
+    default: return DUT_FUNC_NONE;
+    }
+}
+
+static void dut_poll_action(void)
+{
+    if (dut_last_state != 1) return;
+    if ((u32)(jiffies_to_msecs(jiffies) - dut_action_since) >= 60000) {
+        dut_finish(dut_last.id, "IO");
+        return; /* Keep resource fences; timeout is not cleanup. */
+    }
+    if (dut_last.command == DUT_CMD_FORMAT || dut_last.command == DUT_CMD_FINALPACK_END)
+        return; /* Explicit callback completion, never infer success from idle. */
+    if (dut_record_wait || dut_stopping || dut_waiting) return;
+    if (dut_last.command == DUT_CMD_DUT_MODE) {
+        dut_finish(dut_last.id, !!rdx_dut_info.dut_mode == !!dut_last.value ? NULL : "STATE");
+    } else if (dut_last.command == DUT_CMD_KEY_DUT_ENABLE ||
+               dut_last.command == DUT_CMD_KEY_DUT_DISABLE || dut_last.command == DUT_CMD_POWEROFF) {
+        /* VM completion is explicit in the setters. */
+        if (dut_last.command == DUT_CMD_POWEROFF) dut_finish(dut_last.id, NULL);
+    } else {
+        int target = dut_target_func(dut_last.command);
+        int starting = dut_last.value || dut_last.command == DUT_CMD_KEY_LAYOUT;
+        if (dut_last.command == DUT_CMD_KEY_STOP) starting = 0;
+        dut_finish(dut_last.id, starting ?
+            (rdx_dut_info.current_func == target ? NULL : "IO") :
+            (rdx_dut_info.current_func == target ? "IO" : NULL));
+    }
+}
+
+/* Called only by app_core. Validate before ID allocation, then reserve LAST
+ * under the same interrupt exclusion as the CDC generation check. No device
+ * calls, logging or waits occur in that short admission critical section. */
+static const char *dut_accept(struct dut_request *request)
+{
+    int target = dut_target_func(request->command);
+    int active = rdx_dut_info.current_func;
+    int exit = request->command == DUT_CMD_DUT_MODE && !request->value;
+    int cleanup = exit || request->command == DUT_CMD_POWEROFF;
+    RecordStatus *rp = rdx_record_get_status();
+    if (!dut_service_timer || !get_power_on_status() || app_var.goto_poweroff_flag)
+        return "STATE";
+    if (g_finalpack_end_pending || dut_last_state == 1 || dut_emergency_cancel || dut_queue_abort || dut_waiting || dut_stopping ||
+        dut_record_wait || rdx_uxfile_sd_format_status_check()) return "BUSY";
+    if (dut_record_failed && !cleanup) return "STATE";
+    if (rdx_storage_lifecycle_shutdown_deferred() ||
+        (rdx_storage_lifecycle_business_blocked() && !cleanup)) return "BUSY";
+    if (request->command != DUT_CMD_DUT_MODE && !rdx_dut_info.dut_mode &&
+        !(dut_record_failed && request->command == DUT_CMD_POWEROFF)) return "STATE";
+    if (request->command >= DUT_CMD_KEY_LAYOUT && !dut_request_ready(request)) return "STATE";
+    /* Preserve the BLE APP's KEY -> next legacy test transition. */
+    int release_key = request->source == 0 && active == DUT_FUNC_KEY && request->value == 1 &&
+        request->command >= DUT_CMD_OLED && request->command <= DUT_CMD_FORMAT;
+    if (!cleanup && active != DUT_FUNC_NONE && active != target && !release_key) return "BUSY";
+    if (request->command == DUT_CMD_DUT_MODE && request->value && active != DUT_FUNC_NONE) return "BUSY";
+    if (!cleanup && !(!request->value && active == target) &&
+        (rp->process_state == REC_PROCESS_STATE_BUSY || get_ota_status() ||
+        rdx_protocol_get_uploadfileInfo()->file_send_busy)) return "BUSY";
+    if (!cleanup && rp->run != RECORD_STATE_STOP &&
+        !(target == active && (active == DUT_FUNC_REC || active == DUT_FUNC_REC_CALL))) return "BUSY";
+    if (request->command == DUT_CMD_KEY_LAYOUT) {
+        char layout[24];
+        if (dut_layout(layout, sizeof(layout)) <= 0) return "UNSUPPORTED";
+    }
+    if (dut_next_id == 0xffffffffu) return "STATE";
+    local_irq_disable();
+#if TCFG_T2620_FACTORY_USB_CDC_ENABLE
+    if (request->source == 1 && (!request->generation ||
+        request->generation != factory_cdc_generation())) {
+        local_irq_enable();
+        return "STATE";
+    }
+#endif
+    request->id = ++dut_next_id;
+    dut_last = *request;
+    dut_last_state = 1;
+    dut_last_error = "NONE";
+    local_irq_enable();
+    dut_action_since = jiffies_to_msecs(jiffies);
+    if (release_key) rdx_dut_test_cancel();
+    /* Repeated start doesn't transfer a running resource to another source. */
+    if (active == DUT_FUNC_NONE || release_key || request->command == DUT_CMD_KEY_LAYOUT)
+        dut_owner = *request;
+    if (request->command >= DUT_CMD_KEY_LAYOUT) dut_execute_test(request);
+    else if (target != DUT_FUNC_NONE && target == active && request->value) {
+        /* Idempotent start: avoid resetting LED/audio/recording. */
+    } else rdx_dut_cmd_async_handle(request->command, request->value);
+    dut_poll_action();
+    return NULL;
+}
+
+void rdx_dut_cdc_status(char *out, unsigned int capacity, int keys)
+{
+    if (keys) {
+        char layout[24] = "NONE";
+        if (dut_key_test_id) dut_layout(layout, sizeof(layout));
+        snprintf(out, capacity, "OK TEST_ID=%u;LAYOUT=%s;SEEN=%c%c%c%c%c;ACTIVE=%u\r\n",
+            dut_key_test_id, layout, '0'+!!(dut_key_seen&1), '0'+!!(dut_key_seen&2),
+            '0'+!!(dut_key_seen&4), '0'+!!(dut_key_seen&8), '0'+!!(dut_key_seen&16),
+            !!dut_key_gate && !dut_emergency_cancel && dut_request_ready(&dut_owner));
+        return;
+    }
+    static const char *active[] = {"NONE", "OLED", "MOTOR", "REC", "REC_CALL", "WIFI", "FORMAT", "KEY", "SPEAKER"};
+    static const char *states[] = {"NONE", "RUNNING", "DONE", "FAILED"};
+    snprintf(out, capacity, "OK DUT=%u;ACTIVE=%s;LAST_ID=%u;LAST_CMD=%s;LAST_STATE=%s;LAST_ERR=%s\r\n",
+        !!rdx_dut_info.dut_mode, g_finalpack_end_pending ? "FINALPACK" : active[rdx_dut_info.current_func],
+        dut_last.id, dut_last.id ? dut_command_name(dut_last.command) : "NONE",
+        states[dut_last_state], dut_last_error);
+}
+
+void rdx_dut_cdc_request(u32 generation, const char *name, u8 value, char *out, unsigned int capacity)
+{
+    struct dut_request request = {0};
+    request.source = 1;
+    request.generation = generation;
+    request.value = value;
+    if (!strcmp(name, "FT_DUT")) request.command = DUT_CMD_DUT_MODE;
+    else if (!strcmp(name, "FT_LED_CYCLE") || !strcmp(name, "FT_OLED")) request.command = DUT_CMD_OLED;
+    else if (!strcmp(name, "FT_SPEAKER")) request.command = DUT_CMD_SPEAKER;
+    else if (!strcmp(name, "FT_KEY_LAYOUT")) request.command = DUT_CMD_KEY_LAYOUT;
+    else if (!strcmp(name, "FT_KEY")) request.command = DUT_CMD_KEY_STOP;
+    else if (!strcmp(name, "FT_FINALPACK_END")) request.command = DUT_CMD_FINALPACK_END;
+    else {
+        const char *error = "CMD";
+        static const char *unsupported[] = {"FT_MOTOR", "FT_VIBRATE", "FT_REC", "FT_REC_CHAT",
+            "FT_REC_CALL", "FT_WIFI", "FT_FORMAT", "FT_POWEROFF",
+            "FT_KEY_DUT_ENABLE", "FT_KEY_DUT_DISABLED"};
+        for (int i = 0; i < ARRAY_SIZE(unsupported); ++i)
+            if (!strcmp(name, unsupported[i])) error = "UNSUPPORTED";
+        snprintf(out, capacity, "ERR %s\r\n", error); return;
+    }
+    if (((request.command == DUT_CMD_KEY_LAYOUT || request.command == DUT_CMD_FINALPACK_END) && value != 1) ||
+        (request.command == DUT_CMD_KEY_STOP && value != 0)) {
+        snprintf(out, capacity, "ERR ARG\r\n"); return;
+    }
+    const char *error = dut_accept(&request);
+    if (error) snprintf(out, capacity, "ERR %s\r\n", error);
+    else snprintf(out, capacity, "OK ID=%u;STATE=%s\r\n", request.id,
+        dut_last_state == 2 ? "DONE" : "RUNNING");
+}
+
 /* DUT_TEST_CORE_END */
 
 
@@ -647,7 +879,7 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
     switch(cmd_type) {
         case DUT_CMD_DUT_MODE:
             if (!!onoff != !!rdx_dut_info.dut_mode) {
-                rdx_dut_msg_handle();
+                dut_mode_apply();
             }
             break;
             
@@ -730,7 +962,7 @@ void rdx_dut_init(void)
     if (!dut_service_timer) {
         dut_service_timer = sys_timer_add(NULL, dut_service, dut_service_period);
     }
-    factory_key_dut_ready = 0;
+    factory_usb_revoked = 0;
     u8 vm_value = 0xFF;
     int ret = syscfg_read(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
     
@@ -844,7 +1076,7 @@ void rdx_dut_oled_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_OLED;
     
-    /* Factory LED test: green solid 1s, then off. */
+    /* Factory LED test: green solid until the explicit stop command. */
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_LED_TEST);
 }
 
@@ -1146,13 +1378,8 @@ static void rdx_dut_format_stop(void)
  **************************************************************************/
 static void rdx_dut_format_cb(u8 result)
 {
-    DUT_LOG("Format callback, result: %d\r", result);
-    
-    if(rdx_dut_info.current_func == DUT_FUNC_FORMAT){
-        rdx_dut_info.current_func = DUT_FUNC_NONE;
-    }
-    
-    rdx_dut_show();
+    dut_completion_result = result;
+    dut_completion_id = dut_format_id;
 }
 
 /**************************************************************************
@@ -1169,6 +1396,7 @@ void rdx_dut_format_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_FORMAT;
     
+    dut_format_id = dut_last.id;
     rdx_uxfile_device_sd_format(rdx_dut_format_cb);
 }
 
@@ -1200,6 +1428,7 @@ static void rdx_dut_finalpack_fail(void)
 {
     g_finalpack_end_pending = false;
     g_finalpack_format_waiting = false;
+    dut_finish(dut_format_id, "IO");
     DUT_LOG("Finalpack FAILED; remain in DUT, no automatic poweroff\r");
 }
 
@@ -1233,6 +1462,7 @@ static void rdx_dut_finalpack_commit(int result)
         rdx_dut_finalpack_fail();
         return;
     }
+    dut_finish(dut_format_id, NULL);
     DUT_LOG("Finalpack committed: bound=0, key DUT disabled (verified)\r");
     rdx_ble_server_auto_shut_down_enable(0);
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_FINALPACK_DONE);
@@ -1250,10 +1480,8 @@ void rdx_dut_finalpack_end_format_cb(u8 result)
         return;
     }
     g_finalpack_format_waiting = false;
-    int msg[3] = {(int)rdx_dut_finalpack_commit, 1, result};
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
-        rdx_dut_finalpack_fail();
-    }
+    dut_completion_result = result;
+    dut_completion_id = dut_format_id;
 }
 
 /**************************************************************************
@@ -1280,6 +1508,7 @@ void rdx_dut_finalpack_end(void)
     g_finalpack_end_pending = true;
     g_finalpack_format_waiting = true;
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
+    dut_format_id = dut_last.id;
     rdx_uxfile_device_sd_format(rdx_dut_finalpack_end_format_cb);
 }
 
@@ -1291,8 +1520,10 @@ void rdx_dut_key_dut_enable(void)
     DUT_LOG("Key DUT ENABLED\r");
     
     if (rdx_dut_key_dut_store(false)) {
+        dut_finish(dut_last.id, "IO");
         return;
     }
+    dut_finish(dut_last.id, NULL);
     DUT_LOG("Saved to VM: key_dut_disabled = 0 (cleared flag)\r");
 }
 
@@ -1304,8 +1535,10 @@ void rdx_dut_key_dut_disable(void)
     DUT_LOG("Key DUT DISABLED\r");
     
     if (rdx_dut_key_dut_store(true)) {
+        dut_finish(dut_last.id, "IO");
         return;
     }
+    dut_finish(dut_last.id, NULL);
     DUT_LOG("Saved to VM: key_dut_disabled = 1 (set flag)\r");
 }
 
@@ -1519,84 +1752,28 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value)
  **************************************************************************/
 void rdx_dut_key_handle(int key_msg)
 {
-    if (rdx_dut_test_keys_active() || dut_stopping || dut_record_failed) return;
-    if (g_finalpack_end_pending) {
-        return;
+    if (rdx_dut_test_keys_active() || !rdx_dut_info.dut_mode) return;
+    struct dut_request request = {0};
+    request.source = 2;
+    switch (key_msg) {
+    case APP_MSG_SINGLE_CLICK: request.command = DUT_CMD_OLED; request.value = !rdx_dut_oled_is_running(); break;
+    case APP_MSG_DOUBLE_CLICK: request.command = DUT_CMD_MOTOR; request.value = !rdx_dut_motor_is_running(); break;
+    case APP_MSG_TRIPLE_CLICK: request.command = DUT_CMD_REC; request.value = !rdx_dut_rec_is_running(); break;
+    case APP_MSG_QUADRUPLE_CLICK: request.command = DUT_CMD_WIFI; request.value = !rdx_dut_wifi_is_running(); break;
+    case APP_MSG_BT_PAIR_SET_DEFAULT: request.command = DUT_CMD_FORMAT; request.value = 1; break;
+    case APP_MSG_SEXTUPLE_CLICK: request.command = DUT_CMD_POWEROFF; break;
+    default: return;
     }
-    if(!rdx_dut_info.dut_mode){
-        return;
-    }
-    
-    DUT_LOG("Key msg: 0x%x, current_func: %d\r", key_msg, rdx_dut_info.current_func);
-    
-    switch(key_msg){
-        case APP_MSG_SINGLE_CLICK:
-            if(rdx_dut_oled_is_running()){
-                rdx_dut_oled_stop();
-            }else{
-                if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                    DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
-                    break;
-                }
-                rdx_dut_oled_start();
-            }
-            break;
-            
-        case APP_MSG_DOUBLE_CLICK:
-            if(rdx_dut_motor_is_running()){
-                rdx_dut_motor_stop();
-            }else{
-                if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                    DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
-                    break;
-                }
-                rdx_dut_motor_start();
-            }
-            break;
-            
-        case APP_MSG_TRIPLE_CLICK:
-            if(rdx_dut_rec_is_running()){
-                rdx_dut_rec_stop();
-            }else{
-                if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                    DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
-                    break;
-                }
-                rdx_dut_rec_start();
-            }
-            break;
-            
-        case APP_MSG_QUADRUPLE_CLICK:
-            if(rdx_dut_wifi_is_running()){
-                rdx_dut_wifi_stop();
-            }else{
-                if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                    DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
-                    break;
-                }
-                rdx_dut_wifi_start();
-            }
-            break;
-            
-        case APP_MSG_BT_PAIR_SET_DEFAULT:
-            if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                DUT_LOG("Blocked! Current test: [%s]\r", rdx_dut_get_current_func_name());
-                break;
-            }
-            rdx_dut_format_start();
-            break;
-            
-        case APP_MSG_SEXTUPLE_CLICK:
-            if(rdx_dut_info.current_func != DUT_FUNC_NONE){
-                DUT_LOG("Blocked! Current test running: [%s], poweroff denied\r", rdx_dut_get_current_func_name());
-                break;
-            }
-            rdx_dut_poweroff();
-            break;
-            
-        default:
-            break;
-    }
+    dut_accept(&request);
+}
+
+void rdx_dut_msg_handle(void)
+{
+    struct dut_request request = {0};
+    request.source = 2;
+    request.command = DUT_CMD_DUT_MODE;
+    request.value = !rdx_dut_info.dut_mode;
+    dut_accept(&request);
 }
 
 /******************************************************************************
@@ -1607,7 +1784,7 @@ void rdx_dut_key_handle(int key_msg)
  * function: rdx_dut_msg_handle
  * description: APP_MSG_DUT消息处理入口（进入/退出DUT模式）
  **************************************************************************/
-void rdx_dut_msg_handle(void)
+static void dut_mode_apply(void)
 {
     RecordStatus* rp = rdx_record_get_status();
     
@@ -1663,7 +1840,6 @@ void rdx_dut_msg_handle(void)
             return;
         }
 
-        rdx_dut_factory_usb_revoke();
         rdx_record_dut_authorization_revoke();
         rdx_dut_info.dut_mode = FALSE;
         

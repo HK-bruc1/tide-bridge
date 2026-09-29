@@ -491,8 +491,12 @@ Assert-Contract 'ON_CHARGE_LED_BUSINESS_PRIORITY' (
     $usbLedPolicy -match '(?s)#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?get_power_on_status\(\) && rdx_app_business_started\(\).*?get_charge_online_flag\(\).*?RDX_CHARGE_OUT.*?!app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\)' -and
     (Test-TokensInOrder $usbLedPolicy @('RECORD_STATE_START', 'RDX_LED_SCENE_RECORD_MARK', 'RDX_LED_SCENE_RECORD_START', 'RDX_LED_SCENE_DUT_ENTER', 'RDX_LED_SCENE_OTA_START', 'RDX_LED_SCENE_WIFI_START', 'RDX_LED_SCENE_CHARGE_FULL')) -and
     $ledSceneEntry -match '(?s)if \(on_usb_charge\).*?_rdx_led_resolve_on_usb_charge\(scene\).*?scene == g_current_scene && g_active_effect && !new_mark.*?return;' -and
-    $ledChargeEntry -match '(?s)if \(_rdx_led_on_usb_charge\(\)\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_CHARGE_PLUG_IN\);.*?return;.*?_rdx_led_set_charge_effect_by_battery'
+    $ledChargeEntry -match '(?s)if \(_rdx_led_on_usb_charge\(\) \|\| rdx_app_get_dut_status\(\)\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_CHARGE_PLUG_IN\);.*?return;.*?_rdx_led_set_charge_effect_by_battery'
 ) 'Only normal ON USB charging arbitrates business above charge/FULL; charge updates share scene entry and preserve effect phase'
+Assert-Contract 'DUT_CHARGE_EVENTS_PRESERVE_TEST_INDICATION' (
+    $ledSceneEntry -match '(?s)if \(!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\) &&\s+rdx_app_get_dut_status\(\) &&\s+\(scene == RDX_LED_SCENE_CHARGE_PLUG_IN \|\|\s+scene == RDX_LED_SCENE_CHARGE_FULL \|\|\s+scene == RDX_LED_SCENE_CHARGE_PLUG_OUT\)\) \{\s+return;' -and
+    $RdxLedCtrl -match '(?s)void rdx_led_ctrl_restore_system_state\(void\).*?rdx_app_get_dut_status\(\) &&\s+g_current_scene == RDX_LED_SCENE_DUT_LED_TEST &&.*?!rdx_storage_lifecycle_transition_led\(\)\) \{\s+return;'
+) 'Charge notifications preserve the current BLE/CDC factory test, including its off phase; shutdown and storage transition retain priority'
 Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
     $usbLedPolicy -match 'g_effect_elapsed_ms < g_active_effect->timeout_ms' -and
     $RdxLedCtrl -match '(?s)void rdx_led_ctrl_update\(void\).*?_rdx_led_on_usb_charge\(\).*?_rdx_led_resolve_on_usb_charge\(RDX_LED_SCENE_OFF\) != g_current_scene.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\)' -and
