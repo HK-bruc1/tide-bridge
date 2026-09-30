@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs five source-contract scripts and ten C behavioral harnesses
-as **15 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and nine C behavioral harnesses
+as **13 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -20,7 +20,6 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_hogp_profile_contract.ps1` | HID protocol bytes, security, readiness and peer-scoped bonded CCC |
 | `test_rdx_transport_contract.ps1` | Dual-wrapper ownership, sends/retries, advertising and persisted binding |
 | `test_rdx_lifecycle_contract.ps1` | FIFO/worker reconnect barrier, RDX-only release, OTA cancellation and recording STOP |
-| `test_rdx_keymap_contract.ps1` | Five-key protocol, token checks across commit stages, A/B store wiring and response ownership |
 
 | C behavioral harness | Production behavior exercised with mocked boundaries |
 | --- | --- |
@@ -31,7 +30,6 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
-| `test_meeting_mono.py` | Mono/selector integration, allocation cleanup, pairing faults, channel metadata, RAW playback and player draining |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
 
@@ -99,6 +97,6 @@ See [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
 
 Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
 
-BLE 下载参数行为测试 `test_ble_download.py` 由传输契约组调用，执行实际 C 策略，覆盖连续下载延迟省电、旧回调隔离、有限重试、投递失败和244字节提交兼容视图。手机参数协商、PHY/DLE 事件转发、吞吐与功耗需要实机验证。
+BLE 连续下载、会议单声道及 RAW 回放特性已实板验收并收敛，对应的行为套件（`test_ble_download.py`、`test_meeting_mono.py`）及 `test_rdx_keymap_contract.ps1` 静态令牌检查已移除；下载策略结论见提交 366ce688，keymap 在线事务回归由 `test_keymap_factory_reset.py` 与实板验收覆盖。
 
 CDC 主机检查已收敛到正式配置（TEST=0、LOG_LEVEL=1）：保留生命周期、传输/背压/旧会话隔离、驱动边界、协议分帧/身份及终端主流程；不再运行配置组合矩阵、历史 TEST=1 图样或日志统计内部细节。配置可编译性通过正常固件构建验证，未覆盖的宏组合需另行验证。

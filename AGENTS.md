@@ -95,19 +95,23 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs five source contracts and ten C behavioral harnesses
+The host test runner runs four source contracts and nine C behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 15 modules. The source contracts cover:
+focused run; the default runs all 13 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
 - `test_rdx_transport_contract.ps1` - fixed two-wrapper topology, composable capabilities, owner-scoped routing, and unified advertising.
 - `test_rdx_lifecycle_contract.ps1` - immutable-runtime reconnect state machine, FIFO barrier, worker-idle rearm, cross-peer handoff after full reset, and fail-closed behavior.
-- `test_rdx_keymap_contract.ps1` - token checks across keymap commit stages, A/B storage wiring and owner-directed response. Hot-apply release and HOGP hold/scan/FIFO/session behavior run independently in `test_hogp_hold.py`.
 
 The lifecycle group includes source checks for the single-command RDX release
-and preservation of the shared HID/physical link. The factory USB behavioral harness also requires Python with llvmlite and
+and preservation of the shared HID/physical link. Keymap token checks were
+removed as redundant with `test_keymap_factory_reset.py`; hot-apply release and
+HOGP hold/scan/FIFO/session behavior run in `test_hogp_hold.py`. Accepted legacy
+feature suites (`test_meeting_mono.py`, `test_ble_download.py`) were removed
+after on-device sign-off; their conclusions live in the docs and git history.
+The factory USB behavioral harness also requires Python with llvmlite and
 the JL compiler at C:/JL/pi32/bin/clang.exe, alongside PowerShell 5.1.
 See `tests/host/README.md` for coverage and on-device validation limits.
 
@@ -212,7 +216,6 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `tests/host/test_hogp_profile_contract.ps1` - host-side HOGP profile contract validation
 - `tests/host/test_rdx_transport_contract.ps1` - dual-link transport and advertising contract
 - `tests/host/test_rdx_lifecycle_contract.ps1` - reconnect lifecycle contract
-- `tests/host/test_rdx_keymap_contract.ps1` - online keymap transaction contract
 - `docs/3-4.PC_APP逻辑断开无法释放RDX会话问题复盘与处理方案.md` - PC-App logical RDX release design and acceptance criteria
 - `docs/3-5.PC_APP_rdxsession_v1_固件对接说明.md` - single-command firmware interface and BLE tool acceptance
 

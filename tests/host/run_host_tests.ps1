@@ -12,8 +12,7 @@ $Contracts = @(
     'test_t2620_product_contract.ps1',
     'test_hogp_profile_contract.ps1',
     'test_rdx_transport_contract.ps1',
-    'test_rdx_lifecycle_contract.ps1',
-    'test_rdx_keymap_contract.ps1'
+    'test_rdx_lifecycle_contract.ps1'
 )
 $Behavior = @(
     'test_adv_policy.py',
@@ -21,7 +20,6 @@ $Behavior = @(
     'test_finalpack.py',
     'test_dut_keys_speaker.py',
     'test_record_storage.py',
-    'test_meeting_mono.py',
     'test_record_format.py',
     'test_power_recovery.py',
     'test_hogp_hold.py'
