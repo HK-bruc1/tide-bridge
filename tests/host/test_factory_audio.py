@@ -1,8 +1,7 @@
 """Focused production CDC audio queue/file-worker checks, plus host frame validation."""
 import re
 import sys
-from pathlib import Path
-from host_c_test_lib import ROOT, run_c_checks
+from host_c_test_lib import ROOT, run_c_checks, load_cdc_tool
 
 STUBS = r'''
 typedef unsigned long long size_t;
@@ -210,9 +209,8 @@ def check_audio():
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(STUBS + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_audio_delivery', 'test_audio_faults', 'test_file_lifetime', 'test_file_faults', 'test_shutdown_lifetime', 'test_shutdown_faults'], native=True)
-    sys.path.insert(0, str(ROOT / 'tests/board'))
-    from factory_cdc_audio import AudioLink
-    from factory_cdc_flow import Station
+    cdc = load_cdc_tool()
+    AudioLink, Station = cdc.AudioLink, cdc.Station
     class RejectedLink:
         def request(self, command):
             return 'ERR BUSY'

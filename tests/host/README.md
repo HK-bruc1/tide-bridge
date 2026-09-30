@@ -86,8 +86,9 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 
 ## Optional board check
 
-正式 CDC 协议终端工具见 [board README](../board/README.md)。`factory_cdc_flow.py`
-提供基础检查、受固件能力门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
+正式 CDC 协议终端工具见 [board README](../board/README.md)，其唯一源码为仓库根目录的
+单文件 `CDC-test.bat`，由 `host_c_test_lib.load_cdc_tool()` 加载后测试。提供基础检查、受固件能力
+门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
 由 factory USB 组调用，覆盖旧固件阻断、超时不重发、LAST 覆盖、AUTH 完整显示/保存及控制顺序；
 使用模拟串口，不打开硬件。完整录音/文件/包装流程尚未实现。
 

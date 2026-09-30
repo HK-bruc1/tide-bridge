@@ -2,12 +2,12 @@
 import contextlib
 import io
 import json
-from pathlib import Path
-import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'board'))
-from factory_cdc_flow import Station, StationError
+from host_c_test_lib import load_cdc_tool
+
+_cdc = load_cdc_tool()
+Station, StationError = _cdc.Station, _cdc.StationError
 
 
 class Port:

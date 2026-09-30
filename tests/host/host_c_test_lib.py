@@ -61,3 +61,14 @@ def function(source, name):
         depth += (masked[end] == '{') - (masked[end] == '}')
         end += 1
     return source[start:end] + '\n'
+
+
+def load_cdc_tool():
+    # The CDC terminal tool lives only inside the root CDC-test.bat; line 1 is batch bootstrap.
+    import types
+    path = ROOT / 'CDC-test.bat'
+    lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+    module = types.ModuleType('cdc_tool')
+    module.__file__ = str(path)
+    exec(compile(''.join(lines[1:]), str(path), 'exec'), module.__dict__)
+    return module

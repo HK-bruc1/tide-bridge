@@ -1,13 +1,14 @@
 # CDC 终端产测工具
 
-最简单的方式：双击仓库根目录 **CDC-test.bat**，先选择 1 普通测试或 2 包装测试，再输入串口号（例如 `6` 或 `COM6`）。两个流程都先显示完整基础信息。普通测试核对后回车开始灯、喇叭、五键、录音及文件下载测试。结束后窗口保留，报告自动保存。需要已安装 Python 3；首次运行会自动联网安装 pyserial 和 imageio-ffmpeg（包含音频解码程序）。
+工具源码只有仓库根目录的一个文件：**CDC-test.bat**（批处理引导 + 全部产测 Python 代码内嵌，`tests/host` 的测试也直接从它加载）。最简单的方式是双击运行：先选择 1 普通测试或 2 包装测试，再输入串口号（例如 `6` 或 `COM6`）。两个流程都先显示完整基础信息。普通测试核对后回车开始灯、喇叭、五键、录音及文件下载测试。结束后窗口保留，报告自动保存。需要已安装 Python 3；首次运行会自动联网安装 pyserial 和 imageio-ffmpeg（包含音频解码程序）。
 
-从仓库根目录执行，Python 3 + pyserial：
+把 CDC-test.bat 单独复制/发送给工站电脑即可使用，不需要仓库里的其他文件；报告保存在该文件同目录的 `output/factory-cdc-reports/` 下。
+
+命令行方式（可选）：
 
 ```powershell
-python -m pip install -r tests/board/requirements.txt
-python -X utf8 tests/board/factory_cdc_flow.py --list-ports
-python -X utf8 tests/board/factory_cdc_flow.py --port COM6
+python -X utf8 -x CDC-test.bat --list-ports
+python -X utf8 -x CDC-test.bat --port COM6
 ```
 
 COM6 换成设备实际端口。板子拨码 ON，连接数据线，烧录 CDC=1、TEST=0 的正式协议固件；关闭占用该串口的其他工具。默认 full 模式先检查 PING、身份字段和 AUTH 已烧录，再进行交互测试；只读排查可显式使用 `--mode foundation`。可追加 `--expect-addr 123456789ABC --expect-fw 实际版本` 对照烧录记录和预期版本；未提供时只检查格式，不代表烧录记录一致。
@@ -15,7 +16,7 @@ COM6 换成设备实际端口。板子拨码 ON，连接数据线，烧录 CDC=1
 交互控制流程：
 
 ```powershell
-python -X utf8 tests/board/factory_cdc_flow.py --port COM6 --mode controls
+python -X utf8 -x CDC-test.bat --port COM6 --mode controls
 ```
 
 执行顺序：检查空闲状态 → 操作员确认 → 进入 DUT → LED 启停及目视判定 → 喇叭启停及试听判定 → 五键捕获（默认 30 秒）→ 显式停止按键 → 退出 DUT → PING 验证通信保持。灯和喇叭输入 y 为通过、n 为失败，其他输入会重新提示。五键初始显示 `A: 0   B: 0   C: 0   D: 0   E: 0`，检测到按下后对应位置变为 1 并保持；终端原地刷新，仅状态变化时更新，五键齐全后自动继续。五键只验证五次按下均被捕获，不验证释放或电气指标。测试过程中不要让 BLE 工站或实体键提交其他产测动作。
@@ -32,13 +33,13 @@ python -X utf8 tests/board/factory_cdc_flow.py --port COM6 --mode controls
 
 通信/动作超时、编号被覆盖、Ctrl+C、EOF 都停止流程，不自动重发、重连或提交清理动作；设备可能仍在测试。检查设备状态，必要时拨码 OFF 安全关机后恢复连接。关闭/重开 COM 不能证明新会话已建立，不能据相同 ID 认领旧结果。人工判定失败时，在通信和动作结果确定的正常路径上停止当前测试并退出 DUT。
 
-旧工具 `factory_cdc_protocol.py` 保留为最小只读检查；`factory_cdc_bytes.py` 仅用于 TEST=1 的历史字节层测试，不用于正式协议固件。
+只读排查使用 `--mode foundation`（原独立脚本 `factory_cdc_protocol.py` 已并入单文件工具后移除）。`factory_cdc_bytes.py` 仅用于 TEST=1 的历史字节层测试，不用于正式协议固件。
 
 当前默认构建已开启 CDC=1、TEST=0、LOG_LEVEL=1；直接使用 SDK 的 VS Code all 任务即可，无需额外宏覆盖。支持基础信息、普通控制、CDC 录音及文件下载、包装结束；独立格式化仍未开放。请使用包含对应功能的固件；普通主流程及独立包装均已有实板通过记录。
 
 ## 包装测试
 
-选择菜单 2，或运行 `python -X utf8 tests/board/factory_cdc_flow.py --port COM6 --mode packaging`。核对完整身份后输入 y 确认：将清空存储中的文件、恢复默认参数、解绑并禁用实体按键进入产测。脚本进入 DUT，提交一次 `DUT ft_finalpack_end 1`，轮询真实完成结果，再人工确认红灯常亮。完成后保持 FINALPACK 状态，提示拨码 OFF；不发送退出 DUT 或自动关机命令。OFF 动作不由脚本验证。
+选择菜单 2，或运行 `python -X utf8 -x CDC-test.bat --port COM6 --mode packaging`。核对完整身份后输入 y 确认：将清空存储中的文件、恢复默认参数、解绑并禁用实体按键进入产测。脚本进入 DUT，提交一次 `DUT ft_finalpack_end 1`，轮询真实完成结果，再人工确认红灯常亮。完成后保持 FINALPACK 状态，提示拨码 OFF；不发送退出 DUT 或自动关机命令。OFF 动作不由脚本验证。
 
 包装单独生成 scope=packaging 报告，不重跑灯、喇叭、五键，也不据此宣称普通测试或完整产测通过。旧固件返回 UNSUPPORTED 时停止，不执行包装，也不自动退出 DUT；可拨码 OFF 后烧录新版。通信中断不重发包装命令。包装提交及红灯已通过实板报告验证；拨码 OFF 与重启持久化需另行确认。
 
