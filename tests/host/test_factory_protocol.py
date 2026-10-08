@@ -15,6 +15,7 @@ typedef unsigned int u32;
 #define NULL ((void *)0)
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
 #define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0
+#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
 #define FACTORY_CDC_TX_MAX 258
 #define FACTORY_CDC_OK 0
 #define FACTORY_CDC_FULL -2
@@ -34,6 +35,14 @@ unsigned int strlen(const char *);
 int snprintf(char *, unsigned int, const char *, ...);
 static u32 generation=1, now;
 static int full, initialized=1, mac_error, aborted, irq, timer_fail;
+static char command_log[180];
+static unsigned int command_logs;
+static int log_in_irq;
+int printf(const char *format, const char *text) {
+    if (irq) log_in_irq=1;
+    ++command_logs;
+    return snprintf(command_log,sizeof(command_log),format,text);
+}
 static char wire[4096], name[40]="T2620";
 static unsigned int wire_length;
 static u8 mac[6]={1,2,3,4,5,6};
@@ -68,6 +77,7 @@ static void boot(void) {
     factory_head=factory_count=0; generation=1; now=0;
     full=aborted=irq=timer_fail=mac_error=0; initialized=1;
     wire_length=0; wire[0]=0; strcpy(name,"T2620"); consumer=NULL;
+    command_logs=0; command_log[0]=0; log_in_irq=0;
     for (int i=0;i<6;++i) mac[i]=i+1;
     rdx_factory_cdc_init();
 }
@@ -117,16 +127,58 @@ int test_sessions(void) {
     generation=3; full=0; CHECK(!input("PING\r\n")); CHECK(!strcmp(wire,"OK PONG\r\n"));
     return 0;
 }
-int test_action_framing(void) {
-    boot(); CHECK(!input("dUt fT_sPeAkEr 1\r\n"));
-    CHECK(!strcmp(wire,"OK ACTION=FT_SPEAKER;VALUE=1;GEN=1\r\n"));
-    const char *bad[]={"DUT FT_DUT\r\n", "DUT FT_DUT 01\r\n", "DUT FT_DUT -1\r\n",
-        "DUT FT_DUT 1 \r\n"};
-    for(int i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
-        boot(); CHECK(!input(bad[i])); CHECK(!strcmp(wire,"ERR ARG\r\n"));
+int test_legacy_rejected(void) {
+    const char *old[]={"DUT ft_dut 1\r\n", "dUt fT_sPeAkEr 0\r\n",
+        "DUT ft_finalpack_end 1\r\n", "DUT FT_DUT\r\n", "DUT FT_DUT 01\r\n"};
+    for (int index=0;index<sizeof(old)/sizeof(old[0]);++index) {
+        boot(); CHECK(!input(old[index])); CHECK(!strcmp(wire,"ERR CMD\r\n"));
+        CHECK(!input("PING\r\n")); CHECK(!strcmp(wire,"ERR CMD\r\nOK PONG\r\n"));
     }
-    boot(); CHECK(!input("DUT FT_DUT ")); generation=2;
-    CHECK(!input("1\r\n")); CHECK(!strcmp(wire,"ERR CMD\r\n"));
+    return 0;
+}
+int test_custom_framing(void) {
+    boot(); CHECK(!input("*APP#custom#ft_speaker#0#\r")); CHECK(!command_logs && !wire_length);
+    CHECK(!input("\n"));
+    CHECK(!strcmp(command_log,"[CDC_RX] *APP#custom#ft_speaker#0#\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_SPEAKER;VALUE=0;GEN=1\r\n"));
+    boot(); CHECK(!input("*APP#custom#ft_key_layout#\r\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_KEY_LAYOUT;VALUE=1;GEN=1\r\n"));
+    boot(); CHECK(!input("*APP#custom#ft_finalpack_end#\r\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_FINALPACK_END;VALUE=1;GEN=1\r\n"));
+    boot(); CHECK(!input("*app#CUSTOM#ft_rec_chat#1#\r\n*APP#custom#ft_rec_chat#0#\r\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_REC_CHAT;VALUE=1;GEN=1\r\nOK ACTION=FT_REC_CHAT;VALUE=0;GEN=1\r\n"));
+    const char *bad[]={"*APP#custom#ft_dut#", "*APP#custom#ft_dut#1",
+        "*APP#custom#ft_dut#01#", "*APP#custom#ft_dut#-1#", "*APP#custom#ft_dut#1##",
+        "*APP#custom#ft_dut#1#extra", "*APP#custom##1#", "*APP#custom#ft_du t#1#",
+        "*APP#custom#ft_key_layout#1#", "*APP#custom#ft_key_layout#0#",
+        "*APP#custom#ft_key_layout##", "*APP#custom#ft_dut#1#*APP#custom#ft_dut#0#"};
+    for (int index=0;index<sizeof(bad)/sizeof(bad[0]);++index) {
+        boot(); CHECK(!input(bad[index])); CHECK(!input("\r\n"));
+        CHECK(!strcmp(wire,"ERR ARG\r\n"));
+    }
+    boot(); CHECK(!input("*APP#custom#other#1#\r\n")); CHECK(!strcmp(wire,"ERR CMD\r\n"));
+    boot(); CHECK(!input("*CDC#custom#ft_dut#1#\r\n")); CHECK(!strcmp(wire,"ERR CMD\r\n"));
+    boot(); CHECK(!input("*APP#custom#ft_dut#")); generation=2;
+    CHECK(!input("1#\r\nPING\r\n")); CHECK(!strcmp(wire,"ERR CMD\r\nOK PONG\r\n"));
+    return 0;
+}
+int test_command_logging(void) {
+    boot(); CHECK(!input("*APP#custom#fT_sPeAkEr#0#\r")); CHECK(!command_logs);
+    CHECK(!input("\n")); CHECK(command_logs==1 && !log_in_irq);
+    CHECK(!strcmp(command_log,"[CDC_RX] *APP#custom#fT_sPeAkEr#0#\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_SPEAKER;VALUE=0;GEN=1\r\n"));
+    boot(); CHECK(!input("Future  Arg\r\n"));
+    CHECK(!strcmp(command_log,"[CDC_RX] Future  Arg\n"));
+    CHECK(!strcmp(wire,"ERR CMD\r\n"));
+    boot(); CHECK(!input("GET_INFO\r\n"));
+    CHECK(command_logs==1 && !strcmp(command_log,"[CDC_RX] GET_INFO\n"));
+    boot(); CHECK(!input("bad\nsecret\r\n"));
+    CHECK(!strcmp(command_log,"[CDC_RX] FRAME_ERROR=INVALID\n"));
+    char oversized[132]; memset(oversized,'A',129); strcpy(oversized+129,"\r\n");
+    boot(); CHECK(!input(oversized));
+    CHECK(!strcmp(command_log,"[CDC_RX] FRAME_ERROR=OVERFLOW\n"));
+    boot(); full=1; CHECK(!input("PING\r\n"));
+    factory_service(NULL); factory_service(NULL); CHECK(command_logs==1);
     return 0;
 }
 int test_identity(void) {
@@ -153,7 +205,7 @@ def check_protocol():
     path = ROOT / 'cache/factory-usb-test/protocol.c'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(STUBS + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ('test_frames', 'test_sessions', 'test_action_framing', 'test_identity'), native=True)
+    run_c_checks(path, ('test_frames', 'test_sessions', 'test_legacy_rejected', 'test_identity', 'test_command_logging', 'test_custom_framing'), native=True)
     print('PASS: CDC protocol framing, overflow isolation, mailbox/TX backpressure, session/timeout, bounded identity')
 
 

@@ -92,9 +92,25 @@ class StationTests(unittest.TestCase):
         self.assertIn('A: 1   B: 1   C: 1   D: 1   E: 1', output)
         self.assertNotIn('ft_key_layout', output)
         self.assertTrue(any(step['step'] == 'ft_key_layout 1' for step in s.report['steps']))
-        actions = [data for data in s.port.writes if data.startswith(b'DUT ')]
-        self.assertEqual(actions, [f'DUT {c} {v}\r\n'.encode() for c, v, _, _ in commands])
+        actions = [data for data in s.port.writes if data.startswith(b'*APP#custom#')]
+        expected = [f'*APP#custom#{c}#{v}#\r\n'.encode() for c, v, _, _ in commands]
+        expected[5] = b'*APP#custom#ft_key_layout#\r\n'
+        self.assertEqual(actions, expected)
         self.assertFalse(s.port.replies)
+
+    def test_record_chat_uses_canonical_status_name(self):
+        station = self.station([b'OK ID=1;STATE=DONE\r\n', status(1, 'ft_rec_chat', active='REC'),
+                                b'OK ID=2;STATE=DONE\r\n', status(2, 'ft_rec_chat')])
+        self.assertEqual(station.action('ft_rec_chat', 1, 'REC', '1'), 1)
+        self.assertEqual(station.action('ft_rec_chat', 0, 'NONE', '1'), 2)
+        self.assertEqual(station.port.writes, [b'*APP#custom#ft_rec_chat#1#\r\n', b'GET_STATUS\r\n',
+                                             b'*APP#custom#ft_rec_chat#0#\r\n', b'GET_STATUS\r\n'])
+
+    def test_record_chat_rejects_legacy_status(self):
+        station = self.station([b'OK ID=1;STATE=DONE\r\n', status(1, 'ft_rec', active='REC')])
+        with self.assertRaises(StationError) as caught:
+            station.action('ft_rec_chat', 1, 'REC', '1')
+        self.assertEqual(caught.exception.outcome, 'UNKNOWN')
 
     def test_packaging_sequence_and_decline(self):
         idle = status(0, 'NONE', 'NONE', dut='0')
@@ -108,8 +124,8 @@ class StationTests(unittest.TestCase):
                           status(2, 'ft_finalpack_end', active='FINALPACK'), b'OK PONG\r\n'],
                          ask=lambda _: 'y', sleep=lambda _: None)
         s.packaging()
-        self.assertEqual([w for w in s.port.writes if w.startswith(b'DUT ')],
-                         [b'DUT ft_dut 1\r\n', b'DUT ft_finalpack_end 1\r\n'])
+        self.assertEqual([w for w in s.port.writes if w.startswith(b'*APP#custom#')],
+                         [b'*APP#custom#ft_dut#1#\r\n', b'*APP#custom#ft_finalpack_end#1#\r\n'])
         self.assertFalse(s.port.replies)
 
 

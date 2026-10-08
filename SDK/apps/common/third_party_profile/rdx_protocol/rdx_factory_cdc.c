@@ -127,11 +127,46 @@ static const char *factory_info(void)
     return NULL;
 }
 
+static const char *factory_custom_command(char *name)
+{
+    char *separator = strchr(name, '#');
+    if (!separator || separator == name) return "ERR ARG\r\n";
+    *separator = 0;
+    if (strncmp(name, "FT_", 3)) return "ERR CMD\r\n";
+    for (const char *cursor = name; *cursor; ++cursor) {
+        if (!((*cursor >= 'A' && *cursor <= 'Z') ||
+              (*cursor >= '0' && *cursor <= '9') || *cursor == '_'))
+            return "ERR ARG\r\n";
+    }
+    const char *value = separator + 1;
+    u8 enabled;
+    if (!strcmp(name, "FT_KEY_LAYOUT")) {
+        if (value[0]) return "ERR ARG\r\n";
+        enabled = 1;
+    } else if (!value[0] && !strcmp(name, "FT_FINALPACK_END")) {
+        enabled = 1;
+    } else if ((value[0] == '0' || value[0] == '1') && value[1] == '#' && !value[2]) {
+        enabled = value[0] - '0';
+    } else {
+        return "ERR ARG\r\n";
+    }
+    rdx_dut_cdc_request(factory_protocol.generation, name, enabled,
+                        factory_protocol.response, sizeof(factory_protocol.response));
+    return NULL;
+}
+
 static void factory_dispatch(void)
 {
     const char *reply = "ERR CMD\r\n";
     char *line = factory_protocol.line;
     line[factory_protocol.length] = 0;
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL >= 1
+    if (factory_protocol.error) {
+        printf("[CDC_RX] FRAME_ERROR=%s\n", factory_protocol.error == 2 ? "OVERFLOW" : "INVALID");
+    } else {
+        printf("[CDC_RX] %s\n", line);
+    }
+#endif
     /* Keywords and action names are case insensitive; values stay strict. */
     for (u16 i = 0; i < factory_protocol.length; ++i) {
         if (line[i] >= 'a' && line[i] <= 'z') line[i] -= 'a' - 'A';
@@ -148,17 +183,8 @@ static void factory_dispatch(void)
     } else if (rdx_factory_audio_command(factory_protocol.generation, line,
                  factory_protocol.response, sizeof(factory_protocol.response))) {
         reply = NULL;
-    } else if (!strncmp(line, "DUT ", 4)) {
-        char *name = line + 4;
-        char *value = strchr(name, ' ');
-        if (!value || value == name || (value[1] != '0' && value[1] != '1') || value[2]) {
-            reply = "ERR ARG\r\n";
-        } else {
-            *value = 0;
-            rdx_dut_cdc_request(factory_protocol.generation, name, value[1]-'0',
-                factory_protocol.response, sizeof(factory_protocol.response));
-            reply = NULL;
-        }
+    } else if (!strncmp(line, "*APP#CUSTOM#", 12)) {
+        reply = factory_custom_command(line + 12);
     }
     if (reply) strcpy(factory_protocol.response, reply);
     factory_protocol.response_length = strlen(factory_protocol.response);

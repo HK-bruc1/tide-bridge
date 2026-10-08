@@ -216,7 +216,11 @@ static void finished(void) { audio_state=DUT_AUDIO_DONE; dut_service(NULL); }
 int test_cdc_record_authorization(void) {
     char reply[258]; boot(); connected=0; product_binding=0;
     rdx_dut_cdc_request(1,"FT_REC",1,reply,sizeof(reply));
+    CHECK(!strcmp(reply,"ERR CMD\r\n") && !record_starts);
+    rdx_dut_cdc_request(1,"FT_REC_CHAT",1,reply,sizeof(reply));
     CHECK(strstr(reply,"OK ID=") && record_starts==1 && dut_last_state==2);
+    rdx_dut_cdc_status(reply,sizeof(reply),0);
+    CHECK(strstr(reply,"LAST_CMD=ft_rec_chat;"));
     u32 grant=rdx_record_session_token_capture(); CHECK(grant);
     CHECK(!rdx_record_binding_allowed());
     rdx_dut_test_session_revoke(); dut_service(NULL);
@@ -224,9 +228,9 @@ int test_cdc_record_authorization(void) {
     connected=1; dut_enqueue(DUT_CMD_REC,0); dut_service(NULL);
     CHECK(!record_requests && rdx_dut_rec_is_running());
     usb_generation=2; CHECK(!rdx_record_session_token_is_current(grant));
-    rdx_dut_cdc_request(2,"FT_REC",0,reply,sizeof(reply)); CHECK(strstr(reply,"ERR BUSY"));
-    boot(); rdx_dut_cdc_request(1,"FT_REC",1,reply,sizeof(reply));
-    rdx_dut_cdc_request(1,"FT_REC",0,reply,sizeof(reply));
+    rdx_dut_cdc_request(2,"FT_REC_CHAT",0,reply,sizeof(reply)); CHECK(strstr(reply,"ERR BUSY"));
+    boot(); rdx_dut_cdc_request(1,"FT_REC_CHAT",1,reply,sizeof(reply));
+    rdx_dut_cdc_request(1,"FT_REC_CHAT",0,reply,sizeof(reply));
     CHECK(dut_record_wait && record_requests==1 && dut_last_state==1);
     record_result=0; dut_service(NULL); CHECK(dut_last_state==2 && !dut_record_wait);
     return 0;

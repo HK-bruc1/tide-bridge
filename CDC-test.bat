@@ -164,7 +164,9 @@ class Station:
         return result
 
     def action(self, name, value, active, dut, timeout=60):
-        reply = fields(self.query(f'DUT {name} {value}'), ('ID', 'STATE'))
+        parameter = '' if name == 'ft_key_layout' and value == 1 else f'{value}#'
+        command = f'*APP#custom#{name}#{parameter}'
+        reply = fields(self.query(command), ('ID', 'STATE'))
         action_id = number(reply['ID'], nonzero=True)
         if self.last_id is not None and action_id <= self.last_id:
             raise StationError('UNKNOWN', '编号未递增，可能发生复位或收到旧响应')
@@ -600,12 +602,12 @@ def run(station):
     link, directory = station.audio, station.audio_dir
     print('\n[5/7] 录音测试', flush=True)
     station.ask('回车开始录音：')
-    record_id = station.action('ft_rec', 1, 'REC', '1')
+    record_id = station.action('ft_rec_chat', 1, 'REC', '1')
     stopped_id = None
     if wait_recording(link):
         current = station.status()
         if current['ACTIVE'] == 'REC':
-            stopped_id = station.action('ft_rec', 0, 'NONE', '1')
+            stopped_id = station.action('ft_rec_chat', 0, 'NONE', '1')
     deadline = time.monotonic() + 15
     while not link.end.is_set():
         link.check()

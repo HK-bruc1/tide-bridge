@@ -698,7 +698,7 @@ static bool dut_parse_test(const char *cmd, const char *value)
 static const char *dut_command_name(u8 command)
 {
     static const char *names[] = {
-        "ft_dut", "ft_led_cycle", "ft_motor", "ft_rec", "ft_rec_call",
+        "ft_dut", "ft_led_cycle", "ft_motor", "ft_rec_chat", "ft_rec_call",
         "ft_wifi", "ft_format", "ft_poweroff", "ft_finalpack_end",
         "ft_key_dut_enable", "ft_key_dut_disabled", "ft_key_layout", "ft_key", "ft_speaker"
     };
@@ -853,7 +853,7 @@ void rdx_dut_cdc_request(u32 generation, const char *name, u8 value, char *out, 
     request.value = value;
     if (!strcmp(name, "FT_DUT")) request.command = DUT_CMD_DUT_MODE;
     else if (!strcmp(name, "FT_LED_CYCLE") || !strcmp(name, "FT_OLED")) request.command = DUT_CMD_OLED;
-    else if (!strcmp(name, "FT_REC") || !strcmp(name, "FT_REC_CHAT")) request.command = DUT_CMD_REC;
+    else if (!strcmp(name, "FT_REC_CHAT")) request.command = DUT_CMD_REC;
     else if (!strcmp(name, "FT_SPEAKER")) request.command = DUT_CMD_SPEAKER;
     else if (!strcmp(name, "FT_KEY_LAYOUT")) request.command = DUT_CMD_KEY_LAYOUT;
     else if (!strcmp(name, "FT_KEY")) request.command = DUT_CMD_KEY_STOP;

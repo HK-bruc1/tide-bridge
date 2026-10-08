@@ -4,6 +4,8 @@
 
 把 CDC-test.bat 单独复制/发送给工站电脑即可使用，不需要仓库里的其他文件；报告保存在该文件同目录的 `output/factory-cdc-reports/` 下。
 
+当前工具的 DUT 控制请求使用 `*APP#custom#<命令>#<值>#` 并追加 CRLF，需配套支持此格式的固件；不会向旧固件自动降级或重发。新固件不再兼容旧 `DUT <命令> <值>` 工站请求，旧格式返回 `ERR CMD`。录音请求与状态 `LAST_CMD` 均统一为 `ft_rec_chat`，旧别名 `ft_rec` 返回 `ERR CMD`；按键布局只接受 `*APP#custom#ft_key_layout#`，显式参数返回 `ERR ARG`。固件与脚本必须配套升级；其余查询、响应及录音/文件传输扩展格式保持不变。
+
 命令行方式（可选）：
 
 ```powershell
@@ -39,8 +41,12 @@ python -X utf8 -x CDC-test.bat --port COM6 --mode controls
 
 ## 包装测试
 
-选择菜单 2，或运行 `python -X utf8 -x CDC-test.bat --port COM6 --mode packaging`。核对完整身份后输入 y 确认：将清空存储中的文件、恢复默认参数、解绑并禁用实体按键进入产测。脚本进入 DUT，提交一次 `DUT ft_finalpack_end 1`，轮询真实完成结果，再人工确认红灯常亮。完成后保持 FINALPACK 状态，提示拨码 OFF；不发送退出 DUT 或自动关机命令。OFF 动作不由脚本验证。
+选择菜单 2，或运行 `python -X utf8 -x CDC-test.bat --port COM6 --mode packaging`。核对完整身份后输入 y 确认：将清空存储中的文件、恢复默认参数、解绑并禁用实体按键进入产测。脚本进入 DUT，提交一次 `*APP#custom#ft_finalpack_end#1#`，轮询真实完成结果，再人工确认红灯常亮。完成后保持 FINALPACK 状态，提示拨码 OFF；不发送退出 DUT 或自动关机命令。OFF 动作不由脚本验证。
 
 包装单独生成 scope=packaging 报告，不重跑灯、喇叭、五键，也不据此宣称普通测试或完整产测通过。旧固件返回 UNSUPPORTED 时停止，不执行包装，也不自动退出 DUT；可拨码 OFF 后烧录新版。通信中断不重发包装命令。包装提交及红灯已通过实板报告验证；拨码 OFF 与重启持久化需另行确认。
 
 音频证据位于对应报告旁的 `<报告名>-audio/`，包含独立的 stream.raw/.opus/.wav 和 download.raw/.opus/.wav；失败时保留已收到的数据。控制与包装报告不产生音频文件。
+
+## 2026-10-08 规范命令回归状态
+
+`COM3_2026-10-08_15-10-13.log` 已确认 BLE/CDC 普通控制及录音请求对齐：按键布局无参数、录音使用 ft_rec_chat；两路录音落盘 error=0，CDC 文件读取请求走到关闭。尚未核对本轮 JSON、LAST_CMD 回复、音频文件校验及试听结果，不能据此宣布全项 PASS；包装未覆盖。两路均出现 `timer_no_response: app_core`，仍需单独排查。详细证据见 [8-3 第 14 节](../../docs/8-3.工厂CDC普通测试项DUT接入说明.md) 与 [8-4 第 10 节](../../docs/8-4.工厂CDC录音与文件下载测试实现说明.md)。
