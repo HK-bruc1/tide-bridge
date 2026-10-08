@@ -80,7 +80,7 @@ Firmware builds and device regression remain required: HOGP receipt/latency/powe
 IRQ/disconnect races, audio quality, SD power loss, USB enumeration and long runs.
 See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 [recording plan](../../docs/9-1.会议录音双声道改单声道实施方案.md) and
-[DUT plan](../../docs/8-4.工厂APP按键与喇叭DUT测试实施方案.md).
+[DUT plan](../../docs/8-1.工厂APP按键与喇叭DUT测试实施方案.md).
 
 ## Optional board check
 
@@ -93,7 +93,7 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 `python tests/board/factory_cdc_bytes.py --port COM6` requires `pyserial`, a DUT
 and CDC TEST firmware. Use the CDC port, not the debug log port. This independent
 tool checks startup bytes and four echoes; host validation never opens a port.
-See [factory USB protocol](../../docs/8-0.厂测USB通信协议设计.md).
+See [factory USB protocol](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
 Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
 
