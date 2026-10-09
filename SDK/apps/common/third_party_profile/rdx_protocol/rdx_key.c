@@ -585,13 +585,13 @@ u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-/* KEY5 在 DUT 场景下保留八击退出，普通业务动作保持禁用。 */
+/* KEY5 在 DUT 场景下双击开关粉红噪音、八击退出，普通业务动作保持禁用。 */
 static u8 key_table_io_num4_dut[KEY_ACTION_MAX] = {
     APP_MSG_NULL,              // 单击
     APP_MSG_NULL,              // 长按
     APP_MSG_NULL,              // 持续按住
     APP_MSG_NULL,              // 长按抬起
-    APP_MSG_NULL,              // 双击
+    APP_MSG_DUT_BURNIN_TOGGLE,  // 双击
     APP_MSG_NULL,              // 三击
     APP_MSG_NULL,              // 四击
     APP_MSG_NULL,              // 五击
@@ -624,7 +624,7 @@ u8 *rdx_key_get_io_num_table(int num_idx, int scene)
 	}
 	// scene: 0=IDLE, 1=NORMAL, 2=RECORDING, 3=WIFI, 4=DUT, 5=OTA
 	switch (scene) {
-	case 4:  // DUT — KEY5 保留八击退出
+	case 4:  // DUT — KEY5 双击煲机、八击退出
 		return num_idx == 4 ? key_table_io_num4_dut : NULL;
 	case 5:  // OTA — 物理按键不应干扰升级
 		return NULL;

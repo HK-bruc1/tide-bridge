@@ -1,6 +1,8 @@
 """Execute the production DUT queue/state machine with BLE/audio/scan boundaries mocked."""
 import re
 import ctypes
+import cmath
+import math
 import tempfile
 from pathlib import Path
 from llvmlite import binding as llvm
@@ -9,6 +11,8 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 STUBS = r'''
+static void dut_finalpack_tone_poll(void) {}
+void rdx_dut_finalpack_tone_stop(void) {}
 int rdx_factory_audio_ready(unsigned g) { return g != 0; }
 int rdx_factory_audio_begin(unsigned g, unsigned id) { return 0; }
 int rdx_factory_audio_owned(void) { return 0; }
@@ -156,6 +160,8 @@ int rdx_dut_speaker_open(void) {
     if (open_fail) return -1;
     ++opens; audio_state=DUT_AUDIO_STARTING; return 0;
 }
+int pink_opens;
+int rdx_dut_speaker_open_pink(void) { ++pink_opens; return rdx_dut_speaker_open(); }
 void rdx_dut_speaker_cancel(void) { ++cancels; }
 int rdx_dut_speaker_state(void) { return audio_state; }
 void rdx_dut_speaker_reap(void) { audio_state=DUT_AUDIO_IDLE; }
@@ -199,7 +205,7 @@ static void boot(void) {
     dut_service_timer=1; dut_key_generation=1;
     memset(dut_key_cutoff,0,sizeof(dut_key_cutoff));
     memset(dut_key_quarantined,0,sizeof(dut_key_quarantined));
-    audio_state=DUT_AUDIO_IDLE; open_fail=opens=cancels=0;
+    audio_state=DUT_AUDIO_IDLE; open_fail=opens=cancels=pink_opens=0;
     sends=send_fail_at=post_fail=events=capture_during_send=0;
     wire_size=0; wire[0]=0; record_requests=record_post_fail=0; record_result=-2;
     memset(&record,0,sizeof(record));
@@ -213,6 +219,60 @@ static void key_start(void) { dut_parse_test(FT_KEY_LAYOUT,"1"); dut_service(NUL
 static void speaker_start(void) { dut_parse_test(FT_SPEAKER,"1"); dut_service(NULL); }
 static void playing(void) { audio_state=DUT_AUDIO_PLAYING; dut_service(NULL); }
 static void finished(void) { audio_state=DUT_AUDIO_DONE; dut_service(NULL); }
+int test_local_burnin_toggle_and_keys(void) {
+    boot(); connected=0;
+    rdx_dut_burnin_toggle();
+    CHECK(pink_opens==1 && opens==1 && dut_local_burnin() && dut_waiting==1);
+    CHECK(rdx_dut_test_keys_active()); /* Keep recording/HID fences. */
+    playing(); CHECK(dut_last_state==2 && !sends);
+    CHECK(!rdx_dut_key_scan(KEY_IO_NUM4,NO_KEY));
+    CHECK(!rdx_dut_key_scan(NO_KEY,KEY_IO_NUM4));
+    CHECK(!rdx_dut_key_scan(NO_KEY,NO_KEY)); /* Multi-click settle ticks. */
+    CHECK(!rdx_dut_key_consume(KEY_IO_NUM4,jiffies));
+    CHECK(rdx_dut_key_scan(KEY_IO_NUM0,NO_KEY));
+    CHECK(rdx_dut_key_consume(KEY_IO_NUM0,jiffies));
+    rdx_dut_burnin_toggle();
+    CHECK(cancels==1 && dut_stopping && dut_waiting==2);
+    rdx_dut_burnin_toggle(); CHECK(cancels==1 && opens==1);
+    finished(); CHECK(!dut_local_burnin() && !dut_stopping && dut_last_state==2);
+    rdx_dut_burnin_toggle(); CHECK(opens==2);
+    /* Stop is permitted even before the first write acknowledges START. */
+    rdx_dut_burnin_toggle(); CHECK(cancels==2 && dut_stopping && !dut_waiting);
+    finished(); CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE);
+    return 0;
+}
+int test_local_burnin_ownership_and_exit(void) {
+    boot(); speaker_start(); playing();
+    rdx_dut_burnin_toggle(); CHECK(!pink_opens && !cancels && opens==1);
+    CHECK(rdx_dut_key_scan(KEY_IO_NUM4,NO_KEY));
+    boot(); key_start(); rdx_dut_burnin_toggle(); CHECK(!opens);
+    boot(); rdx_dut_burnin_toggle(); playing();
+    speaker_start(); dut_parse_test(FT_SPEAKER,"0"); dut_service(NULL);
+    CHECK(opens==1 && !cancels && dut_local_burnin());
+    rdx_dut_test_session_revoke(); dut_service(NULL);
+    CHECK(!cancels && dut_local_burnin()); /* BLE does not own local audio. */
+    struct dut_request exit={0};
+    exit.source=2; exit.command=DUT_CMD_DUT_MODE;
+    CHECK(!dut_accept(&exit) && !rdx_dut_info.dut_mode && cancels==1);
+    finished(); CHECK(!dut_stopping && rdx_dut_info.current_func==DUT_FUNC_NONE);
+    boot(); rdx_dut_info.dut_mode=0; rdx_dut_burnin_toggle(); CHECK(!opens);
+    boot(); open_fail=1; rdx_dut_burnin_toggle();
+    CHECK(!dut_local_burnin() && dut_last_state==3);
+    boot(); rdx_dut_burnin_toggle(); playing(); powered=0; dut_service(NULL);
+    CHECK(cancels && dut_stopping); finished(); CHECK(!dut_stopping);
+    return 0;
+}
+int test_cdc_burnin_exclusion(void) {
+    char reply[258]; boot();
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,reply,sizeof(reply)); playing();
+    rdx_dut_burnin_toggle(); CHECK(!pink_opens && !cancels);
+    boot(); rdx_dut_burnin_toggle(); playing();
+    rdx_dut_cdc_request(1,"FT_SPEAKER",0,reply,sizeof(reply));
+    CHECK(!cancels && dut_local_burnin());
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,reply,sizeof(reply));
+    CHECK(opens==1 && !cancels && dut_owner.source==2);
+    return 0;
+}
 int test_cdc_record_authorization(void) {
     char reply[258]; boot(); connected=0; product_binding=0;
     rdx_dut_cdc_request(1,"FT_REC",1,reply,sizeof(reply));
@@ -689,6 +749,7 @@ int test_cdc_failures_and_ids(void) {
 '''
 
 AUDIO_STUBS = r'''
+typedef unsigned int u32;
 void rdx_hogp_key_action_reset(void) {}
 typedef unsigned char u8;
 typedef short s16;
@@ -710,7 +771,8 @@ struct { int channel; } dac_hdl;
 int volume, maximum, scene, rate, working, width;
 int task_fail, channel_fail, attr_fail, start_fail, rate_fail, write_fail;
 int close_count, state_exits, deleted, calls, bad_pcm, peak, first_playing;
-int maximum_seen, cancel_after;
+int maximum_seen, cancel_after, stall_write;
+int captured[12000], captured_count;
 int muted;
 int in_worker, wrong_control_task, delayed_close_pending, delayed_close_owner;
 void control_task_check(void) { if (in_worker) ++wrong_control_task; }
@@ -749,6 +811,10 @@ struct lp_target { const char *name; u8 (*is_idle)(void); };
 AUDIO_TESTS = r'''
 int audio_dac_channel_write(void *c,void *p,int n) {
     ++calls;
+    if (stall_write) {
+        if (calls==cancel_after) rdx_dut_speaker_cancel();
+        return 0;
+    }
     if (calls>1 && speaker_state==DUT_AUDIO_PLAYING) first_playing=1;
     int bytes=width ? 4 : 2;
     int take=n < 192 ? n : 192; /* Force partial writes across cycles. */
@@ -757,14 +823,16 @@ int audio_dac_channel_write(void *c,void *p,int n) {
         int expected=sin1k_48k_16bit[(peak/dac_hdl.channel)%48];
         int actual=width ? ((s32 *)p)[i] : ((s16 *)p)[i];
         if (width) expected*=256;
-        if (actual!=expected) bad_pcm=1;
+        if (!speaker_pink && actual!=expected) bad_pcm=1;
+        if (captured_count < 12000) captured[captured_count++]=actual;
         ++peak;
     }
     if (calls==cancel_after) rdx_dut_speaker_cancel();
     return take;
 }
 static void audio_boot(void) {
-    speaker_state=DUT_AUDIO_IDLE; speaker_cancel=0; dac_hdl.channel=1;
+    speaker_state=DUT_AUDIO_IDLE; speaker_cancel=0; speaker_pink=0; dac_hdl.channel=1;
+    captured_count=stall_write=0;
     volume=3; maximum=15; scene=0; rate=44100; working=width=0;
     muted=1;
     in_worker=wrong_control_task=delayed_close_pending=delayed_close_owner=0;
@@ -819,6 +887,73 @@ int test_sine_failure_rollback(void) {
     }
     audio_boot(); working=1; CHECK(rdx_dut_speaker_open()!=0 && !maximum_seen);
     audio_boot(); scene=2; CHECK(rdx_dut_speaker_open()!=0 && !maximum_seen);
+    return 0;
+}
+int test_pink_stream_and_cleanup(void) {
+    for(int w=0;w<2;++w) for(int ch=1;ch<=2;++ch) {
+        audio_boot(); width=w; dac_hdl.channel=ch; cancel_after=67;
+        CHECK(!rdx_dut_speaker_open_pink());
+        CHECK(volume==8 && !maximum_seen && rate==48000);
+        CHECK(rdx_dut_speaker_open()!=0); /* Shared channel, no takeover. */
+        in_worker=1; worker(NULL); in_worker=0;
+        CHECK(speaker_state==DUT_AUDIO_DONE && captured_count>960*ch);
+        CHECK(captured[0]==0 && captured[captured_count-1]==0);
+        int different=0;
+        for(int i=0;i<captured_count;++i) {
+            int value=width ? captured[i]/256 : captured[i];
+            CHECK(value>=-16383 && value<=16383);
+            if(ch==2 && i%2) CHECK(captured[i]==captured[i-1]);
+            if(i>=480*ch && captured[i]!=captured[i-480*ch]) ++different;
+        }
+        CHECK(different>100 && !close_count && !wrong_control_task);
+        pink_reset();
+        int frames=captured_count/ch;
+        CHECK(frames%480==0);
+        for(int frame=0;frame<frames;++frame) {
+            int expected=pink_sample();
+            if(frame<480) expected=expected*frame/479;
+            if(frame>=frames-480) expected=expected*(frames-1-frame)/479;
+            if(width) expected*=256;
+            CHECK(captured[frame*ch]==expected);
+        }
+        rdx_dut_speaker_reap();
+        CHECK(volume==3 && muted && rate==44100 && !working && deleted==1);
+    }
+    audio_boot(); stall_write=1; cancel_after=3;
+    CHECK(!rdx_dut_speaker_open_pink()); worker(NULL);
+    CHECK(calls<=13 && speaker_state==DUT_AUDIO_DONE);
+    rdx_dut_speaker_reap(); CHECK(volume==3 && !working);
+    audio_boot(); task_fail=1;
+    CHECK(rdx_dut_speaker_open_pink()!=0 && volume==3 && muted && !working);
+    return 0;
+}
+int test_pink_statistics_and_counter_wrap(void) {
+    pink_reset();
+    long long energy=0, differences=0, sum=0;
+    int old=0;
+    for(int i=0;i<480000;++i) {
+        int sample=pink_sample();
+        CHECK(sample>=-16383 && sample<=16383);
+        sum+=sample; energy+=(long long)sample*sample;
+        differences+=(long long)(sample-old)*(sample-old); old=sample;
+    }
+    /* Broad smoke bounds: non-silent, low DC, correlated rather than white.
+     * Spectral qualification and acoustic level still require bench tests. */
+    CHECK(energy/480000>10000 && energy/480000<16000000);
+    CHECK(sum/480000>-30 && sum/480000<30);
+    CHECK(differences<energy);
+    pink.counter=0xffffffffu;
+    pink_sample(); CHECK(pink.counter==0);
+    pink_sample(); CHECK(pink.counter==1);
+    return 0;
+}
+void host_capture_pink(const s16 *, int);
+int test_pink_capture(void) {
+    static s16 samples[65536];
+    pink_reset();
+    for(int i=0;i<48000;++i) pink_sample();
+    for(int i=0;i<65536;++i) samples[i]=pink_sample();
+    host_capture_pink(samples,65536);
     return 0;
 }
 '''
@@ -907,6 +1042,42 @@ def check_key_scan(temp):
     run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', KEY_TESTS), native=True)
 
 
+def check_pink_spectrum(samples):
+    # Radix-2 FFT keeps this diagnostic independent of numpy/scipy.
+    n = len(samples)
+    data = [complex(value * (0.5 - 0.5 * math.cos(2 * math.pi * i / (n - 1))))
+            for i, value in enumerate(samples)]
+    j = 0
+    for i in range(1, n):
+        bit = n >> 1
+        while j & bit:
+            j ^= bit
+            bit >>= 1
+        j ^= bit
+        if i < j:
+            data[i], data[j] = data[j], data[i]
+    size = 2
+    while size <= n:
+        root = cmath.exp(-2j * math.pi / size)
+        for start in range(0, n, size):
+            phase = 1
+            for k in range(size // 2):
+                a = data[start + k]
+                b = phase * data[start + k + size // 2]
+                data[start + k], data[start + k + size // 2] = a + b, a - b
+                phase *= root
+        size *= 2
+    # Average PSD in octave bands: pink should fall near 3 dB/octave.
+    logs = []
+    for low in (125, 250, 500, 1000, 2000, 4000):
+        bins = range(math.ceil(low * n / 48000), math.ceil(2 * low * n / 48000))
+        logs.append(math.log2(sum(abs(data[k]) ** 2 for k in bins) / len(bins)))
+    mean = sum(logs) / len(logs)
+    slope = sum((i - 2.5) * (value - mean) for i, value in enumerate(logs)) / 17.5
+    assert -1.3 < slope < -0.7, f'Pink PSD slope {slope:.3f}, expected about -1'
+    print(f'DUT pink PCM: octave PSD slope {slope:.3f} (125 Hz-8 kHz); bounded output and low DC passed.')
+
+
 def main():
     crt = ctypes.CDLL('msvcrt.dll')
     for name in ('snprintf', 'strcmp', 'strstr', 'strcpy', 'memcpy', 'memset'):
@@ -956,7 +1127,12 @@ def main():
         sine = re.search(r'const s16 sin1k_48k_16bit\[48\] = \{.*?\};', sine, re.S)[0]
         path = Path(temp) / 'speaker.c'
         path.write_text(audio + AUDIO_STUBS + sine + speaker + AUDIO_TESTS, encoding='utf-8')
+        captured = []
+        capture_type = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_short), ctypes.c_int)
+        capture = capture_type(lambda data, count: captured.extend(data[:count]))
+        llvm.add_symbol('host_capture_pink', ctypes.cast(capture, ctypes.c_void_p).value)
         run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', AUDIO_TESTS), native=True)
+        check_pink_spectrum(captured)
     print(f'DUT keys/speaker: {len(tests)} production state-machine scenarios passed.')
     print('DUT sine worker: maximum-volume rollback, 16/24-bit mono/stereo and partial-write phase passed.')
     print('DUT key scan: real scan/adapter clears stale multi-click and long-hold state.')

@@ -51,10 +51,25 @@
      "sizeKey": "245dfd27",
      "size": 3146,
      "enable": true
+    },
+    {
+     "name": "dut_off",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\dut_ok.mp3",
+     "outputName": "dut_off",
+     "format": {
+      "value": "wts",
+      "simpleRate": "8000",
+      "bitRate": 16000,
+      "vad": 0,
+      "priority": 1
+     },
+     "sizeKey": "85faf623",
+     "size": 5156,
+     "enable": true
     }
    ],
    "enableOutput": 1,
-   "size": 6512,
+   "size": 11728,
    "isOpen": true
   },
   {

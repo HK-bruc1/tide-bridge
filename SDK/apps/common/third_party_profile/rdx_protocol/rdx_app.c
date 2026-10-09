@@ -1048,6 +1048,14 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
         return;
     }
 
+    /* DUT controls are local even with a BLE link. Factory key/speaker
+     * isolation is enforced before this remapper is called. */
+    if (scene == 4) {
+        key_table = rdx_key_get_io_num_table(4, scene);
+        *value = key_table ? key_table[index] : APP_MSG_NULL;
+        return;
+    }
+
     if (rdx_app_rdx_key_route_ready()) {
         if (index == KEY_ACTION_LONG) {
             key5_online_hold_routed = 1;
@@ -3017,6 +3025,9 @@ int rdx_app_msg_handler(int *msg)
             break;
 
     #if (RDX_SEL_DEVICE == DEVICE_RDX_BJ_T2403) || (RDX_SEL_DEVICE == DEVICE_DACOM_CC_T2401) || (RDX_SEL_DEVICE == DEVICE_1MORE_CC_T2402) || (RDX_SEL_DEVICE == DEVICE_ZENCORD_CC_T2616) || (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
+        case APP_MSG_DUT_BURNIN_TOGGLE:
+            rdx_dut_burnin_toggle();
+            break;
         case APP_MSG_DUT:
             {
                 if(rdx_dut_is_key_dut_disabled() && !rdx_dut_is_in_mode()){
