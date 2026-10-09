@@ -104,6 +104,22 @@ static void rdx_playback_toggle(void) { if(rdx_playback_can_start()) playback=!p
 '''
 
 TESTS = r'''
+int test_dut_key5_routing(void) {
+    for(int link=0;link<3;++link) {
+        connected=link!=0; ready=link==2;
+        key5_local_hold_routed=key5_online_hold_routed=0;
+        int msg=-1;
+        rdx_app_key5_remap(&msg,KEY_ACTION_DOUBLE_CLICK,4);
+        CHECK(msg==APP_MSG_DUT_BURNIN_TOGGLE && msg<=255);
+        rdx_app_key5_remap(&msg,10,4);
+        CHECK(msg==APP_MSG_DUT);
+        rdx_app_key5_remap(&msg,KEY_ACTION_LONG,4);
+        CHECK(msg==APP_MSG_NULL && !key5_online_hold_routed);
+        rdx_app_key5_remap(&msg,KEY_ACTION_CLICK,4);
+        CHECK(msg==APP_MSG_NULL);
+    }
+    return 0;
+}
 static void reset(void) {
     rdx_app_hold_record_reset(); status=(RecordStatus){0};
     status.scene=RECORD_SCENE_CHAT; status.orig_mode=RECORD_MODE_OFFLINE;
@@ -276,7 +292,8 @@ def main():
     kh = (ROOT / 'SDK/apps/common/device/key/key_driver.h').read_text(encoding='utf-8')
     enums += re.search(r'enum key_action \{.*?\};', kh, re.S)[0]
     tables = ''.join(re.search(r'u8 '+n+r'\[KEY_ACTION_MAX\]\s*=\s*\{.*?\};', keys, re.S)[0]
-                     for n in ('key_table_record_hold', *(f'key_table_io_num{i}_normal' for i in range(5))))
+                     for n in ('key_table_record_hold', 'key_table_io_num4_dut',
+                               *(f'key_table_io_num{i}_normal' for i in range(5))))
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
@@ -286,6 +303,7 @@ def main():
         'rdx_app_local_player_message_blocked',
         'rdx_app_device_record_set', 'rdx_app_device_record_handle'))
     handler = function(app, 'rdx_app_msg_handler')
+    assert re.search(r'case APP_MSG_DUT_BURNIN_TOGGLE:\s*rdx_dut_burnin_toggle\(\);', handler)
     assert handler.index('if (rdx_app_local_player_message_blocked(msg[0]))') < handler.index('switch (msg[0])')
     begin = handler.index('        case APP_MSG_RECORD_LOCAL_HOLD_START:')
     end = handler.index('        case APP_MSG_REC_PREV:', begin)
@@ -294,7 +312,7 @@ def main():
     cases += handler[begin:handler.index('        case APP_MSG_TWS_START_PAIR:', begin)]
     playback = (BASE / 'rdx_playback.c').read_text(encoding='utf-8')
     program = (STUBS + enums + '\n' + tables + '\n' +
-               'static u8 *rdx_key_get_io_num_table(int n,int s) { u8 *t[]={key_table_io_num0_normal,key_table_io_num1_normal,key_table_io_num2_normal,key_table_io_num3_normal,key_table_io_num4_normal}; return t[n]; }\n'
+               'static u8 *rdx_key_get_io_num_table(int n,int s) { u8 *t[]={key_table_io_num0_normal,key_table_io_num1_normal,key_table_io_num2_normal,key_table_io_num3_normal,key_table_io_num4_normal}; return s==4 ? key_table_io_num4_dut : t[n]; }\n'
                'static void rdx_app_hold_record_pump(void);\n'
                'static int rdx_app_device_record_set(u8,u8,u8);\n' + helpers +
                function(playback, 'rdx_playback_can_start') +

@@ -58,6 +58,9 @@
 #include "key_driver.h"
 #include "generic/jiffies.h"
 #include "usb/device/usb_factory_cdc.h"
+#include "app_tone.h"
+#include "audio_config.h"
+#include "audio_def.h"
 
 /******************************************************************************
 * Macro Define Section
@@ -92,6 +95,8 @@ extern void rdx_app_normal_poweroff(void);
 ******************************************************************************/ 
 static bool g_finalpack_end_pending;
 static bool g_finalpack_format_waiting;
+static void dut_finalpack_tone_poll(void);
+static void dut_finalpack_tone_start(void);
 extern bool rdx_uxfile_sd_format_status_check(void);
 static volatile u8 factory_usb_revoked;
 
@@ -162,6 +167,7 @@ typedef enum {
     DUT_CMD_KEY_LAYOUT,
     DUT_CMD_KEY_STOP,
     DUT_CMD_SPEAKER,
+    DUT_CMD_BURNIN,
 } DUT_CMD_TYPE;
 
 /* DUT_TEST_CORE_BEGIN: serialized by the app_core service timer. */
@@ -313,6 +319,12 @@ bool rdx_dut_test_keys_active(void)
            rdx_dut_info.current_func == DUT_FUNC_SPEAKER;
 }
 
+static bool dut_local_burnin(void)
+{
+    return rdx_dut_info.current_func == DUT_FUNC_SPEAKER &&
+        dut_owner.source == 2 && dut_owner.command == DUT_CMD_BURNIN;
+}
+
 static void dut_key_event(u32 generation, u32 value)
 {
     char id[2] = {0};
@@ -339,7 +351,9 @@ static void dut_key_event(u32 generation, u32 value)
  * normal click. Keep consuming a held key across stop until release. */
 bool rdx_dut_key_scan(u8 value, u8 previous)
 {
-    bool active = rdx_dut_test_keys_active();
+    /* Only KEY5 may control local burn-in; factory capture stays isolated. */
+    bool active = rdx_dut_test_keys_active() &&
+        !(dut_local_burnin() && (value == KEY_IO_NUM4 || value == NO_KEY));
     bool consume = active;
     u32 now = jiffies_to_msecs(jiffies);
     if (previous >= KEY_IO_NUM0 && previous <= KEY_IO_NUM4 &&
@@ -377,7 +391,8 @@ bool rdx_dut_key_consume(u8 value, u32 timestamp)
         (u32)(jiffies_to_msecs(jiffies) - dut_key_cutoff[index]) > 60000) {
         dut_key_cutoff[index] = 0;
     }
-    return rdx_dut_test_keys_active() || dut_key_quarantined[index] ||
+    return (rdx_dut_test_keys_active() &&
+            !(dut_local_burnin() && value == KEY_IO_NUM4)) || dut_key_quarantined[index] ||
         (dut_key_cutoff[index] && (s32)(timestamp - dut_key_cutoff[index]) <= 0);
 }
 
@@ -513,7 +528,8 @@ static void dut_execute_test(const struct dut_request *request)
     dut_test_token = request->token;
     dut_owner = *request;
     dut_stopping = 0;
-    if (rdx_dut_speaker_open()) {
+    if (request->command == DUT_CMD_BURNIN ?
+        rdx_dut_speaker_open_pink() : rdx_dut_speaker_open()) {
         rdx_dut_info.current_func = DUT_FUNC_NONE;
         dut_finish(request->id, "IO");
         DUT_LOG("Speaker open rejected\n");
@@ -526,6 +542,7 @@ static void dut_execute_test(const struct dut_request *request)
 
 static void dut_service(void *priv)
 {
+    dut_finalpack_tone_poll();
     if (dut_completion_id) {
         u32 id = dut_completion_id;
         int result = dut_completion_result;
@@ -700,7 +717,8 @@ static const char *dut_command_name(u8 command)
     static const char *names[] = {
         "ft_dut", "ft_led_cycle", "ft_motor", "ft_rec_chat", "ft_rec_call",
         "ft_wifi", "ft_format", "ft_poweroff", "ft_finalpack_end",
-        "ft_key_dut_enable", "ft_key_dut_disabled", "ft_key_layout", "ft_key", "ft_speaker"
+        "ft_key_dut_enable", "ft_key_dut_disabled", "ft_key_layout", "ft_key", "ft_speaker",
+        "local_burnin"
     };
     return command < ARRAY_SIZE(names) ? names[command] : "NONE";
 }
@@ -715,7 +733,7 @@ static int dut_target_func(u8 command)
     case DUT_CMD_WIFI: return DUT_FUNC_WIFI;
     case DUT_CMD_FORMAT: return DUT_FUNC_FORMAT;
     case DUT_CMD_KEY_LAYOUT: case DUT_CMD_KEY_STOP: return DUT_FUNC_KEY;
-    case DUT_CMD_SPEAKER: return DUT_FUNC_SPEAKER;
+    case DUT_CMD_SPEAKER: case DUT_CMD_BURNIN: return DUT_FUNC_SPEAKER;
     default: return DUT_FUNC_NONE;
     }
 }
@@ -763,6 +781,12 @@ static const char *dut_accept(struct dut_request *request)
     int active = rdx_dut_info.current_func;
     int exit = request->command == DUT_CMD_DUT_MODE && !request->value;
     int cleanup = exit || request->command == DUT_CMD_POWEROFF;
+    if (request->command == DUT_CMD_BURNIN && request->source != 2) return "STATE";
+    /* Do not let a local toggle take over a factory tone, or vice versa. */
+    if (!cleanup && active == DUT_FUNC_SPEAKER &&
+        (dut_local_burnin() || request->command == DUT_CMD_BURNIN) &&
+        (request->source != dut_owner.source ||
+         request->command != dut_owner.command)) return "BUSY";
     RecordStatus *rp = rdx_record_get_status();
     if (!dut_service_timer || !get_power_on_status() || app_var.goto_poweroff_flag)
         return "STATE";
@@ -813,6 +837,23 @@ static const char *dut_accept(struct dut_request *request)
     } else rdx_dut_cmd_async_handle(request->command, request->value);
     dut_poll_action();
     return NULL;
+}
+
+void rdx_dut_burnin_toggle(void)
+{
+    if (!rdx_dut_info.dut_mode || dut_stopping) return;
+    if (dut_local_burnin() && dut_waiting == 1) {
+        /* A second gesture may arrive before the first PCM write. */
+        dut_finish(dut_last.id, "STATE");
+        rdx_dut_test_cancel();
+        return;
+    }
+    struct dut_request request = {0};
+    request.source = 2;
+    request.command = DUT_CMD_BURNIN;
+    request.value = !dut_local_burnin();
+    const char *error = dut_accept(&request);
+    if (error) DUT_LOG("Burn-in rejected: %s\n", error);
 }
 
 void rdx_dut_factory_record_stop(void)
@@ -1039,6 +1080,7 @@ static const char* rdx_dut_get_current_func_name(void)
  **************************************************************************/
 void rdx_dut_close_current_func(void)
 {
+    rdx_dut_finalpack_tone_stop();
     local_irq_disable();
     dut_head = dut_count = 0;
     local_irq_enable();
@@ -1456,6 +1498,96 @@ void rdx_dut_poweroff(void)
 * Function Section - 7. 包装测试 / 按键进DUT禁用
 ******************************************************************************/ 
 
+/* Callbacks only publish completion; playback and cleanup run on app_core.
+ * STOP includes failure/preemption, so only natural EOF arms another pass. */
+static u8 finalpack_tone_active;
+static volatile u8 finalpack_tone_inflight;
+static volatile u8 finalpack_tone_complete;
+static u8 finalpack_tone_gap;
+static u32 finalpack_tone_gap_started;
+static s16 finalpack_tone_old_volume;
+
+static int dut_finalpack_tone_callback(void *priv, enum stream_event event)
+{
+    if (event == STREAM_EVENT_INIT &&
+        (!finalpack_tone_active || !get_power_on_status() ||
+         app_var.goto_poweroff_flag || !g_finalpack_end_pending)) {
+        return -1;
+    }
+    if (event == STREAM_EVENT_STOP) {
+        finalpack_tone_inflight = 0;
+    }
+    return 0;
+}
+
+static void dut_finalpack_tone_complete(void *priv)
+{
+    finalpack_tone_complete = 1;
+}
+
+void rdx_dut_finalpack_tone_stop(void)
+{
+    if (!finalpack_tone_active) return;
+    finalpack_tone_active = 0;
+    /* This terminal DUT phase owns the reminder; never stop unrelated
+     * prompts when no reminder is queued or playing. */
+    if (finalpack_tone_inflight) tone_player_stop();
+    finalpack_tone_inflight = finalpack_tone_complete = finalpack_tone_gap = 0;
+    app_var.wtone_volume = finalpack_tone_old_volume;
+    DUT_LOG("Finalpack reminder stopped; tone volume restored\n");
+}
+
+static void dut_finalpack_tone_play(void)
+{
+    const char *file = get_tone_files()->dut_done;
+    finalpack_tone_complete = 0;
+    finalpack_tone_inflight = 1;
+    if (!file || play_tone_file_with_completion(file, NULL,
+            dut_finalpack_tone_callback, dut_finalpack_tone_complete)) {
+        finalpack_tone_inflight = 0;
+        DUT_LOG("Finalpack reminder unavailable; solid red remains\n");
+        rdx_dut_finalpack_tone_stop();
+    }
+}
+
+static void dut_finalpack_tone_start(void)
+{
+    if (finalpack_tone_active || !get_power_on_status() ||
+        app_var.goto_poweroff_flag) return;
+    finalpack_tone_old_volume = app_var.wtone_volume;
+    /* Fixed-tone builds ignore app_audio_set_volume(WTONE). The volume
+     * node reads this runtime value before decoding; do not persist it. */
+    app_var.wtone_volume = app_audio_volume_max_query(AppVol_BT_MUSIC);
+    finalpack_tone_active = 1;
+    finalpack_tone_gap = 0;
+    DUT_LOG("Finalpack reminder start: volume=%d\n", app_var.wtone_volume);
+    dut_finalpack_tone_play();
+}
+
+static void dut_finalpack_tone_poll(void)
+{
+    if (!finalpack_tone_active) return;
+    if (!get_power_on_status() || app_var.goto_poweroff_flag ||
+        !g_finalpack_end_pending) {
+        rdx_dut_finalpack_tone_stop();
+        return;
+    }
+    if (finalpack_tone_inflight) return;
+    if (!finalpack_tone_gap) {
+        if (!finalpack_tone_complete) {
+            DUT_LOG("Finalpack reminder interrupted; no automatic retry\n");
+            rdx_dut_finalpack_tone_stop();
+            return;
+        }
+        finalpack_tone_gap = 1;
+        finalpack_tone_gap_started = jiffies_to_msecs(jiffies);
+    } else if ((u32)(jiffies_to_msecs(jiffies) -
+                     finalpack_tone_gap_started) >= 1000) {
+        finalpack_tone_gap = 0;
+        dut_finalpack_tone_play();
+    }
+}
+
 static void rdx_dut_finalpack_fail(void)
 {
     g_finalpack_end_pending = false;
@@ -1498,6 +1630,7 @@ static void rdx_dut_finalpack_commit(int result)
     DUT_LOG("Finalpack committed: bound=0, key DUT disabled (verified)\r");
     rdx_ble_server_auto_shut_down_enable(0);
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_FINALPACK_DONE);
+    dut_finalpack_tone_start();
     DUT_LOG("Finalpack complete: solid red LED; turn DIP switch OFF to power off\r");
 }
 

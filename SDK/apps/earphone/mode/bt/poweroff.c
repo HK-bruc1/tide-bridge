@@ -281,6 +281,7 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     app_send_message(APP_MSG_RECORD_OFF, 0); /* 尽力通知，不等待保存屏障 */
     rdx_dut_test_cancel();
+    rdx_dut_finalpack_tone_stop();
 #endif
     app_var.goto_poweroff_cnt = 0;
     sys_auto_shut_down_disable();

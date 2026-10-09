@@ -1,4 +1,5 @@
-"""Execute packaging commit/failure paths with mocked flash, format and timers."""
+"""Execute packaging commit/failure and reminder paths with mocked SDK boundaries."""
+import json
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ STUBS = r'''
 void rdx_hogp_input_invalidate(void) {}
 typedef unsigned char u8;
 typedef unsigned int u32;
+typedef short s16;
 typedef int bool;
 #define true 1
 #define false 0
@@ -49,7 +51,7 @@ typedef struct { int file_send_busy; } ReqFileInfo;
 RecordStatus record;
 ReqFileInfo files;
 struct { int dut_mode, current_func, key_dut_disabled; } rdx_dut_info;
-struct { int goto_poweroff_flag; int auto_off_time; } app_var;
+struct { int goto_poweroff_flag; int auto_off_time; s16 wtone_volume; } app_var;
 struct { u8 bound_state; } rdx_bound_info;
 u32 bound_epoch, bound_token;
 bool g_finalpack_end_pending, g_finalpack_format_waiting;
@@ -103,10 +105,35 @@ int rdx_storage_lifecycle_business_blocked(void) { return busy; }
 int rdx_storage_lifecycle_shutdown_deferred(void) { return busy; }
 void rdx_uxfile_device_sd_format(void (*cb)(u8)) { ++formats; }
 #define CHECK(x) do { if (!(x)) return __LINE__; } while(0)
+enum stream_event { STREAM_EVENT_INIT, STREAM_EVENT_START, STREAM_EVENT_STOP };
+struct tone_files { const char *dut_done; } tones = {"tone_en/dut_off.*"};
+const struct tone_files *get_tone_files(void) { return &tones; }
+int power_on=1, tone_plays, tone_stops, tone_fail;
+u32 jiffies;
+#define jiffies_to_msecs(x) (x)
+#define AppVol_BT_MUSIC 0
+int app_audio_volume_max_query(int index) { return 16; }
+int get_power_on_status(void) { return power_on; }
+int (*tone_callback)(void *, enum stream_event);
+void (*tone_complete)(void *);
+int play_tone_file_with_completion(const char *file, void *priv,
+    int (*cb)(void *, enum stream_event), void (*complete)(void *)) {
+    ++tone_plays; tone_callback=cb; tone_complete=complete;
+    if (tone_fail || cb(NULL, STREAM_EVENT_INIT)) {
+        cb(NULL, STREAM_EVENT_STOP); return -1;
+    }
+    return 0;
+}
+void tone_player_stop(void) {
+    ++tone_stops; tone_callback(NULL, STREAM_EVENT_STOP);
+}
 '''
 
 TESTS = r'''
 static void boot(void) {
+    rdx_dut_finalpack_tone_stop();
+    power_on=1; tone_plays=tone_stops=tone_fail=0; jiffies=0;
+    app_var.wtone_volume=11; tones.dut_done="tone_en/dut_off.*";
     write_fail=read_fail=mismatch=resets_fail=busy=posts_fail=timer_fail=0;
     formats=resets=revokes=timers=disconnects=poweroffs=posts=0;
     done_led=0; auto_off=1; replies=reset_requests=0;
@@ -133,6 +160,7 @@ int test_finalpack_success(void) {
     CHECK(flash[0]==0xaa && rdx_dut_info.key_dut_disabled && timers==0 && g_finalpack_end_pending);
     rdx_dut_finalpack_end_format_cb(1); CHECK(posts==0);
     CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE && !auto_off);
+    CHECK(tone_plays==1 && app_var.wtone_volume==16);
     CHECK(!disconnects && !poweroffs && !timers && !reset_requests);
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "0"));
     CHECK(rdx_dut_finalpack_mode_ack(FT_DUT, "1") && replies==3);
@@ -152,6 +180,7 @@ int test_finalpack_failures(void) {
     boot(); rdx_dut_finalpack_end(); finish(0);
     CHECK(!timers && !resets && flash[1]==1 && flash[0]==0xff && !g_finalpack_end_pending);
     CHECK(done_led==RDX_LED_SCENE_DUT_ENTER);
+    CHECK(!tone_plays);
     boot(); rdx_dut_finalpack_end(); posts_fail=1; finish(1);
     CHECK(!timers && resets==1 && g_finalpack_end_pending); /* Completion slot survives a full task queue. */
     CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE);
@@ -164,6 +193,7 @@ int test_finalpack_failures(void) {
             write_fail=fault==0; read_fail=fault==1; mismatch=fault==2;
             finish(1);
             CHECK(!timers && !poweroffs && done_led==RDX_LED_SCENE_DUT_ENTER && !g_finalpack_end_pending);
+            CHECK(!tone_plays);
             CHECK(!rdx_dut_info.key_dut_disabled);
             if(id==1) CHECK(rdx_bound_info.bound_state==1 && !revokes && flash[0]==0xff);
         }
@@ -199,12 +229,63 @@ int test_key_entry_recovery(void) {
     rdx_dut_key_dut_disable(); CHECK(rdx_dut_info.key_dut_disabled && flash[0]==0xaa);
     return 0;
 }
+int test_finalpack_reminder(void) {
+    boot(); rdx_dut_finalpack_end(); finish(1);
+    CHECK(tone_plays==1 && finalpack_tone_active);
+    dut_finalpack_tone_start(); CHECK(tone_plays==1);
+    tone_complete(NULL); tone_callback(NULL, STREAM_EVENT_STOP);
+    CHECK(tone_plays==1); /* No reentrant player calls in callbacks. */
+    dut_finalpack_tone_poll();
+    jiffies=999; dut_finalpack_tone_poll(); CHECK(tone_plays==1);
+    jiffies=1000; dut_finalpack_tone_poll(); CHECK(tone_plays==2);
+    power_on=0; dut_finalpack_tone_poll();
+    CHECK(tone_stops==1 && !finalpack_tone_active && app_var.wtone_volume==11);
+    CHECK(tone_callback(NULL, STREAM_EVENT_INIT)==-1);
+    tone_complete(NULL); tone_callback(NULL, STREAM_EVENT_STOP);
+    jiffies+=5000; dut_finalpack_tone_poll(); CHECK(tone_plays==2);
+
+    boot(); rdx_dut_finalpack_end(); finish(1);
+    tone_callback(NULL, STREAM_EVENT_STOP); dut_finalpack_tone_poll();
+    CHECK(!finalpack_tone_active && app_var.wtone_volume==11);
+    CHECK(tone_plays==1 && !tone_stops); /* Failure/preemption is not EOF. */
+
+    boot(); tone_fail=1; rdx_dut_finalpack_end(); finish(1);
+    CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE && !finalpack_tone_active);
+    CHECK(app_var.wtone_volume==11 && tone_plays==1 && !tone_stops);
+    boot(); tones.dut_done=NULL; rdx_dut_finalpack_end(); finish(1);
+    CHECK(!tone_plays && !finalpack_tone_active && app_var.wtone_volume==11);
+
+    boot(); rdx_dut_finalpack_end(); app_var.goto_poweroff_flag=1; finish(1);
+    CHECK(!tone_plays);
+    boot(); rdx_dut_finalpack_end(); finish(1);
+    tone_complete(NULL); tone_callback(NULL, STREAM_EVENT_STOP);
+    dut_finalpack_tone_poll(); app_var.goto_poweroff_flag=1;
+    jiffies=2000; dut_finalpack_tone_poll();
+    CHECK(!finalpack_tone_active && tone_plays==1 && !tone_stops);
+    CHECK(app_var.wtone_volume==11);
+    boot(); rdx_dut_finalpack_end(); finish(1);
+    jiffies=0xfffffe00u;
+    tone_complete(NULL); tone_callback(NULL, STREAM_EVENT_STOP);
+    dut_finalpack_tone_poll(); jiffies+=1000;
+    dut_finalpack_tone_poll(); CHECK(tone_plays==2); /* Clock wrap. */
+    rdx_dut_finalpack_tone_stop();
+    return 0;
+}
 '''
 
 
 def main():
     base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     dut = (base / 'rdx_dut.c').read_text(encoding='utf-8')
+    tone_config = json.loads((ROOT / 'src/提示音.tone').read_text(encoding='utf-8'))
+    english = next(g for g in tone_config['group'] if g['title'] == 'tone_en')
+    done = next(f for f in english['files'] if f['outputName'] == 'dut_off')
+    assert done['enable'] and done['path'].endswith('dut_ok.mp3')
+    packed = (ROOT / 'SDK/cpu/br28/tools/download/earphone/tone_en.cfg').read_bytes()
+    for name in (b'ding.wts', b'conn.wts', b'plebind.wts', b'dut_off.wts'):
+        assert name in packed, f'Missing packaged tone: {name!r}'
+    table = (ROOT / 'SDK/apps/earphone/audio/tone_table.c').read_text(encoding='utf-8')
+    assert '.dut_done = "tone_en/dut_off.*"' in table
     vm = (base / 'rdx_vm.c').read_text(encoding='utf-8')
     names = [
         'static bool rdx_dut_finalpack_mode_ack(',
@@ -220,10 +301,15 @@ def main():
                  'static const char *dut_accept(']:
         assert 'g_finalpack_end_pending' in function(dut, name)
     ble = (base / 'rdx_ble_server.c').read_text(encoding='utf-8')
-    source = STUBS + function(ble[ble.rindex('void rdx_ble_server_auto_shut_down_enable('):],
+    audio_header = (base / 'rdx_dut_speaker.h').read_text(encoding='utf-8')
+    reminder = dut[dut.index('static u8 finalpack_tone_active;'):
+                   dut.index('static void rdx_dut_finalpack_fail(')]
+    source = audio_header + STUBS + reminder + function(ble[ble.rindex('void rdx_ble_server_auto_shut_down_enable('):],
                               'void rdx_ble_server_auto_shut_down_enable(')
     power = (ROOT / 'SDK/apps/earphone/mode/bt/poweroff.c').read_text(encoding='utf-8')
     enable = function(power, 'void sys_auto_shut_down_enable(')
+    assert 'rdx_dut_finalpack_tone_stop();' in function(power, 'void sys_enter_soft_poweroff(')
+    assert 'dut_finalpack_tone_poll();' in function(dut, 'static void dut_service(')
     assert 'if (rdx_app_get_dut_status()) {\n        sys_auto_shut_down_disable();\n        return;' in enable
     overlay = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(encoding='utf-8')
     assert '#undef TCFG_AUTO_SHUT_DOWN_TIME' not in overlay
@@ -237,8 +323,9 @@ def main():
         path = Path(tmp) / 'finalpack.c'
         path.write_text(source, encoding='utf-8')
         run_c_checks(path, ['test_finalpack_success', 'test_finalpack_failures',
-                            'test_key_entry_recovery', 'test_auto_off_scope', 'test_normal_defaults_reset'])
-    print('Finalpack commit/failure/recovery behavior passed (mock flash/format/timers).')
+                            'test_key_entry_recovery', 'test_auto_off_scope', 'test_normal_defaults_reset',
+                            'test_finalpack_reminder'])
+    print('Finalpack commit/failure/recovery and reminder loop/volume/shutdown/resource checks passed.')
 
 
 if __name__ == '__main__':

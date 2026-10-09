@@ -129,6 +129,7 @@ void rdx_dut_format_start(void);
 void rdx_dut_poweroff(void);
 
 void rdx_dut_finalpack_end(void);
+void rdx_dut_finalpack_tone_stop(void);
 void rdx_dut_key_dut_enable(void);
 void rdx_dut_key_dut_disable(void);
 bool rdx_dut_is_key_dut_disabled(void);
@@ -143,6 +144,7 @@ void rdx_dut_ble_cmd_handle(const char* cmd, const char* value);
 * Function Section - 按键处理
 ******************************************************************************/ 
 void rdx_dut_key_handle(int key_msg);
+void rdx_dut_burnin_toggle(void);
 bool rdx_dut_test_keys_active(void);
 bool rdx_dut_key_scan(u8 value, u8 previous);
 bool rdx_dut_key_consume(u8 value, u32 timestamp);

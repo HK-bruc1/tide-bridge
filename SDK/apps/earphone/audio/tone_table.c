@@ -122,6 +122,7 @@ static const struct tone_files english_tone_files = {
     .ding = "tone_en/ding.*",
     .conn = "tone_en/conn.*",
     .plebind = "tone_en/plebind.*",
+    .dut_done = "tone_en/dut_off.*",
 };
 
 #if TCFG_TONE_EN_ENABLE

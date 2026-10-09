@@ -27,8 +27,8 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
 | `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery and bounded identity fields |
-| `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding and key DUT recovery |
-| `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes |
+| `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
+| `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
@@ -98,6 +98,26 @@ it is not a C preprocessor. Failed C assertions retain their generated source in
 `cache/host-test-failures/` for diagnosis.
 
 ## Dependencies and limits
+
+Local DUT burn-in: KEY5 double-click starts/stops approximate pink noise;
+eight-click exits DUT. The existing factory `FT_SPEAKER` tone is unchanged.
+Playback uses half the configured music-volume steps (rounded up), not half
+acoustic power, plus an independent half-scale PCM peak limit. The signal is
+generated continuously at 48 kHz without SD files, with 10 ms start/stop ramps
+and a roughly 30 Hz DC/subsonic high-pass. Normal stop drains the current PCM
+block before a final fade block; a stalled DAC abandons the fade after ten
+zero-write retries so shutdown can proceed.
+
+The generated-PCM FFT checks a broad pink PSD slope over 125 Hz-8 kHz, not a
+calibrated full-band acoustic response. On-device acceptance must include
+measured output level/temperature, a long soak, repeated double-click on/off,
+eight-click exit, OFF during playback, BLE connection/disconnection, CDC/BLE
+speaker and key-test exclusion, and restoration of the previous volume/mute.
+Verify the selected level against the actual speaker rating before a long soak.
+Local burn-in occupies the shared SPEAKER resource; factory speaker commands
+cannot replace or stop it, but DUT exit/power-off retain their cleanup authority.
+KEY5 remains local in DUT even with BLE connected; ordinary recording/HID
+behavior and factory key capture stay fenced.
 
 Requires Windows PowerShell 5.1, Python with `llvmlite`, and JL clang at
 `C:/JL/pi32/bin/clang.exe`. Missing dependencies fail the affected modules.
