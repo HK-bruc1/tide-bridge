@@ -442,6 +442,14 @@ static void cdc_intrrx(struct usb_device_t *usb_device, u32 ep)
     }
 }
 
+#if TCFG_T2620_CDC_FILE_ENABLE
+static void cdc_tx_wakeup(struct usb_device_t *usb_device, u32 ep)
+{
+    usb_clr_intr_txe(usb_device2id(usb_device), CDC_DATA_EP_IN);
+    factory_cdc_tx_irq();
+}
+#endif
+
 static void cdc_endpoint_init(struct usb_device_t *usb_device, u32 itf)
 {
     ASSERT(cdc_hdl, "cdc not register");
@@ -464,6 +472,9 @@ static void cdc_endpoint_init(struct usb_device_t *usb_device, u32 itf)
     usb_g_set_intr_hander(usb_id, CDC_DATA_EP_OUT | USB_DIR_OUT, cdc_wakeup_handler);
 #endif
     usb_enable_ep(usb_id, CDC_DATA_EP_IN);
+#if TCFG_T2620_CDC_FILE_ENABLE
+    usb_g_set_intr_hander(usb_id, CDC_DATA_EP_IN | USB_DIR_IN, cdc_tx_wakeup);
+#endif
 
 #if CDC_INTR_EP_ENABLE
     usb_g_ep_config(usb_id, CDC_INTR_EP_IN | USB_DIR_IN, USB_ENDPOINT_XFER_INT,
@@ -506,11 +517,14 @@ int cdc_factory_write_packet(const u8 *bytes, u32 length)
     if (!cdc_factory_configured() || length > MAXP_SIZE_CDC_BULKIN ||
         cdc_factory_tx_busy()) return -1;
     /* Non-waiting BR28 commit, matching usb_g_bulk_write: copy DMA, set
-     * count, set TxPktRdy. One task owns this single-buffer endpoint and
-     * masks IRQs across readiness check/commit. No bulk wait loop or mutex. */
+     * count, set TxPktRdy. Task and file stream IN IRQ serialize this endpoint
+     * across readiness check/commit. No bulk wait loop or mutex. */
     if (length) memcpy(cdc_hdl->bulk_ep_in_buffer, bytes, length);
     usb_set_dma_taddr(0, CDC_DATA_EP_IN, cdc_hdl->bulk_ep_in_buffer);
     usb_write_ep_cnt(0, CDC_DATA_EP_IN, length);
+#if TCFG_T2620_CDC_FILE_ENABLE
+    usb_set_intr_txe(0, CDC_DATA_EP_IN);
+#endif
     usb_write_txcsr(0, CDC_DATA_EP_IN,
                     usb_read_txcsr(0, CDC_DATA_EP_IN) | TXCSRP_TxPktRdy);
     return length;

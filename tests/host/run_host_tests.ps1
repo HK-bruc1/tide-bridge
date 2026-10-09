@@ -17,6 +17,7 @@ $Contracts = @(
 $Behavior = @(
     'test_adv_policy.py',
     'test_factory_usb.py',
+    'test_cdc_file.py',
     'test_finalpack.py',
     'test_dut_keys_speaker.py',
     'test_record_storage.py',

@@ -22,6 +22,10 @@ void factory_cdc_set_rx_handler(factory_cdc_rx_cb handler);
  * May be called by tasks; generation must come from this session's callback
  * or snapshot. Capacity is bounded; never retries an expired generation. */
 int factory_cdc_send(u32 generation, const u8 *bytes, u32 length);
+#if TCFG_T2620_CDC_FILE_ENABLE
+int factory_cdc_stream_send(u32 generation, const u8 *bytes, u32 length);
+void factory_cdc_set_tx_handler(void (*handler)(void));
+#endif
 u32 factory_cdc_generation(void); /* 0 while not ready */
 /* Invalidate only this session, without waiting or releasing USB resources.
  * usb_stack observes restart on its next tick and owns reenumeration. */

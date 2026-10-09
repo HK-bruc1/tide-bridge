@@ -1,0 +1,656 @@
+"""Stage A wire parser and actual firmware producer behavior (no USB hardware)."""
+import importlib.util
+import ctypes
+import contextlib
+import io
+import json
+from pathlib import Path
+import re
+import struct
+import tempfile
+import types
+import unittest
+from unittest import mock
+import zlib
+from llvmlite import binding as llvm
+
+from host_c_test_lib import ROOT, run_c_checks
+
+spec = importlib.util.spec_from_file_location('cdc_file_transfer', ROOT / 'tools/cdc_file_transfer.py')
+tool = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(tool)
+VECTORS = json.loads((ROOT / 'tests/host/fixtures/cdc_file_v1.json').read_text())
+
+
+def frame(kind, offset, payload, transfer_id=1):
+    header = tool.HEADER.pack(b'CDF1', 1, kind, 20, transfer_id, offset, len(payload))
+    return header + payload + struct.pack('<I', zlib.crc32(header + payload))
+
+
+class Port:
+    def __init__(self, data, chunk=16384):
+        self.data = bytearray(data)
+        self.chunk = chunk
+        self.writes = []
+
+    @property
+    def in_waiting(self):
+        return len(self.data)
+
+    def read(self, count):
+        count = min(count, self.chunk)
+        data = bytes(self.data[:count])
+        del self.data[:count]
+        if not data:
+            raise tool.ProtocolError('mock EOF')
+        return data
+
+    def write(self, data):
+        self.writes.append(data)
+        return len(data)
+
+
+class ReceiverTests(unittest.TestCase):
+    def test_deferred_verification(self):
+        payload = (bytes(range(256)) * 40)[:10001]
+        for block in (1024, 2048, 4096, 8192):
+            wire = b'*DEV#file#accepted#1#1#\r\n'
+            for offset in range(0, len(payload), block):
+                wire += frame(1, offset, payload[offset:offset + block])
+            wire += frame(2, len(payload), struct.pack('<II', len(payload), zlib.crc32(payload)))
+            for chunk in (63, 16384):
+                port = Port(wire, chunk)
+                result = tool.receive_bench(port, len(payload), block, receive_mode='deferred')
+                self.assertTrue(result['complete'] and result['crc_ok'] and result['pattern_ok'])
+                self.assertEqual(result['bytes'], len(payload))
+                self.assertEqual(len(port.writes), 1)
+                self.assertLessEqual(result['receive_elapsed_s'], result['elapsed_s'])
+                self.assertGreaterEqual(result['receive_KBps'], result['KBps'])
+                self.assertIsNone(result['steady_s'])
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_bench(Port(wire[:-1]), len(payload), block, receive_mode='deferred')
+
+    def test_deferred_still_rejects_corruption(self):
+        prefix = b'*DEV#file#accepted#1#1#\r\n'
+        good_data = bytes.fromhex(VECTORS['data'])
+        good_end = bytes.fromhex(VECTORS['end'])
+        cases = (good_data[:-1] + bytes([good_data[-1] ^ 1]) + good_end,
+                 frame(1, 0, b'X') + good_end,
+                 good_data + frame(2, 1, struct.pack('<II', 1, 999)),
+                 frame(1, 0, b'XX') + good_end,
+                 frame(1, 0, b'\0', transfer_id=2) + good_end,
+                 b'X' * 20, bytes.fromhex(VECTORS['error']))
+        for wire in cases:
+            report = {}
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_bench(Port(prefix + wire), 1, 1024, report=report, receive_mode='deferred')
+            self.assertFalse(report['complete'])
+            self.assertFalse(report['passes_600KBps'])
+        port = Port(b'')
+        with self.assertRaises(tool.ProtocolError):
+            tool.receive_bench(port, 10000, 1024, cancel_after=0, receive_mode='deferred')
+        self.assertEqual(port.writes, [])
+
+    def test_deferred_output_only_published_after_validation(self):
+        prefix = b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'])
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'good.bin'
+            tool.receive_bench(Port(prefix + bytes.fromhex(VECTORS['end'])), 1, 1024,
+                               output=output, receive_mode='deferred')
+            self.assertEqual(output.read_bytes(), b'\0')
+            output = Path(directory) / 'bad.bin'
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_bench(Port(prefix + frame(2, 1, struct.pack('<II', 1, 999))), 1, 1024,
+                                   output=output, receive_mode='deferred')
+            self.assertFalse(output.exists())
+
+    def test_entry_point_owns_one_port_and_reserves_report(self):
+        class ReactivePort(Port):
+            def write(self, data):
+                if data == b'*APP#file#caps#\r\n':
+                    self.data.extend(b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n')
+                elif data == b'*APP#file#bench#1#1024#\r\n':
+                    self.data.extend(b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'] + VECTORS['end']))
+                else:
+                    raise AssertionError(data)
+                return super().write(data)
+        serial = types.SimpleNamespace(__version__='mock', Serial=mock.Mock())
+        serial.Serial.return_value = contextlib.nullcontext(ReactivePort(b''))
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict('sys.modules', {'serial': serial}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            path = Path(directory) / 'nested/report.json'
+            arguments = ['--port', 'COM6', '--report', str(path), 'bench', '--size', '1', '--block', '1024']
+            self.assertEqual(tool.main(arguments), 2)
+            serial.Serial.assert_called_once()
+            original = path.read_bytes()
+            self.assertTrue(json.loads(original)['runs'][0]['complete'])
+            self.assertEqual(tool.main(arguments), 1)
+            self.assertEqual(path.read_bytes(), original)
+            serial.Serial.assert_called_once()
+
+    def test_golden(self):
+        self.assertEqual(zlib.crc32(b''), int(VECTORS['crc_empty'], 16))
+        self.assertEqual(zlib.crc32(b'123456789'), int(VECTORS['crc_123456789'], 16))
+        self.assertEqual(frame(1, 0, b'\0').hex(), VECTORS['data'])
+        self.assertEqual(frame(2, 1, struct.pack('<II', 1, zlib.crc32(b'\0'))).hex(), VECTORS['end'])
+        self.assertEqual(frame(3, 0, struct.pack('<I', 6)).hex(), VECTORS['error'])
+
+    def test_fragmentation_and_coalescing(self):
+        wire = b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'] + VECTORS['end'])
+        for chunk in (1, 2, 19, 20, 24, 64, 16384):
+            with self.subTest(chunk=chunk):
+                report = tool.receive_bench(Port(wire, chunk), 1, 1024)
+                self.assertTrue(report['complete'] and report['crc_ok'])
+                self.assertFalse(report['passes_600KBps'])
+
+    def test_bad_headers_crc_offset_and_id(self):
+        golden = bytes.fromhex(VECTORS['data'])
+        for index in (0, 4, 5, 6, 8, 12, 16, 20, 24):
+            bad = bytearray(golden)
+            bad[index] ^= 0x80
+            with self.subTest(index=index), self.assertRaises(tool.ProtocolError):
+                tool.Reader(Port(bad)).frame(1, 0)
+        for kind, payload in ((1, b''), (2, b'1234'), (3, b'12345678')):
+            with self.assertRaises(tool.ProtocolError):
+                tool.Reader(Port(frame(kind, 0, payload))).frame(1, 0)
+
+    def test_bad_header_preserves_bounded_evidence(self):
+        bad = b'X' * 20
+        report = {}
+        with self.assertRaisesRegex(tool.ProtocolError, 'invalid binary header'):
+            tool.receive_bench(Port(b'*DEV#file#accepted#1#1#\r\n' + bad + b'Y' * 80),
+                               1, 1024, report=report)
+        self.assertIn('header=' + bad.hex(), report['error'])
+        self.assertIn('expected_id=1 expected_offset=0', report['error'])
+        self.assertIn('buffered=80 next=' + (b'Y' * 32).hex(), report['error'])
+
+    def test_caps_and_text_bounds(self):
+        self.assertIn('IDLE', tool.caps(Port(b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n')))
+        for data in (b'x' * 130, b'x\n', b'\xff\r\n'):
+            with self.assertRaises(tool.ProtocolError):
+                tool.Reader(Port(data)).line()
+
+    def test_cancellation(self):
+        port = Port(b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['error']))
+        report = tool.receive_bench(port, 10000, 1024, cancel_after=0)
+        self.assertTrue(report['cancelled'])
+        self.assertFalse(report['complete'])
+        self.assertEqual(port.writes[-1], b'*APP#file#cancel#1#\r\n')
+
+    def test_multiple_blocks_and_truncated_tail(self):
+        payload = (bytes(range(256)) * 40)[:10001]
+        for block in (1024, 2048, 4096, 8192):
+            wire = b'*DEV#file#accepted#1#1#\r\n'
+            for offset in range(0, len(payload), block):
+                wire += frame(1, offset, payload[offset:offset + block])
+            wire += frame(2, len(payload), struct.pack('<II', len(payload), zlib.crc32(payload)))
+            self.assertTrue(tool.receive_bench(Port(wire, 63), len(payload), block)['complete'])
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_bench(Port(wire[:-1]), len(payload), block)
+
+    def test_output_and_failed_crc(self):
+        prefix = b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'])
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'test.bin'
+            tool.receive_bench(Port(prefix + bytes.fromhex(VECTORS['end'])), 1, 1024, output)
+            self.assertEqual(output.read_bytes(), b'\0')
+            self.assertFalse(output.with_suffix('.bin.part').exists())
+            output = Path(directory) / 'bad.bin'
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_bench(Port(prefix + frame(2, 1, struct.pack('<II', 1, 0))), 1, 1024, output)
+            self.assertFalse(output.exists())
+            self.assertEqual(output.with_suffix('.bin.part').read_bytes(), b'\0')
+
+
+STUBS = r'''
+typedef unsigned char u8;
+typedef unsigned int u32;
+typedef unsigned long long size_t;
+void *memcpy(void *, const void *, size_t);
+void *memset(void *, int, size_t);
+int memcmp(const void *, const void *, size_t);
+int strcmp(const char *, const char *);
+int strncmp(const char *, const char *, size_t);
+size_t strlen(const char *);
+int snprintf(char *, size_t, const char *, ...);
+#define TCFG_T2620_CDC_FILE_ENABLE 1
+#define FACTORY_CDC_FULL -2
+#define FACTORY_CDC_OK 0
+static u32 now, generation=1;
+static int credit=1000, occupied, aborted, terminals;
+static u8 wire[40000];
+static unsigned wire_length;
+u32 sys_timer_get_ms(void) { return now; }
+int rdx_dut_is_in_mode(void) { return occupied; }
+int rdx_factory_audio_owned(void) { return 0; }
+int rdx_factory_audio_file_busy(void) { return 0; }
+int rdx_factory_audio_tx_pending(u32 gen) { return 0; }
+void factory_cdc_abort(u32 gen) { if (gen==generation) { generation=0; ++aborted; } }
+int factory_cdc_stream_send(u32 gen, const u8 *bytes, u32 length) {
+    if (!gen || gen!=generation) return -1;
+    if (!credit) return FACTORY_CDC_FULL;
+    --credit;
+    if (length>256 || wire_length+length>sizeof(wire)) return -3;
+    if ((length==32 && bytes[5]==2) || (length==28 && bytes[5]==3)) ++terminals;
+    memcpy(wire+wire_length, bytes, length); wire_length+=length; return 0;
+}
+int factory_cdc_send(u32 gen, const u8 *bytes, u32 length) { return -3; }
+#define printf(...) ((void)0)
+'''
+TESTS = r'''
+#define CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
+static char reply[258];
+static void boot(void) {
+    memset(&file_stream,0,sizeof(file_stream)); file_next_id=0;
+    now=occupied=wire_length=aborted=terminals=0; credit=1000; generation=1;
+}
+static int command(const char *line) { return rdx_cdc_file_command(generation,line,0,reply,sizeof(reply)); }
+static void drain(void) { for(int attempt=0; attempt<100 && rdx_cdc_file_active(); ++attempt) rdx_cdc_file_service(generation); }
+int test_vectors(void) {
+    boot();
+    CHECK(rdx_cdc_file_crc(0,(const u8 *)"",0)==0);
+    CHECK(rdx_cdc_file_crc(0,(const u8 *)"123456789",9)==0xcbf43926u);
+    CHECK(rdx_cdc_file_crc(rdx_cdc_file_crc(0,(const u8 *)"1234",4),(const u8 *)"56789",5)==0xcbf43926u);
+    CHECK(command("*APP#file#bench#1#1024#"));
+    CHECK(!strcmp(reply,"*DEV#file#accepted#1#1#\r\n"));
+    drain(); CHECK(!rdx_cdc_file_active() && wire_length==sizeof(golden_data)+sizeof(golden_end));
+    CHECK(terminals==1);
+    CHECK(!memcmp(wire,golden_data,sizeof(golden_data)));
+    CHECK(!memcmp(wire+sizeof(golden_data),golden_end,sizeof(golden_end)));
+    boot(); command("*APP#file#bench#1#1024#"); command("*APP#file#cancel#1#"); drain();
+    CHECK(wire_length==sizeof(golden_error) && !memcmp(wire,golden_error,wire_length));
+    return 0;
+}
+int test_cancel_and_backpressure(void) {
+    boot(); command("*APP#file#bench#16384#8192#"); credit=1;
+    rdx_cdc_file_service(generation); CHECK(wire_length==256 && file_stream.sent==256);
+    command("*APP#file#cancel#2#"); CHECK(!file_stream.error && file_stream.deferred==9);
+    command("*APP#file#cancel#1#"); command("*APP#file#cancel#1#");
+    CHECK(file_stream.error==6 && file_stream.offset==0);
+    credit=1000; drain(); CHECK(wire_length==8216+28 && file_stream.offset==8192);
+    CHECK(wire[8216+5]==3 && wire[8216+20]==6);
+    CHECK(rdx_cdc_file_reply(reply,sizeof(reply)) && !strcmp(reply,"*DEV#file#error#9#\r\n"));
+    CHECK(!rdx_cdc_file_reply(reply,sizeof(reply)));
+    boot(); command("*APP#file#bench#4096#4096#"); credit=0;
+    rdx_cdc_file_service(generation); CHECK(!wire_length && file_stream.length);
+    command("*APP#file#cancel#1#"); credit=1000; drain();
+    CHECK(wire_length==28 && !file_stream.offset);
+    return 0;
+}
+int test_admission_and_sessions(void) {
+    const char *invalid[]={"*APP#file#bench#0#1024#","*APP#file#bench#16777217#1024#",
+        "*APP#file#bench#42949672960#1024#","*APP#file#bench#1#512#","*APP#file#bench#1#1024#extra",
+        "*APP#file#bench#-1#1024#","*APP#file#bench##1024#"};
+    boot();
+    for(unsigned index=0;index<sizeof(invalid)/sizeof(invalid[0]);++index) {
+        CHECK(command(invalid[index]) && !strcmp(reply,"*DEV#file#error#1#\r\n") && !rdx_cdc_file_active());
+    }
+    command("*APP#file#get#1#abc#"); CHECK(!strcmp(reply,"*DEV#file#error#8#\r\n"));
+    occupied=1; command("*APP#file#bench#1#1024#"); CHECK(!strcmp(reply,"*DEV#file#error#2#\r\n"));
+    occupied=0; command("*APP#file#bench#10000#4096#");
+    credit=1; rdx_cdc_file_service(1); CHECK(file_next_id==1);
+    generation=2; rdx_cdc_file_session(2); CHECK(!rdx_cdc_file_active());
+    wire_length=0; credit=1000; command("*APP#file#bench#1#1024#"); drain(); CHECK(wire[8]==2);
+    file_next_id=0xffffffffu; command("*APP#file#bench#1#1024#"); CHECK(!strcmp(reply,"*DEV#file#error#8#\r\n"));
+    boot(); command("*APP#file#bench#1#1024#"); now=110000; drain(); CHECK(wire_length==28 && wire[20]==7);
+    boot(); command("*APP#file#bench#1#1024#"); generation=0; rdx_cdc_file_service(1);
+    CHECK(!rdx_cdc_file_active() && !wire_length);
+    return 0;
+}
+int test_all_blocks(void) {
+    unsigned blocks[]={1024,2048,4096,8192};
+    for(unsigned option=0;option<4;++option) {
+        boot(); char line[80];
+        snprintf(line,sizeof(line),"*APP#file#bench#10001#%u#",blocks[option]);
+        command(line); drain(); CHECK(!rdx_cdc_file_active() && file_stream.offset==10001);
+        unsigned position=0, offset=0;
+        while (offset<10001) {
+            unsigned length=10001-offset; if(length>blocks[option]) length=blocks[option];
+            CHECK(wire[position+5]==1);
+            CHECK(wire[position+12]==(u8)offset && wire[position+13]==(u8)(offset>>8));
+            for(unsigned index=0;index<length;++index) CHECK(wire[position+20+index]==(u8)(offset+index));
+            u32 expected=rdx_cdc_file_crc(0,wire+position,length+20);
+            for(unsigned index=0;index<4;++index) CHECK(wire[position+20+length+index]==(u8)(expected>>(index*8)));
+            position+=length+24; offset+=length;
+        }
+        CHECK(wire_length==position+32 && wire[position+5]==2);
+        CHECK(file_stream.crc==GOLDEN_LARGE_CRC);
+    }
+    return 0;
+}
+'''
+
+
+def check_firmware():
+    runtime = ctypes.CDLL('msvcrt')
+    for name in ('snprintf', 'strncmp', 'strcmp', 'strlen', 'memcpy', 'memset', 'memcmp'):
+        symbol = '_snprintf' if name == 'snprintf' else name
+        llvm.add_symbol(name, ctypes.cast(getattr(runtime, symbol), ctypes.c_void_p).value)
+    source = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_cdc_file.c').read_text(encoding='utf-8')
+    source = re.sub(r'^#include.*$', '', source, flags=re.M)
+    arrays = '\n'.join('static const u8 golden_' + name + '[]={' +
+                       ','.join(str(value) for value in bytes.fromhex(VECTORS[name])) + '};'
+                       for name in ('data', 'end', 'error'))
+    with tempfile.TemporaryDirectory(prefix='cdc_file_') as directory:
+        path = Path(directory) / 'file.c'
+        tests = TESTS.replace('GOLDEN_LARGE_CRC', str(zlib.crc32((bytes(range(256)) * 40)[:10001])) + 'u')
+        path.write_text(STUBS + source + arrays + tests, encoding='utf-8')
+        run_c_checks(path, ('test_vectors', 'test_cancel_and_backpressure', 'test_admission_and_sessions', 'test_all_blocks'), native=True)
+    print('PASS: actual CDC file producer: vectors, CRC, bounds, partial cancel, stale sessions, timeout')
+
+
+
+
+def check_transport():
+    from test_factory_usb import CDC_STUBS, CDC_TESTS
+    folder = ROOT / 'SDK/apps/common/device/usb/device'
+    strip = lambda text: re.sub(r'^#include.*$', '', text, flags=re.M)
+    headers = strip((folder / 'usb_factory_cdc.h').read_text()) + strip((folder / 'usb_factory_cdc_internal.h').read_text())
+    source = strip((folder / 'usb_factory_cdc.c').read_text())
+    tests = r'''
+#if TCFG_T2620_CDC_TX_STATS_ENABLE
+#define CHECK_STATS(value) CHECK(value)
+#else
+#define CHECK_STATS(value) ((void)0)
+#endif
+static int notifications, received;
+static void notify(void) { ++notifications; if (irq_depth) violation=11; }
+static int accept_rx(u32 gen,const u8 *bytes,u32 length) { ++received; return 0; }
+int test_file_timing(void) {
+#if TCFG_T2620_CDC_TX_TIMING_ENABLE
+    u8 data[192]={0};
+    boot(); u32 gen=factory_cdc_generation();
+    CHECK(!factory_cdc_stream_send(gen,data,sizeof(data)));
+    --queued; factory_cdc_process();
+    test_clock_invalid=1; busy=0; factory_cdc_tx_irq(); test_clock_invalid=0;
+    CHECK_STATS(cdc_tx_stats.submit_clock_invalid==1 && !cdc_tx_stats.submit_samples);
+    CHECK_STATS(!cdc_tx_stats.submit_us_sum && !cdc_tx_stats.submit_us_max);
+    CHECK(wire_len==128 && !violation); CHECK_STATS(cdc_tx_stats.irq_fast==1);
+#endif
+    return 0;
+}
+int test_file_stream_boundaries(void) {
+    u8 data[256];
+    for (unsigned index=0;index<sizeof(data);++index) data[index]=index;
+    boot(); u32 gen=factory_cdc_generation();
+    CHECK(!factory_cdc_stream_send(gen,data,24));
+    CHECK(!factory_cdc_stream_send(gen,data+24,40));
+    CHECK(!factory_cdc_stream_send(gen,data+64,32));
+    --queued; factory_cdc_process();
+    CHECK(wire_len==24 && transport.count==2);
+    busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==64 && transport.count==1);
+    busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==96 && !transport.count);
+    pump(3);
+    CHECK(!memcmp(wire,data,96) && !transport.tx_wait && !zlp_count);
+    CHECK_STATS(cdc_tx_stats.bytes==96 && cdc_tx_stats.packets==3);
+    CHECK(!violation && !irq_depth);
+    boot(); gen=factory_cdc_generation();
+    CHECK(!factory_cdc_stream_send(gen,data,24));
+    zero_write=1; --queued; factory_cdc_process();
+    CHECK(!wire_len && transport.count==1 && !transport.tx[transport.head].offset);
+    zero_write=0; pump(3);
+    CHECK(wire_len==24 && !memcmp(wire,data,24));
+    return 0;
+}
+int test_file_irq_stream(void) {
+    u8 data[256];
+    for (unsigned index=0;index<sizeof(data);++index) data[index]=index;
+    boot(); u32 gen=factory_cdc_generation(); notifications=0;
+    factory_cdc_set_tx_handler(notify);
+    CHECK(factory_cdc_stream_send(gen,data,256)==0);
+    CHECK(factory_cdc_stream_send(gen,data,65)==0);
+    --queued; factory_cdc_process();
+    CHECK(wire_len==64 && !queued);
+    factory_cdc_tx_irq();
+    CHECK(wire_len==64); CHECK_STATS(!cdc_tx_stats.bytes);
+    --queued; factory_cdc_process();
+    for (unsigned index=0;index<4;++index) {
+        busy=0; factory_cdc_tx_irq();
+        CHECK(wire_len==128+index*64 && !queued && !notifications);
+    }
+    busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==321 && queued==1 && !notifications);
+    CHECK_STATS(cdc_tx_stats.irq_fast==5 && cdc_tx_stats.bytes==320);
+#if TCFG_T2620_CDC_TX_TIMING_ENABLE
+    CHECK_STATS(cdc_tx_stats.submit_samples==1 && cdc_tx_stats.submit_us_sum==3);
+    CHECK_STATS(cdc_tx_stats.submit_us_max==3 && !cdc_tx_stats.submit_clock_invalid);
+#endif
+    CHECK(!memcmp(wire,data,256) && !memcmp(wire+256,data,65));
+    --queued; factory_cdc_process();
+    CHECK(!notifications); CHECK_STATS(cdc_tx_stats.bytes==320);
+    busy=0; factory_cdc_tx_irq(); --queued; factory_cdc_process();
+    CHECK(notifications==1 && !zlp_count); CHECK_STATS(cdc_tx_stats.bytes==321);
+    CHECK(!transport.tx_wait && !violation && !irq_depth);
+
+    boot(); gen=factory_cdc_generation(); notifications=0;
+    factory_cdc_set_tx_handler(notify);
+    for (unsigned index=0;index<FACTORY_CDC_TX_DEPTH;++index)
+        CHECK(factory_cdc_stream_send(gen,data,256)==0);
+    --queued; factory_cdc_process();
+    for (unsigned index=0;index<63;++index) { busy=0; factory_cdc_tx_irq(); }
+    CHECK(queued==1 && !notifications && transport.refill_armed);
+    --queued; factory_cdc_process();
+    CHECK(notifications==1 && !transport.refill_armed);
+    factory_cdc_set_rx_handler(accept_rx); received=0;
+    in_len=1; incoming[0]='C'; factory_cdc_rx_irq();
+    --queued; factory_cdc_process(); CHECK(received==1);
+    CHECK(!violation && !irq_depth);
+
+    boot(); gen=factory_cdc_generation();
+    CHECK(factory_cdc_send(gen,data,64)==0);
+    CHECK(factory_cdc_stream_send(gen,data,128)==0);
+    --queued; factory_cdc_process(); busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==64); CHECK_STATS(!cdc_tx_stats.irq_fast);
+    --queued; factory_cdc_process(); CHECK(zlp_count==1);
+    pump(5); CHECK(wire_len==192 && zlp_count==1);
+
+    for (int reason=FACTORY_CDC_RESET;reason<=FACTORY_CDC_TIMEOUT;++reason) {
+        boot(); gen=factory_cdc_generation();
+        CHECK(factory_cdc_stream_send(gen,data,256)==0);
+        --queued; factory_cdc_process(); busy=0; factory_cdc_tx_irq();
+        CHECK(wire_len==128);
+        factory_cdc_invalidate(reason); busy=0; factory_cdc_tx_irq();
+        pump(5); CHECK(wire_len==128 && !transport.tx_pending_length);
+    }
+    boot(); gen=factory_cdc_generation();
+    CHECK(factory_cdc_stream_send(gen,data,256)==0);
+    --queued; factory_cdc_process(); factory_cdc_quiesce();
+    busy=0; factory_cdc_tx_irq(); CHECK(wire_len==64);
+
+    boot(); gen=factory_cdc_generation();
+    CHECK(factory_cdc_stream_send(gen,data,256)==0);
+    --queued; factory_cdc_process(); now=3000; busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==64); --queued; factory_cdc_process();
+    CHECK(factory_cdc_needs_restart());
+
+    boot(); gen=factory_cdc_generation();
+    CHECK(factory_cdc_stream_send(gen,data,128)==0);
+    --queued; factory_cdc_process(); post_fail=1; busy=0; factory_cdc_tx_irq();
+    CHECK(wire_len==128 && !queued);
+    post_fail=0; pump(2); CHECK(!transport.tx_wait); CHECK_STATS(cdc_tx_stats.bytes==128);
+    CHECK(!violation && !irq_depth);
+    return 0;
+}
+int test_file_wake_edges(void) {
+    u8 data[256]; memset(data,0xa5,sizeof(data));
+    boot(); u32 gen=factory_cdc_generation(); notifications=0;
+    factory_cdc_set_tx_handler(notify);
+    CHECK(factory_cdc_stream_send(gen,data,256)==0 && queued==1);
+    --queued; factory_cdc_process();
+    CHECK(busy && !queued && !notifications);
+    CHECK_STATS(!cdc_tx_stats.bytes && !cdc_tx_stats.packets);
+    CHECK(factory_cdc_stream_send(gen,data,256)==0 && !queued);
+    factory_cdc_rx_irq(); CHECK(queued==1);
+    --queued; factory_cdc_process();
+    CHECK(!queued && !notifications);
+    for(unsigned index=2;index<FACTORY_CDC_TX_DEPTH;++index) {
+        CHECK(factory_cdc_stream_send(gen,data,256)==0);
+        CHECK(!queued);
+    }
+    CHECK(transport.refill_armed);
+    pump(63);
+    CHECK(transport.count==FACTORY_CDC_TX_DEPTH/2 && notifications==1);
+    CHECK_STATS(cdc_tx_stats.bytes==63*64 && cdc_tx_stats.packets==63);
+    CHECK(!transport.refill_armed);
+    pump(1); CHECK(notifications==1);
+    for(unsigned index=0;index<4;++index) tick();
+    CHECK(notifications==1);
+    CHECK_STATS(cdc_tx_stats.busy && cdc_tx_stats.refill);
+    CHECK(factory_cdc_stream_send(gen,data,256)==0 && !queued);
+    CHECK(transport.refill_armed);
+    pump(3); CHECK(notifications==2 && !transport.refill_armed);
+    pump(100);
+    CHECK(wire_len==33*256 && notifications==3 && !zlp_count);
+    for(unsigned index=0;index<33*256;++index) CHECK(wire[index]==0xa5);
+    pump(4); CHECK(notifications==3);
+    CHECK(factory_cdc_stream_send(gen,data,1)==0 && queued==1);
+    pump(2); CHECK(wire_len==33*256+1 && notifications==4);
+    CHECK_STATS(cdc_tx_stats.refill && cdc_tx_stats.drained);
+    factory_cdc_invalidate(FACTORY_CDC_RESET);
+    CHECK(!transport.refill_armed); CHECK_STATS(!cdc_tx_stats.bytes && !cdc_tx_stats.dispatch);
+    CHECK_STATS(cdc_tx_stats.generation==transport.generation);
+    CHECK(!violation && !irq_depth);
+    boot(); gen=factory_cdc_generation(); post_fail=1;
+    CHECK(factory_cdc_stream_send(gen,data,256)==0 && !queued);
+    CHECK(!transport.posted);
+    post_fail=0; pump(5); CHECK(wire_len==256);
+    CHECK(!violation && !irq_depth);
+    return 0;
+}
+int test_file_transport(void) {
+    u8 data[256]; memset(data,0xa5,sizeof(data));
+    boot(); u32 gen=factory_cdc_generation();
+    factory_cdc_set_tx_handler(notify);
+    CHECK(factory_cdc_stream_send(gen,data,sizeof(data))==0);
+    CHECK(queued==1); factory_cdc_rx_irq(); factory_cdc_rx_irq(); CHECK(queued==1);
+    pump(6); CHECK(wire_len==256 && !zlp_count && notifications && !violation && !irq_depth);
+    boot(); gen=factory_cdc_generation();
+    CHECK(factory_cdc_send(gen,data,sizeof(data))==0); pump(6); CHECK(zlp_count==1);
+    boot(); gen=factory_cdc_generation(); factory_cdc_set_rx_handler(accept_rx);
+    for(unsigned index=0;index<FACTORY_CDC_TX_DEPTH;++index) CHECK(factory_cdc_stream_send(gen,data,256)==0);
+    CHECK(factory_cdc_stream_send(gen,data,1)==FACTORY_CDC_FULL);
+    busy=1; in_len=1; incoming[0]='C'; received=0; tick();
+    CHECK(received==1 && !transport.rx_length && transport.count==FACTORY_CDC_TX_DEPTH);
+    now=3000; tick(); CHECK(!factory_cdc_generation() && factory_cdc_needs_restart());
+    CHECK(factory_cdc_stream_send(gen,data,1)==FACTORY_CDC_STALE);
+    CHECK(!violation && !irq_depth);
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='cdc_stream_') as directory:
+        path = Path(directory) / 'transport.c'
+        for stats, timing, log_level in ((0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 0, 0), (1, 1, 0)):
+            timing_stubs = '''
+static u32 test_clock_us = 0xfffffffe;
+static int test_clock_invalid;
+u32 jiffies_usec(void) { test_clock_us += 3; return test_clock_us; }
+int jiffies_usec2offset(u32 begin, u32 end) { return test_clock_invalid ? -1 : (int)(end - begin); }
+'''
+            path.write_text(CDC_STUBS.replace('#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1',
+                                              f'#define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL {log_level}') +
+                            '\n#define TCFG_T2620_CDC_FILE_ENABLE 1\n' +
+                            f'#define TCFG_T2620_CDC_TX_STATS_ENABLE {stats}\n#define TCFG_T2620_CDC_TX_TIMING_ENABLE {timing}\n' + timing_stubs +
+                            headers + source + CDC_TESTS + tests, encoding='utf-8')
+            run_c_checks(path, ('test_file_transport', 'test_file_wake_edges', 'test_file_irq_stream',
+                                'test_file_stream_boundaries', 'test_file_timing'))
+    print('PASS: file transport (diagnostics off / stats / timing): wake edges/refill rearm, completion statistics, full-TX RX, stream/ZLP, stale generation, DMA timeout')
+
+
+def check_irq_driver():
+    from test_factory_usb import CDC_DRIVER_STUBS, CDC_DRIVER_TESTS
+    folder = ROOT / 'SDK/apps/common/device/usb/device'
+    headers = '\n'.join((folder / name).read_text(encoding='utf-8') for name in
+                        ('usb_factory_cdc.h', 'usb_factory_cdc_internal.h'))
+    headers = re.sub(r'^#include.*$', '', headers, flags=re.M)
+    driver = (folder / 'cdc.c').read_text(encoding='utf-8')
+    callback = driver[driver.index('static void cdc_tx_wakeup('):driver.index('\n#endif', driver.index('static void cdc_tx_wakeup('))]
+    driver = driver[driver.index('void cdc_factory_configuration('):driver.index('\nu32 cdc_read_data(')]
+    driver = driver[:driver.rindex('#endif')]
+    stubs = r'''
+#define TCFG_T2620_CDC_FILE_ENABLE 1
+static int tx_enabled, irq_called, mask_seen;
+void usb_set_intr_txe(int id,int ep) { tx_enabled=1; }
+void usb_clr_intr_txe(int id,int ep) { tx_enabled=0; }
+void factory_cdc_tx_irq(void) {
+    ++irq_called;
+    mask_seen=!tx_enabled;
+    cdc_factory_write_packet(tx_dma,64);
+}
+'''
+    tests = r'''
+int test_irq_driver(void) {
+    CHECK(!test_driver());
+    device.bDeviceStates=USB_CONFIGURED;
+    handle.bmTransceiver=BIT(0)|BIT(4);
+    txcsr=0; tx_enabled=1;
+    int before=committed;
+    cdc_tx_wakeup(&device,CDC_DATA_EP_IN);
+    CHECK(irq_called==1 && mask_seen && tx_enabled && committed==before+1);
+    CHECK(txcsr & TXCSRP_TxPktRdy);
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='cdc_irq_driver_') as directory:
+        path = Path(directory) / 'driver.c'
+        path.write_text(CDC_DRIVER_STUBS + headers + stubs + callback + driver +
+                        CDC_DRIVER_TESTS + tests, encoding='utf-8')
+        run_c_checks(path, ('test_irq_driver',))
+    print('PASS: actual CDC IN callback: mask, bounded commit, rearm; DMA busy guard')
+
+
+def check_parser_integration():
+    from test_factory_protocol import STUBS as parser_stubs, TESTS as parser_tests
+    parser_stubs = re.sub(r'int printf\(.*?\n}',
+                         'int printf(const char *format, ...) { if (irq) log_in_irq=1; return 0; }',
+                         parser_stubs, flags=re.S)
+    folder = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
+    source = '\n'.join(re.sub(r'^#include.*$', '', (folder / name).read_text(encoding='utf-8'), flags=re.M)
+                       for name in ('rdx_cdc_file.c', 'rdx_factory_cdc.c'))
+    stubs = r'''
+#define TCFG_T2620_CDC_FILE_ENABLE 1
+#define Q_CALLBACK 1
+int os_taskq_post_type(const char *task,int kind,int count,int *message) { return 0; }
+void factory_cdc_set_tx_handler(void (*handler)(void)) {}
+int rdx_dut_is_in_mode(void) { return 0; }
+int rdx_factory_audio_owned(void) { return 0; }
+int rdx_factory_audio_file_busy(void) { return 0; }
+int rdx_factory_audio_tx_pending(u32 gen) { return 0; }
+int factory_cdc_stream_send(u32 gen,const u8 *bytes,u32 length) { return factory_cdc_send(gen,bytes,length); }
+'''
+    tests = r'''
+int test_file_parser(void) {
+    boot(); rdx_cdc_file_session(0); file_next_id=0;
+    CHECK(!input("*APP#file#caps#\r\n"));
+    CHECK(!strcmp(wire,"*DEV#file#caps#1#8192#16777216#IDLE#\r\n"));
+    wire_length=0;
+    CHECK(!input("*APP#file#bench#1#1024#\r\n"));
+    unsigned prefix=strlen("*DEV#file#accepted#1#1#\r\n");
+    CHECK(wire_length==prefix+57 && !memcmp(wire+prefix,"CDF1",4));
+    boot(); rdx_cdc_file_session(0); file_next_id=0;
+    CHECK(!input("*APP#file#bench#8192#8192#\r\n*APP#file#cancel#1#\r\n"));
+    CHECK(wire_length==prefix+28 && wire[prefix+5]==3 && wire[prefix+20]==6);
+    boot(); rdx_cdc_file_session(0); file_next_id=0;
+    CHECK(!input("*APP#file#bench#8192#8192#\r\n*APP#file#cancel#1#\r\nPING\r\n"));
+    CHECK(!strcmp(wire+prefix+28,"*DEV#file#error#2#\r\n"));
+    CHECK(!rdx_cdc_file_active() && !log_in_irq && !irq);
+    return 0;
+}
+'''
+    runtime = ctypes.CDLL('msvcrt')
+    for name in ('strchr', 'strcpy'):
+        llvm.add_symbol(name, ctypes.cast(getattr(runtime, name), ctypes.c_void_p).value)
+    with tempfile.TemporaryDirectory(prefix='cdc_parser_') as directory:
+        path = Path(directory) / 'parser.c'
+        path.write_text(parser_stubs + stubs + source + parser_tests + tests, encoding='utf-8')
+        run_c_checks(path, ('test_file_parser',), native=True)
+    print('PASS: actual common parser: CAPS/accepted/binary order, coalesced cancel, deferred BUSY')
+
+
+if __name__ == '__main__':
+    check_firmware()
+    check_transport()
+    check_irq_driver()
+    check_parser_integration()
+    unittest.main()

@@ -2,7 +2,11 @@
 import contextlib
 import io
 import json
+import tempfile
+import types
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from host_c_test_lib import load_cdc_tool
 
@@ -29,6 +33,49 @@ def status(n, command, state='DONE', active='NONE', dut='1'):
 
 
 class StationTests(unittest.TestCase):
+    def test_file_menu_routing_without_opening_port(self):
+        serial = types.ModuleType('serial')
+        serial.tools = types.ModuleType('serial.tools')
+        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial.tools.list_ports.comports = lambda: [types.SimpleNamespace(device='COM6', description='CDC')]
+        serial.Serial = mock.Mock(side_effect=AssertionError('launcher must not open port'))
+        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
+        for selection, mode, repeat in (('', 'file-bench', '1'), ('2', 'file-bench', '10'),
+                                         ('3', 'file-cancel', '1'), ('4', 'file-bench', '1'), ('5', 'file-bench', '10')):
+            with self.subTest(selection=selection), mock.patch.dict('sys.modules', modules), \
+                    mock.patch('builtins.input', side_effect=['3', selection, '6']), \
+                    mock.patch.object(_cdc, 'main', return_value=0) as entry:
+                self.assertEqual(_cdc.launcher([]), 0)
+                entry.assert_called_once_with(['--port', 'COM6', '--mode', mode, '--bench-repeat', repeat,
+                                               '--bench-receive-mode', 'deferred' if selection in ('4', '5') else 'inline'])
+        serial.Serial.assert_not_called()
+
+    def test_file_mode_uses_shared_receiver(self):
+        module = types.SimpleNamespace(main=mock.Mock(return_value=2))
+        spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=mock.Mock()))
+        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
+                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module), \
+                mock.patch.object(_cdc, 'Station', side_effect=AssertionError('must not enter DUT')):
+            result = _cdc.main(['--port', 'COM6', '--mode', 'file-bench', '--bench-block', '8192',
+                                '--bench-repeat', '10', '--report', 'bench.json', '--bench-receive-mode', 'deferred'])
+        self.assertEqual(result, 1)
+        module.main.assert_called_once_with(['--port', 'COM6', '--report', 'bench.json', 'bench',
+                                             '--size', '10000000', '--block', '8192', '--repeat', '10',
+                                             '--receive-mode', 'deferred'])
+        module.main.reset_mock(return_value=True)
+        module.main.return_value = 0
+        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
+                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module):
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-cancel']), 0)
+        self.assertEqual(module.main.call_args.args[0][-2:], ['--cancel-after', '1048576'])
+
+    def test_missing_file_module_is_optional(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(_cdc, '__file__', str(Path(directory) / 'CDC-test.bat')), \
+                mock.patch.object(_cdc.importlib.util, 'spec_from_file_location') as loader:
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-bench']), 2)
+            loader.assert_not_called()
+
     def station(self, replies, **kwargs):
         port = Port(replies)
         return Station(port, {'steps': []}, **kwargs)

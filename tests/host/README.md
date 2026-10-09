@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and nine C behavioral harnesses
-as **13 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and ten behavioral suites
+as **14 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -32,6 +32,13 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
+
+The development CDC suite, test_cdc_file.py, runs the actual C memory-source
+producer, common parser and transport queue, plus the Python receiver. It covers
+golden CRC/frame vectors, 1/2/4/8 KB blocks, partial-frame cancellation, stale
+sessions, TX-full control reception, coalesced wakeups and bounded output.
+It does not establish physical USB timing, storage throughput or 600 KB/s.
+See docs/10-4.CDC通用文件传输业务方案.md for the Stage A build and board procedure.
 
 ## Keeping the suite small
 
@@ -100,3 +107,11 @@ Power recovery executes the real DIP implementation with mocked pins and indepen
 BLE 连续下载、会议单声道及 RAW 回放特性已实板验收并收敛，对应的行为套件（`test_ble_download.py`、`test_meeting_mono.py`）及 `test_rdx_keymap_contract.ps1` 静态令牌检查已移除；下载策略结论见提交 366ce688，keymap 在线事务回归由 `test_keymap_factory_reset.py` 与实板验收覆盖。
 
 CDC 主机检查已收敛到正式配置（TEST=0、LOG_LEVEL=1）：保留生命周期、传输/背压/旧会话隔离、驱动边界、协议分帧/身份及终端主流程；不再运行配置组合矩阵、历史 TEST=1 图样或日志统计内部细节。配置可编译性通过正常固件构建验证，未覆盖的宏组合需另行验证。
+
+CDC 通用文件传输发送调度专项测试另覆盖空闲入队唤醒、在途入队不重复投递、半深度低水位边沿通知/重新武装、尾包排空补货、满 TX 时接收取消、投递失败定时补偿及会话重置清理。使用真实传输 C 源码与模拟端点，不能据此认定硬件吞吐提升或真实中断时序通过。
+
+第二轮专项覆盖文件流 IN IRQ 单包续传、忙端点保护、字节顺序/完成计数、文本 ZLP 边界、任务内补货与 RX、复位/关闭/关机撤销、超时及丢通知补偿；另执行真实 cdc_tx_wakeup 和驱动提交函数，验证中断屏蔽与重新使能。实板需核对 irq_fast、吞吐及取消/拔插/OFF，不能用模拟测试替代。
+
+第四次合包无明显吞吐收益，已撤回合包及专属测试。保留 IN IRQ 续发、逐队列项短包边界、字节顺序、完成统计、拒绝提交不消费及 stream/ZLP 回归。DATA、END、ERROR 均使用流发送接口。保留坏帧头有界证据测试，不据此宣称历史 invalid binary header 已修复。
+
+瓶颈诊断回归新增 deferred 接收后完整校验：多块/分片、完整性、帧 CRC、模式、END 文件 CRC、错误帧/ID/长度、截断及取消互斥；工站路由覆盖菜单 4/5 与参数透传。真实传输 C harness 运行统计关闭、仅统计、统计与计时三种配置，并补测 LOG_LEVEL=0 的全关及统计/计时组合；关闭统计仍执行相同传输安全断言，开启时另验证计数及耗时累加，不验证硬件计时精度、总线间隔或实板吞吐。

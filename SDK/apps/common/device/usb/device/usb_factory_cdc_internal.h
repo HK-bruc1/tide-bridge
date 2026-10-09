@@ -3,7 +3,11 @@
 #include "usb/device/usb_factory_cdc.h"
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
 struct usb_device_t;
+#if TCFG_T2620_CDC_FILE_ENABLE
+#define FACTORY_CDC_TX_DEPTH 32
+#else
 #define FACTORY_CDC_TX_DEPTH 4
+#endif
 #define FACTORY_CDC_PACKET 64
 #define FACTORY_CDC_TIMEOUT_MS 2000
 enum factory_cdc_reason {
@@ -15,6 +19,9 @@ enum factory_cdc_reason {
 void factory_cdc_invalidate(enum factory_cdc_reason reason);
 void factory_cdc_open(void);
 void factory_cdc_rx_irq(void);
+#if TCFG_T2620_CDC_FILE_ENABLE
+void factory_cdc_tx_irq(void);
+#endif
 /* usb_stack lifecycle and work dispatch only. */
 int factory_cdc_start(void);
 void factory_cdc_quiesce(void);
@@ -22,7 +29,7 @@ void factory_cdc_stop(void);
 void factory_cdc_process(void);
 int factory_cdc_needs_restart(void);
 
-/* Driver primitives: usb_stack only, under local IRQ exclusion. Never wait.
+/* Driver primitives: usb_stack or file stream IN IRQ, under local IRQ exclusion. Never wait.
  * read consumes at most one packet into a 64-byte buffer; write returns
  * -1 when busy, otherwise exact accepted length (including a ZLP's 0). */
 int cdc_factory_read_packet(u8 *bytes);

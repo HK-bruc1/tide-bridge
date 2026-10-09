@@ -1,18 +1,20 @@
 @echo off & setlocal EnableDelayedExpansion & title T2620 CDC Test & chcp 65001 >nul & (py -3 -c "import sys" >nul 2>nul && set "PY=py -3") || (python -c "import sys" >nul 2>nul && set "PY=python") || (echo [X] 未找到 Python 3，请先安装 Python 并勾选 Add Python to PATH。 & echo. & pause & exit /b 1) & !PY! -X utf8 -x "%~f0" %* & echo. & pause & exit /b
 """T2620 CDC 产测工具（单文件版）。
 
-本文件是启动批处理 + 完整产测脚本的合体，也是产测工具的唯一源码：
-发给工站电脑只需要这一个文件。安装 Python 3（勾选 Add Python to PATH）
+本文件包含完整产测脚本，普通产测和包装发给工站电脑只需要这一个文件。
+开发文件测速另需同目录下的 tools/cdc_file_transfer.py，复用其二进制接收器。
+安装 Python 3（勾选 Add Python to PATH）
 后双击即可；首次运行会自动联网安装 pyserial 与 imageio-ffmpeg。报告保存
 在本文件同目录的 output/factory-cdc-reports/ 下。
 
 命令行方式（可选）：
     python -X utf8 -x CDC-test.bat --list-ports
     python -X utf8 -x CDC-test.bat --port COM6 --mode controls
-支持 --mode foundation/controls/packaging/full、--expect-addr、--expect-fw、
+支持 --mode foundation/controls/packaging/full/file-bench/file-cancel、--expect-addr、--expect-fw、
 --key-timeout、--report。tests/board/ 仅保留 TEST=1 的 factory_cdc_bytes.py。
 """
 import argparse
+import importlib.util
 from datetime import datetime, timezone
 import json
 import os
@@ -291,12 +293,43 @@ class Station:
         print('设备保持包装结束状态，请拨码 OFF 关机；本轮不自动退出 DUT。', flush=True)
 
 
+def file_transfer_test(args):
+    module_path = Path(__file__).resolve().parent / 'tools/cdc_file_transfer.py'
+    if not module_path.is_file():
+        print('缺少 tools/cdc_file_transfer.py，请保留仓库目录结构；原普通产测和包装不依赖此文件。')
+        return 2
+    spec = importlib.util.spec_from_file_location('cdc_file_transfer', module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    path = args.report or Path(__file__).resolve().parent / 'output/cdc-file-reports' / (
+        datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + args.mode + '.json')
+    print('\nCDC 文件传输链路验证：10 MB 内存模式，校验数据和 CRC，不读取真实录音。')
+    print('需要已启用 TCFG_T2620_CDC_FILE_ENABLE=1 的固件；保持正常 ON，不进入 DUT。')
+    print('这是链路实验，不代表真实录音文件业务已经达到 600 KB/s。')
+    arguments = ['--port', args.port, '--report', str(path), 'bench', '--size', '10000000',
+                 '--block', str(args.bench_block), '--repeat', str(args.bench_repeat),
+                 '--receive-mode', args.bench_receive_mode]
+    if args.mode == 'file-cancel':
+        arguments += ['--cancel-after', '1048576']
+    result = module.main(arguments)
+    message = ('取消实验完成，终止帧已验证' if args.mode == 'file-cancel' else
+               '本轮所有内存源测速达到 600 KB/s（不代表真实文件验收通过）') if result == 0 else (
+               '数据传输完整，但至少一轮未达到 600 KB/s' if result == 2 else
+               '实验未完成，请检查开发固件、CDC 端口及报告；不会自动重试')
+    print(f'\n{message}\n报告路径：{path.resolve()}（仅成功创建时写入）')
+    return 0 if result == 0 else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='T2620 CDC 终端测试（不等同整机产测验收）')
     parser.add_argument('--list-ports', action='store_true', help='列举串口，不打开设备')
     parser.add_argument('--port', help='例如 COM6')
-    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full'), default='full',
-                        help='foundation=基础；controls=普通测试；packaging=包装测试；full=普通测试含录音及文件下载')
+    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full', 'file-bench', 'file-cancel'), default='full',
+                        help='foundation=基础；controls=控制；packaging=包装；full=完整普通测试；file-bench=开发链路测速；file-cancel=开发取消测试')
+    parser.add_argument('--bench-block', type=int, choices=(1024, 2048, 4096, 8192), default=4096)
+    parser.add_argument('--bench-repeat', type=int, default=1, help='开发测速轮数，1~100')
+    parser.add_argument('--bench-receive-mode', choices=('inline', 'deferred'), default='inline',
+                        help='inline=边收边校验；deferred=先接收后完整校验（不支持取消）')
     parser.add_argument('--expect-addr', type=str.upper, help='烧录记录的 12 位 BLE 地址')
     parser.add_argument('--expect-fw', help='预期产品版本')
     parser.add_argument('--key-timeout', type=int, default=30, help='五键测试等待秒数，1~300')
@@ -308,6 +341,12 @@ def main(argv=None):
         parser.error('--key-timeout 必须为 1~300')
     if not args.list_ports and not args.port:
         parser.error('请指定 --port COMx 或 --list-ports')
+    if not 1 <= args.bench_repeat <= 100:
+        parser.error('--bench-repeat 必须为 1~100')
+    if args.mode in ('file-bench', 'file-cancel') and not args.list_ports:
+        if args.expect_addr or args.expect_fw:
+            parser.error('开发测速不核验身份，请先单独运行 --mode foundation')
+        return file_transfer_test(args)
     try:
         import serial
         from serial.tools import list_ports
@@ -717,6 +756,7 @@ def launcher(argv=None):
     root = Path(__file__).resolve().parent
     os.chdir(root)
     mode = 'full'
+    extra = []
     if argv:
         # Degrades to 'full' (both dependencies) on unparsed input; argparse still validates.
         if '--mode' in argv:
@@ -724,23 +764,38 @@ def launcher(argv=None):
             mode = argv[index + 1] if index + 1 < len(argv) else mode
     else:
         print('T2620 CDC 产测\n请拨码 ON、插好 USB 数据线，并关闭占用串口的其他工具。\n')
-        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）')
+        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 文件传输测速（内存源基准，不是录音下载）')
         while True:
             choice = input('选择测试，回车选 1，q 退出：').strip().lower()
             if choice == 'q':
                 return 0
-            if choice in ('', '1', '2'):
-                mode = 'packaging' if choice == '2' else 'full'
+            if choice in ('', '1', '2', '3'):
+                mode = {'2': 'packaging', '3': 'file-bench'}.get(choice, 'full')
                 break
-            print('请输入 1 或 2。')
+            print('请输入 1、2 或 3。')
+        if mode == 'file-bench':
+            print('\n1. 快速测速：10 MB × 1 次，4 KB 块\n2. 稳定性测速：10 MB × 10 次，4 KB 块\n3. 取消测试：收到约 1 MiB 后请求取消')
+            print('4. 接收后校验对照：10 MB × 1 次，4 KB 块\n5. 接收后校验对照：10 MB × 10 次，4 KB 块')
+            while True:
+                choice = input('选择实验，回车选 1，q 退出：').strip().lower()
+                if choice == 'q':
+                    return 0
+                if choice in ('', '1', '2', '3', '4', '5'):
+                    mode = 'file-cancel' if choice == '3' else 'file-bench'
+                    extra = ['--bench-repeat', '10' if choice in ('2', '5') else '1',
+                             '--bench-receive-mode', 'deferred' if choice in ('4', '5') else 'inline']
+                    break
+                print('请输入 1、2、3、4 或 5。')
     try:
         import serial.tools.list_ports
         if mode == 'full':
             import imageio_ffmpeg
     except ImportError:
-        print('首次运行：正在安装串口与音频解码依赖，需要联网……')
-        result = subprocess.run([sys.executable, '-m', 'pip', 'install',
-                                 'pyserial>=3.5,<4', 'imageio-ffmpeg==0.6.0'])
+        print('首次运行：正在安装当前模式所需依赖，需要联网……')
+        packages = ['pyserial>=3.5,<4']
+        if mode == 'full':
+            packages.append('imageio-ffmpeg==0.6.0')
+        result = subprocess.run([sys.executable, '-m', 'pip', 'install'] + packages)
         if result.returncode:
             print('依赖安装失败，请检查网络和 Python pip 后重试。')
             return 2
@@ -768,7 +823,7 @@ def launcher(argv=None):
         if re.fullmatch(r'COM[1-9][0-9]*', value):
             break
         print('请输入数字或 COM 加数字。')
-    return main(['--port', value, '--mode', mode])
+    return main(['--port', value, '--mode', mode] + extra)
 
 
 if __name__ == '__main__':

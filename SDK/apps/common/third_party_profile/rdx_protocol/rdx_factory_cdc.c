@@ -6,6 +6,7 @@
 #include "rdx_app_config.h"
 #include "rdx_dut.h"
 #include "rdx_factory_audio.h"
+#include "rdx_cdc_file.h"
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
 extern char *rdx_ble_server_get_local_name(void);
@@ -14,7 +15,7 @@ extern int le_controller_get_mac(u8 *addr);
 /* usb_stack only copies whole packets. app_core owns framing and responses.
  * Four 64-byte packets (288 bytes including metadata), a 129-byte line and
  * one 258-byte response: bounded independently of the host's input rate.
- * The periodic app_core timer is also the wakeup; no per-packet task messages. */
+ * File streaming adds coalesced app_core wakeups; the timer is fallback. */
 #define FACTORY_RX_DEPTH 4
 #define FACTORY_RX_PACKET 64
 #define FACTORY_LINE_MAX 128
@@ -33,6 +34,34 @@ static struct {
     char line[FACTORY_LINE_MAX + 1];
     char response[FACTORY_CDC_TX_MAX];
 } factory_protocol;
+
+#if TCFG_T2620_CDC_FILE_ENABLE
+static u8 factory_event_posted;
+static void factory_service(void *priv);
+static void factory_event(void *priv)
+{
+    local_irq_disable();
+    factory_event_posted = 0;
+    local_irq_enable();
+    factory_service(NULL);
+}
+
+static void factory_wake(void)
+{
+    int message[] = { (int)factory_event, 1, 0 };
+    local_irq_disable();
+    if (!factory_event_posted) {
+        factory_event_posted = 1;
+        if (os_taskq_post_type("app_core", Q_CALLBACK, 3, message)) factory_event_posted = 0;
+    }
+    local_irq_enable();
+}
+
+static void factory_tx_wake(void)
+{
+    if (rdx_cdc_file_active()) factory_wake();
+}
+#endif
 
 static int factory_receive(u32 generation, const u8 *bytes, u32 length)
 {
@@ -57,6 +86,9 @@ static int factory_receive(u32 generation, const u8 *bytes, u32 length)
     memcpy(packet->bytes, bytes, length);
     ++factory_count;
     local_irq_enable();
+#if TCFG_T2620_CDC_FILE_ENABLE
+    factory_wake();
+#endif
     return 0;
 }
 
@@ -167,6 +199,15 @@ static void factory_dispatch(void)
         printf("[CDC_RX] %s\n", line);
     }
 #endif
+#if TCFG_T2620_CDC_FILE_ENABLE
+    if (rdx_cdc_file_command(factory_protocol.generation, line, factory_protocol.error,
+                             factory_protocol.response, sizeof(factory_protocol.response))) {
+        factory_protocol.response_length = strlen(factory_protocol.response);
+        factory_protocol.response_since = sys_timer_get_ms();
+        factory_protocol.length = factory_protocol.cr = factory_protocol.error = 0;
+        return;
+    }
+#endif
     /* Keywords and action names are case insensitive; values stay strict. */
     for (u16 i = 0; i < factory_protocol.length; ++i) {
         if (line[i] >= 'a' && line[i] <= 'z') line[i] -= 'a' - 'A';
@@ -218,6 +259,9 @@ static void factory_service(void *priv)
         factory_protocol.cr = factory_protocol.error = 0;
     }
     rdx_factory_audio_service(generation);
+#if TCFG_T2620_CDC_FILE_ENABLE
+    rdx_cdc_file_session(generation);
+#endif
     if (!generation) return;
     while (bytes < 256 && responses < 4) {
         if (factory_cdc_generation() != generation) return;
@@ -236,6 +280,15 @@ static void factory_service(void *priv)
         } else {
             u8 byte;
             if (!factory_pop_byte(generation, &byte)) {
+#if TCFG_T2620_CDC_FILE_ENABLE
+                rdx_cdc_file_service(generation);
+                if (rdx_cdc_file_reply(factory_protocol.response, sizeof(factory_protocol.response))) {
+                    factory_protocol.response_length = strlen(factory_protocol.response);
+                    factory_protocol.response_since = sys_timer_get_ms();
+                    continue;
+                }
+                if (rdx_cdc_file_active()) return;
+#endif
                 rdx_factory_audio_send(generation);
                 return;
             }
@@ -243,6 +296,15 @@ static void factory_service(void *priv)
             factory_byte(byte);
         }
     }
+#if TCFG_T2620_CDC_FILE_ENABLE
+    if (!factory_protocol.response_length) {
+        rdx_cdc_file_service(generation);
+        if (rdx_cdc_file_reply(factory_protocol.response, sizeof(factory_protocol.response))) {
+            factory_protocol.response_length = strlen(factory_protocol.response);
+            factory_protocol.response_since = sys_timer_get_ms();
+        }
+    }
+#endif
 }
 
 void rdx_factory_cdc_init(void)
@@ -252,5 +314,8 @@ void rdx_factory_cdc_init(void)
     }
     /* Timer allocation failure leaves RX backpressured with no consumer. */
     if (factory_protocol.timer) factory_cdc_set_rx_handler(factory_receive);
+#if TCFG_T2620_CDC_FILE_ENABLE
+    if (factory_protocol.timer) factory_cdc_set_tx_handler(factory_tx_wake);
+#endif
 }
 #endif

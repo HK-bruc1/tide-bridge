@@ -1,8 +1,16 @@
 # CDC 终端产测工具
 
-工具源码只有仓库根目录的一个文件：**CDC-test.bat**（批处理引导 + 全部产测 Python 代码内嵌，`tests/host` 的测试也直接从它加载）。最简单的方式是双击运行：先选择 1 普通测试或 2 包装测试，再输入串口号（例如 `6` 或 `COM6`）。两个流程都先显示完整基础信息。普通测试核对后回车开始灯、喇叭、五键、录音及文件下载测试。结束后窗口保留，报告自动保存。需要已安装 Python 3；首次运行会自动联网安装 pyserial 和 imageio-ffmpeg（包含音频解码程序）。
+## CDC 吞吐瓶颈对照（开发实验）
 
-把 CDC-test.bat 单独复制/发送给工站电脑即可使用，不需要仓库里的其他文件；报告保存在该文件同目录的 `output/factory-cdc-reports/` 下。
+菜单 3 的选项 1/2 保留边收边校验的单轮/十轮，3 保留取消；新增 4/5 为接收后完整校验的单轮/十轮。固定 10 MB、4 KB 块和 USB 环境，先跑 1→4→1，再跑 2/5。两种模式均要求完整 CRC/模式/END 校验，后置校验不支持取消。命令行可用 `python -X utf8 -x CDC-test.bat --port COM6 --mode file-bench --bench-receive-mode deferred --bench-repeat 10`。
+
+JSON 中 KBps 始终包含完整校验；deferred 另报 receive_KBps、receive_elapsed_s、verification_s，接收阶段数字不是新的验收口径。固件默认关闭 TX 统计与抽样；诊断时同时设置 TCFG_T2620_CDC_TX_STATS_ENABLE=1 与 TCFG_T2620_CDC_TX_TIMING_ENABLE=1 并 clean + all。每约 64 次 IRQ 续交采样一次，在任务中每秒输出 CDC_TX_TIME；关注 samples、submit_us_sum / samples、submit_us_max、clock_invalid，并同时保存 CDC_TX。计时不覆盖中断响应延迟或总线包间隔。需关闭探针对照时，将 TCFG_T2620_CDC_TX_TIMING_ENABLE 设为 0 并 clean + all。完整范围及局限见 docs/10-4 第 11.10 节。
+
+## 原有产测入口
+
+统一入口是仓库根目录 **CDC-test.bat**（批处理引导 + 全部产测 Python 代码内嵌，`tests/host` 直接加载测试）。双击后选择 1 普通测试、2 包装测试或 3 CDC 文件传输测速，再输入串口号（例如 `6` 或 `COM6`）。菜单 1/2 先显示基础信息；普通测试核对后开始灯、喇叭、五键、录音及文件下载。菜单 3 为独立开发链路实验，不进入 DUT。需要 Python 3；首次运行自动安装当前模式所需依赖，只有完整普通测试需要 imageio-ffmpeg。
+
+普通产测/包装只需分发 CDC-test.bat，报告在同目录 `output/factory-cdc-reports/`。开发测速还需保留 `tools/cdc_file_transfer.py` 相对路径，复用同一个二进制接收器，报告在 `output/cdc-file-reports/`。缺少该模块只会阻止菜单 3，不影响菜单 1/2。
 
 当前工具的 DUT 控制请求使用 `*APP#custom#<命令>#<值>#` 并追加 CRLF，需配套支持此格式的固件；不会向旧固件自动降级或重发。新固件不再兼容旧 `DUT <命令> <值>` 工站请求，旧格式返回 `ERR CMD`。录音请求与状态 `LAST_CMD` 均统一为 `ft_rec_chat`，旧别名 `ft_rec` 返回 `ERR CMD`；按键布局只接受 `*APP#custom#ft_key_layout#`，显式参数返回 `ERR ARG`。固件与脚本必须配套升级；其余查询、响应及录音/文件传输扩展格式保持不变。
 
@@ -38,6 +46,24 @@ python -X utf8 -x CDC-test.bat --port COM6 --mode controls
 只读排查使用 `--mode foundation`（原独立脚本 `factory_cdc_protocol.py` 已并入单文件工具后移除）。`factory_cdc_bytes.py` 仅用于 TEST=1 的历史字节层测试，不用于正式协议固件。
 
 当前默认构建已开启 CDC=1、TEST=0、LOG_LEVEL=1；直接使用 SDK 的 VS Code all 任务即可，无需额外宏覆盖。支持基础信息、普通控制、CDC 录音及文件下载、包装结束；独立格式化仍未开放。请使用包含对应功能的固件；普通主流程及独立包装均已有实板通过记录。
+
+## CDC 文件传输链路测速（内存源基准）
+
+当前项目在 t2620_project_config.h 中统一开启 TCFG_T2620_CDC_FILE_ENABLE=1，直接使用 SDK 的 VS Code clean → all，无需临时编译参数。烧录后保持正常 ON，连接 USB 数据线并关闭占用 CDC 口的其他工具。该开关控制通用文件传输基础设施，不是临时 MVP 开关；当前仅支持内存源，真实录音 GET 尚未实现，量产开放策略另行验收。切换配置必须 clean + all。当前构建方式见 docs/10-4.CDC通用文件传输业务方案.md 第 11.2 节。
+
+双击 CDC-test.bat → 菜单 3 → 子菜单 1（单轮 10 MB）→ 输入 CDC 端口。首次先跑单轮，再运行子菜单 2（十轮）和 3（取消）。无需先录音，也不进行格式化、包装或 DUT 动作；应避免 BLE/实体键同时启动产测。
+
+默认 4096 字节块，检查模式数据、逐帧 CRC 和整流 CRC，目标为 600,000 有效字节/秒。终端显示每轮速度及结论，JSON 自动保存到 output/cdc-file-reports/，已有报告不会覆盖。取消测试在收到约 1 MiB 后发送 CANCEL；失败不自动重发或猜测恢复。
+
+命令行可使用 --mode file-bench、--bench-repeat 10、--bench-block 1024/2048/4096/8192，或 --mode file-cancel。通过独立工具 tools/cdc_file_transfer.py 还可选择落盘和填写 USB 环境信息。该菜单退出码为 0=实验通过、1=未达速率/运行失败、2=准备条件不足。
+
+注意：当前测的是内存源链路，不是真实历史录音下载；即使测速通过，也不代表通用文件业务验收通过。请回传 JSON 及对应控制日志再评估下一阶段。
+
+当前复测基线保留第二次调试的空闲唤醒、低水位边沿补充及诊断，以及第三次 IN IRQ 有界续包；第二次无明显提速不表示它在 IRQ 方案中可直接删除。[CDC_TX] 的 irq_fast 为中断成功续交包数，bytes/packets 只计硬件完成，dispatch 为任务处理次数。快速路径计数增加不等于吞吐达标；保留边界与测试对应关系见 10-4 第 11.9 节。
+
+第四次合包单轮实测 724.53 KB/s，相比第三次单轮 724.04 KB/s 无明显收益，已撤回合包与 stream_join/stream_short 计数；保留 IN IRQ 续发和异常帧头诊断。清理版本仍需烧录后复测：保持 10,000,000 字节、4096 字节块及相同环境，进行十轮、取消及故障回归，以第三次十轮均值 718.65 KB/s 为参考，不将历史结果当作清理版本验收。若再次出现 invalid binary header，保留 JSON 原始头/期望偏移及同次固件日志。详见 10-4 第 11.8 节。
+
+原始约 450 KB/s 仅作历史参考，当前复测重点是清理版本是否保留第三次约 700+ KB/s 的成果，不能仅以超过 600 KB/s 宣称无退化。请提供十轮均值/最低值、完整校验结果、取消结果、对应 [CDC_TX] 日志与 JSON，并补记固件构建身份。日志 bytes 包含协议开销，drained 包含正常结束排空，不应分别当作有效文件吞吐或必然断粮；停读、拔插、DIP OFF 和 BLE/HOGP 共存需另行回归。
 
 ## 包装测试
 
