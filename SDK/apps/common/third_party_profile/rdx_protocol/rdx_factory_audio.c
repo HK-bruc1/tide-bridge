@@ -1,4 +1,5 @@
 #include "rdx_factory_audio.h"
+#include "rdx_cdc_source.h"
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
 #include "system/includes.h"
 #include "usb/device/usb_factory_cdc.h"
@@ -204,6 +205,7 @@ static int file_shutdown_wait(u32 since)
 
 int rdx_factory_audio_shutdown(void)
 {
+    if (rdx_cdc_source_shutdown()) return -1;
     /* Caller has already joined the recorder task; no producer remains.
      * Failure retains the lease. Caller must reset instead of powering SD off. */
     audio.negotiated = audio.timed = 0;

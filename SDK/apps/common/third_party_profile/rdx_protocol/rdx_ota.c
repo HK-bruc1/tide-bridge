@@ -37,6 +37,7 @@
 #include "circular_buf.h"
 
 #include "rdx_ota.h"
+#include "rdx_record_format.h"
 #include "os/os_type.h"
 #include "os/os_api.h"
 #include "dual_bank_updata_api.h"
@@ -914,12 +915,20 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 	switch (type){
 		case OTA_UPGRADE_BEGIN:
 			{
+                if (rdx_record_format_io_enter()) {
+                    rdx_record_format_download_conflict("OTA_BEGIN");
+                    static const u8 rejected[] = CMD_UP_UPGRADE "1#";
+                    rdx_ble_server_ota_send((u8 *)rejected, sizeof(rejected) - 1);
+                    break;
+                }
                 if (!rdx_ota_session_bind_current()) {
                     y_printf("[RDX_OTA] drop begin without RDX owner\r");
+                    rdx_record_format_io_leave();
                     break;
                 }
                 rdx_ota_get_data_timer_start();
 				rdx_ota_upgrade_cmd_handler(recv_data, recv_len);
+                rdx_record_format_io_leave();
 			}
 			break;
 

@@ -9,6 +9,16 @@ int rdx_record_format_boot(void);
 int rdx_record_format_status(void);
 /* 文件工作任务负责恢复与缓存交接：1 准备中，0 就绪，-1 失败。 */
 int rdx_record_format_service_status(void);
+int rdx_record_format_io_enter(void);
+void rdx_record_format_command_enter(void);
+void rdx_record_format_io_leave(void);
+int rdx_record_format_download_acquire(void);
+void rdx_record_format_download_release(void);
+int rdx_record_format_download_busy(void);
+int rdx_record_format_download_conflict(const char *operation);
+int rdx_record_format_protocol_busy(void);
+int rdx_record_format_download_open(u32 sn, const char *name, void **handle, u32 *size);
+int rdx_record_format_download_list_open(void **handle, u32 *size);
 void rdx_record_format_service_ready(int result);
 /* 参数或身份拒绝与存储失败分开，拒绝请求不应关闭健康的文件服务。 */
 #define RDX_RECORD_DELETE_REJECTED (-2)

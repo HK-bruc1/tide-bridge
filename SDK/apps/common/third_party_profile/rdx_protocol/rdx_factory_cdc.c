@@ -61,6 +61,11 @@ static void factory_tx_wake(void)
 {
     if (rdx_cdc_file_active()) factory_wake();
 }
+
+void rdx_factory_cdc_wake(void)
+{
+    factory_wake();
+}
 #endif
 
 static int factory_receive(u32 generation, const u8 *bytes, u32 length)

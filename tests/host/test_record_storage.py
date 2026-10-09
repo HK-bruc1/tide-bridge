@@ -188,6 +188,10 @@ def check_reconnect():
     app = (base / 'rdx_app.c').read_text(encoding='utf-8')
     source = r'''
 static int cdc_file_busy;
+static int cdc_download_busy;
+int rdx_record_format_download_busy(void) { return cdc_download_busy; }
+int rdx_record_format_download_conflict(const char *operation) { return cdc_download_busy; }
+int rdx_record_format_service_status(void) { return cdc_download_busy; }
 int rdx_factory_audio_file_busy(void) { return cdc_file_busy; }
 void rdx_factory_audio_frame(const void *d, unsigned n) {}
 
@@ -234,15 +238,15 @@ BleBulkSendData *rdx_protocol_get_bulk_send_data(void) { return &bulk; }
 int rdx_is_file_transfer_active(void) { return transfer; }
 int rdx_is_file_sync_busy(void) { return sync_busy; }
 u8 rdx_uxfile_is_datFileInfo_loading(void) { return loading; }
-u8 rdx_uxfile_is_scan_active(void) { return scan; }
+u8 rdx_uxfile_is_index_active(void) { return scan; }
 u8 rdx_uxfile_is_formatting(void) { return format; }
 int rdx_uxfile_sd_format_status_check(void) { return format; }
 int get_ota_status(void) { return ota; }
 '''
     source += function(record, 'rdx_record_transport_is_detached')
     source += function(record, 'rdx_record_on_ble_conn_changed')
-    for name in ['rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
-                 'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
+    for name in ['rdx_app_storage_activity_check', 'rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
+                 'rdx_app_cdc_file_conflict', 'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
         source += function(app, name)
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
@@ -276,10 +280,10 @@ int test_reconnect(void) {
         record_status.stream_discont=0;
         CHECK(!rdx_app_rdx_rebind_is_idle());
         record_status.stream_discont=1;
-        int *busy_flags[]={&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
+        int *busy_flags[]={&cdc_download_busy,&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
             &info.file_send_busy,&send.send_pending,&send.bulk_sending,
             &bulk.busy,&bulk.bulk_flag};
-        for (int i=0; i<12; ++i) {
+        for (int i=0; i<13; ++i) {
             *busy_flags[i]=1;
             CHECK(!rdx_app_rdx_rebind_is_idle());
             *busy_flags[i]=0;
@@ -292,6 +296,11 @@ int test_reconnect(void) {
     playback_state=PB_STATE_PAUSED;
     CHECK(rdx_pc_storage_is_busy()); /* MSC admission remains strict. */
     CHECK(!rdx_app_factory_file_is_busy());
+    cdc_download_busy=1;
+    CHECK(rdx_app_factory_file_is_busy() && !rdx_app_cdc_file_conflict());
+    scan=1; CHECK(rdx_app_cdc_file_conflict()); scan=0;
+    transfer=1; CHECK(rdx_app_cdc_file_conflict()); transfer=0;
+    cdc_download_busy=0;
     int *file_flags[]={&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
         &info.file_send_busy,&cdc_file_busy};
     for (int i=0;i<9;++i) {

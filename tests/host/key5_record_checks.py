@@ -55,6 +55,7 @@ static void rdx_led_ctrl_show_battery(void) { ++battery_queries; }
 static RecordStatus *rdx_record_get_status(void) { return &status; }
 static int rdx_record_binding_allowed(void) { return bound; }
 static int rdx_storage_lifecycle_business_blocked(void) { return blocked; }
+static int rdx_record_format_download_conflict(const char *operation) { return blocked; }
 static int rdx_record_process_is_busy_check(void) { return status.process_state==REC_PROCESS_STATE_BUSY; }
 static int rdx_ble_server_has_active_link(void) { return connected; }
 static u16 rdx_ble_server_get_conn_handle(void) { return connected?1:0xffff; }

@@ -427,7 +427,7 @@ void rdx_app_set_power_ready_flag(void)
 
 #define RDX_STORAGE_PLAYBACK_PREEMPT  2
 
-static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
+static u8 rdx_app_storage_activity_check(const char *log_tag,
                                            u8 allow_paused_playback,
                                            u8 allow_detached_recording)
 {
@@ -461,7 +461,7 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
 #endif
 
     extern u8 rdx_uxfile_is_datFileInfo_loading(void);
-    extern u8 rdx_uxfile_is_scan_active(void);
+    extern u8 rdx_uxfile_is_index_active(void);
     extern u8 rdx_uxfile_is_formatting(void);
 
     ReqFileInfo *file_info = rdx_protocol_get_uploadfileInfo();
@@ -472,7 +472,7 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
         return true;
     }
     if (rdx_uxfile_is_datFileInfo_loading() ||
-        rdx_uxfile_is_scan_active()) {
+        rdx_uxfile_is_index_active()) {
         r_printf("[%s] busy: file index operation\n", log_tag);
         return true;
     }
@@ -496,6 +496,21 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
 }
 
 /* Paused playback has closed its track; CDC reads do not export the volume. */
+static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
+                                          u8 allow_paused_playback,
+                                          u8 allow_detached_recording)
+{
+    return rdx_record_format_download_conflict(log_tag) ||
+           rdx_record_format_service_status() > 0 ||
+           rdx_app_storage_activity_check(log_tag, allow_paused_playback,
+                                          allow_detached_recording);
+}
+
+u8 rdx_app_cdc_file_conflict(void)
+{
+    return rdx_app_storage_activity_check("CDC-FILE", 1, 0);
+}
+
 u8 rdx_app_factory_file_is_busy(void)
 {
     return rdx_app_storage_activity_is_busy("CDC-FILE", 1, 0);
@@ -1964,6 +1979,7 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
 {
     if (run == RECORD_STATE_START &&
         (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked())) {
+        rdx_record_format_download_conflict("RECORD_KEY");
         return -1;
     }
     if (run == RECORD_STATE_START && rdx_record_process_is_busy_check()) {
@@ -4000,7 +4016,8 @@ static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
         free(token);
         return;
     }
-    if (rdx_factory_audio_file_busy() || rdx_factory_audio_owned()) ret = -1;
+    if (rdx_record_format_download_conflict("RESET") ||
+        rdx_factory_audio_file_busy() || rdx_factory_audio_owned()) ret = -1;
     else ret = rdx_vm_reset_defaults_no_poweroff();
     if (rdx_ble_session_rdx_token_resolve(token, 1) && g_protocol_ops) {
         g_protocol_ops->sys_set_default_ack_indicate(ret ? 1 : 0);

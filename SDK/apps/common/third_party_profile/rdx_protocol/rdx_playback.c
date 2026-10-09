@@ -8,6 +8,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
+#include "rdx_record_format.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
 #include "rdx_uxfile.h"
@@ -461,6 +462,7 @@ static bool pb_schedule_pump(u32 delay_ms)
 bool rdx_playback_can_start(void)
 {
     if (rdx_storage_lifecycle_business_blocked()) {
+        rdx_record_format_download_conflict("PLAYBACK");
         return false;
     }
     RecordStatus *rp = rdx_record_get_status();

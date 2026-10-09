@@ -17,6 +17,10 @@ typedef unsigned int u32;
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define SEEK_SET 0
 static int factory_busy;
+void local_irq_disable(void) {}
+void local_irq_enable(void) {}
+static int snapshot_result, snapshot_calls;
+int rdx_uxfile_download_snapshot(void) { ++snapshot_calls; return snapshot_result; }
 int rdx_factory_audio_file_busy(void) { return factory_busy; }
 u32 rdx_factory_audio_crc(u32 crc, const u8 *data, u32 length);
 typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,orig_pack_num; int loading; } uxfile_datfile_info_t;
@@ -27,7 +31,8 @@ typedef struct { u32 sn; char filename[64]; u8 record_scene; u32 start_time, fra
 typedef struct { char name[80]; u8 data[65536]; u32 size, pos; int present, opened; } mock_file;
 static mock_file files[640];
 static int fail_delete;
-static int fail_write, fail_flush, fail_close, fail_truncate, fail_read, handles;
+static int fail_write, fail_flush, fail_close, fail_truncate, fail_read, fail_seek, handles;
+static u32 read_bytes;
 static const char *fail_path;
 static int writes;
 static int fail_alloc;
@@ -60,7 +65,7 @@ int mock_read(void *buf,u32 size,u32 count,FILE *f) {
     u32 n=size*count;
     if (fail_read) return 0;
     if(n>f->size-f->pos) n=f->size-f->pos;
-    memcpy(buf,f->data+f->pos,n); f->pos+=n; return n;
+    memcpy(buf,f->data+f->pos,n); f->pos+=n; read_bytes+=n; return n;
 }
 int mock_write(void *buf,u32 size,u32 count,FILE *f) {
     u32 n=size*count; ++writes;
@@ -72,7 +77,7 @@ int mock_write(void *buf,u32 size,u32 count,FILE *f) {
 }
 int fget_name(FILE *f,u8 *buf,int len) { const char *p=strrchr(f->name,'/'); if(!p) p=f->name; else ++p; u32 n=strlen(p); if(n>(u32)len) n=len; memcpy(buf,p,n); return n; }
 int flen(FILE *f) { return f->size; }
-int fseek(FILE *f,u32 pos,int mode) { f->pos=pos; return 0; }
+int fseek(FILE *f,u32 pos,int mode) { if(fail_seek) return -1; f->pos=pos; return 0; }
 int mock_tell(FILE *f) { return f->pos; }
 int ftruncate(FILE *f,u32 n) { if(fail_truncate || n>sizeof(f->data)) return -1; f->size=n; return 0; }
 int f_flush_wbuf(const char *p) { return fail_flush || strcmp(p,"storage/sd0/C/") ? -1 : 0; }
@@ -105,7 +110,10 @@ static uxfile_data_t current;
 static u8 audio[4000];
 static int recover(void) { rf_boot_started=0; return rdx_record_format_boot(); }
 static void reset(void) {
+    rf_download=0; rf_io_users=0; factory_busy=0;
+    snapshot_result=snapshot_calls=0;
     fail_alloc=0;
+    fail_seek=0; read_bytes=0;
     memset(files,0,sizeof(files)); memset(&rf_current,0,sizeof(rf_current));
     rf_deleted_name[0]=0; fail_delete=0; rf_boot_started=0; rf_error=fail_write=fail_flush=fail_close=fail_truncate=fail_read=handles=writes=0; fail_path=NULL;
     memset(&current,0,sizeof(current)); current.sn=7; current.start_time=100;
@@ -135,6 +143,169 @@ int test_factory_file_identity(void) {
     CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
     CHECK(handles==0); factory_busy=0;
     CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+    return 0;
+}
+int test_download_admission(void) {
+    reset(); rf_service=0;
+    CHECK(!rdx_record_format_io_enter() && rf_io_users==1);
+    CHECK(rdx_record_format_download_acquire()<0 && !rf_download);
+    CHECK(!rdx_record_format_io_enter() && rf_io_users==2);
+    rdx_record_format_io_leave(); rdx_record_format_io_leave();
+    CHECK(!rdx_record_format_download_acquire() && rf_download);
+    CHECK(rdx_record_format_service_status()==1 && rdx_record_format_io_enter()!=0);
+    CHECK(rf_io_users==0 && rdx_record_format_download_acquire()<0);
+    rdx_record_format_service_ready(-1);
+    rdx_record_format_download_release();
+    CHECK(rdx_record_format_service_status()==-1 && rdx_record_format_download_acquire()<0);
+    rdx_record_format_service_ready(0);
+    factory_busy=1; CHECK(rdx_record_format_download_acquire()<0);
+    factory_busy=0; CHECK(!rdx_record_format_download_acquire());
+    rdx_record_format_download_release(); CHECK(!rdx_record_format_service_status());
+    rdx_record_format_command_enter();
+    CHECK(rf_io_users==1 && rdx_record_format_download_acquire()<0);
+    rdx_record_format_io_leave();
+    CHECK(!rdx_record_format_download_acquire());
+    rdx_record_format_command_enter();
+    CHECK(rdx_record_format_protocol_busy() && rf_io_users==1);
+    CHECK(rdx_record_format_io_enter()!=0);
+    rdx_record_format_download_release();
+    CHECK(!rdx_record_format_protocol_busy() && rdx_record_format_download_acquire()<0);
+    rdx_record_format_io_leave();
+    CHECK(!rdx_record_format_download_acquire());
+    rdx_record_format_download_release();
+    return 0;
+}
+int test_verified_raw_reader(void) {
+    reset(); CHECK(seed_mono()==0);
+    rf_meta meta={0};
+    CHECK(rf_read_meta("abc123.raw",&meta)==0);
+    CHECK(meta.sn==7 && meta.start==100 && meta.format==1);
+    FILE *handle=NULL; u32 size=0;
+    FILE *raw=lookup(RF_ROOT "abc123.raw");
+    raw->size=48000;
+    u32 before=read_bytes; int before_writes=writes;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==0);
+    CHECK(handle && size==48000 && handle->pos==0 && handles==1);
+    CHECK(read_bytes-before==40 && writes==before_writes);
+    CHECK(fclose(handle)==0 && handles==0);
+    rf_service=0; factory_busy=1; u32 crc=0;
+    CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+    CHECK(handles==0);
+    CHECK(rf_open_verified_raw(&meta,40000,&handle,&size)==-1);
+    CHECK(!handle && !size && handles==0);
+    raw->size=4001;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    raw->size=0;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    raw->size=4000; raw->data[0]^=1;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    raw->data[0]^=1;
+    fail_seek=1;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    fail_seek=0; fail_read=1;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    fail_close=1;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-2);
+    CHECK(!handle && !size && handles==0);
+    fail_read=0;
+    CHECK(rf_read_meta("abc123.raw",&meta)==-2 && handles==0);
+    fail_close=0;
+    CHECK(rf_read_meta(NULL,&meta)==-1);
+    CHECK(rf_read_meta("../abc.raw",&meta)==-1);
+    CHECK(rf_read_meta("abc123.raw",NULL)==-1);
+    CHECK(rf_read_meta("abc123.raw",&meta)==0);
+    meta.format=257;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==-1 && handles==0);
+    reset(); current.frame_size=80;
+    CHECK(rdx_record_format_begin(&current,2)==0);
+    CHECK(rdx_record_format_frame(&current,2,audio,80)==0);
+    CHECK(rf_write(RF_ROOT "abc123.raw",audio,sizeof(audio))==0);
+    CHECK(rf_read_meta("abc123.raw",&meta)==0 && meta.format==2);
+    before=read_bytes;
+    CHECK(rf_open_verified_raw(&meta,16777216,&handle,&size)==0);
+    CHECK(size==4000 && handle->pos==0 && read_bytes-before==80);
+    CHECK(fclose(handle)==0);
+    rf_service=0; factory_busy=1;
+    CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+    CHECK(handles==0); factory_busy=0;
+    return 0;
+}
+static int seed_index(const char *json) {
+    FILE *existing=lookup(RF_DAT);
+    if(existing) existing->present=0;
+    return rf_write(RF_DAT,json,strlen(json));
+}
+int test_indexed_raw_reader(void) {
+    reset(); CHECK(seed_mono()==0);
+    const char *valid="[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896,\"marks\":[{\"v\":\"}[]\"}]}]";
+    CHECK(seed_index(valid)==0);
+    rf_meta meta={0}; CHECK(rf_read_meta("abc123.raw",&meta)==0 && meta.sn==7);
+    memset(&rf_reader,0x5a,sizeof(rf_reader));
+    memset(rf_json,0x6b,sizeof(rf_json));
+    rf_reader_state previous=rf_reader;
+    u32 before=read_bytes; int before_writes=writes;
+    FILE *handle=NULL; u32 size=0;
+    CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,&handle,&size)==0);
+    CHECK(size==4000 && handle && handle->pos==0 && handles==1);
+    CHECK(read_bytes-before==sizeof(rf_meta)+strlen(valid)+40);
+    CHECK(writes==before_writes && !memcmp(&previous,&rf_reader,sizeof(previous)));
+    CHECK((u8)rf_json[0]==0x6b && (u8)rf_json[RF_OBJECT_SIZE-1]==0x6b);
+    CHECK(fclose(handle)==0);
+    void *public_handle=NULL;
+    rf_service=0;
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&public_handle,&size)<0 && !snapshot_calls);
+    CHECK(!rdx_record_format_download_acquire());
+    CHECK(!rdx_record_format_download_open(8,"abc123.raw",&public_handle,&size));
+    CHECK(size==4000 && public_handle && snapshot_calls==1 && handles==1);
+    CHECK(!fclose(public_handle));
+    CHECK(!rdx_record_format_download_list_open(&public_handle,&size));
+    CHECK(size==strlen(valid) && public_handle && handles==1);
+    CHECK(!fclose(public_handle));
+    snapshot_result=-2;
+    CHECK(rdx_record_format_download_list_open(&public_handle,&size)==-2);
+    CHECK(!public_handle && !size && !handles);
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&public_handle,&size)==-2);
+    CHECK(!public_handle && !size && !handles);
+    rdx_record_format_download_release();
+    CHECK(rdx_record_format_download_list_open(&public_handle,&size)<0);
+    snapshot_result=0;
+    CHECK(rf_open_indexed_raw(7,"abc123.raw",16777216,&handle,&size)==-1);
+    CHECK(!handle && !size && handles==0);
+    CHECK(rf_open_indexed_raw(8,"abc123.raw",3999,&handle,&size)==-1);
+    lookup(RF_ROOT "abc123.raw")->size=4040;
+    CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,&handle,&size)==-1);
+    CHECK(!handle && !size && handles==0);
+    lookup(RF_ROOT "abc123.raw")->size=4000;
+    CHECK(seed_index("[]")==0);
+    CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,&handle,&size)==-3);
+    const char *invalid[]={
+        "[{\"name\":\"abc123.raw\",\"sn\":8}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"sn\":9}]",
+        "[{\"name\":\"abc123.raw\",\"name\":\"def123.raw\",\"sn\":8}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8.5}]",
+        "[{\"name\":\"def123.raw\",\"sn\":8}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":101,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":99,\"frame_size\":40,\"opus\":1084752896}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":80,\"opus\":1084752896}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":0}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4001,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896},]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896}]junk",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896},{\"name\":\"def123.raw\",\"sn\":8}]",
+        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896},{\"name\":\"abc123.raw\",\"sn\":9}]"
+    };
+    for(u32 index=0;index<sizeof(invalid)/sizeof(invalid[0]);++index) {
+        CHECK(seed_index(invalid[index])==0);
+        CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,&handle,&size)==-1);
+        CHECK(!handle && !size && handles==0);
+    }
+    CHECK(seed_index(valid)==0);
+    fail_read=1; CHECK(rf_read_index_identity(8,&meta,&size)==-1); fail_read=0;
+    fail_close=1; CHECK(rf_read_index_identity(8,&meta,&size)==-2); fail_close=0;
+    CHECK(!size && handles==0);
+    CHECK(rf_open_indexed_raw(8,"../abc.raw",16777216,&handle,&size)==-1);
+    CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,NULL,&size)==-1);
+    meta.format=2; CHECK(rf_read_index_identity(8,&meta,&size)==-1);
     return 0;
 }
 int test_format_persistence(void) {
@@ -353,7 +524,12 @@ int test_dat_mta_collision(void) {
     root=read_dat(); CHECK(cJSON_GetArraySize(root)==2);
     CHECK(num(cJSON_GetArrayItem(root,0),"sn")==8);
     CHECK(num(cJSON_GetArrayItem(root,1),"sn")!=8);
-    cJSON_Delete(root); return 0;
+    cJSON_Delete(root);
+    rf_meta meta={0};
+    CHECK(rf_read_meta("abc123.raw",&meta)==0 && meta.sn==7);
+    CHECK(rf_read_meta("def123.raw",&meta)==0 && meta.sn==8);
+    CHECK(handles==0);
+    return 0;
 }
 '''
 
@@ -397,7 +573,8 @@ double fabs(double);
 """
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
     path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ['test_factory_file_identity', 'test_format_persistence', 'test_format_recovery',
+    run_c_checks(path, ['test_download_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
+                        'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision'], native=True)

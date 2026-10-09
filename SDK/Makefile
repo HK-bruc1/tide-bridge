@@ -471,6 +471,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_dut.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_factory_cdc.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_cdc_file.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_cdc_source.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_dut_speaker.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_record.c \

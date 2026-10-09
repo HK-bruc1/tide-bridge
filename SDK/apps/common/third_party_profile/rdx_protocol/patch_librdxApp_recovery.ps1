@@ -28,9 +28,35 @@ function Update-RdxRecoveryIr {
 
 declare i32 @rdx_record_format_boot()
 declare i32 @rdx_record_format_service_status()
+declare i32 @rdx_record_format_io_enter()
+declare void @rdx_record_format_io_leave()
 declare void @rdx_record_format_service_ready(i32)
 declare i32 @rdx_record_format_delete(i32, i8*)
 declare void @rdx_app_file_delete_worker(i8*)
+
+define zeroext i8 @rdx_uxfile_is_index_active() {
+  %state = load volatile i32, i32* @g_sync_state, align 4
+  %started = icmp uge i32 %state, 1
+  %pending = icmp ule i32 %state, 3
+  %active = and i1 %started, %pending
+  %rebuild = load i1, i1* @g_dat_need_upgrade_rebuild, align 4
+  %busy = or i1 %active, %rebuild
+  %result = zext i1 %busy to i8
+  ret i8 %result
+}
+
+define i32 @rdx_uxfile_download_snapshot() {
+  %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @dat_opera_mutex, i32 0)
+  store volatile i32 0, i32* @rdx_storage_io_error, align 4
+  %flush = call i32 @rdx_uxfile_flush_cache()
+  %io_error = load volatile i32, i32* @rdx_storage_io_error, align 4
+  %flushed = icmp eq i32 %flush, 0
+  %io_ok = icmp eq i32 %io_error, 0
+  %ok = and i1 %flushed, %io_ok
+  %result = select i1 %ok, i32 0, i32 -2
+  %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @dat_opera_mutex)
+  ret i32 %result
+}
 
 define i32 @rdx_uxfile_delete_submit(i8* %context) {
   %value = ptrtoint i8* %context to i32
@@ -116,9 +142,9 @@ done:
         'rdx_uxfile_raw_read','rdx_uxfile_get_file_data_by_filename',
         'rdx_uxfile_get_file_data_by_sn','rdx_uxfile_get_datFileInfo',
         'rdx_uxfile_get_read_file_name','rdx_uxfile_dat_file_update',
-        'rdx_uxfile_recordFile_delete_handle','rdx_uxfile_sync_files_with_dat')
+        'rdx_uxfile_recordFile_delete_handle','rdx_uxfile_sync_files_with_dat','rdx_uxfile_sd_format')
     foreach ($name in $names) {
-        $pattern = '(?m)^define (?:nonnull )?(?:(zeroext) )?([^@\r\n]+) @' + $name + '\(([^\r\n]*)\) [^{]+\{'
+        $pattern = '(?m)^define (?:nonnull )?(?:(zeroext) )?([^@\r\n]+) @' + $name + '\(([^\r\n]*)\)[^{\r\n]*\{'
         $m = [regex]::Match($Ir, $pattern)
         if (!$m.Success) { throw "Missing file admission ABI $name" }
         $ret = $m.Groups[2].Value.Trim()
@@ -127,6 +153,7 @@ done:
         if ($m.Groups[3].Value) {
             foreach ($arg in $m.Groups[3].Value.Split(',')) {
                 $type = ($arg.Trim() -split ' ')[0]
+                if ($arg.Trim().StartsWith('void (i8)*')) { $type = 'void (i8)*' }
                 $args += "$type %arg$index"
                 $call += "$type %arg$index"
                 $index++
@@ -136,13 +163,15 @@ done:
         $fallback = if ($ret.EndsWith('*')) {
             if ($name -eq 'rdx_uxfile_get_datFileInfo') { '@rdx_empty_list' } else { '@rdx_empty_file' }
         } elseif ($name -match 'get_all_size|get_dat_cout') { '0' } else { '-1' }
-        $Ir += "`ndefine $returnAttrs$ret @$name($($args -join ', ')) {`n  %state = call i32 @rdx_record_format_service_status()`n  %ready = icmp eq i32 %state, 0`n  br i1 %ready, label %run, label %busy`nrun:`n  %result = call $returnAttrs$ret @${name}_ready($($call -join ', '))`n  ret $ret %result`nbusy:`n  ret $ret $fallback`n}`n"
+        $Ir += "`ndefine $returnAttrs$ret @$name($($args -join ', ')) {`n  %state = call i32 @rdx_record_format_io_enter()`n  %ready = icmp eq i32 %state, 0`n  br i1 %ready, label %run, label %busy`nrun:`n  %result = call $returnAttrs$ret @${name}_ready($($call -join ', '))`n  call void @rdx_record_format_io_leave()`n  ret $ret %result`nbusy:`n  ret $ret $fallback`n}`n"
     }
     # 先遵守静默/关闭门禁；临时恢复忙时沿用现有 defer 续调。
     $pattern = '(?ms)^define internal void @rdx_uxfile_flush_cache_timer_cb\(i8\* %arg\) \{.*?^\}'
     $timer = [regex]::Match($Ir, $pattern).Value
     $patched = $timer.Replace("run:`n  call void", "run:`n  %boot = call i32 @rdx_record_format_service_status()`n  %boot_ready = icmp eq i32 %boot, 0`n  br i1 %boot_ready, label %flush, label %boot_busy`nboot_busy:`n  %retry = icmp sgt i32 %boot, 0`n  br i1 %retry, label %defer, label %done`nflush:`n  call void")
     if (!$timer -or $patched -eq $timer) { throw 'Missing flush retry gate' }
+    $patched = $patched.Replace("flush:`n  call void", "flush:`n  %admit = call i32 @rdx_record_format_io_enter()`n  %admitted = icmp eq i32 %admit, 0`n  br i1 %admitted, label %flush_run, label %flush_busy`nflush_busy:`n  %admit_retry = icmp sgt i32 %admit, 0`n  br i1 %admit_retry, label %defer, label %done`nflush_run:`n  call void")
+    $patched = [regex]::Replace($patched, '(?m)^(  call void @rdx_uxfile_flush_cache_timer_cb_impl[^\n]*)$', '$1' + "`n  call void @rdx_record_format_io_leave()")
     $Ir = Replace-ExactlyOnce $Ir $timer $patched 'flush after cache handoff'
     $pattern = '(?m)^define [^\n]*@rdx_uxfile_get_datFileInfo_ready\([^\n]+\{'
     $m = [regex]::Match($Ir, $pattern)

@@ -43,11 +43,70 @@ static rf_meta rf_current;
 static volatile int rf_error;
 static u8 rf_boot_started;
 static volatile int rf_service = 1;
+static volatile u32 rf_io_users;
+static volatile u8 rf_download;
 static char rf_deleted_name[12];
 
 int rdx_record_format_service_status(void)
 {
-    return rf_service ? rf_service : (rdx_factory_audio_file_busy() ? 1 : 0);
+    return rf_service ? rf_service : ((rf_download || rdx_factory_audio_file_busy()) ? 1 : 0);
+}
+
+int rdx_record_format_io_enter(void)
+{
+    local_irq_disable();
+    int blocked = rdx_record_format_service_status();
+    if (!blocked) ++rf_io_users;
+    local_irq_enable();
+    return blocked;
+}
+
+void rdx_record_format_command_enter(void)
+{
+    local_irq_disable();
+    ++rf_io_users;
+    local_irq_enable();
+}
+
+void rdx_record_format_io_leave(void)
+{
+    local_irq_disable();
+    if (rf_io_users) --rf_io_users;
+    local_irq_enable();
+}
+
+int rdx_record_format_download_busy(void)
+{
+    return rf_download;
+}
+
+int rdx_record_format_download_conflict(const char *operation)
+{
+    if (!rf_download) return 0;
+    printf("[STORAGE_BUSY] owner=CDC_FILE request=%s\n", operation);
+    return 1;
+}
+
+int rdx_record_format_protocol_busy(void)
+{
+    return rdx_record_format_download_conflict("BLE_STORAGE");
+}
+
+int rdx_record_format_download_acquire(void)
+{
+    local_irq_disable();
+    int blocked = rf_error || rf_service || rf_download ||
+                  rf_io_users || rdx_factory_audio_file_busy();
+    if (!blocked) rf_download = 1;
+    local_irq_enable();
+    return blocked ? -1 : 0;
+}
+
+void rdx_record_format_download_release(void)
+{
+    local_irq_disable();
+    rf_download = 0;
+    local_irq_enable();
 }
 
 void rdx_record_format_service_ready(int result)
@@ -57,11 +116,12 @@ void rdx_record_format_service_ready(int result)
 }
 /* Boot is serialized before RDX initialization; cJSON owns parsed strings. */
 static char rf_json[RF_OBJECT_SIZE];
-static struct {
+typedef struct {
     u8 data[256];
     u32 next, size, remaining;
     int error;
-} rf_reader;
+} rf_reader_state;
+static rf_reader_state rf_reader;
 
 static u32 rf_hash(const void *data, u32 len)
 {
@@ -267,50 +327,62 @@ static int rf_replay(void)
 
 /* Streaming JSON reader: one object at a time, preserving marks and all
  * legacy fields. No full-index cJSON tree on the embedded heap. */
-static int rf_getc(FILE *f)
+static int rf_reader_getc(FILE *handle, rf_reader_state *reader)
 {
-    if (rf_reader.error) return -1;
-    if (rf_reader.next == rf_reader.size) {
-        u32 n = rf_reader.remaining;
-        if (!n) return -1;
-        if (n > sizeof(rf_reader.data)) n = sizeof(rf_reader.data);
-        if (fread(rf_reader.data, 1, n, f) != n) {
-            rf_reader.error = 1;
+    if (reader->error) return -1;
+    if (reader->next == reader->size) {
+        u32 count = reader->remaining;
+        if (!count) return -1;
+        if (count > sizeof(reader->data)) count = sizeof(reader->data);
+        if (fread(reader->data, 1, count, handle) != count) {
+            reader->error = 1;
             return -1;
         }
-        rf_reader.remaining -= n;
-        rf_reader.size = n;
-        rf_reader.next = 0;
+        reader->remaining -= count;
+        reader->size = count;
+        reader->next = 0;
     }
-    return rf_reader.data[rf_reader.next++];
+    return reader->data[reader->next++];
 }
 
-static int rf_nonspace(FILE *f)
+static int rf_reader_nonspace(FILE *handle, rf_reader_state *reader)
 {
-    int c;
-    do { c = rf_getc(f); } while (c == ' ' || c == '\r' || c == '\n' || c == '\t');
-    return c;
+    int character;
+    do {
+        character = rf_reader_getc(handle, reader);
+    } while (character == ' ' || character == '\r' || character == '\n' || character == '\t');
+    return character;
 }
 
-static int rf_object(FILE *f, char *buf)
+static int rf_reader_object(FILE *handle, rf_reader_state *reader, char *buffer)
 {
     int depth = 1, quoted = 0, escape = 0;
-    u32 n = 1;
-    buf[0] = '{';
+    u32 length = 1;
+    buffer[0] = '{';
     while (depth) {
-        int c = rf_getc(f);
-        if (c < 0 || n >= RF_OBJECT_SIZE - 1) return -1;
-        buf[n++] = c;
+        int character = rf_reader_getc(handle, reader);
+        if (character < 0 || length >= RF_OBJECT_SIZE - 1 || !character) return -1;
+        buffer[length++] = character;
         if (quoted) {
             if (escape) escape = 0;
-            else if (c == '\\') escape = 1;
-            else if (c == '"') quoted = 0;
-        } else if (c == '"') quoted = 1;
-        else if (c == '{' || c == '[') { if (++depth > 8) return -1; }
-        else if (c == '}' || c == ']') --depth;
+            else if (character == '\\') escape = 1;
+            else if (character == '"') quoted = 0;
+        } else if (character == '"') quoted = 1;
+        else if (character == '{' || character == '[') { if (++depth > 8) return -1; }
+        else if (character == '}' || character == ']') --depth;
     }
-    buf[n] = 0;
+    buffer[length] = 0;
     return 0;
+}
+
+static int rf_nonspace(FILE *handle)
+{
+    return rf_reader_nonspace(handle, &rf_reader);
+}
+
+static int rf_object(FILE *handle, char *buffer)
+{
+    return rf_reader_object(handle, &rf_reader, buffer);
 }
 
 static int rf_emit(FILE *dst, cJSON *obj, u32 *count)
@@ -805,38 +877,210 @@ int rdx_record_format_boot(void)
 }
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+static int rf_read_meta(const char *name, rf_meta *meta)
+{
+    if (!name || !meta || !rf_name_valid(name)) return -1;
+    char path[40];
+    rf_path(path, name, 1);
+    FILE *handle = fopen(path, "r");
+    if (!handle) return -1;
+    int valid = flen(handle) == sizeof(*meta) &&
+                fread(meta, 1, sizeof(*meta), handle) == sizeof(*meta);
+    if (fclose(handle)) return -2;
+    if (!valid || meta->magic != RF_MAGIC || !meta->sn ||
+        meta->ready != 1 || meta->name[sizeof(meta->name) - 1] ||
+        strcmp(meta->name, name) ||
+        meta->hash != rf_hash(meta, sizeof(*meta) - sizeof(meta->hash))) return -1;
+    return 0;
+}
+
+static int rf_open_verified_raw(const rf_meta *meta, u32 maximum,
+                                FILE **handle, u32 *size)
+{
+    *handle = NULL;
+    *size = 0;
+    if (!meta || !rf_name_valid(meta->name) ||
+        (meta->format != RECORD_FORMATE_OPUS_16K_MONO &&
+         meta->format != RECORD_FORMATE_OPUS_16K_STERO)) return -1;
+    u32 frame_bytes = rf_frame_bytes(meta->format);
+    char path[40];
+    u8 first[80];
+    rf_path(path, meta->name, 0);
+    FILE *opened = fopen(path, "r");
+    if (!opened) return -1;
+    u32 length = flen(opened);
+    int valid = length && length <= maximum && !(length % frame_bytes) &&
+                fread(first, 1, frame_bytes, opened) == frame_bytes &&
+                rf_hash(first, frame_bytes) == meta->first_hash;
+    if (!valid || fseek(opened, 0, SEEK_SET)) {
+        return fclose(opened) ? -2 : -1;
+    }
+    *handle = opened;
+    *size = length;
+    return 0;
+}
+
+static cJSON *rf_unique_field(cJSON *object, const char *name)
+{
+    cJSON *found = NULL;
+    for (cJSON *field = object ? object->child : NULL; field; field = field->next) {
+        if (field->string && !strcmp(field->string, name)) {
+            if (found) return NULL;
+            found = field;
+        }
+    }
+    return found;
+}
+
+static int rf_index_u32(cJSON *object, const char *name, u32 *value)
+{
+    cJSON *field = rf_unique_field(object, name);
+    if (!cJSON_IsNumber(field) || !(field->valuedouble >= 0 &&
+        field->valuedouble <= 0xffffffffu) ||
+        field->valuedouble != (u32)field->valuedouble) return -1;
+    *value = (u32)field->valuedouble;
+    return 0;
+}
+
+static int rf_read_index_identity(u32 sn, const rf_meta *meta, u32 *size)
+{
+    *size = 0;
+    if (!sn || sn > 0x7ffffffeu || !meta || !rf_name_valid(meta->name) ||
+        meta->format != RECORD_FORMATE_OPUS_16K_MONO) return -1;
+    FILE *handle = fopen(RF_DAT, "r");
+    if (!handle) return -1;
+    rf_reader_state reader = {0};
+    char object_text[RF_OBJECT_SIZE];
+    reader.remaining = flen(handle);
+    int valid = reader.remaining && reader.remaining <= RF_MAX_FILES * RF_OBJECT_SIZE &&
+                rf_reader_nonspace(handle, &reader) == '[';
+    int character = valid ? rf_reader_nonspace(handle, &reader) : -1;
+    u32 count = 0, matches = 0, fixed_size = 0;
+    while (valid && character == '{') {
+        if (++count > RF_MAX_FILES || rf_reader_object(handle, &reader, object_text)) {
+            valid = 0;
+            break;
+        }
+        cJSON *object = cJSON_ParseWithOpts(object_text, NULL, 1);
+        cJSON *name = rf_unique_field(object, "name");
+        u32 indexed_sn = 0;
+        if (!cJSON_IsObject(object) || !cJSON_IsString(name) ||
+            rf_index_u32(object, "sn", &indexed_sn) ||
+            !indexed_sn || indexed_sn > 0x7ffffffeu) {
+            valid = 0;
+        } else if (indexed_sn == sn || !strcmp(name->valuestring, meta->name)) {
+            u32 start = 0, end = 0, frame = 0, opus = 0;
+            if (++matches != 1 || indexed_sn != sn ||
+                strcmp(name->valuestring, meta->name) ||
+                rf_index_u32(object, "size", &fixed_size) ||
+                rf_index_u32(object, "start_time", &start) ||
+                rf_index_u32(object, "end_time", &end) ||
+                rf_index_u32(object, "frame_size", &frame) ||
+                rf_index_u32(object, "opus", &opus) ||
+                !fixed_size || fixed_size % 40 || start != meta->start || end < start ||
+                frame != 40 || opus != rdx_protocol_calc_opus_format(meta->format)) {
+                valid = 0;
+            }
+        }
+        cJSON_Delete(object);
+        if (!valid) break;
+        character = rf_reader_nonspace(handle, &reader);
+        if (character != ',') break;
+        character = rf_reader_nonspace(handle, &reader);
+        if (character != '{') valid = 0;
+        wdt_clear();
+        rf_cooperate(RF_OBJECT_SIZE);
+    }
+    if (character != ']' || rf_reader_nonspace(handle, &reader) != -1 || reader.error) valid = 0;
+    if (fclose(handle)) return -2;
+    if (!valid) return -1;
+    if (!matches) return -3;
+    *size = fixed_size;
+    return 0;
+}
+
+static int rf_open_indexed_raw(u32 sn, const char *name, u32 maximum,
+                               FILE **handle, u32 *size)
+{
+    if (!handle || !size) return -1;
+    *handle = NULL;
+    *size = 0;
+    rf_meta meta = {0};
+    int result = rf_read_meta(name, &meta);
+    if (result) return result;
+    u32 indexed_size = 0;
+    result = rf_read_index_identity(sn, &meta, &indexed_size);
+    if (result) return result;
+    if (indexed_size > maximum) return -1;
+    result = rf_open_verified_raw(&meta, maximum, handle, size);
+    if (result) return result;
+    if (*size == indexed_size) return 0;
+    int closed = fclose(*handle);
+    *handle = NULL;
+    *size = 0;
+    return closed ? -2 : -1;
+}
+
+int rdx_record_format_download_list_open(void **handle, u32 *size)
+{
+    extern int rdx_uxfile_download_snapshot(void);
+    if (!handle || !size) return -1;
+    *handle = NULL;
+    *size = 0;
+    if (!rf_download || rf_error || rf_service) return -1;
+    rdx_app_emmc_poweron(0);
+    sd_set_power_user(1);
+    int snapshot = rdx_uxfile_download_snapshot();
+    if (snapshot) return snapshot;
+    FILE *opened = fopen(RF_DAT, "r");
+    if (!opened) return -1;
+    u32 length = flen(opened);
+    if (!length || length > 16777216u) return fclose(opened) ? -2 : -1;
+    *handle = opened;
+    *size = length;
+    return 0;
+}
+
+int rdx_record_format_download_open(u32 sn, const char *name, void **handle, u32 *size)
+{
+    extern int rdx_uxfile_download_snapshot(void);
+    if (!handle || !size) return -1;
+    *handle = NULL;
+    *size = 0;
+    if (!rf_download || rf_error || rf_service) return -1;
+    rdx_app_emmc_poweron(0);
+    sd_set_power_user(1);
+    int snapshot = rdx_uxfile_download_snapshot();
+    if (snapshot) return snapshot;
+    FILE *opened = NULL;
+    int result = rf_open_indexed_raw(sn, name, 16777216u, &opened, size);
+    *handle = opened;
+    return result;
+}
+
 void *rdx_record_format_factory_open(u32 sn, const char *name, u32 start, u32 *size, u32 *crc)
 {
-    if (!rdx_factory_audio_file_busy() || !rf_name_valid(name) || !sn || rf_error || rf_service) return NULL;
-    char path[40];
+    if (!rdx_factory_audio_file_busy() || !name || !sn || !size || !crc ||
+        rf_error || rf_service) return NULL;
     rf_meta meta = {0};
-    rf_path(path, name, 1);
-    FILE *f = fopen(path, "r");
-    if (!f) return NULL;
-    int valid = flen(f) == sizeof(meta) && fread(&meta, 1, sizeof(meta), f) == sizeof(meta);
-    if (fclose(f)) valid = 0;
-    if (!valid || meta.magic != RF_MAGIC || meta.sn != sn || meta.start != start ||
-        meta.ready != 1 || meta.name[sizeof(meta.name)-1] || strcmp(meta.name, name) ||
-        meta.format != RECORD_FORMATE_OPUS_16K_MONO ||
-        meta.hash != rf_hash(&meta, sizeof(meta)-sizeof(meta.hash))) return NULL;
-    rf_path(path, name, 0);
-    f = fopen(path, "r");
-    if (!f) return NULL;
-    u32 length = flen(f), remaining = length, hash = 0;
+    if (rf_read_meta(name, &meta) || meta.sn != sn || meta.start != start ||
+        meta.format != RECORD_FORMATE_OPUS_16K_MONO) return NULL;
+    FILE *handle = NULL;
+    u32 length = 0;
+    if (rf_open_verified_raw(&meta, 40000, &handle, &length)) return NULL;
+    u32 remaining = length, hash = 0;
     u8 buf[240];
-    /* Factory session is capped at 15 seconds. Refuse unrelated/oversized files. */
-    if (!length || length > 40000 || length % 40) valid = 0;
+    int valid = 1;
     while (valid && remaining) {
-        u32 n = MIN(remaining, sizeof(buf));
-        if (fread(buf, 1, n, f) != n) { valid = 0; break; }
-        if (remaining == length && rf_hash(buf, 40) != meta.first_hash) { valid = 0; break; }
-        hash = rdx_factory_audio_crc(hash, buf, n);
-        remaining -= n;
+        u32 count = MIN(remaining, sizeof(buf));
+        if (fread(buf, 1, count, handle) != count) { valid = 0; break; }
+        hash = rdx_factory_audio_crc(hash, buf, count);
+        remaining -= count;
         wdt_clear();
         os_time_dly(1);
     }
-    if (!valid || fseek(f, 0, SEEK_SET)) { fclose(f); return NULL; }
+    if (!valid || fseek(handle, 0, SEEK_SET)) { fclose(handle); return NULL; }
     *size = length; *crc = hash;
-    return f;
+    return handle;
 }
 #endif

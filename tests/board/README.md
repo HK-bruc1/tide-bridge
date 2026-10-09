@@ -1,5 +1,13 @@
 # CDC 终端产测工具
 
+## CDC 已保存录音下载
+
+烧录接入 LIST/GET 的固件后，正常 ON 并连接 CDC 数据口，双击 `CDC-test.bat` → `3` → `6`（单次）或 `7`（十次），输入 CDC COM 后自动获取设备录音列表，输入文件序号即可。无需手抄 SN/名称、DUT、BLE 登录、设时或先进行产测录音。列表支持 `r` 刷新、`q` 退出；空列表需先保存一份录音。独立 RAW 对照通过 `--file-reference` 提供。
+
+命令行示例（替换 COM/SN/名称）：`python -X utf8 -x CDC-test.bat --port COM6 --mode file-download --file-sn 7 --file-name abc123.raw --bench-repeat 1`。对应设备命令为 `*APP#file#get#7#abc123.raw#` 加 CRLF，脚本负责后续二进制解析。
+
+默认在 `output/cdc-file-reports/` 生成 RAW 和 JSON；可使用 `--file-reference 独立对照.raw` 验证去掉 BLE 封装后的同一文件内容。失败保留 `.part`，不覆盖已有文件。先验证单轮长度和 CRC，再使用至少 10 MB 的合法录音跑 `--bench-repeat 10`；小文件完整下载但不足性能验收大小时退出码为 2，不代表 CRC 错误。回传 JSON 和固件调试串口日志；实际录音速度尚待实机测量，内存源 700+ KB/s 不能替代此结果。
+
 ## CDC 吞吐瓶颈对照（开发实验）
 
 菜单 3 的选项 1/2 保留边收边校验的单轮/十轮，3 保留取消；新增 4/5 为接收后完整校验的单轮/十轮。固定 10 MB、4 KB 块和 USB 环境，先跑 1→4→1，再跑 2/5。两种模式均要求完整 CRC/模式/END 校验，后置校验不支持取消。命令行可用 `python -X utf8 -x CDC-test.bat --port COM6 --mode file-bench --bench-receive-mode deferred --bench-repeat 10`。
@@ -64,6 +72,14 @@ python -X utf8 -x CDC-test.bat --port COM6 --mode controls
 第四次合包单轮实测 724.53 KB/s，相比第三次单轮 724.04 KB/s 无明显收益，已撤回合包与 stream_join/stream_short 计数；保留 IN IRQ 续发和异常帧头诊断。清理版本仍需烧录后复测：保持 10,000,000 字节、4096 字节块及相同环境，进行十轮、取消及故障回归，以第三次十轮均值 718.65 KB/s 为参考，不将历史结果当作清理版本验收。若再次出现 invalid binary header，保留 JSON 原始头/期望偏移及同次固件日志。详见 10-4 第 11.8 节。
 
 原始约 450 KB/s 仅作历史参考，当前复测重点是清理版本是否保留第三次约 700+ KB/s 的成果，不能仅以超过 600 KB/s 宣称无退化。请提供十轮均值/最低值、完整校验结果、取消结果、对应 [CDC_TX] 日志与 JSON，并补记固件构建身份。日志 bytes 包含协议开销，drained 包含正常结束排空，不应分别当作有效文件吞吐或必然断粮；停读、拔插、DIP OFF 和 BLE/HOGP 共存需另行回归。
+
+## CDC 真实文件跨业务冲突回归
+
+烧录后先保持 BLE 应用连接，使用菜单 3 → 6 下载真实录音。在确认已经接收数据后，分别触发 BLE 列表/下载、APP 录音、实体录音键及播放恢复；期望新业务失败、原 CDC 下载继续且 CRC 正确。关注 `[STORAGE_BUSY] owner=CDC_FILE request=...`，旧协议沿用失败/停止/状态通知，不保证应用显示字面值 BUSY。
+
+反向验证先录音或 BLE 下载，再发起 CDC LIST/GET，应返回现有忙错误；原业务停止并收尾后 CDC 应恢复。取消、停读、拔插、重开串口、OFF 另测，不完整下载不算成功。无干预时再测十轮速度，不能把主动冲突时的速度作为纯吞吐基线。
+
+删除、格式化、包装和恢复默认设置仅在已备份测试设备上单独验证：若命令错过下载窗口，可能正常执行并修改/清空数据。记录固件日志、CDC JSON、BLE 结果及操作顺序；完整步骤和本轮软件边界见 `docs/10-4.CDC通用文件传输业务方案.md` 第 9.7 节。
 
 ## 包装测试
 

@@ -19,6 +19,7 @@ int snprintf(char *,size_t,const char *,...);
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef int OS_SEM;
+int rdx_cdc_source_shutdown(void) { return 0; }
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
 #define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0
 #define FACTORY_CDC_OK 0

@@ -1,11 +1,14 @@
-"""CDC file transfer v1 receiver and memory benchmark; recording GET is not implemented."""
+"""CDC file transfer v1 receiver: memory benchmark and recording download."""
 import argparse
+import hashlib
 import json
 import os
 import platform
 from pathlib import Path
+import re
 import struct
 import sys
+import tempfile
 import time
 import zlib
 
@@ -109,15 +112,108 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
         raise ProtocolError('invalid receive mode/size/block')
     if receive_mode == 'deferred' and cancel_after is not None:
         raise ProtocolError('deferred verification does not support cancellation')
+    if cancel_after is not None and not 0 <= cancel_after < size:
+        raise ProtocolError('invalid cancel-after')
+    return receive_transfer(port, f'*APP#file#bench#{size}#{block}#', size, block,
+                            output, cancel_after, report, receive_mode)
+
+
+def recording_identity(sn, name):
+    if not isinstance(sn, int) or not 1 <= sn <= 0x7ffffffe:
+        raise ProtocolError('invalid recording SN')
+    if not isinstance(name, str) or not re.fullmatch(r'[0-9a-fA-F]{3,6}\.raw', name):
+        raise ProtocolError('invalid recording name; use the exact indexed name, not a path')
+
+def receive_list(port, report=None):
+    with tempfile.TemporaryDirectory(prefix='cdc-list-') as directory:
+        destination = Path(directory) / 'index.json'
+        receive_transfer(port, '*APP#file#list#', None, None, destination, None,
+                         report, 'inline', alignment=1)
+        try:
+            entries = json.loads(destination.read_text(encoding='utf-8'))
+        except (ValueError, UnicodeError) as error:
+            raise ProtocolError('invalid recording index JSON') from error
+    if not isinstance(entries, list) or len(entries) > 65535:
+        raise ProtocolError('invalid recording index array')
+    identities = set()
+    names = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or type(entry.get('sn')) is not int:
+            raise ProtocolError('invalid recording index entry')
+        recording_identity(entry['sn'], entry.get('name'))
+        if entry['sn'] in identities or entry['name'] in names:
+            raise ProtocolError('duplicate recording identity; refresh the device index')
+        identities.add(entry['sn'])
+        names.add(entry['name'])
+        for field in ('size', 'start_time', 'end_time', 'frame_size', 'opus'):
+            if type(entry.get(field)) is not int or not 0 <= entry[field] <= 0xffffffff:
+                raise ProtocolError('invalid recording index field: ' + field)
+    return entries
+
+
+def recording_unavailable(entry):
+    if entry['frame_size'] != 40 or entry['opus'] != 1084752896:
+        return '暂不支持此录音格式'
+    if not 0 < entry['size'] <= MAX_SIZE or entry['size'] % 40:
+        return '空文件、长度异常或超过16 MiB'
+    if entry['end_time'] < entry['start_time']:
+        return '录音时间字段异常'
+    return ''
+
+
+def select_recording(port, report):
+    while True:
+        print('\n正在读取设备录音列表……')
+        listing = {}
+        report.setdefault('list_requests', []).append(listing)
+        entries = receive_list(port, listing)
+        print('\n序号  SN       文件名         大小(MB)  录音时长(秒)  状态')
+        for index, entry in enumerate(entries, 1):
+            reason = recording_unavailable(entry)
+            print(f"{index:>4}  {entry['sn']:<8} {entry['name']:<13} "
+                  f"{entry['size'] / 1000000:>8.3f}  "
+                  f"{entry['end_time'] - entry['start_time']:>12}  {reason or '可下载'}")
+        if not entries:
+            print('设备没有已保存的录音；请先录音并停止保存，再刷新。')
+        while True:
+            choice = input('选择文件序号，r 刷新，q 退出：').strip().lower()
+            if choice == 'q':
+                return None
+            if choice == 'r':
+                break
+            if choice.isascii() and choice.isdecimal() and 1 <= int(choice) <= len(entries):
+                entry = entries[int(choice) - 1]
+                reason = recording_unavailable(entry)
+                if not reason:
+                    return entry
+                print(reason)
+            else:
+                print('请输入列表中的序号、r 或 q。')
+
+
+def receive_download(port, sn, name, output, cancel_after=None, report=None, reference=None):
+    recording_identity(sn, name)
+    if not output or (cancel_after is not None and not 0 <= cancel_after < MAX_SIZE):
+        raise ProtocolError('download requires output and a valid cancel-after')
+    report = report if report is not None else {}
+    report.update(sn=sn, name=name, source='recording', reference_match=None)
+    return receive_transfer(port, f'*APP#file#get#{sn}#{name}#', None, None,
+                            output, cancel_after, report, 'inline', reference)
+
+
+def receive_transfer(port, command, size, block, output, cancel_after, report,
+                     receive_mode, reference=None, alignment=40):
     report = report if report is not None else {}
     report.update(size_requested=size, block=block, bytes=0, complete=False, cancelled=False,
-                  passes_600KBps=False, crc_ok=False, pattern_ok=False,
+                  passes_600KBps=False, crc_ok=False, pattern_ok=False if size is not None else None,
                   receive_mode=receive_mode)
     destination = Path(output) if output else None
     temporary = destination.with_name(destination.name + '.part') if destination else None
     if destination and destination.exists():
         raise ProtocolError('output exists; choose a new output name')
     stream = None
+    reference_stream = None
+    content_hash = hashlib.sha256()
     offset = crc = 0
     started = time.monotonic()
     reader = Reader(port)
@@ -129,10 +225,13 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
     try:
         if temporary:
             stream = temporary.open('xb')
-        send(port, f'*APP#file#bench#{size}#{block}#')
+        if reference is not None:
+            reference_stream = Path(reference).open('rb')
+            report['reference'] = str(Path(reference).resolve())
+        send(port, command)
         fields = reader.line().split('#')
         if len(fields) != 6 or fields[:3] != ['*DEV', 'file', 'accepted'] or fields[4:] != ['1', '']:
-            raise ProtocolError('bench rejected: ' + '#'.join(fields))
+            raise ProtocolError('transfer rejected: ' + '#'.join(fields))
         transfer_id = unsigned(fields[3])
         if not transfer_id:
             raise ProtocolError('zero transfer ID')
@@ -159,13 +258,22 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
                 cancel_sent = time.monotonic()
             kind, payload = reader.frame(transfer_id, offset)
             if kind == 1:
-                if offset + len(payload) > size or len(payload) != min(block, size - offset):
+                if offset + len(payload) > (size if size is not None else MAX_SIZE):
+                    raise ProtocolError('DATA exceeds file size limit')
+                if size is not None and len(payload) != min(block, size - offset):
                     raise ProtocolError('unexpected DATA length')
-                if payload != PATTERN[offset % 256:offset % 256 + len(payload)]:
+                if size is not None and payload != PATTERN[offset % 256:offset % 256 + len(payload)]:
                     raise ProtocolError('memory-source pattern mismatch')
+                if reference_stream and reference_stream.read(len(payload)) != payload:
+                    report['reference_match'] = False
+                    raise ProtocolError('reference content mismatch')
                 crc = zlib.crc32(payload, crc)
+                if size is None:
+                    content_hash.update(payload)
+                    report['max_payload'] = max(report.get('max_payload', 0), len(payload))
                 if stream:
-                    stream.write(payload)
+                    if stream.write(payload) != len(payload):
+                        raise ProtocolError('short output write')
                 offset += len(payload)
                 now = time.monotonic()
                 if first_data is None:
@@ -174,7 +282,7 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
                 last_data = now
                 report['bytes'] = offset
                 if received_at is None and now - last_progress >= 1:
-                    print(f'{offset}/{size} bytes, {offset / (now - started) / 1000:.1f} KB/s', file=sys.stderr)
+                    print(f'{offset}/{size if size is not None else "?"} bytes, {offset / (now - started) / 1000:.1f} KB/s', file=sys.stderr)
                     last_progress = now
                 continue
             if kind == 3:
@@ -186,13 +294,26 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
                 report['cancel_to_terminal_s'] = time.monotonic() - cancel_sent
             else:
                 total, expected_crc = struct.unpack('<II', payload)
-                if total != size or total != offset or expected_crc != crc:
+                if (not total or total != offset or expected_crc != crc or
+                        (size is not None and total != size)):
                     raise ProtocolError('END length/file CRC mismatch')
-                if cancel_sent is not None:
+                if cancel_after is not None:
                     raise ProtocolError('END after cancellation request; retry cancellation earlier')
+                if size is None and total % alignment:
+                    raise ProtocolError('recording length is not mono-frame aligned')
+                if reference_stream:
+                    if reference_stream.read(1):
+                        report['reference_match'] = False
+                        raise ProtocolError('reference is longer than download')
+                    reference_stream.close()
+                    reference_stream = None
+                    report['reference_match'] = True
                 report['complete'] = True
                 report['crc_ok'] = True
-                report['pattern_ok'] = True
+                if size is not None:
+                    report['pattern_ok'] = True
+                else:
+                    report['sha256'] = content_hash.hexdigest()
             if stream:
                 stream.close()
                 stream = None
@@ -216,8 +337,12 @@ def receive_bench(port, size, block, output=None, cancel_after=None, report=None
         report.update(complete=False, error=str(error), elapsed_s=time.monotonic() - started, bytes=offset)
         raise
     finally:
-        if stream:
-            stream.close()
+        try:
+            if stream:
+                stream.close()
+        finally:
+            if reference_stream:
+                reference_stream.close()
 
 
 def main(argv=None):
@@ -238,16 +363,33 @@ def main(argv=None):
     bench.add_argument('--output', type=Path)
     bench.add_argument('--cancel-after', type=int)
     bench.add_argument('--receive-mode', choices=('inline', 'deferred'), default='inline')
+    download = commands.add_parser('download')
+    download.add_argument('--sn', type=int)
+    download.add_argument('--name')
+    download.add_argument('--output', type=Path, required=True)
+    download.add_argument('--repeat', type=int, default=1)
+    download.add_argument('--cancel-after', type=int)
+    download.add_argument('--reference', type=Path, help='independent RAW bytes, without BLE framing')
     args = parser.parse_args(argv)
     if args.command == 'bench' and (not 1 <= args.size <= MAX_SIZE or not 1 <= args.repeat <= 100 or
             (args.cancel_after is not None and not 0 <= args.cancel_after < args.size)):
         parser.error('invalid size/repeat/cancel-after')
     if args.command == 'bench' and args.receive_mode == 'deferred' and args.cancel_after is not None:
         parser.error('deferred verification does not support cancellation')
+    if args.command == 'download':
+        if args.sn is not None or args.name is not None:
+            try:
+                recording_identity(args.sn, args.name)
+            except ProtocolError as error:
+                parser.error(str(error))
+        if not 1 <= args.repeat <= 100 or (args.cancel_after is not None and not 0 <= args.cancel_after < MAX_SIZE):
+            parser.error('invalid repeat/cancel-after')
     report = dict(protocol=1, stage='A-memory-only', os=platform.platform(), port=args.port,
                   baud=args.baud, firmware=args.firmware, usb_speed=args.usb_speed,
                   topology=args.topology, driver=args.driver, runs=[], fsync=False,
                   real_file_acceptance=False)
+    if args.command == 'download':
+        report.update(stage='B-recording', independent_content_verified=False)
     try:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         report_output = args.report.open('x', encoding='utf-8')
@@ -261,23 +403,42 @@ def main(argv=None):
         with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=2) as port:
             report['caps'] = caps(port)
             print(report['caps'])
-            if args.command == 'bench':
+            if args.command == 'download' and args.sn is None:
+                selected = select_recording(port, report)
+                if selected is None:
+                    report['selection_cancelled'] = True
+                    return 3
+                args.sn, args.name = selected['sn'], selected['name']
+                report['selected_recording'] = selected
+                print(f"下载 {args.name}，{args.repeat} 轮；保存到 {args.output}")
+            if args.command in ('bench', 'download'):
                 for index in range(args.repeat):
                     run = dict(iteration=index + 1)
                     report['runs'].append(run)
                     output = args.output
                     if output and args.repeat > 1:
                         output = output.with_name(f'{output.stem}-{index + 1}{output.suffix}')
-                    receive_bench(port, args.size, args.block, output, args.cancel_after, run, args.receive_mode)
-                    if args.receive_mode == 'deferred':
+                    if args.command == 'download':
+                        receive_download(port, args.sn, args.name, output, args.cancel_after, run, args.reference)
+                        if run['complete'] and index and run['sha256'] != report['runs'][0]['sha256']:
+                            raise ProtocolError('recording content changed between downloads')
+                    else:
+                        receive_bench(port, args.size, args.block, output, args.cancel_after, run, args.receive_mode)
+                    if args.command == 'bench' and args.receive_mode == 'deferred':
                         print(f"接收阶段 {run['receive_KBps']:.2f} KB/s；后置完整校验 {run['verification_s']:.3f} 秒")
                     if run['cancelled']:
                         print(f"[{index + 1}/{args.repeat}] 取消已确认，收到 {run['bytes']} 字节，"
                               f"请求至终止帧 {run['cancel_to_terminal_s']:.3f} 秒")
                     else:
                         verdict = '达到目标' if run['passes_600KBps'] else '未达到目标'
+                        checked = 'CRC/模式' if args.command == 'bench' else 'CRC/长度'
                         print(f"[{index + 1}/{args.repeat}] {run['bytes']} 字节，{run['elapsed_s']:.3f} 秒，"
-                              f"{run['KBps']:.2f} KB/s，CRC/模式校验通过；{verdict}")
+                              f"{run['KBps']:.2f} KB/s，{checked}校验通过；{verdict}")
+                if args.command == 'download':
+                    report['independent_content_verified'] = all(
+                        run.get('reference_match') is True and run['complete'] for run in report['runs'])
+                    report['ten_run_throughput_pass'] = len(report['runs']) >= 10 and all(
+                        run['passes_600KBps'] for run in report['runs'])
                 if args.cancel_after is None and not all(run['passes_600KBps'] for run in report['runs']):
                     status = 2
     except Exception as error:

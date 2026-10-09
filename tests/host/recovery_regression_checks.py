@@ -50,11 +50,44 @@ def run_recovery_checks():
     def integer(engine, name):
         return ctypes.c_int.from_address(engine.get_global_value_address(name))
 
+    index_gate = engine_for('''
+@g_sync_state = global i32 0
+@g_dat_need_upgrade_rebuild = global i1 false
+''' + extract('rdx_uxfile_is_index_active'))
+    index_busy = ctypes.CFUNCTYPE(ctypes.c_uint8)(
+        index_gate.get_function_address('rdx_uxfile_is_index_active'))
+    for state in range(6):
+        integer(index_gate, 'g_sync_state').value = state
+        assert bool(index_busy()) == (1 <= state <= 3)
+    integer(index_gate, 'g_sync_state').value = 0
+    ctypes.c_bool.from_address(index_gate.get_global_value_address(
+        'g_dat_need_upgrade_rebuild')).value = True
+    assert index_busy()
+
     service = '''
 @service = global i32 0
+@io_users = global i32 0
 define i32 @rdx_record_format_service_status() {
  %s = load i32, i32* @service
  ret i32 %s
+}
+define i32 @rdx_record_format_io_enter() {
+ %s = load i32, i32* @service
+ %ready = icmp eq i32 %s, 0
+ br i1 %ready, label %enter, label %done
+enter:
+ %users = load i32, i32* @io_users
+ %next = add i32 %users, 1
+ store i32 %next, i32* @io_users
+ br label %done
+done:
+ ret i32 %s
+}
+define void @rdx_record_format_io_leave() {
+ %users = load i32, i32* @io_users
+ %next = sub i32 %users, 1
+ store i32 %next, i32* @io_users
+ ret void
 }
 '''
     timer = engine_for(service + '''
@@ -84,6 +117,7 @@ define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
         tick(None)
         assert integer(timer, 'scheduled').value == scheduled
         assert integer(timer, 'flushed').value == flushed
+        assert integer(timer, 'io_users').value == 0
 
     gate_types = types_for(['uxfile_data_t', 'uxfile_datfile_info_t'])
     gate_globals = globals_for(['uxReadFileData', 'uxDatFileInfo', 'rdx_empty_file', 'rdx_empty_list'])
@@ -116,6 +150,59 @@ define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
             assert ctypes.c_uint.from_address(result).value == 0
         assert integer(gate, 'uxReadFileData').value == 123
         assert integer(gate, 'uxDatFileInfo').value == 456
+        assert integer(gate, 'io_users').value == 0
+
+    format_gate = engine_for(service + '''
+@format_called = global i32 0
+@format_inflight = global i32 0
+define i32 @rdx_uxfile_sd_format_ready(void (i8)* %callback) {
+ store i32 1, i32* @format_called
+ %users = load i32, i32* @io_users
+ store i32 %users, i32* @format_inflight
+ ret i32 12
+}
+''' + extract('rdx_uxfile_sd_format_adv_impl'))
+    format_call = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)(
+        format_gate.get_function_address('rdx_uxfile_sd_format_adv_impl'))
+    for state in (1, -1, 0):
+        integer(format_gate, 'service').value = state
+        integer(format_gate, 'format_called').value = 0
+        assert format_call(None) == (-1 if state else 12)
+        assert integer(format_gate, 'format_called').value == (0 if state else 1)
+        assert integer(format_gate, 'io_users').value == 0
+    assert integer(format_gate, 'format_inflight').value == 1
+
+    snapshot = engine_for(types_for(['OS_SEM']) + '\n' +
+                          globals_for(['dat_opera_mutex', 'rdx_storage_io_error']) + '''
+@locked = global i32 0
+@flush_result = global i32 0
+@flush_io_error = global i32 0
+@flush_locked = global i32 0
+define i32 @os_mutex_pend(%struct.OS_SEM* %mutex, i32 %timeout) {
+ store i32 1, i32* @locked
+ ret i32 0
+}
+define i32 @os_mutex_post(%struct.OS_SEM* %mutex) {
+ store i32 0, i32* @locked
+ ret i32 0
+}
+define i32 @rdx_uxfile_flush_cache() {
+ %lock = load i32, i32* @locked
+ store i32 %lock, i32* @flush_locked
+ %error = load i32, i32* @flush_io_error
+ store i32 %error, i32* @rdx_storage_io_error
+ %result = load i32, i32* @flush_result
+ ret i32 %result
+}
+''' + extract('rdx_uxfile_download_snapshot'))
+    snapshot_call = ctypes.CFUNCTYPE(ctypes.c_int)(
+        snapshot.get_function_address('rdx_uxfile_download_snapshot'))
+    for result, io_error in ((0, 0), (-1, 0), (0, -1)):
+        integer(snapshot, 'flush_result').value = result
+        integer(snapshot, 'flush_io_error').value = io_error
+        assert snapshot_call() == (-2 if result or io_error else 0)
+        assert integer(snapshot, 'locked').value == 0
+        assert integer(snapshot, 'flush_locked').value == 1
 
     init = engine_for(types_for(['dat_entry_t', 'uxfile_filelist_t']) + '\n' +
                       globals_for(['g_dat_cache.0', 'g_dat_cache.1', 'g_dat_cache.3',

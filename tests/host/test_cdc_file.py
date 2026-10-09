@@ -1,4 +1,4 @@
-"""Stage A wire parser and actual firmware producer behavior (no USB hardware)."""
+"""CDF1 receiver, firmware producers and transport regressions (no USB hardware)."""
 import importlib.util
 import ctypes
 import contextlib
@@ -28,10 +28,11 @@ def frame(kind, offset, payload, transfer_id=1):
 
 
 class Port:
-    def __init__(self, data, chunk=16384):
+    def __init__(self, data=b'', chunk=16384, responses=None):
         self.data = bytearray(data)
         self.chunk = chunk
         self.writes = []
+        self.responses = responses
 
     @property
     def in_waiting(self):
@@ -46,11 +47,206 @@ class Port:
         return data
 
     def write(self, data):
+        if self.responses is not None:
+            self.data.extend(self.responses[data])
         self.writes.append(data)
         return len(data)
 
+    def serial_module(self):
+        return types.SimpleNamespace(
+            __version__='mock', Serial=mock.Mock(return_value=contextlib.nullcontext(self)))
+
 
 class ReceiverTests(unittest.TestCase):
+    def entry(self, **fields):
+        return dict(dict(sn=7, name='abc123.raw', size=4000, start_time=100,
+                         end_time=102, frame_size=40, opus=1084752896), **fields)
+
+    def test_list_stream_and_validation(self):
+        for entries in ([], [self.entry()]):
+            payload = json.dumps(entries).encode()
+            port = Port(self.recording_wire(payload), chunk=1)
+            self.assertEqual(tool.receive_list(port), entries)
+            self.assertEqual(port.writes, [b'*APP#file#list#\r\n'])
+        for entries in ({}, [self.entry(), self.entry()], [self.entry(name='../abc.raw')],
+                        [self.entry(size=-1)], [self.entry(sn=True)], [None]):
+            with self.subTest(entries=entries), self.assertRaises(tool.ProtocolError):
+                tool.receive_list(Port(self.recording_wire(json.dumps(entries).encode())))
+        wire = self.recording_wire(b'[]')
+        with self.assertRaises(tool.ProtocolError):
+            tool.receive_list(Port(wire[:-1] + bytes([wire[-1] ^ 1])))
+
+    def test_list_selection_refresh_and_unavailable(self):
+        entries = [self.entry(size=tool.MAX_SIZE + 40), self.entry(sn=8, name='def.raw')]
+        report = {}
+        with mock.patch.object(tool, 'receive_list', side_effect=[[], entries]) as listing, \
+                mock.patch('builtins.input', side_effect=['r', 'invalid', '1', '2']), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(tool.select_recording(None, report), entries[1])
+        self.assertEqual(listing.call_count, 2)
+        with mock.patch.object(tool, 'receive_list', return_value=[]), \
+                mock.patch('builtins.input', return_value='q'), contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(tool.select_recording(None, {}))
+
+    def test_interactive_download_on_same_port(self):
+        payload = b'x' * 4000
+        listing = json.dumps([self.entry()]).encode()
+        for selection in ('1', 'q'):
+            port = Port(chunk=63, responses={
+                b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
+                b'*APP#file#list#\r\n': self.recording_wire(listing),
+                b'*APP#file#get#7#abc123.raw#\r\n': self.recording_wire(payload),
+            })
+            serial = port.serial_module()
+            with tempfile.TemporaryDirectory() as directory, \
+                    mock.patch.dict('sys.modules', {'serial': serial}), \
+                    mock.patch('builtins.input', return_value=selection), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                output = Path(directory) / 'record.raw'
+                report_path = Path(directory) / 'report.json'
+                result = tool.main(['--port', 'COM6', '--report', str(report_path),
+                                    'download', '--output', str(output)])
+                report = json.loads(report_path.read_text(encoding='utf-8'))
+                serial.Serial.assert_called_once()
+                self.assertTrue(report['list_requests'][0]['crc_ok'])
+                if selection == '1':
+                    self.assertEqual(result, 2)
+                    self.assertEqual(output.read_bytes(), payload)
+                    self.assertEqual(report['selected_recording']['sn'], 7)
+                    self.assertTrue(report['runs'][0]['complete'])
+                    self.assertEqual(len(port.writes), 3)
+                else:
+                    self.assertEqual(result, 3)
+                    self.assertFalse(output.exists())
+                    self.assertTrue(report['selection_cancelled'])
+                    self.assertEqual(len(port.writes), 2)
+
+    def recording_wire(self, payload, block=4096):
+        wire = b'*DEV#file#accepted#1#1#\r\n'
+        for offset in range(0, len(payload), block):
+            wire += frame(1, offset, payload[offset:offset + block])
+        return wire + frame(2, len(payload), struct.pack('<II', len(payload), zlib.crc32(payload)))
+
+    def test_recording_fragmentation_and_reference(self):
+        payload = bytes((index * 19 + 7) & 255 for index in range(10000))
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / 'reference.raw'
+            reference.write_bytes(payload)
+            for block, chunk in ((4096, 1), (1024, 63), (8192, 16384)):
+                with self.subTest(block=block, chunk=chunk):
+                    output = Path(directory) / f'{block}-{chunk}.raw'
+                    port = Port(self.recording_wire(payload, block), chunk)
+                    report = tool.receive_download(port, 7, 'abc123.raw', output, reference=reference)
+                    self.assertEqual(port.writes, [b'*APP#file#get#7#abc123.raw#\r\n'])
+                    self.assertEqual(output.read_bytes(), payload)
+                    self.assertEqual(report['sha256'], tool.hashlib.sha256(payload).hexdigest())
+                    self.assertTrue(report['complete'] and report['crc_ok'] and report['reference_match'])
+                    self.assertIsNone(report['pattern_ok'])
+                    self.assertFalse(report['passes_600KBps'])
+                    self.assertEqual(report['max_payload'], block)
+
+    def test_recording_identity_rejected_before_send(self):
+        for sn, name in ((0, 'abc.raw'), (0x7fffffff, 'abc.raw'), (7, '../abc.raw'),
+                         (7, 'abc.raw#'), (7, 'ab.raw'), (7, 'abcdef0.raw'),
+                         (7, 'abc.RAW'), (7, 'abc.raw\r\n*APP#file#bench#1#1024#')):
+            port = Port(b'')
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_download(port, sn, name, 'unused.raw')
+            self.assertEqual(port.writes, [])
+
+    def test_recording_failures_do_not_publish(self):
+        payload = b'x' * 80
+        prefix = b'*DEV#file#accepted#1#1#\r\n'
+        good = frame(1, 0, payload)
+        cases = [b'*DEV#file#error#8#\r\n', self.recording_wire(payload)[:-1],
+                 self.recording_wire(b'x' * 41), self.recording_wire(b''),
+                 prefix + good + frame(2, 80, struct.pack('<II', 40, zlib.crc32(payload))),
+                 prefix + good + frame(2, 80, struct.pack('<II', 80, 123)),
+                 prefix + frame(1, 0, payload, transfer_id=2),
+                 prefix + good + frame(3, 80, struct.pack('<I', 5)),
+                 prefix + good[:-1] + bytes([good[-1] ^ 1])]
+        with tempfile.TemporaryDirectory() as directory:
+            for index, wire in enumerate(cases):
+                output = Path(directory) / f'{index}.raw'
+                report = {}
+                with self.assertRaises(tool.ProtocolError):
+                    tool.receive_download(Port(wire), 7, 'abc123.raw', output, report=report)
+                self.assertFalse(output.exists())
+                self.assertFalse(report['complete'] or report['passes_600KBps'])
+            output = Path(directory) / 'overflow.raw'
+            with mock.patch.object(tool, 'MAX_SIZE', 40), self.assertRaises(tool.ProtocolError):
+                tool.receive_download(Port(self.recording_wire(payload)), 7, 'abc123.raw', output)
+            self.assertFalse(output.exists())
+
+    def test_recording_reference_mismatch_and_cancel(self):
+        payload = b'x' * 80
+        with tempfile.TemporaryDirectory() as directory:
+            reference = Path(directory) / 'reference.raw'
+            for index, content in enumerate((b'y' * 80, payload[:-1], payload + b'x')):
+                reference.write_bytes(content)
+                output = Path(directory) / f'mismatch-{index}.raw'
+                report = {}
+                with self.assertRaises(tool.ProtocolError):
+                    tool.receive_download(Port(self.recording_wire(payload)), 7, 'abc123.raw',
+                                          output, report=report, reference=reference)
+                self.assertFalse(report['reference_match'])
+                self.assertFalse(output.exists())
+            output = Path(directory) / 'cancel.raw'
+            port = Port(b'*DEV#file#accepted#1#1#\r\n' + frame(3, 0, struct.pack('<I', 6)))
+            report = tool.receive_download(port, 7, 'abc123.raw', output, cancel_after=0)
+            self.assertTrue(report['cancelled'])
+            self.assertFalse(report['complete'] or output.exists())
+            self.assertEqual(port.writes[-1], b'*APP#file#cancel#1#\r\n')
+            output = Path(directory) / 'cancel-too-late.raw'
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_download(Port(self.recording_wire(payload)), 7, 'abc123.raw',
+                                      output, cancel_after=1024)
+            self.assertFalse(output.exists())
+
+    def test_recording_existing_output_and_close_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'existing.raw'
+            output.write_bytes(b'keep')
+            port = Port(b'')
+            with self.assertRaises(tool.ProtocolError):
+                tool.receive_download(port, 7, 'abc123.raw', output)
+            self.assertEqual(port.writes, [])
+            self.assertEqual(output.read_bytes(), b'keep')
+            failing = mock.Mock()
+            failing.write.return_value = 40
+            failing.close.side_effect = OSError('close failed')
+            report = {}
+            with mock.patch.object(Path, 'open', return_value=failing), self.assertRaises(OSError):
+                tool.receive_download(Port(self.recording_wire(b'x' * 40)), 7, 'abc123.raw',
+                                      Path(directory) / 'close.raw', report=report)
+            self.assertFalse(report['complete'] or report['passes_600KBps'])
+            self.assertFalse((Path(directory) / 'close.raw').exists())
+
+    def test_recording_cli_one_port_and_repeat(self):
+        payload = b'x' * 40
+        port = Port(responses={
+            b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
+            b'*APP#file#get#7#abc123.raw#\r\n': self.recording_wire(payload),
+        })
+        serial = port.serial_module()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict('sys.modules', {'serial': serial}), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            path = Path(directory) / 'report.json'
+            output = Path(directory) / 'record.raw'
+            reference = Path(directory) / 'reference.raw'
+            reference.write_bytes(payload)
+            status = tool.main(['--port', 'COM6', '--report', str(path), 'download', '--sn', '7',
+                                '--name', 'abc123.raw', '--output', str(output), '--repeat', '2',
+                                '--reference', str(reference)])
+            self.assertEqual(status, 2)
+            serial.Serial.assert_called_once()
+            report = json.loads(path.read_text(encoding='utf-8'))
+            self.assertTrue(report['independent_content_verified'])
+            self.assertFalse(report['real_file_acceptance'] or report['ten_run_throughput_pass'])
+            self.assertEqual(len(report['runs']), 2)
+            for index in (1, 2):
+                self.assertEqual(output.with_name(f'record-{index}.raw').read_bytes(), payload)
+
     def test_deferred_verification(self):
         payload = (bytes(range(256)) * 40)[:10001]
         for block in (1024, 2048, 4096, 8192):
@@ -105,17 +301,12 @@ class ReceiverTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_entry_point_owns_one_port_and_reserves_report(self):
-        class ReactivePort(Port):
-            def write(self, data):
-                if data == b'*APP#file#caps#\r\n':
-                    self.data.extend(b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n')
-                elif data == b'*APP#file#bench#1#1024#\r\n':
-                    self.data.extend(b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'] + VECTORS['end']))
-                else:
-                    raise AssertionError(data)
-                return super().write(data)
-        serial = types.SimpleNamespace(__version__='mock', Serial=mock.Mock())
-        serial.Serial.return_value = contextlib.nullcontext(ReactivePort(b''))
+        port = Port(responses={
+            b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
+            b'*APP#file#bench#1#1024#\r\n':
+                b'*DEV#file#accepted#1#1#\r\n' + bytes.fromhex(VECTORS['data'] + VECTORS['end']),
+        })
+        serial = port.serial_module()
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict('sys.modules', {'serial': serial}), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             path = Path(directory) / 'nested/report.json'
@@ -202,6 +393,30 @@ class ReceiverTests(unittest.TestCase):
             self.assertEqual(output.with_suffix('.bin.part').read_bytes(), b'\0')
 
 
+SOURCE_STUBS = r'''
+static int source_mock_busy, source_mock_cancel, source_mock_offset;
+static int source_mock_wait, source_mock_error, source_mock_close = 1;
+int rdx_cdc_source_begin(u32 sn, const char *name) {
+    if (source_mock_busy) return 2;
+    source_mock_busy=1; source_mock_cancel=source_mock_offset=0;
+    return 0;
+}
+int rdx_cdc_source_list_begin(void) { return rdx_cdc_source_begin(0,""); }
+int rdx_cdc_source_busy(void) { return source_mock_busy; }
+void rdx_cdc_source_cancel(void) { source_mock_cancel=1; }
+void rdx_cdc_source_release(void) { source_mock_busy=0; }
+void rdx_cdc_source_service(void) {}
+int rdx_cdc_source_closed(void) { return source_mock_close; }
+int rdx_cdc_source_take(u8 *data,u32 *length,u32 *size) {
+    *size=10000; *length=0;
+    if(source_mock_error) return -source_mock_error;
+    if(source_mock_wait || source_mock_offset==10000) return 0;
+    *length=10000-source_mock_offset; if(*length>4096) *length=4096;
+    for(u32 index=0;index<*length;++index) data[index]=(u8)((source_mock_offset+index)*19+7);
+    source_mock_offset+=*length; return 1;
+}
+'''
+
 STUBS = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -241,6 +456,8 @@ TESTS = r'''
 #define CHECK(condition) do { if (!(condition)) return __LINE__; } while (0)
 static char reply[258];
 static void boot(void) {
+    source_mock_busy=source_mock_cancel=source_mock_offset=source_mock_wait=source_mock_error=0;
+    source_mock_close=1;
     memset(&file_stream,0,sizeof(file_stream)); file_next_id=0;
     now=occupied=wire_length=aborted=terminals=0; credit=1000; generation=1;
 }
@@ -285,7 +502,7 @@ int test_admission_and_sessions(void) {
     for(unsigned index=0;index<sizeof(invalid)/sizeof(invalid[0]);++index) {
         CHECK(command(invalid[index]) && !strcmp(reply,"*DEV#file#error#1#\r\n") && !rdx_cdc_file_active());
     }
-    command("*APP#file#get#1#abc#"); CHECK(!strcmp(reply,"*DEV#file#error#8#\r\n"));
+    command("*APP#file#get#1#abc#"); CHECK(!strcmp(reply,"*DEV#file#error#1#\r\n"));
     occupied=1; command("*APP#file#bench#1#1024#"); CHECK(!strcmp(reply,"*DEV#file#error#2#\r\n"));
     occupied=0; command("*APP#file#bench#10000#4096#");
     credit=1; rdx_cdc_file_service(1); CHECK(file_next_id==1);
@@ -295,6 +512,11 @@ int test_admission_and_sessions(void) {
     boot(); command("*APP#file#bench#1#1024#"); now=110000; drain(); CHECK(wire_length==28 && wire[20]==7);
     boot(); command("*APP#file#bench#1#1024#"); generation=0; rdx_cdc_file_service(1);
     CHECK(!rdx_cdc_file_active() && !wire_length);
+    boot(); command("*APP#file#list#");
+    CHECK(!strcmp(reply,"*DEV#file#accepted#1#1#\r\n") && source_mock_busy);
+    drain(); CHECK(!rdx_cdc_file_active() && !source_mock_busy && file_stream.offset==10000);
+    command("*APP#file#list#extra"); CHECK(!strcmp(reply,"*DEV#file#error#1#\r\n"));
+    source_mock_busy=1; command("*APP#file#list#"); CHECK(!strcmp(reply,"*DEV#file#error#2#\r\n"));
     return 0;
 }
 int test_all_blocks(void) {
@@ -318,10 +540,46 @@ int test_all_blocks(void) {
     }
     return 0;
 }
+int test_recording_producer(void) {
+    boot(); command("*APP#file#get#7#abc123.raw#");
+    CHECK(file_stream.recording && source_mock_busy);
+    CHECK(!strcmp(reply,"*DEV#file#accepted#1#1#\r\n"));
+    source_mock_wait=1; drain(); CHECK(!wire_length && file_stream.active);
+    source_mock_wait=0; source_mock_close=0; drain();
+    CHECK(file_stream.offset==10000 && file_stream.active && !terminals);
+    source_mock_close=1; drain(); CHECK(!file_stream.active && !source_mock_busy && terminals==1);
+    unsigned position=0, offset=0;
+    while(offset<10000) {
+        unsigned length=10000-offset; if(length>4096) length=4096;
+        CHECK(wire[position+5]==1);
+        for(unsigned index=0;index<length;++index) CHECK(wire[position+20+index]==(u8)((offset+index)*19+7));
+        u32 crc=rdx_cdc_file_crc(0,wire+position,length+20);
+        for(unsigned index=0;index<4;++index) CHECK(wire[position+20+length+index]==(u8)(crc>>(index*8)));
+        offset+=length; position+=length+24;
+    }
+    CHECK(wire_length==position+32 && wire[position+5]==2);
+    boot(); command("*APP#file#get#7#abc.raw#"); credit=1;
+    rdx_cdc_file_service(1); command("*APP#file#cancel#1#");
+    CHECK(source_mock_cancel); credit=1000; drain();
+    CHECK(wire_length==4096+24+28 && wire[4096+24+20]==6);
+    boot(); command("*APP#file#get#7#abc.raw#"); source_mock_error=5; drain();
+    CHECK(wire_length==28 && wire[20]==5 && !source_mock_busy);
+    boot(); command("*APP#file#get#7#abc.raw#"); rdx_cdc_file_session(2);
+    CHECK(!source_mock_busy && !file_stream.active);
+    const char *bad[]={"*APP#file#get#0#abc.raw#","*APP#file#get#2147483647#abc.raw#",
+        "*APP#file#get#1#../abc.raw#","*APP#file#get#1#abcdef0.raw#","*APP#file#get#1#ab.raw#",
+        "*APP#file#get#1#abc.raw##","*APP#file#get#1#abc.RAW#"};
+    for(unsigned index=0;index<sizeof(bad)/sizeof(bad[0]);++index) {
+        boot(); command(bad[index]); CHECK(!strcmp(reply,"*DEV#file#error#1#\r\n"));
+    }
+    return 0;
+}
 '''
 
 
 def check_firmware():
+    config = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(encoding='utf-8')
+    assert re.search(r'#define\s+TCFG_T2620_CDC_FILE_BENCH_ENABLE\s+0\b', config)
     runtime = ctypes.CDLL('msvcrt')
     for name in ('snprintf', 'strncmp', 'strcmp', 'strlen', 'memcpy', 'memset', 'memcmp'):
         symbol = '_snprintf' if name == 'snprintf' else name
@@ -334,8 +592,28 @@ def check_firmware():
     with tempfile.TemporaryDirectory(prefix='cdc_file_') as directory:
         path = Path(directory) / 'file.c'
         tests = TESTS.replace('GOLDEN_LARGE_CRC', str(zlib.crc32((bytes(range(256)) * 40)[:10001])) + 'u')
-        path.write_text(STUBS + source + arrays + tests, encoding='utf-8')
-        run_c_checks(path, ('test_vectors', 'test_cancel_and_backpressure', 'test_admission_and_sessions', 'test_all_blocks'), native=True)
+        path.write_text('#define TCFG_T2620_CDC_FILE_BENCH_ENABLE 1\n' +
+                        STUBS + SOURCE_STUBS + source + arrays + tests, encoding='utf-8')
+        run_c_checks(path, ('test_vectors', 'test_cancel_and_backpressure', 'test_admission_and_sessions',
+                           'test_all_blocks'), native=True)
+        gate_tests = r'''
+int test_bench_disabled(void) {
+    boot(); command("*APP#file#bench#10000000#4096#");
+    CHECK(!strcmp(reply,"*DEV#file#error#1#\r\n"));
+    CHECK(!file_stream.active && !file_next_id && !source_mock_busy);
+    command("*APP#file#caps#");
+    CHECK(!strncmp(reply,"*DEV#file#caps#",15));
+    command("*APP#file#list#");
+    CHECK(file_stream.active && file_stream.recording);
+    command("*APP#file#bench#10000000#4096#");
+    CHECK(!reply[0] && file_stream.active && file_stream.deferred==2);
+    drain(); CHECK(!file_stream.active);
+    return 0;
+}
+'''
+        path.write_text('#define TCFG_T2620_CDC_FILE_BENCH_ENABLE 0\n' +
+                        STUBS + SOURCE_STUBS + source + arrays + tests + gate_tests, encoding='utf-8')
+        run_c_checks(path, ('test_bench_disabled', 'test_recording_producer'), native=True)
     print('PASS: actual CDC file producer: vectors, CRC, bounds, partial cancel, stale sessions, timeout')
 
 
@@ -643,12 +921,17 @@ int test_file_parser(void) {
         llvm.add_symbol(name, ctypes.cast(getattr(runtime, name), ctypes.c_void_p).value)
     with tempfile.TemporaryDirectory(prefix='cdc_parser_') as directory:
         path = Path(directory) / 'parser.c'
-        path.write_text(parser_stubs + stubs + source + parser_tests + tests, encoding='utf-8')
+        path.write_text('#define TCFG_T2620_CDC_FILE_BENCH_ENABLE 1\n' +
+                        parser_stubs + stubs + SOURCE_STUBS + source + parser_tests + tests, encoding='utf-8')
         run_c_checks(path, ('test_file_parser',), native=True)
     print('PASS: actual common parser: CAPS/accepted/binary order, coalesced cancel, deferred BUSY')
 
 
 if __name__ == '__main__':
+    from cdc_conflict_checks import run_conflict_checks
+    from cdc_source_checks import run_source_checks
+    run_conflict_checks()
+    run_source_checks()
     check_firmware()
     check_transport()
     check_irq_driver()

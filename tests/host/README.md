@@ -33,14 +33,41 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
 
-The development CDC suite, test_cdc_file.py, runs the actual C memory-source
+The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers
 golden CRC/frame vectors, 1/2/4/8 KB blocks, partial-frame cancellation, stale
 sessions, TX-full control reception, coalesced wakeups and bounded output.
+Its cdc_source_checks.py harness executes the recording worker with two read
+buffers, delayed completion, read/close failures, cancellation, quarantine,
+deadlines and bounded shutdown. Record-format tests cover the public in-flight
+gate; archive regression tests cover queued format admission and locked DAT
+cache handoff. LIST checks cover the private DAT reader, unaligned JSON payload,
+empty/invalid/duplicate lists, unsupported entries, refresh/quit selection and
+LIST-to-GET on one serial connection. Host simulations do not establish on-device concurrency timing.
+The `cdc_conflict_checks.py` harness executes admission predicates and entry
+reservations extracted from the patched protocol archive, deferred BLE list
+admission and production OTA dispatch. Additional cases cover post-acquire CDC
+conflicts, index activity independent of the CDC lease, and reset rejection.
+These are targeted gate tests, not a simulation of the entire BLE parser or JL
+scheduler. The patched archive now contains protocol and UXFILE modifications.
 It does not establish physical USB timing, storage throughput or 600 KB/s.
-See docs/10-4.CDC通用文件传输业务方案.md for the Stage A build and board procedure.
+See docs/10-4.CDC通用文件传输业务方案.md sections 7 and 9.3–9.7 for real-file board validation.
 
 ## Keeping the suite small
+
+The CDC cleanup keeps one suite entry, `test_cdc_file.py`, and two focused
+helpers: `cdc_source_checks.py` owns worker lifetime/failure behavior;
+`cdc_conflict_checks.py` owns patched protocol admission and OTA cleanup.
+Storage leases, verified RAW/DAT readers and UXFILE patches remain in the
+existing record-format/recovery suite rather than being duplicated here.
+Receiver CLI cases share one command-response serial fixture. Recording
+fragmentation uses representative split/coalesced cases rather than a full
+block-size/chunk-size Cartesian product; the shared CDF1 tests own wire-format
+boundaries. Real-file producer behavior runs with BENCH disabled; the enabled
+build owns memory vectors and block sizes. Both builds remain covered.
+Unused fault-injection scaffolding and parser call-count assertions are removed;
+archive behavior and legacy failure-response guards remain. Host checks still
+cannot certify USB throughput or scheduler races; those require board tests.
 
 Factory reset board regression: save a non-default HID map with the PC App,
 send the phone App's `*APP#default#`, then reconnect after reboot and verify

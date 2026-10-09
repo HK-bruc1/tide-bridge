@@ -268,7 +268,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '86DD15A6AFDF2F8D2E3AAEE8D965F9A01083D276FBDD323463B77E5D75EC3573' -and
+                           $PatchedRdxArchiveHash -eq '02DFC0E94C302CE481E50E82FB165220B5932CA3006B0C74873C156F39440D43' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -360,7 +360,7 @@ Assert-Contract 'STORAGE_BOOT_PRESERVES_DATA_ON_MOUNT_FAILURE' $formatSafetyOk `
 $entryGatesOk = $Pc -match '(?s)static int pc_mode_try_enter.*?rdx_dip_switch_pc_allowed\(\).*?rdx_pc_storage_is_busy\(\)' -and
                 $Dip -match '(?s)int rdx_dip_switch_pc_allowed.*?!get_power_on_status\(\).*?usb_otg_online\(0\) == SLAVE_MODE.*?rdx_dip_switch_cold_service\(\)' -and
                 $RdxApp -match '(?s)u8 rdx_pc_storage_is_busy.*?rdx_app_storage_activity_is_busy\s*\(\s*"PC-STORAGE"\s*,\s*0\s*,\s*0\s*\)' -and
-                $RdxApp -match '(?s)static u8 rdx_app_storage_activity_is_busy.*?RECORD_STATE_STOP.*?rdx_record_process_is_busy_check.*?rdx_is_file_transfer_active.*?rdx_is_file_sync_busy'
+                $RdxApp -match '(?s)static u8 rdx_app_storage_activity_check.*?RECORD_STATE_STOP.*?rdx_record_process_is_busy_check.*?rdx_is_file_transfer_active.*?rdx_is_file_sync_busy'
 Assert-Contract 'PC_ENTRY_REQUIRES_OFF_HOST_AND_IDLE_STORAGE' $entryGatesOk `
     'Only OFF with a confirmed host and a fresh RDX runtime may export; storage activity still blocks takeover'
 

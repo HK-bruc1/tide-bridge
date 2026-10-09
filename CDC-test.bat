@@ -10,7 +10,7 @@
 命令行方式（可选）：
     python -X utf8 -x CDC-test.bat --list-ports
     python -X utf8 -x CDC-test.bat --port COM6 --mode controls
-支持 --mode foundation/controls/packaging/full/file-bench/file-cancel、--expect-addr、--expect-fw、
+支持 --mode foundation/controls/packaging/full/file-bench/file-cancel/file-download、--expect-addr、--expect-fw、
 --key-timeout、--report。tests/board/ 仅保留 TEST=1 的 factory_cdc_bytes.py。
 """
 import argparse
@@ -303,19 +303,40 @@ def file_transfer_test(args):
     spec.loader.exec_module(module)
     path = args.report or Path(__file__).resolve().parent / 'output/cdc-file-reports' / (
         datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + args.mode + '.json')
-    print('\nCDC 文件传输链路验证：10 MB 内存模式，校验数据和 CRC，不读取真实录音。')
     print('需要已启用 TCFG_T2620_CDC_FILE_ENABLE=1 的固件；保持正常 ON，不进入 DUT。')
-    print('这是链路实验，不代表真实录音文件业务已经达到 600 KB/s。')
-    arguments = ['--port', args.port, '--report', str(path), 'bench', '--size', '10000000',
-                 '--block', str(args.bench_block), '--repeat', str(args.bench_repeat),
-                 '--receive-mode', args.bench_receive_mode]
-    if args.mode == 'file-cancel':
-        arguments += ['--cancel-after', '1048576']
+    if args.mode == 'file-download':
+        print('\nCDC 真实录音下载；正常开机连接 CDC 即可，不需要 BLE 登录或进入产测。')
+        print('自动读取设备录音列表，输入序号即可下载；接收 RAW 内容并校验长度、CRC。')
+        print('小文件仅验证功能；CRC 不替代独立内容对照、音频解码和异常验收。')
+        output = args.file_output or path.with_suffix('.raw')
+        arguments = ['--port', args.port, '--report', str(path), 'download',
+                     '--output', str(output), '--repeat', str(args.bench_repeat)]
+        if args.file_sn is not None:
+            arguments += ['--sn', str(args.file_sn), '--name', args.file_name]
+        if args.file_reference:
+            arguments += ['--reference', str(args.file_reference)]
+        if args.file_cancel_after is not None:
+            arguments += ['--cancel-after', str(args.file_cancel_after)]
+    else:
+        print('\nCDC 文件传输链路验证：10 MB 内存模式，校验数据和 CRC，不读取真实录音。')
+        print('开发专用：固件需开启 TCFG_T2620_CDC_FILE_BENCH_ENABLE；默认关闭时返回 file#error#1。')
+        print('这是链路实验，不代表真实录音文件业务已经达到 600 KB/s。')
+        arguments = ['--port', args.port, '--report', str(path), 'bench', '--size', '10000000',
+                     '--block', str(args.bench_block), '--repeat', str(args.bench_repeat),
+                     '--receive-mode', args.bench_receive_mode]
+        if args.mode == 'file-cancel':
+            arguments += ['--cancel-after', '1048576']
     result = module.main(arguments)
+    if result == 3:
+        print('已退出文件选择，未下载。')
+        return 0
     message = ('取消实验完成，终止帧已验证' if args.mode == 'file-cancel' else
                '本轮所有内存源测速达到 600 KB/s（不代表真实文件验收通过）') if result == 0 else (
                '数据传输完整，但至少一轮未达到 600 KB/s' if result == 2 else
                '实验未完成，请检查开发固件、CDC 端口及报告；不会自动重试')
+    if args.mode == 'file-download' and result in (0, 2):
+        message = ('下载取消已确认' if args.file_cancel_after is not None else
+                   '下载完整性校验通过；单轮性能见报告，不等同完整业务验收通过')
     print(f'\n{message}\n报告路径：{path.resolve()}（仅成功创建时写入）')
     return 0 if result == 0 else 1
 
@@ -324,12 +345,17 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='T2620 CDC 终端测试（不等同整机产测验收）')
     parser.add_argument('--list-ports', action='store_true', help='列举串口，不打开设备')
     parser.add_argument('--port', help='例如 COM6')
-    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full', 'file-bench', 'file-cancel'), default='full',
+    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full', 'file-bench', 'file-cancel', 'file-download'), default='full',
                         help='foundation=基础；controls=控制；packaging=包装；full=完整普通测试；file-bench=开发链路测速；file-cancel=开发取消测试')
     parser.add_argument('--bench-block', type=int, choices=(1024, 2048, 4096, 8192), default=4096)
     parser.add_argument('--bench-repeat', type=int, default=1, help='开发测速轮数，1~100')
     parser.add_argument('--bench-receive-mode', choices=('inline', 'deferred'), default='inline',
                         help='inline=边收边校验；deferred=先接收后完整校验（不支持取消）')
+    parser.add_argument('--file-sn', type=int)
+    parser.add_argument('--file-name')
+    parser.add_argument('--file-output', type=Path)
+    parser.add_argument('--file-reference', type=Path, help='独立取得的 RAW，不含 BLE 报文封装')
+    parser.add_argument('--file-cancel-after', type=int)
     parser.add_argument('--expect-addr', type=str.upper, help='烧录记录的 12 位 BLE 地址')
     parser.add_argument('--expect-fw', help='预期产品版本')
     parser.add_argument('--key-timeout', type=int, default=30, help='五键测试等待秒数，1~300')
@@ -343,7 +369,16 @@ def main(argv=None):
         parser.error('请指定 --port COMx 或 --list-ports')
     if not 1 <= args.bench_repeat <= 100:
         parser.error('--bench-repeat 必须为 1~100')
-    if args.mode in ('file-bench', 'file-cancel') and not args.list_ports:
+    if args.mode == 'file-download' and not args.list_ports:
+        if args.file_sn is not None or args.file_name is not None:
+            if (args.file_sn is None or not 1 <= args.file_sn <= 0x7ffffffe or
+                    not args.file_name or not re.fullmatch(r'[0-9a-fA-F]{3,6}\.raw', args.file_name)):
+                parser.error('--file-sn 和 --file-name 必须同时提供；省略则从设备列表选择')
+        if args.bench_receive_mode != 'inline':
+            parser.error('真实下载只支持在线校验')
+        if args.file_cancel_after is not None and not 0 <= args.file_cancel_after < 16777216:
+            parser.error('--file-cancel-after 必须为 0~16777215')
+    if args.mode in ('file-bench', 'file-cancel', 'file-download') and not args.list_ports:
         if args.expect_addr or args.expect_fw:
             parser.error('开发测速不核验身份，请先单独运行 --mode foundation')
         return file_transfer_test(args)
@@ -764,7 +799,7 @@ def launcher(argv=None):
             mode = argv[index + 1] if index + 1 < len(argv) else mode
     else:
         print('T2620 CDC 产测\n请拨码 ON、插好 USB 数据线，并关闭占用串口的其他工具。\n')
-        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 文件传输测速（内存源基准，不是录音下载）')
+        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 通用文件传输（内存基准 / 真实录音接收端）')
         while True:
             choice = input('选择测试，回车选 1，q 退出：').strip().lower()
             if choice == 'q':
@@ -774,18 +809,24 @@ def launcher(argv=None):
                 break
             print('请输入 1、2 或 3。')
         if mode == 'file-bench':
+            print('\n选项 1～5 为开发专用，需固件开启 TCFG_T2620_CDC_FILE_BENCH_ENABLE；默认配置请选 6/7。')
             print('\n1. 快速测速：10 MB × 1 次，4 KB 块\n2. 稳定性测速：10 MB × 10 次，4 KB 块\n3. 取消测试：收到约 1 MiB 后请求取消')
             print('4. 接收后校验对照：10 MB × 1 次，4 KB 块\n5. 接收后校验对照：10 MB × 10 次，4 KB 块')
+            print('6. 真实录音下载：从设备列表选择，下载 1 次\n7. 真实录音稳定性：从设备列表选择，下载 10 次')
             while True:
                 choice = input('选择实验，回车选 1，q 退出：').strip().lower()
                 if choice == 'q':
                     return 0
+                if choice in ('6', '7'):
+                    mode = 'file-download'
+                    extra = ['--bench-repeat', '10' if choice == '7' else '1']
+                    break
                 if choice in ('', '1', '2', '3', '4', '5'):
                     mode = 'file-cancel' if choice == '3' else 'file-bench'
                     extra = ['--bench-repeat', '10' if choice in ('2', '5') else '1',
                              '--bench-receive-mode', 'deferred' if choice in ('4', '5') else 'inline']
                     break
-                print('请输入 1、2、3、4 或 5。')
+                print('请输入 1 至 7。')
     try:
         import serial.tools.list_ports
         if mode == 'full':

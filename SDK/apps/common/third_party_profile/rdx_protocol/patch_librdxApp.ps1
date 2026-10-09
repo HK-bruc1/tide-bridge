@@ -203,9 +203,22 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
     }
 
     Copy-Item -LiteralPath $InputArchive -Destination $CandidateArchive -Force
+    $ProtocolObject = Join-Path $TempDir 'rdx_protocol.c.o'
+    $ProtocolIr = Join-Path $TempDir 'rdx_protocol.ll'
     Push-Location $TempDir
     try {
-        Invoke-CheckedTool $Ar @('r', $CandidateArchive, 'rdx_uxfile.c.o')
+        Invoke-CheckedTool $Ar @('x', $InputArchive, 'rdx_protocol.c.o')
+    } finally {
+        Pop-Location
+    }
+    Invoke-CheckedTool $Clang @('-S', '-emit-llvm', '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir', $ProtocolObject, '-o', $ProtocolIr)
+    . (Join-Path $PSScriptRoot 'patch_librdxApp_protocol.ps1')
+    $ProtocolText = Update-RdxProtocolIr ([IO.File]::ReadAllText($ProtocolIr))
+    [IO.File]::WriteAllText($ProtocolIr, $ProtocolText, $Utf8NoBom)
+    Invoke-CheckedTool $Clang @('-c', '-emit-llvm', '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir', $ProtocolIr, '-o', $ProtocolObject)
+    Push-Location $TempDir
+    try {
+        Invoke-CheckedTool $Ar @('r', $CandidateArchive, 'rdx_uxfile.c.o', 'rdx_protocol.c.o')
     } finally {
         Pop-Location
     }
@@ -232,7 +245,10 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
     foreach ($Symbol in @('rdx_uxfile_is_scan_active', 'rdx_uxfile_finish_record',
                           'rdx_uxfile_fence_request', 'rdx_uxfile_fence_poll',
                           'rdx_uxfile_pc_returned', 'rdx_uxfile_pc_refresh_status',
-                          'rdx_uxfile_storage_status')) {
+                          'rdx_uxfile_storage_status', 'rdx_uxfile_is_index_active',
+                          'rdx_protocol_recieve_data_handle_admitted',
+                          'rdx_protocol_ota_handle_admitted',
+                          'rdx_protocol_record_file_info_indicate_admitted')) {
         if (($Symbols -join "`n") -notmatch ('\b' + $Symbol + '\b')) {
             throw "Patched archive missing ABI symbol: $Symbol"
         }

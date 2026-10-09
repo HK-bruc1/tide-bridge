@@ -1371,6 +1371,10 @@ static void rdx_record_cmd_handle_internal(
     }
     if (rdx_storage_lifecycle_business_blocked() &&
         r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
+        rdx_record_format_download_conflict("RECORD_COMMAND");
+        if (token && rdx_record_rdx_token_is_current(token)) {
+            rdx_protocol_record_state_indicate();
+        }
         return;
     }
     if (token && !rdx_record_rdx_token_is_current(token)) {
@@ -1625,6 +1629,7 @@ void rdx_record_prepare_new_session(void)
 void rdx_record_start(void* priv)
 {
     if (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked()) {
+        rdx_record_format_download_conflict("RECORD_START");
         return;
     }
     /*----------------------------------------------------------------*/

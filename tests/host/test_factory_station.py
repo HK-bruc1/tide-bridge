@@ -49,6 +49,14 @@ class StationTests(unittest.TestCase):
                 entry.assert_called_once_with(['--port', 'COM6', '--mode', mode, '--bench-repeat', repeat,
                                                '--bench-receive-mode', 'deferred' if selection in ('4', '5') else 'inline'])
         serial.Serial.assert_not_called()
+        for choice, repeat in (('6', '1'), ('7', '10')):
+            with mock.patch.dict('sys.modules', modules), \
+                    mock.patch('builtins.input', side_effect=['3', choice, '6']), \
+                    mock.patch.object(_cdc, 'main', return_value=0) as entry:
+                self.assertEqual(_cdc.launcher([]), 0)
+                entry.assert_called_once_with(['--port', 'COM6', '--mode', 'file-download',
+                                              '--bench-repeat', repeat])
+        serial.Serial.assert_not_called()
 
     def test_file_mode_uses_shared_receiver(self):
         module = types.SimpleNamespace(main=mock.Mock(return_value=2))
@@ -68,6 +76,36 @@ class StationTests(unittest.TestCase):
                 mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module):
             self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-cancel']), 0)
         self.assertEqual(module.main.call_args.args[0][-2:], ['--cancel-after', '1048576'])
+
+    def test_recording_mode_uses_shared_receiver(self):
+        module = types.SimpleNamespace(main=mock.Mock(return_value=0))
+        spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=mock.Mock()))
+        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
+                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module), \
+                mock.patch.object(_cdc, 'Station', side_effect=AssertionError('must not enter DUT')):
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-download', '--file-sn', '7',
+                                        '--file-name', 'abc123.raw', '--file-output', 'record.raw',
+                                        '--report', 'download.json', '--file-reference', 'baseline.raw',
+                                        '--file-cancel-after', '4096']), 0)
+        module.main.assert_called_once_with(['--port', 'COM6', '--report', 'download.json', 'download',
+                                             '--output', 'record.raw', '--repeat', '1',
+                                             '--sn', '7', '--name', 'abc123.raw', '--reference', 'baseline.raw',
+                                             '--cancel-after', '4096'])
+        module.main.reset_mock()
+        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
+                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module):
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-download',
+                                       '--file-output', 'record.raw', '--report', 'download.json']), 0)
+        module.main.assert_called_once_with(['--port', 'COM6', '--report', 'download.json', 'download',
+                                             '--output', 'record.raw', '--repeat', '1'])
+        with mock.patch.object(_cdc, 'file_transfer_test') as transfer, \
+                contextlib.redirect_stderr(io.StringIO()):
+            for arguments in (['--file-sn', '7'], ['--file-name', 'abc123.raw'],
+                              ['--file-sn', '7', '--file-name', '../abc.raw'],
+                              ['--file-sn', '7', '--file-name', 'abc123.raw', '--bench-receive-mode', 'deferred']):
+                with self.assertRaises(SystemExit):
+                    _cdc.main(['--port', 'COM6', '--mode', 'file-download'] + arguments)
+            transfer.assert_not_called()
 
     def test_missing_file_module_is_optional(self):
         with tempfile.TemporaryDirectory() as directory, \

@@ -123,7 +123,8 @@ code += function(service,'rdx_hogp_keymap_config_on_disconnect')
 code += function(service,'rdx_hogp_keymap_config_factory_reset') + CHECKS
 code += r'''
 typedef struct { int valid; } rdx_ble_async_token_t;
-int result, reset_calls, reset_attempts, ack, freed;
+int result, reset_calls, reset_attempts, ack, freed, download_busy;
+int rdx_record_format_download_conflict(const char *operation) { return download_busy; }
 int rdx_ble_session_rdx_token_resolve(rdx_ble_async_token_t *p,int ready) { return p->valid; }
 int rdx_factory_audio_file_busy(void) { return 0; }
 int rdx_factory_audio_owned(void) { return 0; }
@@ -147,6 +148,9 @@ int check_callback(void) {
     result=0;
     rdx_app_factory_reset_on_app_core(&token);
     CHECK(freed==3 && reset_attempts==2 && ack==0 && reset_calls==1);
+    download_busy=1; ack=-1;
+    rdx_app_factory_reset_on_app_core(&token);
+    CHECK(freed==4 && reset_attempts==2 && ack==1 && reset_calls==1);
     return 0;
 }
 '''

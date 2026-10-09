@@ -1,4 +1,5 @@
 #include "rdx_cdc_file.h"
+#include "rdx_cdc_source.h"
 #include "rdx_factory_audio.h"
 #include "rdx_dut.h"
 #include "usb/device/usb_factory_cdc.h"
@@ -45,7 +46,7 @@ static const u32 cdc_crc_table[256] = {
 static struct {
     u32 generation, id, size, block, offset, crc, since;
     u32 length, sent, payload, next_crc;
-    u8 active, terminal, error, deferred;
+    u8 active, terminal, error, deferred, recording;
     u8 frame[CDC_FILE_BLOCK + 24];
 } file_stream;
 static u32 file_next_id;
@@ -86,9 +87,11 @@ int rdx_cdc_file_active(void)
 void rdx_cdc_file_session(u32 generation)
 {
     if (file_stream.generation != generation) {
+        if (file_stream.recording) rdx_cdc_source_release();
         memset(&file_stream, 0, sizeof(file_stream));
         file_stream.generation = generation;
     }
+    rdx_cdc_source_service();
 }
 
 static void file_stop(u8 error)
@@ -96,13 +99,25 @@ static void file_stop(u8 error)
     if (file_stream.terminal && file_stream.sent) return;
     file_stream.terminal = 0;
     file_stream.error = error;
+    if (file_stream.recording) rdx_cdc_source_cancel();
     if (!file_stream.sent) file_stream.length = 0;
+}
+
+static void file_source_start(u32 generation, char *out, unsigned capacity)
+{
+    memset(&file_stream, 0, sizeof(file_stream));
+    file_stream.generation = generation;
+    file_stream.id = ++file_next_id;
+    file_stream.block = 4096;
+    file_stream.since = sys_timer_get_ms();
+    file_stream.active = file_stream.recording = 1;
+    snprintf(out, capacity, "*DEV#file#accepted#%u#1#\r\n", file_stream.id);
 }
 
 int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *out, unsigned capacity)
 {
     const char *cursor;
-    u32 size, block, id;
+    u32 id;
     rdx_cdc_file_session(generation);
     if (file_stream.active) {
         cursor = line + (strlen(line) >= 17 ? 17 : 0);
@@ -119,15 +134,19 @@ int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *ou
     if (strncmp(line, "*APP#file#", 10)) return 0;
     int error = 1;
     if (!invalid && !strcmp(line, "*APP#file#caps#")) {
-        snprintf(out, capacity, "*DEV#file#caps#1#8192#16777216#IDLE#\r\n");
+        snprintf(out, capacity, "*DEV#file#caps#1#8192#16777216#%s#\r\n",
+                 rdx_cdc_source_busy() ?
+                 (rdx_cdc_source_closed() == 2 ? "QUARANTINED" : "CLOSING") : "IDLE");
         return 1;
     }
+#if TCFG_T2620_CDC_FILE_BENCH_ENABLE
+    u32 size, block;
     cursor = line + (strlen(line) >= 16 ? 16 : 0);
     if (!invalid && !strncmp(line, "*APP#file#bench#", 16) &&
         file_number(&cursor, &size) && file_number(&cursor, &block) && !*cursor &&
         size && size <= CDC_FILE_MAX &&
         (block == 1024 || block == 2048 || block == 4096 || block == 8192)) {
-        if (rdx_dut_is_in_mode() || rdx_factory_audio_owned() || rdx_factory_audio_file_busy() ||
+        if (rdx_cdc_source_busy() || rdx_dut_is_in_mode() || rdx_factory_audio_owned() || rdx_factory_audio_file_busy() ||
             rdx_factory_audio_tx_pending(generation)) error = 2;
         else if (!generation || file_next_id == 0xffffffffu) error = 8;
         else {
@@ -144,17 +163,63 @@ int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *ou
 #endif
             return 1;
         }
-    } else if (!invalid && !strncmp(line, "*APP#file#get#", 14)) error = 8;
+    } else
+#endif
+    if (!invalid && !strcmp(line, "*APP#file#list#")) {
+        if (!generation || file_next_id == 0xffffffffu) error = 8;
+        else if (rdx_factory_audio_tx_pending(generation)) error = 2;
+        else error = rdx_cdc_source_list_begin();
+        if (!error) {
+            file_source_start(generation, out, capacity);
+            return 1;
+        }
+    } else if (!invalid && !strncmp(line, "*APP#file#get#", 14)) {
+        cursor = line + 14;
+        u32 sn;
+        char name[12];
+        unsigned length = 0;
+        if (file_number(&cursor, &sn) && sn && sn <= 0x7ffffffeu) {
+            while ((cursor[length] >= '0' && cursor[length] <= '9') ||
+                   (cursor[length] >= 'a' && cursor[length] <= 'f') ||
+                   (cursor[length] >= 'A' && cursor[length] <= 'F')) {
+                if (++length > 6) break;
+            }
+            if (length >= 3 && length <= 6 && !strcmp(cursor + length, ".raw#")) {
+                memcpy(name, cursor, length + 4);
+                name[length + 4] = 0;
+                if (!generation || file_next_id == 0xffffffffu) error = 8;
+                else if (rdx_factory_audio_tx_pending(generation)) error = 2;
+                else error = rdx_cdc_source_begin(sn, name);
+                if (!error) {
+                    file_source_start(generation, out, capacity);
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
+                    printf("[CDC_FILE] get id=%u sn=%u name=%s gen=%u\n",
+                           file_stream.id, sn, name, generation);
+#endif
+                    return 1;
+                }
+            }
+        }
+    }
     else if (!invalid && !strncmp(line, "*APP#file#cancel#", 17)) error = 9;
     snprintf(out, capacity, "*DEV#file#error#%d#\r\n", error);
     return 1;
 }
 
-static void file_frame(void)
+static int file_frame(void)
 {
     u8 *frame = file_stream.frame;
     u32 payload = 0;
     u8 type = 1;
+    if (file_stream.recording && rdx_cdc_source_closed() == 2) file_stop(5);
+    if (file_stream.recording && !file_stream.error) {
+        int result = rdx_cdc_source_take(frame + 20, &payload, &file_stream.size);
+        if (result < 0) file_stop(-result);
+        else if (!result && (!file_stream.size || file_stream.offset != file_stream.size)) return 0;
+    }
+    if (file_stream.recording && (file_stream.error ||
+        (file_stream.size && file_stream.offset == file_stream.size)) &&
+        !rdx_cdc_source_closed()) return 0;
     if (file_stream.error) {
         type = 3;
         payload = 4;
@@ -165,9 +230,11 @@ static void file_frame(void)
         file_put32(frame + 20, file_stream.size);
         file_put32(frame + 24, file_stream.crc);
     } else {
-        payload = file_stream.size - file_stream.offset;
-        if (payload > file_stream.block) payload = file_stream.block;
-        for (u32 index = 0; index < payload; ++index) frame[20 + index] = (u8)(file_stream.offset + index);
+        if (!file_stream.recording) {
+            payload = file_stream.size - file_stream.offset;
+            if (payload > file_stream.block) payload = file_stream.block;
+            for (u32 index = 0; index < payload; ++index) frame[20 + index] = (u8)(file_stream.offset + index);
+        }
         file_stream.next_crc = rdx_cdc_file_crc(file_stream.crc, frame + 20, payload);
     }
     memcpy(frame, "CDF1", 4);
@@ -183,6 +250,7 @@ static void file_frame(void)
     file_stream.terminal = type != 1;
     file_stream.length = payload + 24;
     file_stream.sent = 0;
+    return 1;
 }
 
 void rdx_cdc_file_service(u32 generation)
@@ -191,7 +259,7 @@ void rdx_cdc_file_service(u32 generation)
     if (!generation || !file_stream.active) return;
     if ((u32)(sys_timer_get_ms() - file_stream.since) >= CDC_FILE_TIMEOUT) file_stop(7);
     for (unsigned budget = 0; budget < 32; ++budget) {
-        if (!file_stream.length) file_frame();
+        if (!file_stream.length && !file_frame()) return;
         u32 length = file_stream.length - file_stream.sent;
         if (length > 256) length = 256;
         int result = factory_cdc_stream_send(generation, file_stream.frame + file_stream.sent, length);
@@ -209,6 +277,7 @@ void rdx_cdc_file_service(u32 generation)
                    file_stream.offset, file_stream.crc, (u32)(sys_timer_get_ms() - file_stream.since), file_stream.error);
 #endif
             file_stream.active = 0;
+            if (file_stream.recording) rdx_cdc_source_release();
             file_stream.length = file_stream.sent = 0;
             return;
         }

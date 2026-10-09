@@ -51,7 +51,7 @@ $Idle = Get-SourceSlice $App `
     'u8 rdx_app_rdx_rebind_is_idle(void)' `
     '/**************************************************************************'
 $StorageActivity = Get-SourceSlice $App `
-    'static u8 rdx_app_storage_activity_is_busy(' `
+    'static u8 rdx_app_storage_activity_check(' `
     'u8 rdx_pc_storage_is_busy(void)'
 
 $abiOk = $ArchiveHash -eq '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
