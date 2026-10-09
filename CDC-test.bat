@@ -1,20 +1,24 @@
 @echo off & setlocal EnableDelayedExpansion & title T2620 CDC Test & chcp 65001 >nul & (py -3 -c "import sys" >nul 2>nul && set "PY=py -3") || (python -c "import sys" >nul 2>nul && set "PY=python") || (echo [X] 未找到 Python 3，请先安装 Python 并勾选 Add Python to PATH。 & echo. & pause & exit /b 1) & !PY! -X utf8 -x "%~f0" %* & echo. & pause & exit /b
 """T2620 CDC 产测工具（单文件版）。
 
-本文件包含完整产测脚本，普通产测和包装发给工站电脑只需要这一个文件。
-开发文件测速另需同目录下的 tools/cdc_file_transfer.py，复用其二进制接收器。
+本文件包含普通产测、包装、内存测速及真实录音下载，只需分发这一个文件。
+文件业务仅需 Python 3 和 pyserial；接收器、校验及 Opus 封装均内置。
 安装 Python 3（勾选 Add Python to PATH）
-后双击即可；首次运行会自动联网安装 pyserial 与 imageio-ffmpeg。报告保存
-在本文件同目录的 output/factory-cdc-reports/ 下。
+后双击即可；菜单按需自动联网安装 pyserial，完整产测另需 imageio-ffmpeg。
+产测报告保存到同目录 output/factory-cdc-reports/，文件业务保存到 output/cdc-file-reports/。
 
 命令行方式（可选）：
     python -X utf8 -x CDC-test.bat --list-ports
     python -X utf8 -x CDC-test.bat --port COM6 --mode controls
+    python -X utf8 -x CDC-test.bat --file-cli --help
+高级 --file-cli 入口需预先安装 pyserial，不自动安装依赖。
 支持 --mode foundation/controls/packaging/full/file-bench/file-cancel/file-download、--expect-addr、--expect-fw、
 --key-timeout、--report。tests/board/ 仅保留 TEST=1 的 factory_cdc_bytes.py。
 """
 import argparse
-import importlib.util
+import hashlib
+import platform
+import tempfile
 from datetime import datetime, timezone
 import json
 import os
@@ -293,14 +297,524 @@ class Station:
         print('设备保持包装结束状态，请拨码 OFF 关机；本轮不自动退出 DUT。', flush=True)
 
 
+HEADER = struct.Struct('<4sBBHIII')
+MAX_PAYLOAD = 8192
+MAX_SIZE = 16777216
+PATTERN = bytes(range(256)) * 33
+
+
+class ProtocolError(Exception):
+    pass
+
+
+class Reader:
+    def __init__(self, port, total_timeout=120):
+        self.port = port
+        self.buffer = bytearray()
+        self.deadline = time.monotonic() + total_timeout
+
+    def fill(self, count, timeout=5):
+        deadline = min(self.deadline, time.monotonic() + timeout)
+        while len(self.buffer) < count:
+            if time.monotonic() >= deadline:
+                raise ProtocolError('receive timeout; close/reopen port before retry')
+            data = self.port.read(min(max(self.port.in_waiting, 1), 16384))
+            if data:
+                self.buffer.extend(data)
+                if len(self.buffer) > 32768:
+                    raise ProtocolError('receive buffer overflow')
+                deadline = min(self.deadline, time.monotonic() + timeout)
+
+    def take(self, count):
+        self.fill(count)
+        result = bytes(self.buffer[:count])
+        del self.buffer[:count]
+        return result
+
+    def line(self):
+        for count in range(1, 130):
+            self.fill(count, timeout=10)
+            if self.buffer[count - 1] == 10:
+                result = self.take(count)
+                if not result.endswith(b'\r\n'):
+                    raise ProtocolError('text must end with CRLF')
+                try:
+                    return result[:-2].decode('ascii')
+                except UnicodeDecodeError as error:
+                    raise ProtocolError('non-ASCII reply') from error
+        raise ProtocolError('text line too long')
+
+    def frame(self, transfer_id, offset, capture=None):
+        header = self.take(HEADER.size)
+        magic, version, kind, header_size, actual_id, actual_offset, size = HEADER.unpack(header)
+        if (magic, version, header_size) != (b'CDF1', 1, 20):
+            raise ProtocolError(
+                f'invalid binary header: expected_id={transfer_id} expected_offset={offset} '
+                f'header={header.hex()} buffered={len(self.buffer)} next={self.buffer[:32].hex()}')
+        if actual_id != transfer_id or actual_offset != offset:
+            raise ProtocolError('wrong transfer ID or noncontiguous offset')
+        if not ((kind == 1 and 1 <= size <= MAX_PAYLOAD) or
+                (kind == 2 and size == 8) or (kind == 3 and size == 4)):
+            raise ProtocolError('invalid frame type/length')
+        body = self.take(size + 4)
+        if capture is not None:
+            capture.extend(header)
+            capture.extend(body)
+        elif zlib.crc32(header + body[:-4]) != struct.unpack('<I', body[-4:])[0]:
+            raise ProtocolError('frame CRC mismatch')
+        return kind, body[:-4]
+
+
+def send(port, command):
+    data = (command + '\r\n').encode('ascii')
+    if port.write(data) != len(data):
+        raise ProtocolError('short command write')
+
+
+def unsigned(text):
+    if not text or not text.isascii() or not text.isdecimal():
+        raise ProtocolError('invalid unsigned decimal field')
+    value = int(text)
+    if value > 0xffffffff:
+        raise ProtocolError('unsigned field overflow')
+    return value
+
+
+def caps(port):
+    send(port, '*APP#file#caps#')
+    reply = Reader(port, 10).line()
+    fields = reply.split('#')
+    if (len(fields) != 8 or fields[:4] != ['*DEV', 'file', 'caps', '1'] or
+            fields[4:6] != ['8192', '16777216'] or fields[-1] != '' or
+            fields[6] not in ('IDLE', 'OPENING', 'STREAMING', 'CLOSING', 'QUARANTINED')):
+        raise ProtocolError('unexpected CAPS: ' + reply)
+    return reply
+
+
+def receive_bench(port, size, block, output=None, cancel_after=None, report=None,
+                  receive_mode='inline'):
+    if receive_mode not in ('inline', 'deferred') or not 1 <= size <= MAX_SIZE or block not in (1024, 2048, 4096, 8192):
+        raise ProtocolError('invalid receive mode/size/block')
+    if receive_mode == 'deferred' and cancel_after is not None:
+        raise ProtocolError('deferred verification does not support cancellation')
+    if cancel_after is not None and not 0 <= cancel_after < size:
+        raise ProtocolError('invalid cancel-after')
+    return receive_transfer(port, f'*APP#file#bench#{size}#{block}#', size, block,
+                            output, cancel_after, report, receive_mode)
+
+
+def recording_identity(sn, name):
+    if not isinstance(sn, int) or not 1 <= sn <= 0x7ffffffe:
+        raise ProtocolError('invalid recording SN')
+    if not isinstance(name, str) or not re.fullmatch(r'[0-9a-fA-F]{3,6}\.raw', name):
+        raise ProtocolError('invalid recording name; use the exact indexed name, not a path')
+
+def receive_list(port, report=None):
+    with tempfile.TemporaryDirectory(prefix='cdc-list-') as directory:
+        destination = Path(directory) / 'index.json'
+        receive_transfer(port, '*APP#file#list#', None, None, destination, None,
+                         report, 'inline', alignment=1)
+        try:
+            entries = json.loads(destination.read_text(encoding='utf-8'))
+        except (ValueError, UnicodeError) as error:
+            raise ProtocolError('invalid recording index JSON') from error
+    if not isinstance(entries, list) or len(entries) > 65535:
+        raise ProtocolError('invalid recording index array')
+    identities = set()
+    names = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or type(entry.get('sn')) is not int:
+            raise ProtocolError('invalid recording index entry')
+        recording_identity(entry['sn'], entry.get('name'))
+        if entry['sn'] in identities or entry['name'] in names:
+            raise ProtocolError('duplicate recording identity; refresh the device index')
+        identities.add(entry['sn'])
+        names.add(entry['name'])
+        for field in ('size', 'start_time', 'end_time', 'frame_size', 'opus'):
+            if type(entry.get(field)) is not int or not 0 <= entry[field] <= 0xffffffff:
+                raise ProtocolError('invalid recording index field: ' + field)
+    return entries
+
+
+def recording_unavailable(entry):
+    if entry['frame_size'] != 40 or entry['opus'] != 1084752896:
+        return '暂不支持此录音格式'
+    if not 0 < entry['size'] <= MAX_SIZE or entry['size'] % 40:
+        return '空文件、长度异常或超过16 MiB'
+    if entry['end_time'] < entry['start_time']:
+        return '录音时间字段异常'
+    return ''
+
+
+def select_recording(port, report):
+    while True:
+        print('\n正在读取设备录音列表……')
+        listing = {}
+        report.setdefault('list_requests', []).append(listing)
+        entries = receive_list(port, listing)
+        print('\n序号  SN       文件名         大小(MB)  录音时长(秒)  状态')
+        for index, entry in enumerate(entries, 1):
+            reason = recording_unavailable(entry)
+            print(f"{index:>4}  {entry['sn']:<8} {entry['name']:<13} "
+                  f"{entry['size'] / 1000000:>8.3f}  "
+                  f"{entry['end_time'] - entry['start_time']:>12}  {reason or '可下载'}")
+        if not entries:
+            print('设备没有已保存的录音；请先录音并停止保存，再刷新。')
+        while True:
+            choice = input('选择文件序号，r 刷新，q 退出：').strip().lower()
+            if choice == 'q':
+                return None
+            if choice == 'r':
+                break
+            if choice.isascii() and choice.isdecimal() and 1 <= int(choice) <= len(entries):
+                entry = entries[int(choice) - 1]
+                reason = recording_unavailable(entry)
+                if not reason:
+                    return entry
+                print(reason)
+            else:
+                print('请输入列表中的序号、r 或 q。')
+
+
+def export_opus(raw_path):
+    raw_path = Path(raw_path)
+    destination = Path(str(raw_path) + '.opus')
+    temporary = Path(str(destination) + '.part')
+    size = raw_path.stat().st_size
+    if not size or size % 40:
+        raise ProtocolError('invalid mono Opus frame stream')
+    if destination.exists():
+        raise ProtocolError('Opus output exists')
+    crc_table = []
+    for value in range(256):
+        crc = value << 24
+        for bit in range(8):
+            crc = ((crc << 1) ^ (0x04c11db7 if crc & 0x80000000 else 0)) & 0xffffffff
+        crc_table.append(crc)
+    with raw_path.open('rb') as source, temporary.open('xb') as target:
+        for sequence in range(size // 40 + 2):
+            if sequence == 0:
+                packet = b'OpusHead' + struct.pack('<BBHIhB', 1, 1, 0, 16000, 0, 0)
+            elif sequence == 1:
+                packet = b'OpusTags' + struct.pack('<I', 3) + b'RDX' + struct.pack('<I', 0)
+            else:
+                packet = source.read(40)
+                if len(packet) != 40:
+                    raise ProtocolError('short RAW read during Opus export')
+            flags = 2 if sequence == 0 else 4 if sequence == size // 40 + 1 else 0
+            page = bytearray(b'OggS' + struct.pack(
+                '<BBQIIIB', 0, flags, max(0, sequence - 1) * 960, 1, sequence, 0, 1))
+            page.append(len(packet))
+            page.extend(packet)
+            crc = 0
+            for value in page:
+                crc = ((crc << 8) ^ crc_table[(crc >> 24) ^ value]) & 0xffffffff
+            struct.pack_into('<I', page, 22, crc)
+            if target.write(page) != len(page):
+                raise ProtocolError('short Opus output write')
+        if source.read(1):
+            raise ProtocolError('RAW size changed during Opus export')
+    os.rename(temporary, destination)
+    return destination
+
+
+def receive_download(port, sn, name, output, cancel_after=None, report=None, reference=None):
+    recording_identity(sn, name)
+    if not output or (cancel_after is not None and not 0 <= cancel_after < MAX_SIZE):
+        raise ProtocolError('download requires output and a valid cancel-after')
+    report = report if report is not None else {}
+    report.update(sn=sn, name=name, source='recording', reference_match=None)
+    return receive_transfer(port, f'*APP#file#get#{sn}#{name}#', None, None,
+                            output, cancel_after, report, 'inline', reference)
+
+
+def receive_transfer(port, command, size, block, output, cancel_after, report,
+                     receive_mode, reference=None, alignment=40):
+    report = report if report is not None else {}
+    report.update(size_requested=size, block=block, bytes=0, complete=False, cancelled=False,
+                  passes_600KBps=False, crc_ok=False, pattern_ok=False if size is not None else None,
+                  receive_mode=receive_mode)
+    destination = Path(output) if output else None
+    temporary = destination.with_name(destination.name + '.part') if destination else None
+    if destination and destination.exists():
+        raise ProtocolError('output exists; choose a new output name')
+    stream = None
+    reference_stream = None
+    content_hash = hashlib.sha256()
+    offset = crc = 0
+    started = time.monotonic()
+    reader = Reader(port)
+    first_data = last_data = None
+    first_data_bytes = 0
+    cancel_sent = None
+    last_progress = started
+    received_at = None
+    try:
+        if temporary:
+            stream = temporary.open('xb')
+        if reference is not None:
+            reference_stream = Path(reference).open('rb')
+            report['reference'] = str(Path(reference).resolve())
+        send(port, command)
+        fields = reader.line().split('#')
+        if len(fields) != 6 or fields[:3] != ['*DEV', 'file', 'accepted'] or fields[4:] != ['1', '']:
+            raise ProtocolError('transfer rejected: ' + '#'.join(fields))
+        transfer_id = unsigned(fields[3])
+        if not transfer_id:
+            raise ProtocolError('zero transfer ID')
+        report['transfer_id'] = transfer_id
+        if receive_mode == 'deferred':
+            captured = bytearray()
+            captured_offset = 0
+            while True:
+                kind, payload = reader.frame(transfer_id, captured_offset, capture=captured)
+                if kind != 1:
+                    break
+                if len(payload) != min(block, size - captured_offset):
+                    raise ProtocolError('unexpected captured DATA length')
+                captured_offset += len(payload)
+                report['captured_bytes'] = captured_offset
+            received_at = time.monotonic()
+            report['capture_elapsed_s'] = received_at - started
+            report['capture_wire_bytes'] = len(captured)
+            reader.buffer = captured
+            reader.deadline = time.monotonic() + 120
+        while True:
+            if cancel_after is not None and offset >= cancel_after and cancel_sent is None:
+                send(port, f'*APP#file#cancel#{transfer_id}#')
+                cancel_sent = time.monotonic()
+            kind, payload = reader.frame(transfer_id, offset)
+            if kind == 1:
+                if offset + len(payload) > (size if size is not None else MAX_SIZE):
+                    raise ProtocolError('DATA exceeds file size limit')
+                if size is not None and len(payload) != min(block, size - offset):
+                    raise ProtocolError('unexpected DATA length')
+                if size is not None and payload != PATTERN[offset % 256:offset % 256 + len(payload)]:
+                    raise ProtocolError('memory-source pattern mismatch')
+                if reference_stream and reference_stream.read(len(payload)) != payload:
+                    report['reference_match'] = False
+                    raise ProtocolError('reference content mismatch')
+                crc = zlib.crc32(payload, crc)
+                if size is None:
+                    content_hash.update(payload)
+                    report['max_payload'] = max(report.get('max_payload', 0), len(payload))
+                if stream:
+                    if stream.write(payload) != len(payload):
+                        raise ProtocolError('short output write')
+                offset += len(payload)
+                now = time.monotonic()
+                if first_data is None:
+                    first_data = now
+                    first_data_bytes = offset
+                last_data = now
+                report['bytes'] = offset
+                if received_at is None and now - last_progress >= 1:
+                    print(f'{offset}/{size if size is not None else "?"} bytes, {offset / (now - started) / 1000:.1f} KB/s', file=sys.stderr)
+                    last_progress = now
+                continue
+            if kind == 3:
+                error = struct.unpack('<I', payload)[0]
+                report['device_error'] = error
+                if error != 6 or cancel_sent is None:
+                    raise ProtocolError(f'device ERROR {error}')
+                report['cancelled'] = True
+                report['cancel_to_terminal_s'] = time.monotonic() - cancel_sent
+            else:
+                total, expected_crc = struct.unpack('<II', payload)
+                if (not total or total != offset or expected_crc != crc or
+                        (size is not None and total != size)):
+                    raise ProtocolError('END length/file CRC mismatch')
+                if cancel_after is not None:
+                    raise ProtocolError('END after cancellation request; retry cancellation earlier')
+                if size is None and total % alignment:
+                    raise ProtocolError('recording length is not mono-frame aligned')
+                if reference_stream:
+                    if reference_stream.read(1):
+                        report['reference_match'] = False
+                        raise ProtocolError('reference is longer than download')
+                    reference_stream.close()
+                    reference_stream = None
+                    report['reference_match'] = True
+                report['complete'] = True
+                report['crc_ok'] = True
+                if size is not None:
+                    report['pattern_ok'] = True
+                else:
+                    report['sha256'] = content_hash.hexdigest()
+            if stream:
+                stream.close()
+                stream = None
+            if report['complete'] and temporary:
+                os.rename(temporary, destination)
+            elapsed = time.monotonic() - started
+            if received_at is not None:
+                report.update(receive_elapsed_s=received_at - started,
+                              receive_KBps=offset / (received_at - started) / 1000,
+                              verification_s=elapsed - (received_at - started))
+            report.update(elapsed_s=elapsed, bytes_per_s=offset / elapsed,
+                          KBps=offset / elapsed / 1000, crc32=f'{crc:08x}',
+                          steady_s=None if first_data is None else last_data - first_data,
+                          steady_bytes_per_s=None if first_data is None or last_data == first_data else
+                          (offset - first_data_bytes) / (last_data - first_data),
+                          passes_600KBps=report['complete'] and offset >= 10000000 and offset / elapsed >= 600000)
+            if receive_mode == 'deferred':
+                report.update(steady_s=None, steady_bytes_per_s=None)
+            return report
+    except Exception as error:
+        report.update(complete=False, error=str(error), elapsed_s=time.monotonic() - started, bytes=offset)
+        raise
+    finally:
+        try:
+            if stream:
+                stream.close()
+        finally:
+            if reference_stream:
+                reference_stream.close()
+
+
+def file_transfer_main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--port', required=True)
+    parser.add_argument('--baud', type=int, default=115200)
+    parser.add_argument('--report', type=Path, required=True)
+    parser.add_argument('--firmware', default='unknown')
+    parser.add_argument('--usb-speed', default='unverified')
+    parser.add_argument('--topology', default='unreported')
+    parser.add_argument('--driver', default='unreported')
+    commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('caps')
+    bench = commands.add_parser('bench')
+    bench.add_argument('--size', type=int, default=10000000)
+    bench.add_argument('--block', type=int, choices=(1024, 2048, 4096, 8192), default=4096)
+    bench.add_argument('--repeat', type=int, default=1)
+    bench.add_argument('--output', type=Path)
+    bench.add_argument('--cancel-after', type=int)
+    bench.add_argument('--receive-mode', choices=('inline', 'deferred'), default='inline')
+    download = commands.add_parser('download')
+    download.add_argument('--sn', type=int)
+    download.add_argument('--name')
+    download.add_argument('--output', type=Path, required=True)
+    download.add_argument('--repeat', type=int, default=1)
+    download.add_argument('--cancel-after', type=int)
+    download.add_argument('--reference', type=Path, help='independent RAW bytes, without BLE framing')
+    args = parser.parse_args(argv)
+    if args.command == 'bench' and (not 1 <= args.size <= MAX_SIZE or not 1 <= args.repeat <= 100 or
+            (args.cancel_after is not None and not 0 <= args.cancel_after < args.size)):
+        parser.error('invalid size/repeat/cancel-after')
+    if args.command == 'bench' and args.receive_mode == 'deferred' and args.cancel_after is not None:
+        parser.error('deferred verification does not support cancellation')
+    if args.command == 'download':
+        if args.sn is not None or args.name is not None:
+            try:
+                recording_identity(args.sn, args.name)
+            except ProtocolError as error:
+                parser.error(str(error))
+        if not 1 <= args.repeat <= 100 or (args.cancel_after is not None and not 0 <= args.cancel_after < MAX_SIZE):
+            parser.error('invalid repeat/cancel-after')
+    report = dict(protocol=1, stage='A-memory-only', os=platform.platform(), port=args.port,
+                  baud=args.baud, firmware=args.firmware, usb_speed=args.usb_speed,
+                  topology=args.topology, driver=args.driver, runs=[], fsync=False,
+                  real_file_acceptance=False)
+    if args.command == 'download':
+        report.update(stage='B-recording', independent_content_verified=False)
+    try:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        report_output = args.report.open('x', encoding='utf-8')
+    except OSError as error:
+        print(f'Cannot create new report; serial port not opened: {error}', file=sys.stderr)
+        return 1
+    status = 0
+    try:
+        import serial
+        report['pyserial'] = serial.__version__
+        with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=2) as port:
+            report['caps'] = caps(port)
+            print(report['caps'])
+            if args.command == 'download' and args.sn is None:
+                selected = select_recording(port, report)
+                if selected is None:
+                    report['selection_cancelled'] = True
+                    return 3
+                args.sn, args.name = selected['sn'], selected['name']
+                report['selected_recording'] = selected
+                print(f"下载 {args.name}，{args.repeat} 轮；保存到 {args.output}")
+            if args.command in ('bench', 'download'):
+                for index in range(args.repeat):
+                    run = dict(iteration=index + 1)
+                    report['runs'].append(run)
+                    output = args.output
+                    if output and args.repeat > 1:
+                        output = output.with_name(f'{output.stem}-{index + 1}{output.suffix}')
+                    if args.command == 'download':
+                        receive_download(port, args.sn, args.name, output, args.cancel_after, run, args.reference)
+                        if run['complete'] and index and run['sha256'] != report['runs'][0]['sha256']:
+                            raise ProtocolError('recording content changed between downloads')
+                    else:
+                        receive_bench(port, args.size, args.block, output, args.cancel_after, run, args.receive_mode)
+                    run['validated'] = True
+                    if args.command == 'download' and run['complete']:
+                        run['raw_output'] = str(output.resolve())
+                    if args.command == 'bench' and args.receive_mode == 'deferred':
+                        print(f"接收阶段 {run['receive_KBps']:.2f} KB/s；后置完整校验 {run['verification_s']:.3f} 秒")
+                    if run['cancelled']:
+                        print(f"[{index + 1}/{args.repeat}] 取消已确认，收到 {run['bytes']} 字节，"
+                              f"请求至终止帧 {run['cancel_to_terminal_s']:.3f} 秒")
+                    else:
+                        verdict = '达到目标' if run['passes_600KBps'] else '未达到目标'
+                        if run['bytes'] < 10000000:
+                            verdict = '样本不足 10 MB，仅展示实测速率，不判定性能达标'
+                        checked = 'CRC/模式' if args.command == 'bench' else 'CRC/长度'
+                        print(f"[{index + 1}/{args.repeat}] {run['bytes']} 字节，{run['elapsed_s']:.3f} 秒，"
+                              f"{run['KBps']:.2f} KB/s，{checked}校验通过；{verdict}")
+                if args.command == 'download':
+                    report['independent_content_verified'] = all(
+                        run.get('reference_match') is True and run['complete'] for run in report['runs'])
+                    report['ten_run_throughput_pass'] = len(report['runs']) >= 10 and all(
+                        run['passes_600KBps'] for run in report['runs'])
+                if args.cancel_after is None and any(
+                        run['bytes'] >= 10000000 and not run['passes_600KBps']
+                        for run in report['runs']):
+                    status = 2
+        if args.command == 'download':
+            for run in report['runs']:
+                if run.get('validated') and run.get('complete'):
+                    export_started = time.monotonic()
+                    try:
+                        run['opus_output'] = str(export_opus(run['raw_output']).resolve())
+                    except Exception as error:
+                        run['opus_export_error'] = str(error)
+                        raise
+                    finally:
+                        run['opus_export_s'] = time.monotonic() - export_started
+                    print(f"试听文件：{run['opus_output']}")
+    except Exception as error:
+        report['error'] = str(error)
+        print(str(error), file=sys.stderr)
+        status = 1
+    finally:
+        if args.command in ('bench', 'download'):
+            passed = [run for run in report['runs'] if run.get('validated')]
+            speeds = [run['KBps'] for run in passed if run.get('complete')]
+            report['summary'] = dict(planned=args.repeat, attempted=len(report['runs']),
+                                     validated=len(passed), failed=len(report['runs']) - len(passed),
+                                     not_started=args.repeat - len(report['runs']))
+            print(f"\n汇总：校验通过 {len(passed)}/{args.repeat} 轮，"
+                  f"失败 {len(report['runs']) - len(passed)} 轮，"
+                  f"未开始 {args.repeat - len(report['runs'])} 轮")
+            if speeds:
+                report['summary'].update(mean_KBps=sum(speeds) / len(speeds),
+                                         min_KBps=min(speeds), max_KBps=max(speeds))
+                print(f"完整且校验通过轮次：平均 {sum(speeds) / len(speeds):.2f}，"
+                      f"最低 {min(speeds):.2f}，最高 {max(speeds):.2f} KB/s")
+            if args.output:
+                print(f"文件目录：{args.output.resolve().parent}")
+            print(f"报告：{args.report.resolve()}")
+        with report_output:
+            report_output.write(json.dumps(report, indent=2, ensure_ascii=False) + '\n')
+    return status
+
+
 def file_transfer_test(args):
-    module_path = Path(__file__).resolve().parent / 'tools/cdc_file_transfer.py'
-    if not module_path.is_file():
-        print('缺少 tools/cdc_file_transfer.py，请保留仓库目录结构；原普通产测和包装不依赖此文件。')
-        return 2
-    spec = importlib.util.spec_from_file_location('cdc_file_transfer', module_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     path = args.report or Path(__file__).resolve().parent / 'output/cdc-file-reports' / (
         datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + args.mode + '.json')
     print('需要已启用 TCFG_T2620_CDC_FILE_ENABLE=1 的固件；保持正常 ON，不进入 DUT。')
@@ -326,7 +840,7 @@ def file_transfer_test(args):
                      '--receive-mode', args.bench_receive_mode]
         if args.mode == 'file-cancel':
             arguments += ['--cancel-after', '1048576']
-    result = module.main(arguments)
+    result = file_transfer_main(arguments)
     if result == 3:
         print('已退出文件选择，未下载。')
         return 0
@@ -787,9 +1301,36 @@ def run(station):
 # ---------- 交互入口（对应 tests/board/factory_cdc_launcher.py）----------
 
 
+def file_test_menu(ask=None):
+    ask = ask or input
+    while True:
+        print('\nCDC 文件传输测试\n1. 真实录音下载测试（默认）\n2. 内存测试（固件需开启 BENCH）')
+        choice = ask('选择类型，回车选 1，q 返回：').strip().lower()
+        if choice == 'q':
+            return None
+        if choice not in ('', '1', '2'):
+            print('请输入 1 或 2。')
+            continue
+        mode = 'file-bench' if choice == '2' else 'file-download'
+        print('\n1. 快速测试：1 轮（默认）\n2. 稳定性测试：10 轮')
+        if mode == 'file-bench':
+            print('每轮 10 MB，4 KB 块，在线校验；不读取存储。')
+        else:
+            print('自动获取列表，选一次文件；每轮完整下载并保存，重复轮校验 SHA-256 一致。')
+        while True:
+            choice = ask('选择测试，回车选 1，q 返回：').strip().lower()
+            if choice == 'q':
+                break
+            if choice in ('', '1', '2'):
+                return mode, ['--bench-repeat', '10' if choice == '2' else '1']
+            print('请输入 1 或 2。')
+
+
 def launcher(argv=None):
     root = Path(__file__).resolve().parent
     os.chdir(root)
+    if argv and argv[0] == '--file-cli':
+        return file_transfer_main(argv[1:])
     mode = 'full'
     extra = []
     if argv:
@@ -799,34 +1340,21 @@ def launcher(argv=None):
             mode = argv[index + 1] if index + 1 < len(argv) else mode
     else:
         print('T2620 CDC 产测\n请拨码 ON、插好 USB 数据线，并关闭占用串口的其他工具。\n')
-        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 通用文件传输（内存基准 / 真实录音接收端）')
+        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 文件传输测试（真实录音 / 内存测试）')
         while True:
             choice = input('选择测试，回车选 1，q 退出：').strip().lower()
             if choice == 'q':
                 return 0
             if choice in ('', '1', '2', '3'):
                 mode = {'2': 'packaging', '3': 'file-bench'}.get(choice, 'full')
+                if choice == '3':
+                    selected = file_test_menu()
+                    if selected is None:
+                        print('\n1. 普通测试\n2. 包装测试\n3. CDC 文件传输测试')
+                        continue
+                    mode, extra = selected
                 break
             print('请输入 1、2 或 3。')
-        if mode == 'file-bench':
-            print('\n选项 1～5 为开发专用，需固件开启 TCFG_T2620_CDC_FILE_BENCH_ENABLE；默认配置请选 6/7。')
-            print('\n1. 快速测速：10 MB × 1 次，4 KB 块\n2. 稳定性测速：10 MB × 10 次，4 KB 块\n3. 取消测试：收到约 1 MiB 后请求取消')
-            print('4. 接收后校验对照：10 MB × 1 次，4 KB 块\n5. 接收后校验对照：10 MB × 10 次，4 KB 块')
-            print('6. 真实录音下载：从设备列表选择，下载 1 次\n7. 真实录音稳定性：从设备列表选择，下载 10 次')
-            while True:
-                choice = input('选择实验，回车选 1，q 退出：').strip().lower()
-                if choice == 'q':
-                    return 0
-                if choice in ('6', '7'):
-                    mode = 'file-download'
-                    extra = ['--bench-repeat', '10' if choice == '7' else '1']
-                    break
-                if choice in ('', '1', '2', '3', '4', '5'):
-                    mode = 'file-cancel' if choice == '3' else 'file-bench'
-                    extra = ['--bench-repeat', '10' if choice in ('2', '5') else '1',
-                             '--bench-receive-mode', 'deferred' if choice in ('4', '5') else 'inline']
-                    break
-                print('请输入 1 至 7。')
     try:
         import serial.tools.list_ports
         if mode == 'full':

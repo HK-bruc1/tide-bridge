@@ -18,7 +18,7 @@ JSON 中 KBps 始终包含完整校验；deferred 另报 receive_KBps、receive_
 
 统一入口是仓库根目录 **CDC-test.bat**（批处理引导 + 全部产测 Python 代码内嵌，`tests/host` 直接加载测试）。双击后选择 1 普通测试、2 包装测试或 3 CDC 文件传输测速，再输入串口号（例如 `6` 或 `COM6`）。菜单 1/2 先显示基础信息；普通测试核对后开始灯、喇叭、五键、录音及文件下载。菜单 3 为独立开发链路实验，不进入 DUT。需要 Python 3；首次运行自动安装当前模式所需依赖，只有完整普通测试需要 imageio-ffmpeg。
 
-普通产测/包装只需分发 CDC-test.bat，报告在同目录 `output/factory-cdc-reports/`。开发测速还需保留 `tools/cdc_file_transfer.py` 相对路径，复用同一个二进制接收器，报告在 `output/cdc-file-reports/`。缺少该模块只会阻止菜单 3，不影响菜单 1/2。
+普通产测、包装及文件业务均只需分发 `CDC-test.bat`。产测报告在同目录 `output/factory-cdc-reports/`，文件业务报告在 `output/cdc-file-reports/`。二进制接收器、校验、RAW 保存和 Opus 封装均内置，无需附带其他 Python 源码文件。
 
 当前工具的 DUT 控制请求使用 `*APP#custom#<命令>#<值>#` 并追加 CRLF，需配套支持此格式的固件；不会向旧固件自动降级或重发。新固件不再兼容旧 `DUT <命令> <值>` 工站请求，旧格式返回 `ERR CMD`。录音请求与状态 `LAST_CMD` 均统一为 `ft_rec_chat`，旧别名 `ft_rec` 返回 `ERR CMD`；按键布局只接受 `*APP#custom#ft_key_layout#`，显式参数返回 `ERR ARG`。固件与脚本必须配套升级；其余查询、响应及录音/文件传输扩展格式保持不变。
 
@@ -63,7 +63,7 @@ python -X utf8 -x CDC-test.bat --port COM6 --mode controls
 
 默认 4096 字节块，检查模式数据、逐帧 CRC 和整流 CRC，目标为 600,000 有效字节/秒。终端显示每轮速度及结论，JSON 自动保存到 output/cdc-file-reports/，已有报告不会覆盖。取消测试在收到约 1 MiB 后发送 CANCEL；失败不自动重发或猜测恢复。
 
-命令行可使用 --mode file-bench、--bench-repeat 10、--bench-block 1024/2048/4096/8192，或 --mode file-cancel。通过独立工具 tools/cdc_file_transfer.py 还可选择落盘和填写 USB 环境信息。该菜单退出码为 0=实验通过、1=未达速率/运行失败、2=准备条件不足。
+命令行可使用 --mode file-bench、--bench-repeat 10、--bench-block 1024/2048/4096/8192，或 --mode file-cancel。通过 `python -X utf8 -x CDC-test.bat --file-cli --help` 查看高级接口，可选择落盘和填写 USB 环境信息（需预先安装 pyserial）。该菜单退出码为 0=实验通过、1=未达速率/运行失败、2=准备条件不足。
 
 注意：当前测的是内存源链路，不是真实历史录音下载；即使测速通过，也不代表通用文件业务验收通过。请回传 JSON 及对应控制日志再评估下一阶段。
 

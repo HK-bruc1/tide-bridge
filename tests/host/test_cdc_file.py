@@ -1,5 +1,4 @@
 """CDF1 receiver, firmware producers and transport regressions (no USB hardware)."""
-import importlib.util
 import ctypes
 import contextlib
 import io
@@ -7,6 +6,8 @@ import json
 from pathlib import Path
 import re
 import struct
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -16,10 +17,67 @@ from llvmlite import binding as llvm
 
 from host_c_test_lib import ROOT, run_c_checks
 
-spec = importlib.util.spec_from_file_location('cdc_file_transfer', ROOT / 'tools/cdc_file_transfer.py')
-tool = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(tool)
 VECTORS = json.loads((ROOT / 'tests/host/fixtures/cdc_file_v1.json').read_text())
+launcher = types.ModuleType('cdc_launcher')
+launcher.__file__ = str(ROOT / 'CDC-test.bat')
+exec(compile((ROOT / 'CDC-test.bat').read_text(encoding='utf-8').split('\n', 1)[1],
+             launcher.__file__, 'exec'), launcher.__dict__)
+tool = launcher
+
+
+class OpusExportTests(unittest.TestCase):
+    def test_matches_existing_factory_container_without_changing_raw(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw = Path(directory) / 'recording.raw'
+            payload = bytes(range(40)) * 3
+            raw.write_bytes(payload)
+            expected = Path(directory) / 'expected.opus'
+            launcher.write_opus(payload, expected)
+            result = tool.export_opus(raw)
+            self.assertEqual(result.name, 'recording.raw.opus')
+            self.assertEqual(result.read_bytes(), expected.read_bytes())
+            self.assertEqual(raw.read_bytes(), payload)
+            self.assertFalse(Path(str(result) + '.part').exists())
+            with self.assertRaises(tool.ProtocolError):
+                tool.export_opus(raw)
+            self.assertEqual(result.read_bytes(), expected.read_bytes())
+
+    def test_invalid_raw_never_publishes_opus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw = Path(directory) / 'recording.raw'
+            for payload in (b'', b'x' * 41):
+                raw.write_bytes(payload)
+                with self.assertRaises(tool.ProtocolError):
+                    tool.export_opus(raw)
+                self.assertFalse(Path(str(raw) + '.opus').exists())
+
+
+class MenuTests(unittest.TestCase):
+    def test_standalone_file_cli_help(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'CDC-test.bat'
+            script.write_bytes((ROOT / 'CDC-test.bat').read_bytes())
+            result = subprocess.run(
+                [sys.executable, '-X', 'utf8', '-x', str(script), '--file-cli', '--help'],
+                cwd=directory, capture_output=True, text=True, encoding='utf-8')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('download', result.stdout)
+            self.assertIn('bench', result.stdout)
+
+    def test_four_daily_paths(self):
+        for kind, mode in (('1', 'file-download'), ('2', 'file-bench')):
+            for choice, repeat in (('1', '1'), ('2', '10')):
+                with self.subTest(kind=kind, choice=choice), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=[kind, choice])),
+                                     (mode, ['--bench-repeat', repeat]))
+
+    def test_defaults_back_and_invalid_input(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=['', ''])),
+                             ('file-download', ['--bench-repeat', '1']))
+            self.assertIsNone(launcher.file_test_menu(mock.Mock(side_effect=['1', 'q', 'q'])))
+            self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=['bad', '2', 'bad', '2'])),
+                             ('file-bench', ['--bench-repeat', '10']))
 
 
 def frame(kind, offset, payload, transfer_id=1):
@@ -104,13 +162,13 @@ class ReceiverTests(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 output = Path(directory) / 'record.raw'
                 report_path = Path(directory) / 'report.json'
-                result = tool.main(['--port', 'COM6', '--report', str(report_path),
+                result = tool.file_transfer_main(['--port', 'COM6', '--report', str(report_path),
                                     'download', '--output', str(output)])
                 report = json.loads(report_path.read_text(encoding='utf-8'))
                 serial.Serial.assert_called_once()
                 self.assertTrue(report['list_requests'][0]['crc_ok'])
                 if selection == '1':
-                    self.assertEqual(result, 2)
+                    self.assertEqual(result, 0)
                     self.assertEqual(output.read_bytes(), payload)
                     self.assertEqual(report['selected_recording']['sn'], 7)
                     self.assertTrue(report['runs'][0]['complete'])
@@ -235,17 +293,40 @@ class ReceiverTests(unittest.TestCase):
             output = Path(directory) / 'record.raw'
             reference = Path(directory) / 'reference.raw'
             reference.write_bytes(payload)
-            status = tool.main(['--port', 'COM6', '--report', str(path), 'download', '--sn', '7',
+            status = tool.file_transfer_main(['--port', 'COM6', '--report', str(path), 'download', '--sn', '7',
                                 '--name', 'abc123.raw', '--output', str(output), '--repeat', '2',
                                 '--reference', str(reference)])
-            self.assertEqual(status, 2)
+            self.assertEqual(status, 0)
             serial.Serial.assert_called_once()
             report = json.loads(path.read_text(encoding='utf-8'))
             self.assertTrue(report['independent_content_verified'])
             self.assertFalse(report['real_file_acceptance'] or report['ten_run_throughput_pass'])
             self.assertEqual(len(report['runs']), 2)
+            self.assertEqual(report['summary']['validated'], 2)
+            self.assertEqual(report['summary']['failed'], 0)
+            self.assertEqual(report['summary']['not_started'], 0)
+            self.assertIn('mean_KBps', report['summary'])
             for index in (1, 2):
                 self.assertEqual(output.with_name(f'record-{index}.raw').read_bytes(), payload)
+
+    def test_summary_stops_on_changed_content(self):
+        port = Port(responses={
+            b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
+        })
+        def receive(port, sn, name, output, cancel_after, run, reference):
+            run.update(complete=True, cancelled=False, bytes=40, elapsed_s=1, KBps=0.04,
+                       passes_600KBps=False, sha256=str(run['iteration']))
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.dict('sys.modules', {'serial': port.serial_module()}), \
+                mock.patch.object(tool, 'receive_download', side_effect=receive), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            path = Path(directory) / 'report.json'
+            self.assertEqual(tool.file_transfer_main(['--port', 'COM6', '--report', str(path), 'download',
+                                       '--sn', '7', '--name', 'abc123.raw',
+                                       '--output', str(Path(directory) / 'file.raw'), '--repeat', '10']), 1)
+            summary = json.loads(path.read_text(encoding='utf-8'))['summary']
+            self.assertEqual((summary['validated'], summary['failed'], summary['not_started']), (1, 1, 8))
+            self.assertEqual(summary['mean_KBps'], 0.04)
 
     def test_deferred_verification(self):
         payload = (bytes(range(256)) * 40)[:10001]
@@ -311,11 +392,11 @@ class ReceiverTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             path = Path(directory) / 'nested/report.json'
             arguments = ['--port', 'COM6', '--report', str(path), 'bench', '--size', '1', '--block', '1024']
-            self.assertEqual(tool.main(arguments), 2)
+            self.assertEqual(tool.file_transfer_main(arguments), 0)
             serial.Serial.assert_called_once()
             original = path.read_bytes()
             self.assertTrue(json.loads(original)['runs'][0]['complete'])
-            self.assertEqual(tool.main(arguments), 1)
+            self.assertEqual(tool.file_transfer_main(arguments), 1)
             self.assertEqual(path.read_bytes(), original)
             serial.Serial.assert_called_once()
 
@@ -579,7 +660,7 @@ int test_recording_producer(void) {
 
 def check_firmware():
     config = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(encoding='utf-8')
-    assert re.search(r'#define\s+TCFG_T2620_CDC_FILE_BENCH_ENABLE\s+0\b', config)
+    assert re.search(r'#define\s+TCFG_T2620_CDC_FILE_BENCH_ENABLE\s+[01]\b', config)
     runtime = ctypes.CDLL('msvcrt')
     for name in ('snprintf', 'strncmp', 'strcmp', 'strlen', 'memcpy', 'memset', 'memcmp'):
         symbol = '_snprintf' if name == 'snprintf' else name

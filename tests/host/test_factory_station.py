@@ -40,29 +40,26 @@ class StationTests(unittest.TestCase):
         serial.tools.list_ports.comports = lambda: [types.SimpleNamespace(device='COM6', description='CDC')]
         serial.Serial = mock.Mock(side_effect=AssertionError('launcher must not open port'))
         modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
-        for selection, mode, repeat in (('', 'file-bench', '1'), ('2', 'file-bench', '10'),
-                                         ('3', 'file-cancel', '1'), ('4', 'file-bench', '1'), ('5', 'file-bench', '10')):
+        for kind, selection, mode, repeat in (
+                ('', '', 'file-download', '1'), ('1', '2', 'file-download', '10'),
+                ('2', '1', 'file-bench', '1'), ('2', '2', 'file-bench', '10')):
             with self.subTest(selection=selection), mock.patch.dict('sys.modules', modules), \
-                    mock.patch('builtins.input', side_effect=['3', selection, '6']), \
+                    mock.patch('builtins.input', side_effect=['3', kind, selection, '6']), \
                     mock.patch.object(_cdc, 'main', return_value=0) as entry:
                 self.assertEqual(_cdc.launcher([]), 0)
-                entry.assert_called_once_with(['--port', 'COM6', '--mode', mode, '--bench-repeat', repeat,
-                                               '--bench-receive-mode', 'deferred' if selection in ('4', '5') else 'inline'])
+                entry.assert_called_once_with(['--port', 'COM6', '--mode', mode, '--bench-repeat', repeat])
         serial.Serial.assert_not_called()
-        for choice, repeat in (('6', '1'), ('7', '10')):
+        for answers in (['3', 'q', 'q'], ['3', '1', 'q', 'q', 'q']):
             with mock.patch.dict('sys.modules', modules), \
-                    mock.patch('builtins.input', side_effect=['3', choice, '6']), \
+                    mock.patch('builtins.input', side_effect=answers), \
                     mock.patch.object(_cdc, 'main', return_value=0) as entry:
                 self.assertEqual(_cdc.launcher([]), 0)
-                entry.assert_called_once_with(['--port', 'COM6', '--mode', 'file-download',
-                                              '--bench-repeat', repeat])
+                entry.assert_not_called()
         serial.Serial.assert_not_called()
 
     def test_file_mode_uses_shared_receiver(self):
         module = types.SimpleNamespace(main=mock.Mock(return_value=2))
-        spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=mock.Mock()))
-        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
-                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module), \
+        with mock.patch.object(_cdc, 'file_transfer_main', module.main), \
                 mock.patch.object(_cdc, 'Station', side_effect=AssertionError('must not enter DUT')):
             result = _cdc.main(['--port', 'COM6', '--mode', 'file-bench', '--bench-block', '8192',
                                 '--bench-repeat', '10', '--report', 'bench.json', '--bench-receive-mode', 'deferred'])
@@ -72,16 +69,13 @@ class StationTests(unittest.TestCase):
                                              '--receive-mode', 'deferred'])
         module.main.reset_mock(return_value=True)
         module.main.return_value = 0
-        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
-                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module):
+        with mock.patch.object(_cdc, 'file_transfer_main', module.main):
             self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-cancel']), 0)
         self.assertEqual(module.main.call_args.args[0][-2:], ['--cancel-after', '1048576'])
 
     def test_recording_mode_uses_shared_receiver(self):
         module = types.SimpleNamespace(main=mock.Mock(return_value=0))
-        spec = types.SimpleNamespace(loader=types.SimpleNamespace(exec_module=mock.Mock()))
-        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
-                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module), \
+        with mock.patch.object(_cdc, 'file_transfer_main', module.main), \
                 mock.patch.object(_cdc, 'Station', side_effect=AssertionError('must not enter DUT')):
             self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-download', '--file-sn', '7',
                                         '--file-name', 'abc123.raw', '--file-output', 'record.raw',
@@ -92,8 +86,7 @@ class StationTests(unittest.TestCase):
                                              '--sn', '7', '--name', 'abc123.raw', '--reference', 'baseline.raw',
                                              '--cancel-after', '4096'])
         module.main.reset_mock()
-        with mock.patch.object(_cdc.importlib.util, 'spec_from_file_location', return_value=spec), \
-                mock.patch.object(_cdc.importlib.util, 'module_from_spec', return_value=module):
+        with mock.patch.object(_cdc, 'file_transfer_main', module.main):
             self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-download',
                                        '--file-output', 'record.raw', '--report', 'download.json']), 0)
         module.main.assert_called_once_with(['--port', 'COM6', '--report', 'download.json', 'download',
@@ -107,12 +100,12 @@ class StationTests(unittest.TestCase):
                     _cdc.main(['--port', 'COM6', '--mode', 'file-download'] + arguments)
             transfer.assert_not_called()
 
-    def test_missing_file_module_is_optional(self):
+    def test_single_file_without_repository_modules(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(_cdc, '__file__', str(Path(directory) / 'CDC-test.bat')), \
-                mock.patch.object(_cdc.importlib.util, 'spec_from_file_location') as loader:
-            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-bench']), 2)
-            loader.assert_not_called()
+                mock.patch.object(_cdc, 'file_transfer_main', return_value=0) as receiver:
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-bench']), 0)
+            receiver.assert_called_once()
 
     def station(self, replies, **kwargs):
         port = Port(replies)
