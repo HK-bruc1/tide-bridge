@@ -210,6 +210,12 @@ int test_bound_advertising_preserves_business(void) {
         RDX_LED_SCENE_USB_SWITCH_WAIT,RDX_LED_SCENE_FINALPACK_DONE};
     for(int s=0;s<8;++s) {
         reset(); bound=1;
+        if(s==0 || s==1) record.run=RECORD_STATE_START;
+        if(s==2) wifi.onoff=TRANSFER_BY_WIFI_ON;
+        if(s==3) ota=1;
+        if(s==4) dut=1;
+        if(s==5) charge=RDX_CHARGE_IN;
+        if(s==6) transition=1;
         rdx_led_ctrl_set_scene(scenes[s]);
         g_effect_elapsed_ms=100;
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
@@ -228,6 +234,40 @@ int test_bound_advertising_preserves_business(void) {
     ota=0;
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_STOP);
     CHECK(g_current_scene==RDX_LED_SCENE_OFF);
+    return 0;
+}
+int test_bound_advertising_clears_finished_business(void) {
+    int scenes[]={RDX_LED_SCENE_DUT_ENTER,RDX_LED_SCENE_DUT_LED_TEST,
+        RDX_LED_SCENE_OTA_START,RDX_LED_SCENE_WIFI_START,
+        RDX_LED_SCENE_RECORD_START,RDX_LED_SCENE_CHARGE_PLUG_IN,
+        RDX_LED_SCENE_CHARGE_FULL,RDX_LED_SCENE_USB_SWITCH_WAIT};
+    int events[]={RDX_LED_SCENE_BLE_ADV_START,RDX_LED_SCENE_BLE_FAST_ADV,
+        RDX_LED_SCENE_BLE_DISCONNECTED,RDX_LED_SCENE_OTA_STOP};
+    for(int s=0;s<8;++s) for(int e=0;e<4;++e) {
+        reset(); link=0; bound=1;
+        rdx_led_ctrl_set_scene(scenes[s]);
+        rdx_led_ctrl_set_scene(events[e]);
+        CHECK(g_current_scene==RDX_LED_SCENE_OFF);
+        CHECK(g_active_effect->mode==RDX_LED_MODE_OFF);
+        CHECK(!rgb.r && !rgb.g && !rgb.b);
+        for(int i=0;i<100;++i) rdx_led_ctrl_update();
+        CHECK(g_current_scene==RDX_LED_SCENE_OFF && !rgb.r && !rgb.g && !rgb.b);
+    }
+    /* 模拟 DUT 真实退出顺序：先清除业务状态，再请求广播场景。 */
+    for(int b=0;b<2;++b) for(int c=0;c<3;++c) {
+        reset(); link=0; bound=b; dut=1;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
+        dut=0; charge=c; usb=c!=RDX_CHARGE_OUT;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        CHECK(g_current_scene==(c==RDX_CHARGE_IN ? RDX_LED_SCENE_CHARGE_PLUG_IN :
+            c==RDX_CHARGE_FULL ? RDX_LED_SCENE_CHARGE_FULL :
+            b ? RDX_LED_SCENE_OFF : RDX_LED_SCENE_BLE_ADV_START));
+    }
+    reset(); bound=1; dut=1;
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_LED_TEST);
+    g_effect_elapsed_ms=100;
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+    CHECK(g_current_scene==RDX_LED_SCENE_DUT_LED_TEST && g_effect_elapsed_ms==100);
     return 0;
 }
 '''

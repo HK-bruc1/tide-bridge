@@ -399,38 +399,32 @@ static bool _rdx_led_success_should_yield(void)
            charge == RDX_CHARGE_IN || charge == RDX_CHARGE_FULL;
 }
 
-static void _rdx_led_restore_system_state(void)
+static rdx_led_scene_e _rdx_led_select_system_scene(void)
 {
     RecordStatus* rp = rdx_record_get_status();
 
     if (rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
-        return;
+        return RDX_LED_SCENE_RECORD_START;
     }
 
     if (rdx_app_get_dut_status()) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_ENTER);
-        return;
+        return RDX_LED_SCENE_DUT_ENTER;
     }
 
     if (get_ota_status()) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
-        return;
+        return RDX_LED_SCENE_OTA_START;
     }
 
     if (_rdx_led_is_transfer_active() && _rdx_led_can_show_transfer_effect()) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_WIFI_START);
-        return;
+        return RDX_LED_SCENE_WIFI_START;
     }
 
     u8 charger_status = rdx_app_get_charge_state();
     if (charger_status == RDX_CHARGE_IN) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
-        return;
+        return RDX_LED_SCENE_CHARGE_PLUG_IN;
     }
     if (charger_status == RDX_CHARGE_FULL) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
-        return;
+        return RDX_LED_SCENE_CHARGE_FULL;
     }
 
     /* A record/transfer completion may restore the system LED after the
@@ -438,10 +432,15 @@ static void _rdx_led_restore_system_state(void)
      * visually off; otherwise RGB_REQUIRED would keep the shared rail awake. */
     if (rdx_vm_get_bound_status() || rdx_ble_server_has_active_link() ||
         rdx_peripheral_power_vdd_is_slow_adv()) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        return RDX_LED_SCENE_OFF;
     } else {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        return RDX_LED_SCENE_BLE_ADV_START;
     }
+}
+
+static void _rdx_led_restore_system_state(void)
+{
+    rdx_led_ctrl_set_scene(_rdx_led_select_system_scene());
 }
 
 /******************************************************************************
@@ -610,16 +609,32 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
-    /* 已绑定只抑制广播提示，不打断正在显示的业务及单次提示。
-     * 空闲时重新仲裁，不能用强制灭灯覆盖录音、充电等实时状态。 */
+    /* 已绑定的广播基础灯态是熄灯，而不是忽略事件。
+     * 按实时业务重新选择，避免 DUT 等业务结束后旧灯效残留。 */
     if (_rdx_led_is_advertising_scene(scene) && rdx_vm_get_bound_status()) {
-        /* OTA 结束原本也映射为广播蓝闪，结束事件需要重新选择业务态。 */
-        if (scene == RDX_LED_SCENE_OTA_STOP ||
-            g_current_scene == RDX_LED_SCENE_OFF ||
-            _rdx_led_is_advertising_scene(g_current_scene)) {
-            _rdx_led_restore_system_state();
+        rdx_led_scene_e desired = _rdx_led_select_system_scene();
+        if (!app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+            !rdx_storage_lifecycle_transition_led() && g_active_effect) {
+            /* 同一业务保持相位；DUT 灯测试及录音标记仍由当前业务持有。 */
+            if (desired == g_current_scene ||
+                (desired == RDX_LED_SCENE_DUT_ENTER &&
+                 g_current_scene == RDX_LED_SCENE_DUT_LED_TEST) ||
+                (desired == RDX_LED_SCENE_RECORD_START &&
+                 g_current_scene == RDX_LED_SCENE_RECORD_MARK &&
+                 g_effect_elapsed_ms < g_active_effect->timeout_ms)) {
+                return;
+            }
+            /* 空闲广播不截断尚未结束的单次提示。 */
+            if (desired == RDX_LED_SCENE_OFF &&
+                g_active_effect->timeout_ms &&
+                g_effect_elapsed_ms < g_active_effect->timeout_ms &&
+                (_rdx_led_is_success_scene(g_current_scene) ||
+                 g_current_scene == RDX_LED_SCENE_BATTERY_QUERY ||
+                 g_current_scene == RDX_LED_SCENE_LOW_BATTERY)) {
+                return;
+            }
         }
-        return;
+        scene = desired;
     }
     /* 被保护状态拒绝的按键提示直接丢弃，不排队、不唤醒灯效供电，
      * 也不重启录音、传输或充电灯效的现有相位。 */
