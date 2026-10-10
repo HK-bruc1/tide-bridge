@@ -100,7 +100,8 @@
 
 #define RDX_RECORD_STATE_BUSY_TIMEOUT                   (2000) //2s
 
-#define RDX_RECORD_LIMIT_TIME                           ((5*60*60 - 2)* 1000) // 5 hours - 2s
+/* 录音时长上限，单位毫秒；0 表示不限制录音时长。 */
+#define RDX_RECORD_LIMIT_TIME                           0
 
 #define RECORD_MIC_0                                    (0)
 #define RECORD_MIC_2                                    (2)
@@ -3073,9 +3074,11 @@ void rdx_record_max_timer_start(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+#if RDX_RECORD_LIMIT_TIME > 0
     if(rdx_record_max_timer == 0){
         rdx_record_max_timer = sys_timeout_add(NULL, rdx_record_max_time_deal, RDX_RECORD_LIMIT_TIME);
     }
+#endif
 }
 
 /**************************************************************************

@@ -469,7 +469,7 @@ u8 key_table_record_hold[KEY_ACTION_MAX] = {
 u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_PREV,          //短按
     APP_MSG_REC_FR,            //长按 (LONG: 快退)
-    APP_MSG_NULL,              //hold
+    APP_MSG_REC_FR,            //持续按住：每次 HOLD 快退一步
     APP_MSG_NULL,              //长按抬起
     APP_MSG_NULL,              //双击
     APP_MSG_NULL,              //三击
@@ -493,7 +493,7 @@ u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
 u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_REC_NEXT,          //短按
     APP_MSG_REC_FF,            //长按 (LONG: 快进)
-    APP_MSG_NULL,              //hold
+    APP_MSG_REC_FF,            //持续按住：每次 HOLD 快进一步
     APP_MSG_NULL,              //长按抬起
     APP_MSG_NULL,              //双击
     APP_MSG_NULL,              //三击
@@ -513,9 +513,9 @@ u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// KEY_IO_NUM2: 单击音量加
+// KEY_IO_NUM2: 单击本地音量减，每次两级
 u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
-    APP_MSG_VOL_DOWN,          //短按
+    APP_MSG_LOCAL_VOL_DOWN,    //短按
     APP_MSG_NULL,              //长按
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起
@@ -537,9 +537,9 @@ u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-// KEY_IO_NUM3: 单击音量减
+// KEY_IO_NUM3: 单击本地音量加，每次两级
 u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
-    APP_MSG_VOL_UP,            //短按
+    APP_MSG_LOCAL_VOL_UP,      //短按
     APP_MSG_NULL,              //长按
     APP_MSG_NULL,              //hold
     APP_MSG_NULL,              //长按抬起

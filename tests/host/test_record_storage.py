@@ -8,6 +8,7 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 
 def main():
+    check_record_limit()
     check_reconnect()
     check_stream()
     check_snapshot()
@@ -179,6 +180,56 @@ int test_storage(void) {
         path.write_text(stubs + source + tests, encoding='utf-8')
         run_c_checks(path, ['test_storage'])
     print('Recording async storage/lifecycle behavioral checks passed.')
+
+
+def check_record_limit():
+    base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
+    record = (base / 'rdx_record.c').read_text(encoding='utf-8')
+    definition = re.search(r'^#define RDX_RECORD_LIMIT_TIME[ \t]+(.+)$', record, re.M)
+    assert definition and definition[1].strip() == '0'
+    production = ''.join(function(record, name) for name in (
+        'rdx_record_max_time_deal', 'rdx_record_max_timer_stop',
+        'rdx_record_max_timer_start'))
+    stubs = r'''
+typedef unsigned short u16;
+#define NULL ((void *)0)
+static u16 rdx_record_max_timer;
+static int adds, deletes, stops, delay;
+static void (*callback)(void *);
+int sys_timeout_add(void *p, void (*cb)(void *), int ms) {
+    ++adds; callback=cb; delay=ms; return 7;
+}
+void sys_timeout_del(int id) { ++deletes; }
+void rdx_record_stop(void) { ++stops; }
+'''
+    tests = r'''
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_limit(void) {
+    rdx_record_max_timer_start();
+    rdx_record_max_timer_start();
+#if RDX_RECORD_LIMIT_TIME > 0
+    CHECK(adds==1 && delay==RDX_RECORD_LIMIT_TIME && rdx_record_max_timer==7);
+    callback(NULL);
+    CHECK(stops==1 && rdx_record_max_timer==0);
+    rdx_record_max_timer_start();
+    CHECK(adds==2 && rdx_record_max_timer==7);
+#else
+    CHECK(adds==0 && stops==0 && rdx_record_max_timer==0);
+#endif
+    rdx_record_max_timer_stop();
+    CHECK(rdx_record_max_timer==0);
+    int before=deletes;
+    rdx_record_max_timer_stop();
+    CHECK(deletes==before);
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-record-limit-') as work:
+        for limit in (definition[1], '((5*60*60 - 2)*1000)'):
+            path = Path(work) / 'record_limit.c'
+            path.write_text('#define RDX_RECORD_LIMIT_TIME ' + limit + '\n' +
+                            stubs + production + tests, encoding='utf-8')
+            run_c_checks(path, ['test_limit'])
 
 
 # 模式切换的关键回归：重连准入、音频去向与状态报文。

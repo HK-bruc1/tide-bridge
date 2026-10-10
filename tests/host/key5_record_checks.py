@@ -109,6 +109,19 @@ static int rdx_app_record_trigger_post(RecordStatus *s,int f,rdx_ble_async_token
 }
 static void rdx_app_emmc_poweron(int x) {}
 static void app_send_message(int m,int a) {}
+static int local_volume, volume_step, tone_running;
+#define APP_AUDIO_CURRENT_STATE 0
+#define APP_AUDIO_STATE_MUSIC 1
+static int tone_player_runing(void) { return tone_running; }
+static int app_audio_get_volume(int state) { return local_volume; }
+static void app_audio_volume_up(u8 step) {
+    volume_step=step; local_volume+=step;
+    if(local_volume>16) local_volume=16;
+}
+static void app_audio_volume_down(u8 step) {
+    volume_step=step; local_volume-=step;
+    if(local_volume<0) local_volume=0;
+}
 static int rdx_uxfile_is_datFileInfo_loading(void) { return 0; }
 static int rdx_is_file_transfer_active(void) { return 0; }
 static int rdx_is_file_sync_busy(void) { return 0; }
@@ -141,6 +154,7 @@ static void reset(void) {
     online_starts=online_stops=ota=formatting=poweroff_ready_flag=rdx_dut_mode=0;
     mode_switch_keep_timer=0; rdx_app_init_flag=bound=1;
     marks=0;
+    local_volume=8; volume_step=tone_running=0;
     hid_ready=feedback_scene=feedback_calls=battery_queries=0;
     key5_offline_stop_timer=0; key5_offline_stop_generation=0;
     timer_fail=timer_deletes=pc_mode=factory_keys=0;
@@ -412,19 +426,25 @@ int test_recording_blocks_player_keys(void) {
         }
     }
     CHECK(key_table_io_num0_normal[KEY_ACTION_CLICK]==APP_MSG_REC_PREV);
+    CHECK(key_table_io_num0_normal[KEY_ACTION_LONG]==APP_MSG_REC_FR);
+    CHECK(key_table_io_num0_normal[KEY_ACTION_HOLD]==APP_MSG_REC_FR);
+    CHECK(key_table_io_num1_normal[KEY_ACTION_CLICK]==APP_MSG_REC_NEXT);
     CHECK(key_table_io_num1_normal[KEY_ACTION_LONG]==APP_MSG_REC_FF);
+    CHECK(key_table_io_num1_normal[KEY_ACTION_HOLD]==APP_MSG_REC_FF);
     for (int n=2; n<4; ++n) {
         int volume=rdx_key_get_io_num_table(n,1)[KEY_ACTION_CLICK];
-        CHECK(volume==APP_MSG_VOL_UP || volume==APP_MSG_VOL_DOWN);
+        CHECK(volume==APP_MSG_LOCAL_VOL_UP || volume==APP_MSG_LOCAL_VOL_DOWN);
+        CHECK(volume<=255);
     }
     CHECK(key_table_io_num2_normal[KEY_ACTION_CLICK]!=key_table_io_num3_normal[KEY_ACTION_CLICK]);
     return 0;
 }
 int test_queued_player_message_during_recording(void) {
     const int messages[] = {APP_MSG_REC_PREV, APP_MSG_REC_NEXT,
-        APP_MSG_REC_FR, APP_MSG_REC_FF, APP_MSG_VOL_UP, APP_MSG_VOL_DOWN};
+        APP_MSG_REC_FR, APP_MSG_REC_FF, APP_MSG_VOL_UP, APP_MSG_VOL_DOWN,
+        APP_MSG_LOCAL_VOL_UP, APP_MSG_LOCAL_VOL_DOWN};
     reset();
-    for (int i=0; i<6; ++i) {
+    for (int i=0; i<sizeof(messages)/sizeof(messages[0]); ++i) {
         status.run=RECORD_STATE_STOP; status.process_state=0;
         CHECK(!rdx_app_local_player_message_blocked(messages[i]));
         /* A message admitted before START must be rejected at dispatch. */
@@ -450,6 +470,36 @@ int test_hold_admission_and_online(void) {
     reset(); connected=ready=1; key(KEY_ACTION_LONG); key(KEY_ACTION_UP);
     CHECK(online_starts==1 && online_stops==1 && !starts && !stops);
     reset(); connected=1; key(KEY_ACTION_LONG); key(KEY_ACTION_UP); CHECK(!starts && !online_starts);
+    return 0;
+}
+int test_local_volume_step_and_gates(void) {
+    reset();
+    CHECK(key_table_io_num2_normal[KEY_ACTION_CLICK]==APP_MSG_LOCAL_VOL_DOWN);
+    CHECK(key_table_io_num3_normal[KEY_ACTION_CLICK]==APP_MSG_LOCAL_VOL_UP);
+    rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_DOWN);
+    CHECK(local_volume==6 && volume_step==2);
+    rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_UP);
+    CHECK(local_volume==8 && volume_step==2);
+    local_volume=15;
+    rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_UP);
+    CHECK(local_volume==16);
+    local_volume=1;
+    rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_DOWN);
+    CHECK(local_volume==0);
+    for(int gate=0;gate<4;++gate) {
+        reset();
+        connected=gate==0;
+        status.run=gate==1 ? RECORD_STATE_START : RECORD_STATE_STOP;
+        status.process_state=gate==2 ? REC_PROCESS_STATE_BUSY : 0;
+        tone_running=gate==3;
+        rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_UP);
+        rdx_app_local_volume_change(APP_MSG_LOCAL_VOL_DOWN);
+        CHECK(local_volume==8 && !volume_step);
+    }
+    reset();
+    rdx_app_local_volume_change(APP_MSG_VOL_UP);
+    rdx_app_local_volume_change(APP_MSG_VOL_DOWN);
+    CHECK(local_volume==8 && !volume_step);
     return 0;
 }
 '''
@@ -540,7 +590,42 @@ int test_local_stop_fence_and_owner(void) {
 '''
 
 
+def check_seek_step():
+    playback = (BASE / 'rdx_playback.c').read_text(encoding='utf-8')
+    definitions = '\n'.join(re.search(r'^#define ' + name + r'[ \t]+.+$',
+                                     playback, re.M)[0] for name in (
+        'PB_OPUS_FRAME_MS', 'PB_SEEK_STEP_MS', 'PB_SEEK_STEP_FRAMES'))
+    source = definitions + r'''
+typedef int s32;
+#define PB_RESULT_OK 0
+#define PB_LOG(...) ((void)0)
+static int delta, calls;
+static int pb_seek_relative(s32 frames) { delta=frames; ++calls; return 0; }
+'''
+    source += function(playback, 'rdx_playback_ff')
+    source += function(playback, 'rdx_playback_fr')
+    source += r'''
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_seek_step(void) {
+    CHECK(PB_SEEK_STEP_MS==1000u);
+    for (int i=0; i<20; ++i) {
+        rdx_playback_ff();
+        CHECK(delta>0 && delta*PB_OPUS_FRAME_MS==1000u);
+        rdx_playback_fr();
+        CHECK(delta<0 && (-delta)*PB_OPUS_FRAME_MS==1000u);
+    }
+    CHECK(calls==40);
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-seek-step-') as work:
+        path = Path(work) / 'seek_step.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_seek_step'])
+
+
 def main():
+    check_seek_step()
     app = (BASE / 'rdx_app.c').read_text(encoding='utf-8')
     keys = (BASE / 'rdx_key.c').read_text(encoding='utf-8')
     header = (ROOT / 'SDK/apps/earphone/include/app_msg.h').read_text(encoding='utf-8')
@@ -562,10 +647,13 @@ def main():
         'rdx_app_key5_offline_stop_tick', 'rdx_app_key5_offline_stop_request',
         'rdx_app_key5_remap', 'rdx_app_local_player_key_remap',
         'rdx_app_local_player_message_blocked',
+        'rdx_app_local_volume_change',
         'rdx_app_device_record_set', 'rdx_app_device_record_handle'))
     handler = function(app, 'rdx_app_msg_handler')
     assert re.search(r'case APP_MSG_DUT_BURNIN_TOGGLE:\s*rdx_dut_burnin_toggle\(\);', handler)
     assert handler.index('if (rdx_app_local_player_message_blocked(msg[0]))') < handler.index('switch (msg[0])')
+    assert re.search(r'case APP_MSG_LOCAL_VOL_UP:\s*case APP_MSG_LOCAL_VOL_DOWN:\s*'
+                     r'rdx_app_local_volume_change\(msg\[0\]\);\s*return true;', handler)
     begin = handler.index('        case APP_MSG_RECORD_LOCAL_HOLD_START:')
     end = handler.index('        case APP_MSG_REC_PREV:', begin)
     cases = handler[begin:end]

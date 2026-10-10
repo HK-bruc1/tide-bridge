@@ -30,7 +30,7 @@
 // 板载 SD NAND 通过 dev_manager 挂载后的录音文件根目录
 #define PB_STORAGE_ROOT         "storage/sd0/C/"
 #define PB_OPUS_FRAME_MS        (20u)
-#define PB_SEEK_STEP_MS         (5000u)
+#define PB_SEEK_STEP_MS         (1000u)
 #define PB_SEEK_STEP_FRAMES     (PB_SEEK_STEP_MS / PB_OPUS_FRAME_MS)
 #define PB_RESUME_REWIND_MS      (100u)
 #define PB_RESUME_REWIND_FRAMES  (PB_RESUME_REWIND_MS / PB_OPUS_FRAME_MS)

@@ -1233,6 +1233,8 @@ static bool rdx_app_local_player_message_blocked(int message)
     case APP_MSG_REC_FF:
     case APP_MSG_VOL_UP:
     case APP_MSG_VOL_DOWN:
+    case APP_MSG_LOCAL_VOL_UP:
+    case APP_MSG_LOCAL_VOL_DOWN:
         if (!rdx_ble_server_has_active_link()) {
             RecordStatus *rp = rdx_record_get_status();
             return rp->run != RECORD_STATE_STOP || rdx_record_process_is_busy_check();
@@ -1257,6 +1259,27 @@ static void rdx_app_local_player_key_remap(int *value, int num_idx, int index, i
     if (table) {
         *value = table[index];
     }
+}
+
+static void rdx_app_local_volume_change(int message)
+{
+    /* 排队后重新确认离线状态，避免连接建立后继续调节本地音量。 */
+    if (rdx_ble_server_has_active_link() ||
+        rdx_app_local_player_message_blocked(message) ||
+        tone_player_runing()) {
+        return;
+    }
+    /* 使用本地两级步进及框架限幅，不经过蓝牙绝对音量同步表。 */
+    if (message == APP_MSG_LOCAL_VOL_UP) {
+        app_audio_volume_up(2);
+    } else if (message == APP_MSG_LOCAL_VOL_DOWN) {
+        app_audio_volume_down(2);
+    } else {
+        return;
+    }
+    y_printf("[KEY] local volume=%d step=2\n",
+             app_audio_get_volume(APP_AUDIO_CURRENT_STATE));
+    app_send_message(APP_MSG_VOL_CHANGED, app_audio_get_volume(APP_AUDIO_STATE_MUSIC));
 }
 
 void rdx_app_earphone_key_remap(int *value, int *msg)
@@ -2823,6 +2846,10 @@ int rdx_app_msg_handler(int *msg)
         case APP_MSG_BT_OPEN_PAGE_SCAN:
             rdx_app_earphone_state_set_page_scan_enable();
             break;
+        case APP_MSG_LOCAL_VOL_UP:
+        case APP_MSG_LOCAL_VOL_DOWN:
+            rdx_app_local_volume_change(msg[0]);
+            return true;
         case APP_MSG_BT_CLOSE_PAGE_SCAN:
             rdx_app_earphone_state_cancel_page_scan();
             break;
