@@ -439,6 +439,8 @@ def main():
     print('HOGP actual C scan/gesture/FIFO/session/async ATT behavior passed.')
     from key5_record_checks import main as check_key5_record
     check_key5_record()
+    from led_key_feedback_checks import main as check_key_led
+    check_key_led()
 
 if __name__ == '__main__':
     main()

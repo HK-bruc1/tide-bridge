@@ -90,6 +90,8 @@ typedef enum {
     RDX_LED_SCENE_BIND_SUCCESS,  /* APP 绑定成功并持久化：复用蓝灯提示 */
     RDX_LED_SCENE_PLAYBACK_PLAY,  /* 本地播放成功：黄色常亮两秒后恢复智能场景 */
     RDX_LED_SCENE_PLAYBACK_PAUSE, /* 本地暂停成功：黄色常亮两秒后恢复智能场景 */
+    RDX_LED_SCENE_KEY1_FEEDBACK, /* KEY1 纯 F13 单击：蓝灯提示，不代表 PC 业务成功 */
+    RDX_LED_SCENE_KEY2_FEEDBACK, /* KEY2 纯 F14 单击：白灯提示，不代表 PC 业务成功 */
     RDX_LED_SCENE_MAX,
 } rdx_led_scene_e;
 

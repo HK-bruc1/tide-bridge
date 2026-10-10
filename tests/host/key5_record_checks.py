@@ -17,6 +17,7 @@ typedef int bool;
 #define TRUE 1
 #define FALSE 0
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
+#define TCFG_RDX_HOGP_ENABLE 1
 #define TDX_HAS_RECMARK_ABILITY 1
 #define RDX_MARK_SOURCE_KEY 1
 #define PB_LOG(...) ((void)0)
@@ -50,8 +51,13 @@ static int connected, ready, bound=1, blocked, queue_fail, stop_fail, stops, pla
 static int online_starts, online_stops, ota, formatting;
 static int marks;
 #define KEY_IO_NUM0 65
+#define KEY_IO_NUM1 66
 #define KEY_IO_NUM4 69
 static int battery_queries, battery_posts;
+static int hid_ready, feedback_scene, feedback_calls;
+enum { RDX_LED_SCENE_KEY1_FEEDBACK=101, RDX_LED_SCENE_KEY2_FEEDBACK };
+static int rdx_hogp_keyboard_is_ready(void) { return hid_ready; }
+static void rdx_led_ctrl_set_scene(int scene) { feedback_scene=scene; ++feedback_calls; }
 #define y_printf(...) ((void)0)
 static struct { int goto_poweroff_flag; } app_var;
 static int rdx_app_business_started(void) { return rdx_app_init_flag; }
@@ -135,6 +141,7 @@ static void reset(void) {
     online_starts=online_stops=ota=formatting=poweroff_ready_flag=rdx_dut_mode=0;
     mode_switch_keep_timer=0; rdx_app_init_flag=bound=1;
     marks=0;
+    hid_ready=feedback_scene=feedback_calls=battery_queries=0;
     key5_offline_stop_timer=0; key5_offline_stop_generation=0;
     timer_fail=timer_deletes=pc_mode=factory_keys=0;
     app_var.goto_poweroff_flag=0; queued_callback=0; queued_priv=0;
@@ -255,12 +262,12 @@ int test_online_record_requires_plain_f17(void) {
 }
 int test_battery_single_click_only(void) {
     reset(); battery_queries=0; app_var.goto_poweroff_flag=0;
-    rdx_app_key_battery_cb(NULL); CHECK(battery_queries==1);
+    rdx_app_key_click_cb(NULL); CHECK(battery_queries==1);
     connected=1; ready=0;
-    rdx_app_key_battery_cb(NULL); CHECK(battery_queries==2);
-    blocked=1; rdx_app_key_battery_cb(NULL);
+    rdx_app_key_click_cb(NULL); CHECK(battery_queries==2);
+    blocked=1; rdx_app_key_click_cb(NULL);
     CHECK(battery_queries==3); blocked=0;
-    app_var.goto_poweroff_flag=1; rdx_app_key_battery_cb(NULL);
+    app_var.goto_poweroff_flag=1; rdx_app_key_click_cb(NULL);
     CHECK(battery_queries==3); app_var.goto_poweroff_flag=0;
     battery_posts=0;
     rdx_app_key_click(KEY_IO_NUM4,KEY_ACTION_DOUBLE_CLICK);
@@ -270,6 +277,52 @@ int test_battery_single_click_only(void) {
     rdx_app_key_click(KEY_IO_NUM4,KEY_ACTION_CLICK);
     rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_CLICK);
     CHECK(battery_posts==2);
+    return 0;
+}
+int test_business_key_feedback(void) {
+    for(int id=0; id<5; ++id) {
+        for(int mapping=0; mapping<5; ++mapping) {
+            for(int hid=0; hid<2; ++hid) {
+                reset(); hid_ready=hid;
+                rdx_hogp_key_action_keyboard_t *map =
+                    &s_rdx_hogp_key_action_active_keymap.keys[id];
+                map->usages[0]=0x68+id;
+                if(mapping==1) map->usages[0]=0x04;
+                if(mapping==2) map->modifiers=1;
+                if(mapping==3) map->usages[1]=0x04;
+                if(mapping==4) map->usages[0]=0;
+                rdx_app_key_click(KEY_IO_NUM0+id, KEY_ACTION_CLICK);
+                CHECK(queued_priv==(void *)(KEY_IO_NUM0+id));
+                CHECK(!feedback_calls && !battery_queries);
+                /* 宿主指针可能宽于固件队列字段，直接执行真实回调。 */
+                rdx_app_key_click_cb(queued_priv);
+                int feedback=hid && id<2 && mapping==0;
+                CHECK(feedback_calls==feedback && battery_queries==!feedback);
+                if(feedback) CHECK(feedback_scene==
+                    (id==0 ? RDX_LED_SCENE_KEY1_FEEDBACK : RDX_LED_SCENE_KEY2_FEEDBACK));
+            }
+        }
+    }
+    for(int guard=0; guard<5; ++guard) {
+        reset(); hid_ready=1;
+        s_rdx_hogp_key_action_active_keymap.keys[0].usages[0]=0x68;
+        if(guard==0) rdx_app_init_flag=0;
+        if(guard==1) factory_keys=1;
+        if(guard==2) app_var.goto_poweroff_flag=1;
+        if(guard==3) pc_mode=1;
+        if(guard==4) formatting=1;
+        rdx_app_key_click_cb((void *)KEY_IO_NUM0);
+        CHECK(!feedback_calls && !battery_queries);
+    }
+    reset(); hid_ready=1;
+    s_rdx_hogp_key_action_active_keymap.keys[0].usages[0]=0x68;
+    rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_CLICK);
+    hid_ready=0;
+    rdx_app_key_click_cb(queued_priv);
+    CHECK(battery_queries==1 && !feedback_calls);
+    reset(); queue_fail=1;
+    rdx_app_key_click(KEY_IO_NUM0,KEY_ACTION_CLICK);
+    CHECK(!queued_callback && !feedback_calls && !battery_queries);
     return 0;
 }
 int test_disconnect(void) {
@@ -502,7 +555,7 @@ def main():
     helpers = ''.join(function(app, n) for n in (
         'rdx_app_hold_record_retry_cb', 'rdx_app_hold_record_retry_schedule',
         'rdx_app_hold_record_retry_cancel', 'rdx_app_hold_record_reset',
-        'rdx_app_record_is_hold_active', 'rdx_app_key_battery_cb', 'rdx_app_key_click',
+        'rdx_app_record_is_hold_active', 'rdx_app_key_click_cb', 'rdx_app_key_click',
         'rdx_app_record_transport_lost', 'rdx_app_hold_record_wait_until_ready', 'rdx_app_hold_record_pump',
         'rdx_app_rdx_key_route_ready',
         'rdx_app_key5_offline_stop_allowed', 'rdx_app_key5_offline_stop_pump',

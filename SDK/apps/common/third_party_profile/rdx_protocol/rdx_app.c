@@ -1173,14 +1173,31 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
     }
 }
 
-/* Local battery feedback is independent of BLE connection/readiness. */
-static void rdx_app_key_battery_cb(void *priv)
+/* 在 app_core 按当前配键分流；业务按键提示与电量查询只能选择一种。 */
+static void rdx_app_key_click_cb(void *priv)
 {
+    u8 key_value = (u32)priv;
+
     if (!rdx_app_business_started() ||
         rdx_dut_test_keys_active() || app_var.goto_poweroff_flag ||
         app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
         return;
     }
+#if TCFG_RDX_HOGP_ENABLE
+    if (rdx_hogp_keyboard_is_ready()) {
+        if (key_value == KEY_IO_NUM0 &&
+            rdx_hogp_key_action_is_plain_key(0, 0x68)) {
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+            return;
+        }
+        if (key_value == KEY_IO_NUM1 &&
+            rdx_hogp_key_action_is_plain_key(1, 0x69)) {
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
+            return;
+        }
+    }
+#endif
+    /* 提示被高优先级灯态拒绝也不回退查电量；其他配键保留原行为。 */
     rdx_led_ctrl_show_battery();
 }
 
@@ -1199,10 +1216,10 @@ void rdx_app_key_click(u8 key_value, u8 action)
 {
     if (action == KEY_ACTION_CLICK &&
         key_value >= KEY_IO_NUM0 && key_value <= KEY_IO_NUM4) {
-        /* The key adapter must not operate the shared LED rail directly. */
-        int msg[3] = {(int)rdx_app_key_battery_cb, 1, 0};
+        /* 按键适配层只投递键号，不直接操作共享灯效电源或读取配键。 */
+        int msg[3] = {(int)rdx_app_key_click_cb, 1, key_value};
         if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
-            y_printf("[KEY] battery indication queue full\n");
+            y_printf("[KEY] click feedback queue full\n");
         }
     }
 }

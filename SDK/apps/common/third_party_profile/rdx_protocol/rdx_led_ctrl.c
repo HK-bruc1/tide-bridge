@@ -37,6 +37,7 @@
 #include "rdx_ble_server.h"
 #include "rdx_record.h"
 #include "rdx_app.h"
+#include "rdx_vm.h"
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "rdx_charge.h"
@@ -66,6 +67,7 @@ static u32 g_phase_elapsed_ms = 0;    /* 每周期重置 — 用于引擎处理 
 static u8 g_led_blink_state = 0;
 static u8 g_led_connected_on_done = 0;
 static u8 g_led_initialized = 0;
+static u8 g_led_bound_status = 0;
 /* Survives LED deinit while the shared rail sleeps between reminders. */
 static u16 g_low_battery_timer = 0;
 
@@ -92,6 +94,14 @@ static bool _rdx_led_is_transfer_active(void);
 static bool _rdx_led_can_show_transfer_effect(void);
 static bool _rdx_led_refresh_transfer_scene(void);
 static bool _rdx_led_success_should_yield(void);
+
+static bool _rdx_led_is_advertising_scene(rdx_led_scene_e scene)
+{
+    return scene == RDX_LED_SCENE_BLE_ADV_START ||
+           scene == RDX_LED_SCENE_BLE_FAST_ADV ||
+           scene == RDX_LED_SCENE_BLE_DISCONNECTED ||
+           scene == RDX_LED_SCENE_OTA_STOP;
+}
 
 static bool _rdx_led_low_battery_reminder_needed(void)
 {
@@ -363,13 +373,20 @@ static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
            RDX_LED_SCENE_CHARGE_FULL : RDX_LED_SCENE_CHARGE_PLUG_IN;
 }
 
-/* 连接、绑定及播放/暂停成功共用临时提示的仲裁与恢复规则。 */
+static bool _rdx_led_is_key_feedback_scene(rdx_led_scene_e scene)
+{
+    return scene == RDX_LED_SCENE_KEY1_FEEDBACK ||
+           scene == RDX_LED_SCENE_KEY2_FEEDBACK;
+}
+
+/* 按键反馈只复用临时成功提示的仲裁与恢复规则，不表示 PC 业务成功。 */
 static bool _rdx_led_is_success_scene(rdx_led_scene_e scene)
 {
     return scene == RDX_LED_SCENE_BLE_CONNECTED ||
            scene == RDX_LED_SCENE_BIND_SUCCESS ||
            scene == RDX_LED_SCENE_PLAYBACK_PLAY ||
-           scene == RDX_LED_SCENE_PLAYBACK_PAUSE;
+           scene == RDX_LED_SCENE_PLAYBACK_PAUSE ||
+           _rdx_led_is_key_feedback_scene(scene);
 }
 
 static bool _rdx_led_success_should_yield(void)
@@ -419,7 +436,7 @@ static void _rdx_led_restore_system_state(void)
     /* A record/transfer completion may restore the system LED after the
      * fast-to-slow transition already happened. Slow advertising must remain
      * visually off; otherwise RGB_REQUIRED would keep the shared rail awake. */
-    if (rdx_ble_server_has_active_link() ||
+    if (rdx_vm_get_bound_status() || rdx_ble_server_has_active_link() ||
         rdx_peripheral_power_vdd_is_slow_adv()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     } else {
@@ -552,6 +569,7 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
         return -1;
     }
     g_led_config = config;
+    g_led_bound_status = rdx_vm_get_bound_status();
     g_current_scene = RDX_LED_SCENE_OFF;
     g_active_effect = NULL;
     g_effect_elapsed_ms = 0;
@@ -590,6 +608,25 @@ void rdx_led_ctrl_deinit(void)
 void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
 {
     if (scene >= RDX_LED_SCENE_MAX) {
+        return;
+    }
+    /* 已绑定只抑制广播提示，不打断正在显示的业务及单次提示。
+     * 空闲时重新仲裁，不能用强制灭灯覆盖录音、充电等实时状态。 */
+    if (_rdx_led_is_advertising_scene(scene) && rdx_vm_get_bound_status()) {
+        /* OTA 结束原本也映射为广播蓝闪，结束事件需要重新选择业务态。 */
+        if (scene == RDX_LED_SCENE_OTA_STOP ||
+            g_current_scene == RDX_LED_SCENE_OFF ||
+            _rdx_led_is_advertising_scene(g_current_scene)) {
+            _rdx_led_restore_system_state();
+        }
+        return;
+    }
+    /* 被保护状态拒绝的按键提示直接丢弃，不排队、不唤醒灯效供电，
+     * 也不重启录音、传输或充电灯效的现有相位。 */
+    if (_rdx_led_is_key_feedback_scene(scene) &&
+        (app_var.goto_poweroff_flag || get_vbat_need_shutdown() ||
+         _rdx_led_success_should_yield() ||
+         rdx_storage_lifecycle_transition_led())) {
         return;
     }
     /* 在场景仲裁或唤醒灯效供电前，先检查原始查询请求是否允许显示。 */
@@ -800,6 +837,18 @@ void rdx_led_ctrl_update(void)
     }
     if (!g_led_config->run_en) {
         return;
+    }
+    /* 复用现有灯效任务的周期检查，绑定变化无需跨任务直接操作灯效。
+     * 仅重算基础灯态；业务提示结束后会自行按最新绑定状态恢复。 */
+    u8 bound = rdx_vm_get_bound_status();
+    if (g_led_bound_status != bound) {
+        g_led_bound_status = bound;
+        if (!app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+            (g_current_scene == RDX_LED_SCENE_OFF ||
+             _rdx_led_is_advertising_scene(g_current_scene))) {
+            _rdx_led_restore_system_state();
+            return;
+        }
     }
     /* Packaging completion stays visible until the physical shutdown begins. */
     if (g_current_scene == RDX_LED_SCENE_FINALPACK_DONE &&
