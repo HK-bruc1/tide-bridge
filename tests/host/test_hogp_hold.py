@@ -220,6 +220,23 @@ static void boot(int online) {
 static void reconnect(void) {
     rdx_hogp_input_invalidate(); ready=1; route=2; ++s_hid_epoch; tick();
 }
+int test_plain_key_query_tracks_active_map(void) {
+    boot(1);
+    CHECK(rdx_hogp_key_action_is_plain_key(4,0x6c));
+    CHECK(!rdx_hogp_key_action_is_plain_key(5,0x6c));
+    CHECK(!rdx_hogp_key_action_is_plain_key(4,0));
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[4].usages[0]=0x6d;
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+    CHECK(!rdx_hogp_key_action_is_plain_key(4,0x6c));
+    map.keys[4].usages[0]=0;
+    map.keys[4].usages[5]=0x6c;
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+    CHECK(rdx_hogp_key_action_is_plain_key(4,0x6c));
+    rdx_hogp_key_action_deinit();
+    CHECK(!rdx_hogp_key_action_is_plain_key(4,0x6c));
+    return 0;
+}
 int test_feedback_uses_resolved_gestures(void) {
     for(int mode=0;mode<2;mode++) {
         for(int clicks=1;clicks<=3;clicks++) {

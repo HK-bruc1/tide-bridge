@@ -124,6 +124,32 @@ u32 rdx_hogp_key_action_generation(void)
     return map_generation;
 }
 
+u8 rdx_hogp_key_action_is_plain_key(u8 key_id, u8 usage)
+{
+    const rdx_hogp_key_action_keyboard_t *action;
+    u8 count = 0;
+    u8 i;
+
+    if (!s_rdx_hogp_key_action_active || !usage ||
+        key_id >= s_rdx_hogp_key_action_active_keymap.key_count ||
+        key_id >= RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) {
+        return 0;
+    }
+    action = &s_rdx_hogp_key_action_active_keymap.keys[key_id];
+    if (action->modifiers) {
+        return 0;
+    }
+    for (i = 0; i < sizeof(action->usages); i++) {
+        if (!action->usages[i]) {
+            continue;
+        }
+        if (action->usages[i] != usage || ++count > 1) {
+            return 0;
+        }
+    }
+    return count == 1;
+}
+
 void rdx_hogp_key_action_release(u8 key_id)
 {
     if (held_key == key_id) {

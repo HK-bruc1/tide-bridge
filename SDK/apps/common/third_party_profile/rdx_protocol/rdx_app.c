@@ -204,6 +204,8 @@ static u8 key5_online_hold_routed = 0;
 static u8 key5_local_hold_routed;
 static u8 hold_record_local;
 static u32 hold_record_local_generation;
+static u16 key5_offline_stop_timer;
+static u32 key5_offline_stop_generation;
 
 static bool app_is_idle = FALSE;
 
@@ -1032,6 +1034,78 @@ static u8 rdx_app_rdx_key_route_ready(void)
     return rdx_ble_session_rdx_token_capture(&token, 1);
 }
 
+static u8 rdx_app_key5_offline_stop_allowed(void)
+{
+    RecordStatus *rp = rdx_record_get_status();
+
+    return rdx_app_business_started() && !poweroff_ready_flag &&
+           !app_var.goto_poweroff_flag && !rdx_dut_mode &&
+           !rdx_dut_test_keys_active() && !get_ota_status() &&
+           !mode_switch_keep_timer && !app_in_mode(APP_MODE_PC) &&
+           !rdx_uxfile_sd_format_status_check() &&
+           !rdx_storage_lifecycle_business_blocked() &&
+           rp->orig_mode == RECORD_MODE_OFFLINE &&
+           (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
+            rp->run == RECORD_STATE_PAUSE);
+}
+
+/* 仅在 app_core 执行；旧双击及重试不能结束后来新建的录音。 */
+static void rdx_app_key5_offline_stop_pump(void *priv)
+{
+    u32 generation = (u32)priv;
+
+    if (!key5_offline_stop_timer || generation != key5_offline_stop_generation) {
+        return;
+    }
+    if (generation == rdx_record_generation_get() &&
+        rdx_app_key5_offline_stop_allowed()) {
+        /* 复用录音模块的停止栅栏、保存及当前会话回执，不等待 APP 应答。
+         * 未受理时保留重试；受理后由录音模块负责队列拥塞及完成确认。 */
+        if (!rdx_record_audio_fault_stop()) {
+            return;
+        }
+        if (hold_record_local && hold_record_local_generation == generation) {
+            /* 停止责任已移交录音模块；保留松键路由，但不再重复提交停止。 */
+            hold_record_pressed = 0;
+            hold_record_session_active = 0;
+            hold_record_local_generation = 0;
+            rdx_app_hold_record_retry_cancel();
+        }
+        g_printf("[KEY5] offline stop accepted, generation=%u\r", generation);
+    }
+    sys_timer_del(key5_offline_stop_timer);
+    key5_offline_stop_timer = 0;
+}
+
+static void rdx_app_key5_offline_stop_tick(void *priv)
+{
+    int msg[3] = {(int)rdx_app_key5_offline_stop_pump, 1, (int)priv};
+
+    /* 周期定时器保留重试来源，app_core 队列满时不丢失停止请求。 */
+    os_taskq_post_type("app_core", Q_CALLBACK, 3, msg);
+}
+
+static void rdx_app_key5_offline_stop_request(void)
+{
+    u32 generation = rdx_record_generation_get();
+
+    if (key5_offline_stop_timer && key5_offline_stop_generation != generation) {
+        sys_timer_del(key5_offline_stop_timer);
+        key5_offline_stop_timer = 0;
+    }
+    if (!key5_offline_stop_timer) {
+        key5_offline_stop_generation = generation;
+        key5_offline_stop_timer = sys_timer_add(
+            (void *)generation, rdx_app_key5_offline_stop_tick,
+            RDX_HOLD_RECORD_RETRY_MS);
+        if (!key5_offline_stop_timer) {
+            r_printf("[KEY5] offline stop rejected: retry timer unavailable\r");
+            return;
+        }
+    }
+    rdx_app_key5_offline_stop_pump((void *)generation);
+}
+
 static void rdx_app_key5_remap(int *value, int index, int scene)
 {
     u8 *key_table;
@@ -1056,8 +1130,23 @@ static void rdx_app_key5_remap(int *value, int index, int scene)
         return;
     }
 
+    /* 接入 APP 不撤销已有离线录音的停止入口；此处已在 app_core，
+     * 直接受理仅停止请求，避免排队的切换消息在录音结束后反向启动。 */
+    if (index == KEY_ACTION_DOUBLE_CLICK && rdx_ble_server_has_active_link() &&
+        rdx_app_key5_offline_stop_allowed()) {
+        rdx_app_key5_offline_stop_request();
+        *value = APP_MSG_NULL;
+        return;
+    }
+
     if (rdx_app_rdx_key_route_ready()) {
         if (index == KEY_ACTION_LONG) {
+            /* 仅单独 F17 允许 KEY5 触发在线录音；即使按住期间修改配键，
+             * 已触发录音的松开事件仍由上方分支处理，保证停止流程配对。 */
+            if (!rdx_hogp_key_action_is_plain_key(4, 0x6c)) {
+                *value = APP_MSG_NULL;
+                return;
+            }
             key5_online_hold_routed = 1;
         } else if (index == KEY_ACTION_UP) {
             key_press_record_ready_flag = 0;
@@ -1198,8 +1287,9 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
         /* KEY5 同时通过 rdx_hogp_input.c 上报 HID 按下和松开事件。
-         * RDX 就绪时保留在线长按录音；无 BLE ACL 连接时，
-         * 本地按键表支持双击切换录音和长按录音。 */
+         * RDX 就绪且 KEY5 配键为单独 F17 时允许在线长按录音；无 BLE ACL 连接时，
+         * 本地按键表支持双击切换录音和长按录音。
+         * 已有离线录音连接 APP 后，仍允许双击仅停止，不受配键限制。 */
         if (num_idx == 4) {
             rdx_app_key5_remap(value, index, scene);
             return;
