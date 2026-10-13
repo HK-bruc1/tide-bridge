@@ -308,6 +308,28 @@ int test_indexed_raw_reader(void) {
     meta.format=2; CHECK(rf_read_index_identity(8,&meta,&size)==-1);
     return 0;
 }
+int test_large_download_open(void) {
+    u32 lengths[]={16777240u,143340000u,2147483680u,4294967280u};
+    for(unsigned index=0;index<sizeof(lengths)/sizeof(lengths[0]);++index) {
+        reset(); CHECK(seed_mono()==0); rf_service=0;
+        char json[240];
+        sprintf(json,"[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":%u,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896}]",lengths[index]);
+        CHECK(seed_index(json)==0);
+        /* 稀疏文件模拟：打开时只读取元数据、索引和首帧，不扫描整文件。 */
+        lookup(RF_ROOT "abc123.raw")->size=lengths[index];
+        CHECK(!rdx_record_format_download_acquire());
+        void *handle=NULL; u32 size=0, before=read_bytes; int before_writes=writes;
+        CHECK(!rdx_record_format_download_open(8,"abc123.raw",&handle,&size));
+        CHECK(handle && size==lengths[index] && handles==1 && ((FILE *)handle)->pos==0);
+        CHECK(read_bytes-before==sizeof(rf_meta)+strlen(json)+40 && writes==before_writes);
+        CHECK(!fclose(handle));
+        rdx_record_format_download_release();
+        factory_busy=1; u32 crc=0;
+        CHECK(!rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc));
+        CHECK(!handles);
+    }
+    return 0;
+}
 int test_format_persistence(void) {
     reset(); CHECK(seed_mono()==0); CHECK(handles==0);
     int before=writes; CHECK(rdx_record_format_frame(&current,1,audio+40,40)==0);
@@ -574,6 +596,7 @@ double fabs(double);
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
     path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_download_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
+                        'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',

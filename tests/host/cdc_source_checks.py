@@ -21,7 +21,7 @@ char *strcpy(char *,const char *);
 void rdx_cdc_source_service(void);
 void rdx_cdc_source_cancel(void);
 void rdx_cdc_source_release(void);
-static u32 now, position;
+static u32 now, position, file_size = 10000;
 static int lease, releases, handles, closes, reads, wakes, blocked, shutdown;
 static int open_result, read_failure, close_failure, task_failure, acquire_failure;
 static int cancel_read, detach_open, close_timeout;
@@ -56,7 +56,7 @@ int rdx_record_format_download_open(u32 sn,const char *name,void **handle,u32 *s
     *handle=NULL; *size=0;
     if(detach_open) rdx_cdc_source_release();
     if(open_result) return open_result;
-    *handle=(void *)1; *size=10000; ++handles; position=0; return 0;
+    *handle=(void *)1; *size=file_size; ++handles; position=0; return 0;
 }
 int rdx_record_format_download_list_open(void **handle,u32 *size) {
     ++list_opens;
@@ -85,6 +85,7 @@ static u8 received[10000], block[4096];
 static void reset(void) {
     memset(&source,0,sizeof(source));
     now=position=0;
+    file_size=10000;
     lease=releases=handles=closes=reads=wakes=blocked=shutdown=0;
     open_result=read_failure=close_failure=task_failure=acquire_failure=0;
     cancel_read=detach_open=close_timeout=0;
@@ -114,6 +115,25 @@ int test_source_stream(void) {
     CHECK(rdx_cdc_source_take(block,&length,&size)==1 && length==2 && size==2);
     rdx_cdc_source_release();
     CHECK(!lease && releases==1);
+    return 0;
+}
+int test_source_large_stream(void) {
+    reset(); file_size=143340000; now=0xfffff000u;
+    CHECK(!rdx_cdc_source_begin(7,"abc123.raw"));
+    source_work();
+    u32 offset=0, size=0, length=0, started=now;
+    while(offset<file_size) {
+        CHECK(rdx_cdc_source_take(block,&length,&size)==1 && size==file_size);
+        CHECK(length && length<=4096 && length<=file_size-offset);
+        CHECK(block[0]==(u8)(offset*19+7));
+        CHECK(block[length-1]==(u8)((offset+length-1)*19+7));
+        offset+=length; now+=20;
+        rdx_cdc_source_service(); source_work();
+        CHECK(!source.error && lease);
+    }
+    CHECK(source.offset==file_size && source.closed==1 && !handles && closes==1);
+    CHECK((u32)(now-started)>120000);
+    rdx_cdc_source_release(); CHECK(!lease && !source.busy && releases==1);
     return 0;
 }
 int test_source_late_completion(void) {
@@ -184,7 +204,7 @@ def run_source_checks():
     with tempfile.TemporaryDirectory(prefix='cdc_source_') as directory:
         path = Path(directory) / 'source.c'
         path.write_text(STUBS + source + TESTS, encoding='utf-8')
-        run_c_checks(path, ('test_source_stream', 'test_source_late_completion',
+        run_c_checks(path, ('test_source_stream', 'test_source_large_stream', 'test_source_late_completion',
                            'test_source_faults', 'test_source_admission'), native=True)
     print('PASS: actual recording worker: double buffer, late open/read, close quarantine, deadlines, shutdown')
 

@@ -299,7 +299,9 @@ class Station:
 
 HEADER = struct.Struct('<4sBBHIII')
 MAX_PAYLOAD = 8192
-MAX_SIZE = 16777216
+MAX_SIZE = 0xffffffff  # CDF1 的长度和偏移采用无符号 32 位字段。
+BENCH_MAX_SIZE = 16777216
+LIST_MAX_SIZE = 16777216
 PATTERN = bytes(range(256)) * 33
 
 
@@ -308,10 +310,10 @@ class ProtocolError(Exception):
 
 
 class Reader:
-    def __init__(self, port, total_timeout=120):
+    def __init__(self, port, total_timeout=None):
         self.port = port
         self.buffer = bytearray()
-        self.deadline = time.monotonic() + total_timeout
+        self.deadline = float('inf') if total_timeout is None else time.monotonic() + total_timeout
 
     def fill(self, count, timeout=5):
         deadline = min(self.deadline, time.monotonic() + timeout)
@@ -380,20 +382,28 @@ def unsigned(text):
     return value
 
 
+def caps_max_size(reply):
+    fields = reply.split('#')
+    if (len(fields) != 8 or fields[:4] != ['*DEV', 'file', 'caps', '1'] or
+            fields[4] != str(MAX_PAYLOAD) or fields[-1] != '' or
+            fields[6] not in ('IDLE', 'OPENING', 'STREAMING', 'CLOSING', 'QUARANTINED')):
+        raise ProtocolError('unexpected CAPS: ' + reply)
+    maximum = unsigned(fields[5])
+    if not maximum:
+        raise ProtocolError('zero CAPS file size limit')
+    return maximum
+
+
 def caps(port):
     send(port, '*APP#file#caps#')
     reply = Reader(port, 10).line()
-    fields = reply.split('#')
-    if (len(fields) != 8 or fields[:4] != ['*DEV', 'file', 'caps', '1'] or
-            fields[4:6] != ['8192', '16777216'] or fields[-1] != '' or
-            fields[6] not in ('IDLE', 'OPENING', 'STREAMING', 'CLOSING', 'QUARANTINED')):
-        raise ProtocolError('unexpected CAPS: ' + reply)
+    caps_max_size(reply)
     return reply
 
 
 def receive_bench(port, size, block, output=None, cancel_after=None, report=None,
                   receive_mode='inline'):
-    if receive_mode not in ('inline', 'deferred') or not 1 <= size <= MAX_SIZE or block not in (1024, 2048, 4096, 8192):
+    if receive_mode not in ('inline', 'deferred') or not 1 <= size <= BENCH_MAX_SIZE or block not in (1024, 2048, 4096, 8192):
         raise ProtocolError('invalid receive mode/size/block')
     if receive_mode == 'deferred' and cancel_after is not None:
         raise ProtocolError('deferred verification does not support cancellation')
@@ -409,11 +419,11 @@ def recording_identity(sn, name):
     if not isinstance(name, str) or not re.fullmatch(r'[0-9a-fA-F]{3,6}\.raw', name):
         raise ProtocolError('invalid recording name; use the exact indexed name, not a path')
 
-def receive_list(port, report=None):
+def receive_list(port, report=None, max_size=MAX_SIZE):
     with tempfile.TemporaryDirectory(prefix='cdc-list-') as directory:
         destination = Path(directory) / 'index.json'
         receive_transfer(port, '*APP#file#list#', None, None, destination, None,
-                         report, 'inline', alignment=1)
+                         report, 'inline', alignment=1, max_size=min(max_size, LIST_MAX_SIZE))
         try:
             entries = json.loads(destination.read_text(encoding='utf-8'))
         except (ValueError, UnicodeError) as error:
@@ -436,25 +446,27 @@ def receive_list(port, report=None):
     return entries
 
 
-def recording_unavailable(entry):
+def recording_unavailable(entry, max_size=MAX_SIZE):
     if entry['frame_size'] != 40 or entry['opus'] != 1084752896:
         return '暂不支持此录音格式'
     if not 0 < entry['size'] <= MAX_SIZE or entry['size'] % 40:
-        return '空文件、长度异常或超过16 MiB'
+        return '空文件或录音长度异常'
+    if entry['size'] > max_size:
+        return f'超过设备固件声明的上限（{max_size:,} 字节），请升级固件'
     if entry['end_time'] < entry['start_time']:
         return '录音时间字段异常'
     return ''
 
 
-def select_recording(port, report):
+def select_recording(port, report, max_size=MAX_SIZE):
     while True:
         print('\n正在读取设备录音列表……')
         listing = {}
         report.setdefault('list_requests', []).append(listing)
-        entries = receive_list(port, listing)
+        entries = receive_list(port, listing, max_size=max_size)
         print('\n序号  SN       文件名         大小(MB)  录音时长(秒)  状态')
         for index, entry in enumerate(entries, 1):
-            reason = recording_unavailable(entry)
+            reason = recording_unavailable(entry, max_size)
             print(f"{index:>4}  {entry['sn']:<8} {entry['name']:<13} "
                   f"{entry['size'] / 1000000:>8.3f}  "
                   f"{entry['end_time'] - entry['start_time']:>12}  {reason or '可下载'}")
@@ -468,7 +480,7 @@ def select_recording(port, report):
                 break
             if choice.isascii() and choice.isdecimal() and 1 <= int(choice) <= len(entries):
                 entry = entries[int(choice) - 1]
-                reason = recording_unavailable(entry)
+                reason = recording_unavailable(entry, max_size)
                 if not reason:
                     return entry
                 print(reason)
@@ -518,18 +530,22 @@ def export_opus(raw_path):
     return destination
 
 
-def receive_download(port, sn, name, output, cancel_after=None, report=None, reference=None):
+def receive_download(port, sn, name, output, cancel_after=None, report=None, reference=None,
+                     max_size=None):
     recording_identity(sn, name)
-    if not output or (cancel_after is not None and not 0 <= cancel_after < MAX_SIZE):
+    max_size = MAX_SIZE if max_size is None else max_size
+    if (not output or not 0 < max_size <= MAX_SIZE or
+            (cancel_after is not None and not 0 <= cancel_after < max_size)):
         raise ProtocolError('download requires output and a valid cancel-after')
     report = report if report is not None else {}
     report.update(sn=sn, name=name, source='recording', reference_match=None)
     return receive_transfer(port, f'*APP#file#get#{sn}#{name}#', None, None,
-                            output, cancel_after, report, 'inline', reference)
+                            output, cancel_after, report, 'inline', reference, max_size=max_size)
 
 
 def receive_transfer(port, command, size, block, output, cancel_after, report,
-                     receive_mode, reference=None, alignment=40):
+                     receive_mode, reference=None, alignment=40, max_size=None):
+    max_size = MAX_SIZE if max_size is None else max_size
     report = report if report is not None else {}
     report.update(size_requested=size, block=block, bytes=0, complete=False, cancelled=False,
                   passes_600KBps=False, crc_ok=False, pattern_ok=False if size is not None else None,
@@ -543,7 +559,7 @@ def receive_transfer(port, command, size, block, output, cancel_after, report,
     content_hash = hashlib.sha256()
     offset = crc = 0
     started = time.monotonic()
-    reader = Reader(port)
+    reader = Reader(port, total_timeout=120 if size is not None else None)
     first_data = last_data = None
     first_data_bytes = 0
     cancel_sent = None
@@ -585,7 +601,7 @@ def receive_transfer(port, command, size, block, output, cancel_after, report,
                 cancel_sent = time.monotonic()
             kind, payload = reader.frame(transfer_id, offset)
             if kind == 1:
-                if offset + len(payload) > (size if size is not None else MAX_SIZE):
+                if offset + len(payload) > (size if size is not None else max_size):
                     raise ProtocolError('DATA exceeds file size limit')
                 if size is not None and len(payload) != min(block, size - offset):
                     raise ProtocolError('unexpected DATA length')
@@ -698,7 +714,7 @@ def file_transfer_main(argv=None):
     download.add_argument('--cancel-after', type=int)
     download.add_argument('--reference', type=Path, help='independent RAW bytes, without BLE framing')
     args = parser.parse_args(argv)
-    if args.command == 'bench' and (not 1 <= args.size <= MAX_SIZE or not 1 <= args.repeat <= 100 or
+    if args.command == 'bench' and (not 1 <= args.size <= BENCH_MAX_SIZE or not 1 <= args.repeat <= 100 or
             (args.cancel_after is not None and not 0 <= args.cancel_after < args.size)):
         parser.error('invalid size/repeat/cancel-after')
     if args.command == 'bench' and args.receive_mode == 'deferred' and args.cancel_after is not None:
@@ -729,9 +745,13 @@ def file_transfer_main(argv=None):
         report['pyserial'] = serial.__version__
         with serial.Serial(args.port, args.baud, timeout=0.1, write_timeout=2) as port:
             report['caps'] = caps(port)
+            max_size = caps_max_size(report['caps'])
+            report['max_file_size'] = max_size
             print(report['caps'])
+            if args.command == 'bench' and args.size > max_size:
+                raise ProtocolError('BENCH size exceeds device CAPS')
             if args.command == 'download' and args.sn is None:
-                selected = select_recording(port, report)
+                selected = select_recording(port, report, max_size=max_size)
                 if selected is None:
                     report['selection_cancelled'] = True
                     return 3
@@ -746,7 +766,8 @@ def file_transfer_main(argv=None):
                     if output and args.repeat > 1:
                         output = output.with_name(f'{output.stem}-{index + 1}{output.suffix}')
                     if args.command == 'download':
-                        receive_download(port, args.sn, args.name, output, args.cancel_after, run, args.reference)
+                        receive_download(port, args.sn, args.name, output, args.cancel_after, run,
+                                         args.reference, max_size=max_size)
                         if run['complete'] and index and run['sha256'] != report['runs'][0]['sha256']:
                             raise ProtocolError('recording content changed between downloads')
                     else:

@@ -6,9 +6,10 @@
 #include "system/includes.h"
 
 #if TCFG_T2620_CDC_FILE_ENABLE
-#define CDC_FILE_MAX 16777216u
+#define CDC_FILE_MAX 0xffffffffu /* 仅受 CDF1 的 u32 长度和偏移表示范围约束。 */
+#define CDC_BENCH_MAX 16777216u
 #define CDC_FILE_BLOCK 8192u
-#define CDC_FILE_TIMEOUT 110000u
+#define CDC_FILE_IDLE_TIMEOUT 10000u
 static const u32 cdc_crc_table[256] = {
     0x00000000u, 0x77073096u, 0xee0e612cu, 0x990951bau, 0x076dc419u, 0x706af48fu, 0xe963a535u, 0x9e6495a3u,
     0x0edb8832u, 0x79dcb8a4u, 0xe0d5e91eu, 0x97d2d988u, 0x09b64c2bu, 0x7eb17cbdu, 0xe7b82d07u, 0x90bf1d91u,
@@ -44,7 +45,7 @@ static const u32 cdc_crc_table[256] = {
     0xb3667a2eu, 0xc4614ab8u, 0x5d681b02u, 0x2a6f2b94u, 0xb40bbe37u, 0xc30c8ea1u, 0x5a05df1bu, 0x2d02ef8du,
 };
 static struct {
-    u32 generation, id, size, block, offset, crc, since;
+    u32 generation, id, size, block, offset, crc, since, progress;
     u32 length, sent, payload, next_crc;
     u8 active, terminal, error, deferred, recording;
     u8 frame[CDC_FILE_BLOCK + 24];
@@ -109,7 +110,7 @@ static void file_source_start(u32 generation, char *out, unsigned capacity)
     file_stream.generation = generation;
     file_stream.id = ++file_next_id;
     file_stream.block = 4096;
-    file_stream.since = sys_timer_get_ms();
+    file_stream.progress = file_stream.since = sys_timer_get_ms();
     file_stream.active = file_stream.recording = 1;
     snprintf(out, capacity, "*DEV#file#accepted#%u#1#\r\n", file_stream.id);
 }
@@ -134,7 +135,8 @@ int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *ou
     if (strncmp(line, "*APP#file#", 10)) return 0;
     int error = 1;
     if (!invalid && !strcmp(line, "*APP#file#caps#")) {
-        snprintf(out, capacity, "*DEV#file#caps#1#8192#16777216#%s#\r\n",
+        snprintf(out, capacity, "*DEV#file#caps#1#%u#%u#%s#\r\n",
+                 CDC_FILE_BLOCK, CDC_FILE_MAX,
                  rdx_cdc_source_busy() ?
                  (rdx_cdc_source_closed() == 2 ? "QUARANTINED" : "CLOSING") : "IDLE");
         return 1;
@@ -144,7 +146,7 @@ int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *ou
     cursor = line + (strlen(line) >= 16 ? 16 : 0);
     if (!invalid && !strncmp(line, "*APP#file#bench#", 16) &&
         file_number(&cursor, &size) && file_number(&cursor, &block) && !*cursor &&
-        size && size <= CDC_FILE_MAX &&
+        size && size <= CDC_BENCH_MAX &&
         (block == 1024 || block == 2048 || block == 4096 || block == 8192)) {
         if (rdx_cdc_source_busy() || rdx_dut_is_in_mode() || rdx_factory_audio_owned() || rdx_factory_audio_file_busy() ||
             rdx_factory_audio_tx_pending(generation)) error = 2;
@@ -155,7 +157,7 @@ int rdx_cdc_file_command(u32 generation, const char *line, int invalid, char *ou
             file_stream.id = ++file_next_id;
             file_stream.size = size;
             file_stream.block = block;
-            file_stream.since = sys_timer_get_ms();
+            file_stream.progress = file_stream.since = sys_timer_get_ms();
             file_stream.active = 1;
             snprintf(out, capacity, "*DEV#file#accepted#%u#1#\r\n", file_stream.id);
 #if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
@@ -257,7 +259,8 @@ void rdx_cdc_file_service(u32 generation)
 {
     rdx_cdc_file_session(generation);
     if (!generation || !file_stream.active) return;
-    if ((u32)(sys_timer_get_ms() - file_stream.since) >= CDC_FILE_TIMEOUT) file_stop(7);
+    /* 仅限制传输停滞时间，不限制持续推进的录音下载总时长。 */
+    if ((u32)(sys_timer_get_ms() - file_stream.progress) >= CDC_FILE_IDLE_TIMEOUT) file_stop(7);
     for (unsigned budget = 0; budget < 32; ++budget) {
         if (!file_stream.length && !file_frame()) return;
         u32 length = file_stream.length - file_stream.sent;
@@ -269,6 +272,7 @@ void rdx_cdc_file_service(u32 generation)
             rdx_cdc_file_session(0);
             return;
         }
+        file_stream.progress = sys_timer_get_ms();
         file_stream.sent += length;
         if (file_stream.sent != file_stream.length) continue;
         if (file_stream.terminal) {

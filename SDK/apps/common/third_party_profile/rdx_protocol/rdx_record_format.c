@@ -1053,7 +1053,8 @@ int rdx_record_format_download_open(u32 sn, const char *name, void **handle, u32
     int snapshot = rdx_uxfile_download_snapshot();
     if (snapshot) return snapshot;
     FILE *opened = NULL;
-    int result = rf_open_indexed_raw(sn, name, 16777216u, &opened, size);
+    /* 按现有 u32 文件协议的表示范围流式读取合法 RAW，不另设业务大小上限。 */
+    int result = rf_open_indexed_raw(sn, name, 0xffffffffu, &opened, size);
     *handle = opened;
     return result;
 }

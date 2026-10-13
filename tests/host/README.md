@@ -44,6 +44,14 @@ gate; archive regression tests cover queued format admission and locked DAT
 cache handoff. LIST checks cover the private DAT reader, unaligned JSON payload,
 empty/invalid/duplicate lists, unsupported entries, refresh/quit selection and
 LIST-to-GET on one serial connection. Host simulations do not establish on-device concurrency timing.
+Large-file regressions stream 143,340,000 synthetic bytes through the Python
+receiver to disk with CRC/SHA-256 checks and simulated elapsed time above 120
+seconds. The C worker streams the same length with fixed buffers; producer and
+format tests cover offsets/lengths above 16 MiB and 2 GiB through the aligned
+u32 boundary, idle timeout and timer wrap, large-offset cancellation, legacy/new
+CAPS negotiation, and preservation of the short factory-recording limit.
+These simulations do not certify physical large-file storage or USB transfer;
+the real 143 MB recording still requires on-device download/content validation.
 The `cdc_conflict_checks.py` harness executes admission predicates and entry
 reservations extracted from the patched protocol archive, deferred BLE list
 admission and production OTA dispatch. Additional cases cover post-acquire CDC

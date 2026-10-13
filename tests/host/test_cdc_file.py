@@ -146,6 +146,18 @@ class ReceiverTests(unittest.TestCase):
                 mock.patch('builtins.input', return_value='q'), contextlib.redirect_stdout(io.StringIO()):
             self.assertIsNone(tool.select_recording(None, {}))
 
+    def test_large_recording_selection_and_legacy_caps(self):
+        entry = self.entry(size=143340000, end_time=71770)
+        self.assertEqual(tool.recording_unavailable(entry), '')
+        self.assertIn('16,777,216', tool.recording_unavailable(entry, 16777216))
+        self.assertNotIn('16,777,216', tool.recording_unavailable(self.entry(size=0), 16777216))
+        with mock.patch.object(tool, 'receive_list', return_value=[entry]), \
+                mock.patch('builtins.input', return_value='1'), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(tool.select_recording(None, {}, tool.MAX_SIZE), entry)
+        with mock.patch.object(tool, 'receive_list', return_value=[entry]), \
+                mock.patch('builtins.input', side_effect=['1', 'q']), contextlib.redirect_stdout(io.StringIO()):
+            self.assertIsNone(tool.select_recording(None, {}, 16777216))
+
     def test_interactive_download_on_same_port(self):
         payload = b'x' * 4000
         listing = json.dumps([self.entry()]).encode()
@@ -202,6 +214,88 @@ class ReceiverTests(unittest.TestCase):
                     self.assertIsNone(report['pattern_ok'])
                     self.assertFalse(report['passes_600KBps'])
                     self.assertEqual(report['max_payload'], block)
+
+    def test_large_recording_stream_past_old_size_and_time_limits(self):
+        total = 143340000
+        clock = [0.0]
+        expected_hash = tool.hashlib.sha256()
+
+        def wire():
+            yield b'*DEV#file#accepted#1#1#\r\n'
+            crc = 0
+            for offset in range(0, total, 4096):
+                payload = bytes(range(256)) * 16
+                payload = payload[:min(4096, total - offset)]
+                expected_hash.update(payload)
+                crc = zlib.crc32(payload, crc)
+                yield frame(1, offset, payload)
+            yield frame(2, total, struct.pack('<II', total, crc))
+
+        class StreamingPort(Port):
+            def __init__(self):
+                super().__init__()
+                self.frames = wire()
+                self.peak_buffer = 0
+
+            def read(self, count):
+                if not self.data:
+                    self.data.extend(next(self.frames))
+                    self.peak_buffer = max(self.peak_buffer, len(self.data))
+                clock[0] += 0.01
+                return super().read(count)
+
+        port = StreamingPort()
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(tool.time, 'monotonic', side_effect=lambda: clock[0]), \
+                contextlib.redirect_stderr(io.StringIO()):
+            output = Path(directory) / 'large.raw'
+            result = tool.receive_download(port, 7, 'abc123.raw', output, max_size=0xffffffff)
+            self.assertTrue(result['complete'] and result['crc_ok'])
+            self.assertEqual(result['bytes'], total)
+            self.assertGreater(result['elapsed_s'], 120)
+            self.assertEqual(result['sha256'], expected_hash.hexdigest())
+            self.assertEqual(output.stat().st_size, total)
+            actual_hash = tool.hashlib.sha256()
+            with output.open('rb') as stream:
+                for block in iter(lambda: stream.read(65536), b''):
+                    actual_hash.update(block)
+            self.assertEqual(actual_hash.hexdigest(), expected_hash.hexdigest())
+            self.assertLessEqual(port.peak_buffer, 4096 + 24)
+            self.assertFalse(output.with_suffix('.raw.part').exists())
+
+    def test_stalled_recording_keeps_idle_timeout(self):
+        clock = [0.0]
+
+        class StalledPort(Port):
+            def read(self, count):
+                if self.data:
+                    return super().read(count)
+                clock[0] += 1
+                return b''
+
+        port = StalledPort(b'*DEV#file#accepted#1#1#\r\n' + frame(1, 0, b'x' * 40))
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(tool.time, 'monotonic', side_effect=lambda: clock[0]):
+            output = Path(directory) / 'stalled.raw'
+            report = {}
+            with self.assertRaisesRegex(tool.ProtocolError, 'receive timeout'):
+                tool.receive_download(port, 7, 'abc123.raw', output, report=report)
+            self.assertEqual(clock[0], 5)
+            self.assertEqual(report['bytes'], 40)
+            self.assertFalse(output.exists() or report['complete'])
+
+    def test_negotiated_limit_and_u32_offsets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'over-caps.raw'
+            with self.assertRaisesRegex(tool.ProtocolError, 'size limit'):
+                tool.receive_download(Port(self.recording_wire(b'x' * 80)), 7, 'abc123.raw',
+                                      output, max_size=40)
+            self.assertFalse(output.exists())
+        for offset in (16777216, 0x80000000, 0xfffffff0):
+            kind, payload = tool.Reader(Port(frame(2, offset, struct.pack('<II', offset, 0)))).frame(1, offset)
+            self.assertEqual((kind, struct.unpack('<II', payload)[0]), (2, offset))
+        with self.assertRaises(tool.ProtocolError):
+            tool.receive_bench(Port(), tool.BENCH_MAX_SIZE + 1, 4096)
 
     def test_recording_identity_rejected_before_send(self):
         for sn, name in ((0, 'abc.raw'), (0x7fffffff, 'abc.raw'), (7, '../abc.raw'),
@@ -283,7 +377,7 @@ class ReceiverTests(unittest.TestCase):
     def test_recording_cli_one_port_and_repeat(self):
         payload = b'x' * 40
         port = Port(responses={
-            b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
+            b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#4294967295#IDLE#\r\n',
             b'*APP#file#get#7#abc123.raw#\r\n': self.recording_wire(payload),
         })
         serial = port.serial_module()
@@ -299,6 +393,7 @@ class ReceiverTests(unittest.TestCase):
             self.assertEqual(status, 0)
             serial.Serial.assert_called_once()
             report = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual(report['max_file_size'], 0xffffffff)
             self.assertTrue(report['independent_content_verified'])
             self.assertFalse(report['real_file_acceptance'] or report['ten_run_throughput_pass'])
             self.assertEqual(len(report['runs']), 2)
@@ -313,7 +408,7 @@ class ReceiverTests(unittest.TestCase):
         port = Port(responses={
             b'*APP#file#caps#\r\n': b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n',
         })
-        def receive(port, sn, name, output, cancel_after, run, reference):
+        def receive(port, sn, name, output, cancel_after, run, reference, **kwargs):
             run.update(complete=True, cancelled=False, bytes=40, elapsed_s=1, KBps=0.04,
                        passes_600KBps=False, sha256=str(run['iteration']))
         with tempfile.TemporaryDirectory() as directory, \
@@ -437,7 +532,13 @@ class ReceiverTests(unittest.TestCase):
         self.assertIn('buffered=80 next=' + (b'Y' * 32).hex(), report['error'])
 
     def test_caps_and_text_bounds(self):
-        self.assertIn('IDLE', tool.caps(Port(b'*DEV#file#caps#1#8192#16777216#IDLE#\r\n')))
+        for maximum in (16777216, 0xffffffff):
+            reply = f'*DEV#file#caps#1#8192#{maximum}#IDLE#'
+            self.assertEqual(tool.caps(Port((reply + '\r\n').encode())), reply)
+            self.assertEqual(tool.caps_max_size(reply), maximum)
+        for maximum in ('0', '-1', '4294967296', '1.5', ''):
+            with self.assertRaises(tool.ProtocolError):
+                tool.caps_max_size(f'*DEV#file#caps#1#8192#{maximum}#IDLE#')
         for data in (b'x' * 130, b'x\n', b'\xff\r\n'):
             with self.assertRaises(tool.ProtocolError):
                 tool.Reader(Port(data)).line()
@@ -475,7 +576,8 @@ class ReceiverTests(unittest.TestCase):
 
 
 SOURCE_STUBS = r'''
-static int source_mock_busy, source_mock_cancel, source_mock_offset;
+static int source_mock_busy, source_mock_cancel;
+static u32 source_mock_offset, source_mock_size = 10000;
 static int source_mock_wait, source_mock_error, source_mock_close = 1;
 int rdx_cdc_source_begin(u32 sn, const char *name) {
     if (source_mock_busy) return 2;
@@ -489,10 +591,10 @@ void rdx_cdc_source_release(void) { source_mock_busy=0; }
 void rdx_cdc_source_service(void) {}
 int rdx_cdc_source_closed(void) { return source_mock_close; }
 int rdx_cdc_source_take(u8 *data,u32 *length,u32 *size) {
-    *size=10000; *length=0;
+    *size=source_mock_size; *length=0;
     if(source_mock_error) return -source_mock_error;
-    if(source_mock_wait || source_mock_offset==10000) return 0;
-    *length=10000-source_mock_offset; if(*length>4096) *length=4096;
+    if(source_mock_wait || source_mock_offset==source_mock_size) return 0;
+    *length=source_mock_size-source_mock_offset; if(*length>4096) *length=4096;
     for(u32 index=0;index<*length;++index) data[index]=(u8)((source_mock_offset+index)*19+7);
     source_mock_offset+=*length; return 1;
 }
@@ -539,6 +641,7 @@ static char reply[258];
 static void boot(void) {
     source_mock_busy=source_mock_cancel=source_mock_offset=source_mock_wait=source_mock_error=0;
     source_mock_close=1;
+    source_mock_size=10000;
     memset(&file_stream,0,sizeof(file_stream)); file_next_id=0;
     now=occupied=wire_length=aborted=terminals=0; credit=1000; generation=1;
 }
@@ -590,7 +693,7 @@ int test_admission_and_sessions(void) {
     generation=2; rdx_cdc_file_session(2); CHECK(!rdx_cdc_file_active());
     wire_length=0; credit=1000; command("*APP#file#bench#1#1024#"); drain(); CHECK(wire[8]==2);
     file_next_id=0xffffffffu; command("*APP#file#bench#1#1024#"); CHECK(!strcmp(reply,"*DEV#file#error#8#\r\n"));
-    boot(); command("*APP#file#bench#1#1024#"); now=110000; drain(); CHECK(wire_length==28 && wire[20]==7);
+    boot(); command("*APP#file#bench#1#1024#"); now=10000; drain(); CHECK(wire_length==28 && wire[20]==7);
     boot(); command("*APP#file#bench#1#1024#"); generation=0; rdx_cdc_file_service(1);
     CHECK(!rdx_cdc_file_active() && !wire_length);
     boot(); command("*APP#file#list#");
@@ -655,6 +758,53 @@ int test_recording_producer(void) {
     }
     return 0;
 }
+int test_progress_timeout(void) {
+    for(unsigned wrap=0;wrap<2;++wrap) {
+        boot(); if(wrap) now=0xfffff000u;
+        command("*APP#file#get#7#abc.raw#");
+        u32 started=now;
+        for(unsigned attempt=0;attempt<100 && file_stream.active;++attempt) {
+            now+=9000; credit=1;
+            rdx_cdc_file_service(generation);
+            CHECK(!file_stream.error);
+        }
+        CHECK(!file_stream.active && file_stream.offset==10000 && terminals==1);
+        CHECK((u32)(now-started)>120000);
+        boot(); if(wrap) now=0xfffff000u;
+        command("*APP#file#get#7#abc.raw#"); source_mock_wait=1;
+        now+=9999; rdx_cdc_file_service(generation);
+        CHECK(file_stream.active && !file_stream.error);
+        command("*APP#file#caps#");
+        now+=1; drain();
+        CHECK(!file_stream.active && source_mock_cancel && !source_mock_busy);
+        CHECK(wire_length==28 && wire[20]==7);
+    }
+    return 0;
+}
+int test_recording_large_offsets(void) {
+    u32 sizes[]={16777240u,143340000u,0x80000000u,0xfffffff0u};
+    for(unsigned index=0;index<sizeof(sizes)/sizeof(sizes[0]);++index) {
+        boot(); command("*APP#file#get#7#abc.raw#");
+        source_mock_size=sizes[index];
+        file_stream.offset=source_mock_offset=source_mock_size-4096;
+        u32 offset=file_stream.offset;
+        drain();
+        CHECK(!file_stream.active && !source_mock_busy && file_stream.offset==sizes[index]);
+        CHECK(wire_length==4096+24+32 && wire[5]==1 && wire[4120+5]==2);
+        for(unsigned byte=0;byte<4;++byte) {
+            CHECK(wire[12+byte]==(u8)(offset>>(byte*8)));
+            CHECK(wire[4120+12+byte]==(u8)(sizes[index]>>(byte*8)));
+            CHECK(wire[4120+20+byte]==(u8)(sizes[index]>>(byte*8)));
+        }
+    }
+    boot(); command("*APP#file#get#7#abc.raw#");
+    source_mock_size=143340000; file_stream.offset=source_mock_offset=20000000;
+    credit=1; rdx_cdc_file_service(generation);
+    command("*APP#file#cancel#1#"); credit=1000; drain();
+    CHECK(source_mock_cancel && !source_mock_busy && !file_stream.active);
+    CHECK(file_stream.offset==20004096 && wire_length==4096+24+28 && wire[4120+20]==6);
+    return 0;
+}
 '''
 
 
@@ -694,7 +844,8 @@ int test_bench_disabled(void) {
 '''
         path.write_text('#define TCFG_T2620_CDC_FILE_BENCH_ENABLE 0\n' +
                         STUBS + SOURCE_STUBS + source + arrays + tests + gate_tests, encoding='utf-8')
-        run_c_checks(path, ('test_bench_disabled', 'test_recording_producer'), native=True)
+        run_c_checks(path, ('test_bench_disabled', 'test_recording_producer',
+                           'test_recording_large_offsets', 'test_progress_timeout'), native=True)
     print('PASS: actual CDC file producer: vectors, CRC, bounds, partial cancel, stale sessions, timeout')
 
 
@@ -982,7 +1133,7 @@ int factory_cdc_stream_send(u32 gen,const u8 *bytes,u32 length) { return factory
 int test_file_parser(void) {
     boot(); rdx_cdc_file_session(0); file_next_id=0;
     CHECK(!input("*APP#file#caps#\r\n"));
-    CHECK(!strcmp(wire,"*DEV#file#caps#1#8192#16777216#IDLE#\r\n"));
+    CHECK(!strcmp(wire,"*DEV#file#caps#1#8192#4294967295#IDLE#\r\n"));
     wire_length=0;
     CHECK(!input("*APP#file#bench#1#1024#\r\n"));
     unsigned prefix=strlen("*DEV#file#accepted#1#1#\r\n");
