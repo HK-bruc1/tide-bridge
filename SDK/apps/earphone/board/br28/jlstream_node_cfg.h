@@ -280,7 +280,7 @@
 #define EQ_CFG_TYPE_LOW_SHELF                     1                // Low Shelf
 #define EQ_CFG_TYPE_HIGH_SHELF_Q                  0                // High Shelf Q
 #define EQ_CFG_TYPE_LOW_SHELF_Q                   0                // Low Shelf Q
-#define EQ_CFG_TYPE_HP                            0                // Hp
+#define EQ_CFG_TYPE_HP                            1                // Hp
 #define EQ_CFG_TYPE_LP                            0                // Lp
 // ------------流程图EQ节点类型宏定义------------
 
