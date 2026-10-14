@@ -45,6 +45,13 @@ void translation_ear_recoder_storage_fault(void)
     translation_mono_fault(mono_epoch, -22);
 }
 
+void translation_ear_recoder_storage_full(void)
+{
+    /* Use the retrying app_core STOP path without latching an I/O failure.
+     * The storage worker still drains every accepted frame and saves DAT. */
+    translation_mono_fault(mono_epoch, -27);
+}
+
 static void translation_mono_stop_on_app_core(void *priv)
 {
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)

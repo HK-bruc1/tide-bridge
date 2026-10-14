@@ -142,7 +142,7 @@ done:
         'rdx_uxfile_raw_read','rdx_uxfile_get_file_data_by_filename',
         'rdx_uxfile_get_file_data_by_sn','rdx_uxfile_get_datFileInfo',
         'rdx_uxfile_get_read_file_name','rdx_uxfile_dat_file_update',
-        'rdx_uxfile_recordFile_delete_handle','rdx_uxfile_sync_files_with_dat','rdx_uxfile_sd_format')
+        'rdx_uxfile_recordFile_delete_handle','rdx_uxfile_sync_files_with_dat')
     foreach ($name in $names) {
         $pattern = '(?m)^define (?:nonnull )?(?:(zeroext) )?([^@\r\n]+) @' + $name + '\(([^\r\n]*)\)[^{\r\n]*\{'
         $m = [regex]::Match($Ir, $pattern)
@@ -165,6 +165,81 @@ done:
         } elseif ($name -match 'get_all_size|get_dat_cout') { '0' } else { '-1' }
         $Ir += "`ndefine $returnAttrs$ret @$name($($args -join ', ')) {`n  %state = call i32 @rdx_record_format_io_enter()`n  %ready = icmp eq i32 %state, 0`n  br i1 %ready, label %run, label %busy`nrun:`n  %result = call $returnAttrs$ret @${name}_ready($($call -join ', '))`n  call void @rdx_record_format_io_leave()`n  ret $ret %result`nbusy:`n  ret $ret $fallback`n}`n"
     }
+    # Explicit erase is a recovery operation, not a healthy-index operation.
+    # Never flush dirty pre-erase DAT back onto the empty volume, or report
+    # success before the new index/cache loads.
+    $pattern = '(?ms)^define i32 @rdx_uxfile_sd_format\([^\n]*\{.*?^\}'
+    $original = [regex]::Match($Ir, $pattern).Value
+    if (!$original) { throw 'Missing explicit formatter' }
+    $format = $original.Replace('@rdx_uxfile_sd_format(', '@rdx_uxfile_sd_format_ready(')
+    # A failed/unmounted volume has no partition object to dereference.
+    $format = [regex]::Replace($format, '(?m)^  (%1[01]) = [^\n]*$', '  $1 = add i32 0, 0')
+    $format = [regex]::Replace($format, '(?m)^  %12 = load i32, i32\* %11,[^\n]*$', '  %12 = call i32 @rdx_record_format_capacity()')
+    $format = [regex]::Replace($format, '(?m)^  call void @rdx_protocol_sd_format_result_indicate\(i8 zeroext 0,[^\n]*\n', '')
+    $format = [regex]::Replace($format, '(?m)^  call void %0\(i8 zeroext (?:1|16)\)[^\n]*$', '  ; Completion callback is owned by the recovery wrapper.')
+    $format = [regex]::Replace($format, '(?m)^(  call void @rdx_uxfile_invalidate_dat_cache\(\)[^\n]*)$', @'
+  store i8 0, i8* @g_dat_cache.4, align 4
+  store volatile i32 0, i32* @rdx_storage_io_error, align 4
+  store volatile i32 0, i32* @rdx_storage_refresh, align 4
+  call void @rdx_record_format_erased()
+$1
+'@)
+    $format = [regex]::Replace($format, '(?m)^(  %31 = call i32 @rdx_uxfile_dat_init\(\)[^\n]*)$', @'
+$1
+  %rdx_marker_ok = icmp eq i32 %30, 1
+  %rdx_index_ok = icmp eq i32 %31, 0
+  %rdx_format_ok = and i1 %rdx_marker_ok, %rdx_index_ok
+  %rdx_format_status = select i1 %rdx_format_ok, i32 0, i32 -1
+  %rdx_format_reply = select i1 %rdx_format_ok, i8 0, i8 1
+  call void @rdx_protocol_sd_format_result_indicate(i8 zeroext %rdx_format_reply, i32 %29, i32 %12)
+'@)
+    $format = Replace-ExactlyOnce $format `
+        '[ 0, %42 ], [ 0, %41 ]' `
+        '[ %rdx_format_status, %42 ], [ %rdx_format_status, %41 ]' 'format result after index reload'
+    if (!$format.Contains('call void @rdx_record_format_erased()') -or
+        !$format.Contains('%rdx_format_ok = and')) { throw 'Format recovery patch mismatch' }
+    # LTO requires call-site locations when adding inlinable calls to an
+    # existing debug-info function, even though standalone bitcode accepts it.
+    $formatLocation = [regex]::Match($original, 'call i32 @f_format[^\n]*(!dbg !\d+)').Groups[1].Value
+    if (!$formatLocation) { throw 'Missing format call-site debug location' }
+    $format = [regex]::Replace($format, '(?m)^(  (?:%\w+ = )?call (?:void|i32) @[^\n]+)$', {
+        param($match)
+        if ($match.Value.Contains('!dbg')) { return $match.Value }
+        return $match.Value + ', ' + $formatLocation
+    })
+    $Ir = Replace-ExactlyOnce $Ir $original $format 'recover failed storage on explicit erase'
+    $Ir += @'
+
+declare i32 @rdx_record_format_erase_enter()
+declare i32 @rdx_record_format_capacity()
+declare void @rdx_record_format_erased()
+declare void @rdx_record_format_erase_leave(i32)
+define i32 @rdx_uxfile_sd_format(void (i8)* %callback) {
+entry:
+  %admit = call i32 @rdx_record_format_erase_enter()
+  %allowed = icmp eq i32 %admit, 0
+  br i1 %allowed, label %run, label %done
+run:
+  %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @dat_opera_mutex, i32 0)
+  call void @rdx_uxfile_close_read_file_handle()
+  call void @rdx_uxfile_datFileInfo_sendBuf_free()
+  %result = call i32 @rdx_uxfile_sd_format_ready(void (i8)* null)
+  %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @dat_opera_mutex)
+  call void @rdx_record_format_erase_leave(i32 %result)
+  br label %done
+done:
+  %status = phi i32 [ -1, %entry ], [ %result, %run ]
+  %has_callback = icmp ne void (i8)* %callback, null
+  br i1 %has_callback, label %notify, label %exit
+notify:
+  %success = icmp eq i32 %status, 0
+  %code = select i1 %success, i8 1, i8 16
+  call void %callback(i8 zeroext %code)
+  br label %exit
+exit:
+  ret i32 %status
+}
+'@
     # 先遵守静默/关闭门禁；临时恢复忙时沿用现有 defer 续调。
     $pattern = '(?ms)^define internal void @rdx_uxfile_flush_cache_timer_cb\(i8\* %arg\) \{.*?^\}'
     $timer = [regex]::Match($Ir, $pattern).Value

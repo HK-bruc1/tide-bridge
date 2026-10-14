@@ -7,6 +7,13 @@
 /* 启动时由 UXFILE 工作任务执行索引恢复，完成后再交接 DAT 缓存。 */
 int rdx_record_format_boot(void);
 int rdx_record_format_status(void);
+/* Audio budget after reserving two index copies and metadata/close headroom.
+ * JL reports free space in KiB; an unknown query is never unlimited space. */
+int rdx_record_format_space(u32 *audio_bytes);
+u32 rdx_record_format_capacity(void);
+int rdx_record_format_erase_enter(void);
+void rdx_record_format_erased(void);
+void rdx_record_format_erase_leave(int result);
 /* 文件工作任务负责恢复与缓存交接：1 准备中，0 就绪，-1 失败。 */
 int rdx_record_format_service_status(void);
 int rdx_record_format_io_enter(void);

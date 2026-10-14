@@ -38,6 +38,8 @@ extern "C" {
 #endif
 
 void rdx_app_record_transport_lost(void);
+int rdx_app_format_is_busy(void);
+bool rdx_app_get_poweroff_flag(void);
 /* 当前录音是否由按住手势触发，供灯效仲裁使用。 */
 u8 rdx_app_record_is_hold_active(void);
 

@@ -63,6 +63,18 @@ See docs/10-4.CDC通用文件传输业务方案.md sections 7 and 9.3–9.7 for 
 
 ## Keeping the suite small
 
+Full-volume regression: `test_record_storage.py` verifies the mono/stereo
+admission budget, normal low-space STOP, exact accepted-tail drain, resampling
+with in-flight frames, reuse after deleting files, explicit-format fault reset,
+and truthful APP format ACKs. `test_record_format.py` checks the 1 MiB minimum
+reserve, two-index-copy growth budget, KiB conversion/overflow/unknown queries,
+and exclusive format admission from failed storage. The actual archive tests
+exercise erase failure, cache-reload/VM-marker failure, dirty-cache suppression,
+retry and exactly-once completion callbacks. Hardware acceptance must still
+cover near-full long recording, STOP/reboot/list/download, explicit formatting
+of the reported failed volume, and immediate recording after format. No host
+test erases a physical device.
+
 The CDC cleanup keeps one suite entry, `test_cdc_file.py`, and two focused
 helpers: `cdc_source_checks.py` owns worker lifetime/failure behavior;
 `cdc_conflict_checks.py` owns patched protocol admission and OTA cleanup.

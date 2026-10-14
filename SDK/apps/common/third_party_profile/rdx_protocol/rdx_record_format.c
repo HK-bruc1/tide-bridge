@@ -9,10 +9,12 @@
 #include "rdx_app.h"
 #include "dev_manager.h"
 #include "rdx_util.h"
+#include "rdx_record_storage.h"
 
 /* RAW and the App's DAT schema are unchanged. MTA is firmware-only metadata.
  * A durable first-frame fingerprint binds it to the RAW, including after a
- * filename is reused. Only boot code edits DAT, before any RDX worker exists.
+ * filename is reused. Recovery edits DAT before the library cache is loaded,
+ * including the exclusive reload after an explicit format.
  */
 extern void rdx_app_emmc_poweron(u8 check_en);
 extern void sd_set_power_user(u8 en);
@@ -46,10 +48,88 @@ static volatile int rf_service = 1;
 static volatile u32 rf_io_users;
 static volatile u8 rf_download;
 static char rf_deleted_name[12];
+static volatile u8 rf_erasing;
+
+u32 rdx_record_format_capacity(void)
+{
+    struct vfs_partition *part = fget_partition(RF_ROOT);
+    return part ? part->total_size : 0;
+}
+
+int rdx_record_format_space(u32 *audio_bytes)
+{
+    *audio_bytes = 0;
+    struct vfs_partition *part = fget_partition(RF_ROOT);
+    u32 free_kb = 0xffffffffu;
+    if (!part || !part->total_size) return -1;
+    /* The SDK documents the return value as meaningless. Validate the output,
+     * including an unchanged sentinel, instead of assuming ISO/FatFs errors. */
+    fget_free_space(RF_ROOT, &free_kb);
+    if (free_kb == 0xffffffffu || free_kb > part->total_size) return -1;
+    FILE *dat = fopen(RF_DAT, "r");
+    if (!dat) return -1;
+    u32 index_bytes = flen(dat);
+    if (fclose(dat)) return -1;
+    /* One new DAT entry, two transactional index copies, and 64 KiB for
+     * directories/MTA/cluster rounding and all accepted audio (<19 KiB).
+     * Keep at least 1 MiB unavailable to RAW, also on a nearly empty index. */
+    unsigned long long reserve = 2ull * (index_bytes + (unsigned long long)RF_OBJECT_SIZE) + 65536;
+    if (reserve < 1048576) reserve = 1048576;
+    unsigned long long free_bytes = (unsigned long long)free_kb * 1024;
+    if (free_bytes > reserve) {
+        unsigned long long budget = free_bytes - reserve;
+        *audio_bytes = budget > 0xffffffffu ? 0xffffffffu : (u32)budget;
+    }
+    return 0;
+}
+
+int rdx_record_format_erase_enter(void)
+{
+    if (rdx_app_format_is_busy() || rdx_record_storage_active()) return -1;
+    local_irq_disable();
+    int busy = rf_erasing || rf_service > 0 || rf_io_users || rf_download ||
+               rdx_record_storage_active() ||
+               rdx_factory_audio_file_busy();
+    if (!busy) {
+        rf_erasing = 1;
+        rf_service = 1;
+    }
+    local_irq_enable();
+    if (!busy) {
+        rdx_app_emmc_poweron(0);
+        sd_set_power_user(1);
+    }
+    return busy ? -1 : 0;
+}
+
+void rdx_record_format_erased(void)
+{
+    /* Only after f_format succeeds, while every ordinary file entry is closed.
+     * Never replay a pre-format transaction or retain a failed boot latch. */
+    rf_boot_started = 0;
+    rf_error = 0;
+    memset(&rf_current, 0, sizeof(rf_current));
+    rf_deleted_name[0] = 0;
+}
+
+void rdx_record_format_erase_leave(int result)
+{
+    if (!result) {
+        rdx_record_storage_reset();
+        rdx_record_storage_recovered();
+    } else {
+        rf_error = -1;
+    }
+    local_irq_disable();
+    rf_service = result ? -1 : 0;
+    rf_erasing = 0;
+    local_irq_enable();
+    rdx_record_format_service_ready(result);
+}
 
 int rdx_record_format_service_status(void)
 {
-    return rf_service ? rf_service : ((rf_download || rdx_factory_audio_file_busy()) ? 1 : 0);
+    return rf_erasing ? 1 : rf_service ? rf_service : ((rf_download || rdx_factory_audio_file_busy()) ? 1 : 0);
 }
 
 int rdx_record_format_io_enter(void)
@@ -95,7 +175,7 @@ int rdx_record_format_protocol_busy(void)
 int rdx_record_format_download_acquire(void)
 {
     local_irq_disable();
-    int blocked = rf_error || rf_service || rf_download ||
+    int blocked = rf_error || rf_erasing || rf_service || rf_download ||
                   rf_io_users || rdx_factory_audio_file_busy();
     if (!blocked) rf_download = 1;
     local_irq_enable();

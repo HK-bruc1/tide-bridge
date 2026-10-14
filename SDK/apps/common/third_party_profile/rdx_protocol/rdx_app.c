@@ -334,7 +334,7 @@ void rdx_app_enter_idle(void);
 void rdx_app_tasks_init(void);
 void rdx_app_record_state_upload_timer_stop(void);
 
-void rdx_app_format_handle(void);
+int rdx_app_format_handle(void);
 
 static void rdx_app_emmc_poweroff_check_timer_rerun(void);
 static void rdx_app_emmc_poweroff_check_timer_start(void);
@@ -506,6 +506,13 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
            rdx_record_format_service_status() > 0 ||
            rdx_app_storage_activity_check(log_tag, allow_paused_playback,
                                           allow_detached_recording);
+}
+
+int rdx_app_format_is_busy(void)
+{
+    return app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||
+           app_in_mode(APP_MODE_PC) ||
+           rdx_app_storage_activity_is_busy("SD-FORMAT", 0, 0);
 }
 
 u8 rdx_app_cdc_file_conflict(void)
@@ -3330,7 +3337,7 @@ void rdx_app_format_cb(u8 result)
  * param (*)
  * return (*)
  **************************************************************************/
-void rdx_app_format_handle(void)
+int rdx_app_format_handle(void)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
@@ -3344,7 +3351,7 @@ void rdx_app_format_handle(void)
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     rdx_playback_invalidate_playlist(PB_PLAYLIST_FORMATTING);
 #endif
-    rdx_uxfile_sd_format(NULL);
+    return rdx_uxfile_sd_format(NULL);
 }
 
 /**************************************************************************
@@ -3963,8 +3970,7 @@ static void rdx_app_sd_format_on_app_core(
     if (!rdx_app_storage_activity_is_busy(
             "SD-FORMAT", RDX_STORAGE_PLAYBACK_PREEMPT, 0) &&
         rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
-        rdx_app_format_handle();
-        rejected = 0;
+        rejected = rdx_app_format_handle() ? 1 : 0;
     }
 
     if (rdx_ble_session_rdx_token_resolve(&request->token, 1) &&

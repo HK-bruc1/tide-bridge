@@ -9,6 +9,7 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 def main():
     check_record_limit()
+    check_format_reply()
     check_reconnect()
     check_stream()
     check_snapshot()
@@ -20,6 +21,10 @@ def main():
     assert record.count('rdx_record_storage_end();') == 2
     assert 'rdx_uxfile_raw_write(' not in record
     assert 'rdx_record_format_frame(' not in record
+    starts = re.findall(r'int rdx_record_run_init\(void\)\s*\{.*?\n\}', record, re.S)
+    assert len(starts) == 2
+    for start in starts:
+        assert start.index('rdx_record_storage_check_start()') < start.index('rdx_uxfile_dat_1_gen(')
     stubs = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -32,7 +37,9 @@ typedef int OS_SEM;
 #define printf(...) ((void)0)
 #define OS_ENTER_CRITICAL() (++locked)
 #define OS_EXIT_CRITICAL() (--locked)
-static int locked, bad, faults, status, meta_fail, fail_write, writes;
+static int locked, bad, faults, status, meta_fail, fail_write, writes, full_stops, space_error;
+static u32 space_bytes;
+static int io_users, service_busy;
 static u32 meta_calls, saved_len, ticks, stall_frames, seq, expected, frame_len;
 static int inside_push, inject, meta_inject;
 static int push(void);
@@ -48,7 +55,15 @@ int os_task_create(void (*f)(void*), void *p, int a, int b, int c, const char *n
 void os_task_del(const char *n) {}
 u32 sys_timer_get_ms(void) {return ticks;}
 void translation_ear_recoder_storage_fault(void) {++faults;}
+void translation_ear_recoder_storage_full(void) {++full_stops;}
+int rdx_record_format_space(u32 *budget) {
+    if (locked || inside_push) bad=1;
+    *budget=space_bytes;
+    return space_error;
+}
 int rdx_record_format_status(void) {return status;}
+int rdx_record_format_io_enter(void) { if(service_busy) return -1; ++io_users; return 0; }
+void rdx_record_format_io_leave(void) { --io_users; }
 void rdx_record_format_storage_fault(void) {status=-1;}
 void *rdx_uxfile_get_operateFile_info(void) {return (void*)1;}
 int rdx_record_format_frame(void *file, u8 format, const u8 *data, u32 len) {
@@ -100,11 +115,14 @@ int rdx_uxfile_raw_write(u8 *data,u32 len,u8 scene) {
         ++expected;
     }
     saved_len+=len;
+    space_bytes = space_bytes > len ? space_bytes-len : 0;
     return writes%2 ? 0 : 7; /* nonnegative library status, not byte count */
 }
 static int reset(u8 format) {
     memset(&rs,0,sizeof(rs));
     locked=bad=faults=status=meta_fail=fail_write=writes=0;
+    full_stops=space_error=0; space_bytes=100000000;
+    io_users=service_busy=0;
     meta_calls=saved_len=ticks=stall_frames=seq=expected=inside_push=inject=meta_inject=0;
     frame_len=format==1 ? 40 : 80;
     if (rdx_record_storage_create()) return -1;
@@ -172,6 +190,47 @@ int test_storage(void) {
     CHECK(rdx_record_storage_end()<0 && !writes && status<0);
     CHECK(!reset(1));
     CHECK(!rdx_record_storage_end() && !writes && !status && !bad);
+    /* Low space is a normal stop, not a sticky storage fault. Both formats
+     * drain every accepted byte, including the non-block-aligned tail. */
+    for (u8 format=1;format<=2;++format) {
+        CHECK(!reset(format)); CHECK(!rdx_record_storage_end());
+        space_bytes=8000+frame_len*3;
+        CHECK(!rdx_record_storage_check_start());
+        CHECK(!rdx_record_storage_begin(50,7,format));
+        while (!push()) step();
+        CHECK(full_stops==1 && !faults && !status);
+        CHECK(push()>0 && full_stops==1 && !faults);
+        CHECK(!rdx_record_storage_end());
+        CHECK(saved_len==seq*frame_len && saved_len==8000+frame_len*3);
+        CHECK(!rs.error && !rs.io_failed && !bad);
+        CHECK(rdx_record_storage_check_start()==-2);
+        CHECK(rdx_record_storage_begin(51,7,format)<0 && !rs.active);
+        space_bytes=100000; /* User deleted a file: no reboot/format needed. */
+        CHECK(!rdx_record_storage_begin(52,7,format));
+        CHECK(!push() && !rdx_record_storage_end() && !bad);
+    }
+    CHECK(!reset(1)); CHECK(!rdx_record_storage_end());
+    space_error=1; CHECK(rdx_record_storage_check_start()<0);
+    CHECK(rdx_record_storage_begin(51,7,1)<0);
+    CHECK(!io_users); space_error=0; service_busy=1;
+    CHECK(rdx_record_storage_check_start()<0);
+    CHECK(rdx_record_storage_begin(51,7,1)<0 && !io_users && !rs.active);
+    /* Capacity resampling includes queued/in-flight frames, even when a write
+     * stalled while the producer filled the FIFO. No I/O occurs on producer. */
+    CHECK(!reset(1)); rs.budget=space_bytes=12000; stall_frames=100; inject=1;
+    for (u32 i=0;i<200;++i) {CHECK(!push()); step();}
+    CHECK(rs.full && full_stops==1 && !faults);
+    CHECK(!rdx_record_storage_end() && saved_len==12000 && !bad && !status);
+    /* Reaching the space limit on the final FIFO slot is FULL, not overflow. */
+    CHECK(!reset(2)); rs.budget=space_bytes=RS_FRAMES*80;
+    for(u32 i=0;i<RS_FRAMES;++i) CHECK(!push());
+    CHECK(push()>0 && full_stops==1 && !faults);
+    CHECK(!rdx_record_storage_end() && saved_len==RS_FRAMES*80 && !status && !bad);
+    /* An explicit format can retire I/O latches only after the worker exits. */
+    CHECK(!reset(1)); rs.error=-24; rs.io_failed=1;
+    rdx_record_storage_reset(); CHECK(rs.error && rs.io_failed);
+    CHECK(rdx_record_storage_end()<0);
+    rdx_record_storage_reset(); CHECK(!rs.error && !rs.io_failed && !rs.full);
     return 0;
 }
 '''
@@ -180,6 +239,61 @@ int test_storage(void) {
         path.write_text(stubs + source + tests, encoding='utf-8')
         run_c_checks(path, ['test_storage'])
     print('Recording async storage/lifecycle behavioral checks passed.')
+
+
+def check_format_reply():
+    app = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c').read_text(encoding='utf-8')
+    source = r'''
+typedef unsigned char u8;
+#define NULL ((void*)0)
+#define RDX_STORAGE_PLAYBACK_PREEMPT 2
+#define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
+#define PB_PLAYLIST_FORMATTING 4
+#define APP_MODE_PC 6
+#define r_printf(...) ((void)0)
+typedef struct { int epoch; } rdx_ble_async_token_t;
+typedef struct { rdx_ble_async_token_t token; } rdx_app_sd_format_request_t;
+static int owner=1,busy,format_result,formats,acks,ack,last_preempt,freed,poweroff,pc;
+static struct { int goto_poweroff_flag; } app_var;
+static void respond(u8 value) { ++acks; ack=value; }
+static struct { void (*sd_format_ack_indicate)(u8); } ops={respond}, *g_protocol_ops=&ops;
+int rdx_ble_session_rdx_token_resolve(const rdx_ble_async_token_t *t,int ready) { return owner==t->epoch; }
+int rdx_app_storage_activity_is_busy(const char *s,int preempt,int detached) { last_preempt=preempt; return busy; }
+void rdx_hogp_key_action_reset(void) {}
+void rdx_playback_invalidate_playlist(int reason) {}
+int rdx_uxfile_sd_format(void *callback) { ++formats; return format_result; }
+int rdx_app_get_poweroff_flag(void) { return poweroff; }
+int app_in_mode(int mode) { return pc; }
+void release_request(void *p) { ++freed; }
+#define free release_request
+'''
+    for name in ('rdx_app_format_handle', 'rdx_app_sd_format_on_app_core', 'rdx_app_format_is_busy'):
+        source += function(app, name)
+    source += r'''
+#define CHECK(x) do {if(!(x)) return __LINE__;} while(0)
+int test_format_reply(void) {
+    rdx_app_sd_format_request_t request={{1}};
+    for(int result=0;result>=-1;--result) {
+        format_result=result; formats=acks=freed=0;
+        rdx_app_sd_format_on_app_core(&request);
+        CHECK(formats==1 && acks==1 && ack==(result!=0) && freed==1);
+    }
+    busy=1; formats=acks=0; rdx_app_sd_format_on_app_core(&request);
+    CHECK(!formats && acks==1 && ack==1);
+    busy=0; owner=2; formats=acks=0; rdx_app_sd_format_on_app_core(&request);
+    CHECK(!formats && !acks);
+    CHECK(!rdx_app_format_is_busy() && last_preempt==0);
+    poweroff=1; CHECK(rdx_app_format_is_busy()); poweroff=0;
+    app_var.goto_poweroff_flag=1; CHECK(rdx_app_format_is_busy()); app_var.goto_poweroff_flag=0;
+    pc=1; CHECK(rdx_app_format_is_busy()); pc=0;
+    busy=1; CHECK(rdx_app_format_is_busy());
+    return 0;
+}
+'''
+    with tempfile.TemporaryDirectory(prefix='t2620-format-reply-') as work:
+        path = Path(work) / 'format_reply.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_format_reply'], native=True)
 
 
 def check_record_limit():

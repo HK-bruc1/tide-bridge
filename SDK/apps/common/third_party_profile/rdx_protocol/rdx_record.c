@@ -1792,6 +1792,17 @@ u8 rdx_record_audio_fault_stop(void)
     return g_app_stop_pending || !is_record_task_created;
 }
 
+void rdx_record_storage_recovered(void)
+{
+    /* Explicit format follows the recorder's STOP/worker-idle fence. It must
+     * also retire an old failed start cleanup, not just the filesystem error. */
+    record_initialized_generation = 0;
+    if (record_binding_cleanup_error) {
+        record_binding_cleanup_error = 0;
+        record_binding_revoke_pending = 0;
+    }
+}
+
 /* app_core only. Return success only after the owned recording is closed.
  * A release is authoritative locally; the App notification is advisory. */
 u8 rdx_record_stream_only_release(void)
@@ -3304,6 +3315,7 @@ int rdx_record_run_init(void)
         }
 #endif
 
+        if (rdx_record_storage_check_start()) return -1;
         if(record_initialized_generation == record_session_generation){
             y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
                      (unsigned)rdx_uxfile_get_operateFile_info()->sn,
@@ -3525,6 +3537,7 @@ int rdx_record_run_init(void)
         }
 #endif
 
+        if (rdx_record_storage_check_start()) return -1;
         // rdx_uxfile_mssg_1_generate(scene);
         if (record_initialized_generation != record_session_generation) {
             rdx_uxfile_dat_1_gen(scene);

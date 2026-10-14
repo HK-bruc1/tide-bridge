@@ -181,6 +181,8 @@ u8 rdx_record_stream_only_release(void);
 /* app_core: generic audio failure, retrying STOP for online/offline sessions. */
 u8 rdx_record_audio_fault_stop(void);
 void translation_ear_recoder_storage_fault(void);
+void translation_ear_recoder_storage_full(void);
+void rdx_record_storage_recovered(void);
 void rdx_record_stream_only_release_complete(void);
 u8 rdx_record_stream_only_is_releasing(void);
 int rdx_record_task_create(void);

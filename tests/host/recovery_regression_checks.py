@@ -152,25 +152,124 @@ define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
         assert integer(gate, 'uxDatFileInfo').value == 456
         assert integer(gate, 'io_users').value == 0
 
-    format_gate = engine_for(service + '''
+    format_gate = engine_for(service + types_for(['OS_SEM']) + '\n' +
+                             globals_for(['dat_opera_mutex']) + '''
 @format_called = global i32 0
 @format_inflight = global i32 0
+@format_result = global i32 0
+@locked = global i32 0
+define i32 @os_mutex_pend(%struct.OS_SEM* %m, i32 %t) { store i32 1, i32* @locked ret i32 0 }
+define i32 @os_mutex_post(%struct.OS_SEM* %m) { store i32 0, i32* @locked ret i32 0 }
+define void @rdx_uxfile_close_read_file_handle() { ret void }
+define void @rdx_uxfile_datFileInfo_sendBuf_free() { ret void }
+define i32 @rdx_record_format_erase_enter() {
+ %s = load i32, i32* @service
+ %busy = icmp sgt i32 %s, 0
+ br i1 %busy, label %reject, label %enter
+reject:
+ ret i32 -1
+enter:
+ store i32 1, i32* @io_users
+ ret i32 0
+}
+define void @rdx_record_format_erase_leave(i32 %result) {
+ store i32 0, i32* @io_users
+ ret void
+}
 define i32 @rdx_uxfile_sd_format_ready(void (i8)* %callback) {
  store i32 1, i32* @format_called
  %users = load i32, i32* @io_users
  store i32 %users, i32* @format_inflight
- ret i32 12
+ %result = load i32, i32* @format_result
+ ret i32 %result
 }
 ''' + extract('rdx_uxfile_sd_format_adv_impl'))
     format_call = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)(
         format_gate.get_function_address('rdx_uxfile_sd_format_adv_impl'))
+    callback_values = []
+    callback = ctypes.CFUNCTYPE(None, ctypes.c_uint8)(callback_values.append)
     for state in (1, -1, 0):
-        integer(format_gate, 'service').value = state
-        integer(format_gate, 'format_called').value = 0
-        assert format_call(None) == (-1 if state else 12)
-        assert integer(format_gate, 'format_called').value == (0 if state else 1)
-        assert integer(format_gate, 'io_users').value == 0
+        for result in (0, -1):
+            integer(format_gate, 'service').value = state
+            integer(format_gate, 'format_result').value = result
+            integer(format_gate, 'format_called').value = 0
+            callback_values.clear()
+            expected = -1 if state > 0 else result
+            assert format_call(ctypes.cast(callback, ctypes.c_void_p)) == expected
+            assert callback_values == [16 if expected else 1]
+            assert integer(format_gate, 'format_called').value == (0 if state > 0 else 1)
+            assert integer(format_gate, 'io_users').value == 0
+            assert integer(format_gate, 'locked').value == 0
     assert integer(format_gate, 'format_inflight').value == 1
+
+    # Execute the real formatter body: physical erase, stale-dirty suppression,
+    # recovery reset, index reload and one truthful final response.
+    formatter = extract('rdx_uxfile_sd_format_ready')
+    global_names = set(re.findall(r'^@([^ ]+) =', ir, re.M))
+    used_globals = global_names.intersection(re.findall(r'@([^ (,\n]+)', formatter))
+    formatter_types = '\n'.join(re.findall(r'^%struct\.[^\n]+ = type .*$', ir, re.M))
+    format_impl = engine_for(formatter_types + '\n' + globals_for(sorted(used_globals)) + '''
+@partition = global %struct.vfs_partition zeroinitializer
+@erase_result = global i32 0
+@init_result = global i32 0
+@marker_result = global i32 1
+@erased = global i32 0
+@loaded = global i32 0
+@resurrected = global i32 0
+@reply = global i8 99
+@replies = global i32 0
+define i32 @rdx_app_get_dut_status(...) { ret i32 0 }
+define void @log_print(i32 %l, i8* %t, i8* %f, ...) { ret void }
+define void @wdt_disable(...) { ret void }
+define void @wdt_enable(...) { ret void }
+define i32 @f_format(i8* %p, i8* %f, i32 %x) { %r=load i32, i32* @erase_result ret i32 %r }
+define i32 @fget_free_space(i8* %p, i32* %space) { store i32 120000, i32* %space ret i32 0 }
+define %struct.vfs_partition* @fget_partition(i8* %p) { ret %struct.vfs_partition* @partition }
+define i32 @rdx_record_format_capacity() { ret i32 128000 }
+define void @rdx_protocol_sd_format_result_indicate(i8 %r, i32 %free, i32 %total) {
+ store i8 %r, i8* @reply
+ %n=load i32, i32* @replies
+ %next=add i32 %n, 1
+ store i32 %next, i32* @replies
+ ret void
+}
+define void @rdx_uxfile_write_serial_number_into_vm(i32 %n) { ret void }
+declare void @llvm.memset.p0i8.i32(i8*, i8, i32, i32, i1)
+define i32 @syscfg_write(i16 %id, i8* %p, i16 %n) { %r=load i32, i32* @marker_result ret i32 %r }
+define void @rdx_record_format_erased() { store i32 1, i32* @erased ret void }
+define void @rdx_uxfile_invalidate_dat_cache() {
+ %dirty=load i8, i8* @g_dat_cache.4
+ %value=zext i8 %dirty to i32
+ store i32 %value, i32* @resurrected
+ ret void
+}
+define i32 @rdx_uxfile_dat_init() {
+ %reset=load i32, i32* @erased
+ store i32 %reset, i32* @loaded
+ %r=load i32, i32* @init_result
+ ret i32 %r
+}
+define i32 @rdx_ble_server_get_conn_handle(...) { ret i32 80 }
+define i32 @rdx_app_get_poweroff_flag(...) { ret i32 0 }
+define i32 @rdx_ble_server_adv_data_changed(...) { ret i32 0 }
+define void @os_time_dly(i32 %t) { ret void }
+''' + formatter)
+    do_format = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)(
+        format_impl.get_function_address('rdx_uxfile_sd_format_ready'))
+    for erase, init, marker in ((0, 0, 1), (-1, 0, 1), (0, -1, 1), (0, 0, -1), (0, 0, 1)):
+        for name, value in [('erase_result', erase), ('init_result', init),
+                            ('marker_result', marker), ('loaded', 0), ('erased', 0),
+                            ('replies', 0), ('resurrected', 0),
+                            ('rdx_storage_io_error', -1), ('rdx_storage_refresh', -1)]:
+            integer(format_impl, name).value = value
+        ctypes.c_uint8.from_address(format_impl.get_global_value_address('g_dat_cache.4')).value = 1
+        assert do_format(None) == (-1 if erase or init or marker != 1 else 0)
+        assert integer(format_impl, 'replies').value == 1
+        assert ctypes.c_uint8.from_address(format_impl.get_global_value_address('reply')).value == bool(erase or init or marker != 1)
+        assert not integer(format_impl, 'resurrected').value
+        assert integer(format_impl, 'loaded').value == (0 if erase else 1)
+        assert integer(format_impl, 'rdx_storage_io_error').value == (-1 if erase else 0)
+        assert not ctypes.c_bool.from_address(format_impl.get_global_value_address('mem_formating')).value
 
     snapshot = engine_for(types_for(['OS_SEM']) + '\n' +
                           globals_for(['dat_opera_mutex', 'rdx_storage_io_error']) + '''

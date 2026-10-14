@@ -17,6 +17,18 @@ typedef unsigned int u32;
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define SEEK_SET 0
 static int factory_busy;
+static int format_busy, writer_active, writer_resets, record_recovered;
+int rdx_app_format_is_busy(void) { return format_busy; }
+int rdx_record_storage_active(void) { return writer_active; }
+void rdx_record_storage_reset(void) { ++writer_resets; }
+void rdx_record_storage_recovered(void) { ++record_recovered; }
+void rdx_record_format_service_ready(int result);
+struct vfs_partition { u32 total_size; };
+static struct vfs_partition partition={200000};
+static u32 free_kb;
+static int space_unknown, unmounted;
+struct vfs_partition *fget_partition(const char *p) { return unmounted ? NULL : &partition; }
+int fget_free_space(const char *p, u32 *space) { if(!space_unknown) *space=free_kb; return 17; }
 void local_irq_disable(void) {}
 void local_irq_enable(void) {}
 static int snapshot_result, snapshot_calls;
@@ -110,6 +122,8 @@ static uxfile_data_t current;
 static u8 audio[4000];
 static int recover(void) { rf_boot_started=0; return rdx_record_format_boot(); }
 static void reset(void) {
+    format_busy=writer_active=writer_resets=record_recovered=rf_erasing=0;
+    free_kb=100000; space_unknown=unmounted=0; partition.total_size=200000;
     rf_download=0; rf_io_users=0; factory_busy=0;
     snapshot_result=snapshot_calls=0;
     fail_alloc=0;
@@ -119,6 +133,64 @@ static void reset(void) {
     memset(&current,0,sizeof(current)); current.sn=7; current.start_time=100;
     current.frame_size=40; strcpy(current.filename,"abc123.raw");
     for(u32 i=0;i<sizeof(audio);++i) audio[i]=(i*19+3)&255;
+}
+int test_space_reserve(void) {
+    reset(); CHECK(!rf_write(RF_DAT,"[]",2));
+    u32 budget=123;
+    free_kb=1024; CHECK(!rdx_record_format_space(&budget) && !budget);
+    free_kb=1025; CHECK(!rdx_record_format_space(&budget) && budget==1024);
+    free_kb=0; CHECK(!rdx_record_format_space(&budget) && !budget);
+    space_unknown=1; CHECK(rdx_record_format_space(&budget)<0 && !budget);
+    space_unknown=0; unmounted=1; CHECK(rdx_record_format_space(&budget)<0);
+    CHECK(!rdx_record_format_capacity());
+    unmounted=0; CHECK(rdx_record_format_capacity()==partition.total_size);
+    free_kb=partition.total_size+1;
+    CHECK(rdx_record_format_space(&budget)<0);
+    free_kb=200000; lookup(RF_DAT)->size=2000000;
+    CHECK(!rdx_record_format_space(&budget));
+    CHECK(budget==200000u*1024-(2*(2000000+RF_OBJECT_SIZE)+65536));
+    /* Large volumes/indexes cannot wrap into a false unlimited budget. */
+    partition.total_size=free_kb=5000000; lookup(RF_DAT)->size=0xfffffff0u;
+    CHECK(!rdx_record_format_space(&budget) && !budget);
+    lookup(RF_DAT)->size=2;
+    CHECK(!rdx_record_format_space(&budget) && budget==0xffffffffu);
+    fail_close=1; CHECK(rdx_record_format_space(&budget)<0 && !budget);
+    CHECK(!handles); return 0;
+}
+int test_explicit_format_recovery(void) {
+    reset(); rf_service=-1; rf_error=-1; rf_boot_started=1;
+    strcpy(rf_deleted_name,"abc123.raw"); rf_current.sn=7;
+    CHECK(!rdx_record_format_erase_enter());
+    CHECK(rdx_record_format_service_status()==1);
+    CHECK(rdx_record_format_io_enter()!=0 && rdx_record_format_download_acquire()<0);
+    CHECK(rdx_record_format_erase_enter()<0);
+    rdx_record_format_erased();
+    CHECK(!rf_boot_started && !rf_error && !rf_current.sn && !rf_deleted_name[0]);
+    CHECK(!rdx_record_format_boot());
+    CHECK(lookup(RF_DAT) && lookup(RF_DAT)->size==2 && !memcmp(lookup(RF_DAT)->data,"[]",2));
+    rdx_record_format_service_ready(0); /* Cache ready must not release erase owner. */
+    CHECK(rdx_record_format_service_status()==1);
+    CHECK(rdx_record_format_download_acquire()<0 && !rf_download);
+    rdx_record_format_erase_leave(0);
+    CHECK(!rdx_record_format_service_status() && writer_resets==1 && record_recovered==1);
+    CHECK(!rdx_record_format_erase_enter());
+    rdx_record_format_erase_leave(-1);
+    CHECK(rf_service==-1 && rf_error==-1 && writer_resets==1);
+    CHECK(!rdx_record_format_erase_enter()); /* Failed erase remains retryable. */
+    rdx_record_format_erase_leave(-1);
+    for(int which=0;which<6;++which) {
+        reset(); rf_service=-1;
+        switch(which) {
+        case 0: format_busy=1; break;
+        case 1: writer_active=1; break;
+        case 2: rf_io_users=1; break;
+        case 3: rf_download=1; break;
+        case 4: factory_busy=1; break;
+        case 5: rf_service=1; break;
+        }
+        CHECK(rdx_record_format_erase_enter()<0 && !rf_erasing && !writer_resets);
+    }
+    return 0;
 }
 static int seed_mono(void) {
     if(rdx_record_format_begin(&current,1) || rdx_record_format_frame(&current,1,audio,40)) return -1;
@@ -595,7 +667,8 @@ double fabs(double);
 """
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
     path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ['test_download_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
+    run_c_checks(path, ['test_space_reserve', 'test_explicit_format_recovery',
+                        'test_download_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
