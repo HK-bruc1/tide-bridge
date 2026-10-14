@@ -228,10 +228,10 @@ Assert-Contract 'RECORD_STOP_COMPLETION_FOLLOWS_WORKER_CLEANUP' (
     (Test-TokensInOrder $RecordWorker @('msg[1] == RDX_RECORD_APP_STOP_FENCE',
         'msg[1] = RECORD_STATE_STOP', 'translation_ear_recoder_close_all()',
         'if (app_stop_ticket)', 'g_app_stop_done = app_stop_ticket')) -and
-    $RecordWorker -match '(?s)translation_ear_recoder_close_all\(\);\s*/\* A paused session.*?rdx_uxfile_finish_record\(\).*?if \(app_stop_ticket\).*?g_app_stop_done' -and
+    $RecordWorker -match '(?s)translation_ear_recoder_close_all\(\);\s*/\* A paused session.*?rdx_uxfile_finish_record\(\).*?rdx_record_stop_session_cleanup\(\).*?if \(app_stop_ticket\).*?g_app_stop_done' -and
     $Record -match '!g_app_stop_pending && rdx_record_online_session_is_current\(\)' -and
     $StopPump -match '!g_app_stop_pending \|\| ticket != g_app_stop_ticket'
-) 'STOP completion must wait for both audio paths and paused-file finalization, and reject stale callbacks'
+) 'STOP completion must wait for both audio paths, paused-file finalization and session cleanup, and reject stale callbacks'
 
 Assert-Contract 'RECORD_STOP_RETRY_IS_BOUNDED_AND_IDEMPOTENT' (
     $StopRequest -match '(?s)if \(g_app_stop_pending\).*?return;' -and

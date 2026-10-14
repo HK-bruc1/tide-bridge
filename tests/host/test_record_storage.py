@@ -591,19 +591,29 @@ typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
 typedef struct { int epoch; } rdx_ble_async_token_t;
-typedef struct { u8 run, formate, scene, orig_mode; } RecordStatus;
+typedef struct {
+    u8 run, formate, scene, orig_mode, mode;
+    u32 begin_time, paused_accumulated_ms, pause_start_ms;
+    int stream_discont;
+} RecordStatus;
 typedef struct { u32 sn; char filename[32]; } uxfile_data_t;
 #define RECORD_STATE_START 0
 #define RECORD_STATE_PAUSE 1
 #define RECORD_STATE_RESUME 2
 #define RECORD_STATE_STOP 3
 #define RECORD_MODE_OFFLINE 0
+#define RECORD_MODE_ONLINE 1
 #define RECORD_SCENE_CHAT 0
 #define __UUX_FILE__ 1
+#define false 0
 #define y_printf(...) ((void)0)
-static RecordStatus status;
+#define r_printf(...) ((void)0)
+static RecordStatus record_status;
+#define status record_status
 static uxfile_data_t file={6,"d9e348.raw"};
 static int g_app_stop_pending, current=1, sends;
+static int g_stream_only_session_active, g_record_session_token_valid;
+static u32 record_initialized_generation=1, record_session_generation=1;
 static char sent[128];
 RecordStatus *rdx_record_get_status(void) { return &status; }
 uxfile_data_t *rdx_uxfile_get_operateFile_info(void) { return &file; }
@@ -615,8 +625,14 @@ u8 rdx_app_get_record_mode(void) { return 0; }
 int rdx_protocol_packet_send_priority(void *p, u16 n) {
     memcpy(sent,p,n); sent[n]=0; ++sends; return 0;
 }
+void rdx_protocol_record_state_indicate(void) { ++sends; }
+void rdx_uxfile_operate_file_init(void) { file=(uxfile_data_t){0}; }
+void rdx_record_online_session_clear(void) { g_record_session_token_valid=0; }
 '''
+    source += function(record, 'rdx_record_state_is_publishable')
+    source += function(record, 'rdx_record_state_indicate_if_current')
     source += function(record, 'rdx_record_state_snapshot_indicate')
+    source += function(record, 'rdx_record_stop_session_cleanup')
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
 int test_snapshot(void) {
@@ -649,13 +665,52 @@ int test_snapshot(void) {
     g_app_stop_pending=0; status.orig_mode=1;
     rdx_record_state_snapshot_indicate(&token);
     CHECK(!strcmp(sent,"*DEV#record#1#0#1#0#1#0#6#d9e348.raw#"));
+    count=sends;
+    ++record_session_generation;
+    for (int state=0;state<3;++state) {
+        status.run=state;
+        rdx_record_state_snapshot_indicate(&token);
+        rdx_record_state_indicate_if_current(&token);
+        CHECK(sends==count);
+    }
+    record_initialized_generation=record_session_generation;
+    rdx_record_state_snapshot_indicate(&token);
+    CHECK(sends==count+1);
+    rdx_record_state_indicate_if_current(&token);
+    CHECK(sends==count+2);
+    token.epoch=current-1;
+    rdx_record_state_indicate_if_current(&token);
+    CHECK(sends==count+2);
+    return 0;
+}
+int test_stop_cleanup(void) {
+    status.run=RECORD_STATE_STOP;
+    status.mode=RECORD_MODE_ONLINE; status.orig_mode=RECORD_MODE_OFFLINE;
+    status.begin_time=1000; status.paused_accumulated_ms=200; status.pause_start_ms=2500;
+    status.stream_discont=1;
+    file=(uxfile_data_t){6,"d9e348.raw"};
+    record_initialized_generation=record_session_generation=5;
+    g_stream_only_session_active=g_record_session_token_valid=1;
+    g_app_stop_pending=0;
+    int count=sends;
+    for(int repeat=0;repeat<2;++repeat) {
+        rdx_record_stop_session_cleanup();
+        CHECK(!status.begin_time && !status.paused_accumulated_ms && !status.pause_start_ms);
+        CHECK(status.orig_mode==RECORD_MODE_ONLINE && !status.stream_discont);
+        CHECK(!file.sn && !file.filename[0] && !record_initialized_generation);
+        CHECK(!g_stream_only_session_active && !g_record_session_token_valid);
+        CHECK(status.run==RECORD_STATE_STOP && record_session_generation==5 && sends==count);
+        CHECK(rdx_record_state_is_publishable());
+    }
+    status.run=RECORD_STATE_START; ++record_session_generation;
+    CHECK(!rdx_record_state_is_publishable());
     return 0;
 }
 '''
     with tempfile.TemporaryDirectory(prefix='t2620-snapshot-') as work:
         path = Path(work) / 'snapshot.c'
         path.write_text(source, encoding='utf-8')
-        run_c_checks(path, ['test_snapshot'], native=True)
+        run_c_checks(path, ['test_snapshot', 'test_stop_cleanup'], native=True)
 
 
 if __name__ == '__main__':

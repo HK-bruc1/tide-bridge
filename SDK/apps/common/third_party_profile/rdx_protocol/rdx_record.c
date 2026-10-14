@@ -533,10 +533,18 @@ typedef struct {
     rdx_ble_async_token_t token;
 } rdx_record_state_request_t;
 
+static u8 rdx_record_state_is_publishable(void)
+{
+    /* START is accepted before the tone/audio/file initialization completes. */
+    return !g_app_stop_pending &&
+           (record_status.run == RECORD_STATE_STOP ||
+            record_initialized_generation == record_session_generation);
+}
+
 static void rdx_record_state_indicate_if_current(
     const rdx_ble_async_token_t *token)
 {
-    if (g_app_stop_pending) {
+    if (!rdx_record_state_is_publishable()) {
         return;
     }
     if (!rdx_record_online_session_token_is_current(token)) {
@@ -561,7 +569,7 @@ void rdx_record_state_snapshot_indicate(const rdx_ble_async_token_t *token)
                 sample_rates[snapshot.formate] : 1;
     u32 elapsed;
 
-    if (g_app_stop_pending || !rdx_record_online_session_token_is_current(token) ||
+    if (!rdx_record_state_is_publishable() || !rdx_record_online_session_token_is_current(token) ||
         (snapshot.run != RECORD_STATE_START &&
          snapshot.run != RECORD_STATE_RESUME && snapshot.run != RECORD_STATE_PAUSE)) {
         return;
@@ -1041,6 +1049,22 @@ void rdx_record_clear_marks(void)
     record_status.paused_accumulated_ms = 0;
 }
 
+/* Call only after STOP has drained/saved the file, including the no-live-sink
+ * PAUSE -> STOP path. Repeating cleanup must not save or acknowledge again.
+ * Storage/format error latches are deliberately not reset here. */
+static void rdx_record_stop_session_cleanup(void)
+{
+    record_status.begin_time = 0;
+    record_status.paused_accumulated_ms = 0;
+    record_status.pause_start_ms = 0;
+    record_status.orig_mode = record_status.mode;
+    record_status.stream_discont = false;
+    rdx_uxfile_operate_file_init();
+    record_initialized_generation = 0;
+    g_stream_only_session_active = 0;
+    rdx_record_online_session_clear();
+}
+
 /**************************************************************************
  * function: rdx_record_get_marks
  * description: 导出当前会话累计的 mark offset_ms 到外部数组, 供 dat_save
@@ -1373,7 +1397,8 @@ static void rdx_record_cmd_handle_internal(
     if (rdx_storage_lifecycle_business_blocked() &&
         r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
         rdx_record_format_download_conflict("RECORD_COMMAND");
-        if (token && rdx_record_rdx_token_is_current(token)) {
+        if (token && rdx_record_rdx_token_is_current(token) &&
+            rdx_record_state_is_publishable()) {
             rdx_protocol_record_state_indicate();
         }
         return;
@@ -1406,7 +1431,9 @@ static void rdx_record_cmd_handle_internal(
         rdx_record_token_equal(token, &g_stream_only_start_token)) {
         if (r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
             r_printf("[RDX_HOLD_RECORD] released hold rejects late command\r");
-            rdx_protocol_record_state_indicate();
+            if (rdx_record_state_is_publishable()) {
+                rdx_protocol_record_state_indicate();
+            }
             return;
         }
     }
@@ -1414,7 +1441,8 @@ static void rdx_record_cmd_handle_internal(
         !rdx_record_binding_allowed()) {
         r_printf("[RDX_RECORD] command rejected: device not bound\r");
         /* Existing protocol exposes state, not a recording error code. */
-        if (token && rdx_record_rdx_token_is_current(token)) {
+        if (token && rdx_record_rdx_token_is_current(token) &&
+            rdx_record_state_is_publishable()) {
             rdx_protocol_record_state_indicate();
         }
         return;
@@ -2589,10 +2617,8 @@ static void rdx_record_task(void *arg)
                             record_status.run = RECORD_STATE_STOP;
                             translation_ear_recoder_close_all();
                             rdx_uxfile_finish_record();
-                            record_initialized_generation = 0;
+                            rdx_record_stop_session_cleanup();
                             record_tone_session_active = false;
-                            g_stream_only_session_active = 0;
-                            rdx_record_online_session_clear();
                             rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
                             rdx_record_set_process_state_ready();
                             rdx_ble_server_auto_shut_down_enable(1);
@@ -2608,10 +2634,8 @@ static void rdx_record_task(void *arg)
                             translation_ear_recoder_close_all();
                             int saved = rdx_uxfile_finish_record();
                             if (rdx_record_format_status() < 0) saved = -1;
-                            record_initialized_generation = 0;
+                            rdx_record_stop_session_cleanup();
                             record_tone_session_active = false;
-                            g_stream_only_session_active = 0;
-                            rdx_record_online_session_clear();
                             rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
                             rdx_record_set_process_state_ready();
                             rdx_ble_server_auto_shut_down_enable(1);
@@ -2637,10 +2661,8 @@ static void rdx_record_task(void *arg)
                             translation_ear_recoder_close_all();
                             int saved = rdx_uxfile_finish_record();
                             if (rdx_record_format_status() < 0) saved = -1;
-                            record_initialized_generation = 0;
+                            rdx_record_stop_session_cleanup();
                             record_tone_session_active = false;
-                            g_stream_only_session_active = 0;
-                            rdx_record_online_session_clear();
                             rdx_record_set_process_state_ready();
                             dut_record_result = saved < 0 ? -1 : 0;
                             dut_record_done = (u32)msg[2];
@@ -2653,7 +2675,7 @@ static void rdx_record_task(void *arg)
                              * recording context. Commit that context as well. */
                             int saved = rdx_uxfile_finish_record();
                             if (rdx_record_format_status() < 0) saved = -1;
-                            record_initialized_generation = 0;
+                            rdx_record_stop_session_cleanup();
                             usb_record_result = saved < 0 ? -1 : 0;
                             rdx_record_set_process_state_ready();
                             usb_record_done = (u32)msg[2];
@@ -2682,9 +2704,8 @@ static void rdx_record_task(void *arg)
                                 if (saved < 0) {
                                     r_printf("[RECORD] stop save failed; USB handoff blocked\n");
                                 }
-                                record_initialized_generation = 0;
-                                g_stream_only_session_active = 0;
-                                rdx_record_online_session_clear();
+                                rdx_record_stop_session_cleanup();
+                                rdx_record_set_process_state_ready();
                             }
                             /* Both MIC and DAC paths are now closed. */
                             if (play_stop_tone) {
@@ -3338,13 +3359,6 @@ int rdx_record_run_init(void)
         }
     }
 
-    //send record state to app.
-    if(con_hdl != 0xffff && con_hdl != 0 &&
-       rdx_record_online_session_is_current()){
-        //send state to app.
-        rdx_record_state_indicate_if_current(&g_record_session_token);
-    }
-
     if (!rdx_record_stream_only_session_is_active() &&
         rdx_record_storage_begin(record_session_generation, rp->scene, rp->formate)) {
         return -1;
@@ -3353,6 +3367,12 @@ int rdx_record_run_init(void)
     //start max record time.
     rdx_record_max_timer_start();
     record_initialized_generation = record_session_generation;
+
+    /* Publish only after mode, file identity and storage are initialized. */
+    if(con_hdl != 0xffff && con_hdl != 0 &&
+       rdx_record_online_session_is_current()){
+        rdx_record_state_indicate_if_current(&g_record_session_token);
+    }
 
     return 0;
 }
@@ -3454,16 +3474,8 @@ int rdx_record_run_exit(void)
         }
 #endif
     }
-        /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻,
-         * 否则 RESUME 后 run_init 会重新写一个 jiffies, 录音标记 offset_ms 失真 */
-        if(rp->run == RECORD_STATE_STOP){
-            rp->begin_time = 0;
-            rp->paused_accumulated_ms = 0;
-            rp->pause_start_ms = 0;
-        }
-    
+    rdx_record_stop_session_cleanup();
     rdx_record_set_process_state_ready();
-    rp->orig_mode = rp->mode;
 
     rdx_record_max_timer_stop();
 
@@ -3474,15 +3486,6 @@ int rdx_record_run_exit(void)
 
     rdx_app_emmc_poweroff_check();
 
-    rdx_uxfile_operate_file_init();
-    record_initialized_generation = 0;
-
-    rp->stream_discont = false;
-    if (rp->run == RECORD_STATE_STOP) {
-        g_stream_only_session_active = 0;
-        rdx_record_online_session_clear();
-    }
-    
     return 0;
 }
 
@@ -3653,17 +3656,13 @@ int rdx_record_run_exit(void)
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
         }
-        /* V24: begin_time 仅在彻底 STOP 时清零, PAUSE 路径下保留原 START 时刻 */
-        if(rp->run == RECORD_STATE_STOP){
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            rdx_record_notify_playback_content_changed();
+        rdx_record_notify_playback_content_changed();
 #endif
-            rp->begin_time = 0;
-        }
     }
-    
+
+    rdx_record_stop_session_cleanup();
     rdx_record_set_process_state_ready();
-    rp->orig_mode = rp->mode;
 
     rdx_record_max_timer_stop();
 
@@ -3676,13 +3675,6 @@ int rdx_record_run_exit(void)
         sys_timeout_add((void *)rdx_record_binding_token_capture(), rdx_record_restart_if_bound, 1000);
     }else{
         rdx_app_emmc_poweroff_check();
-    }
-
-    rdx_uxfile_operate_file_init();
-    record_initialized_generation = 0;
-
-    if (rp->run == RECORD_STATE_STOP) {
-        rdx_record_online_session_clear();
     }
 
     return 0;
