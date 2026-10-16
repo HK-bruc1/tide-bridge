@@ -260,6 +260,7 @@ int test_service_idle_in_all_connection_states(void) {
         boot(); connected=ble; usb_generation=usb; rdx_dut_info.dut_mode=mode;
         for (int i=0;i<100;++i) { jiffies+=100; rdx_dut_service_poll(); }
         CHECK(!timeout_adds && !service_posts && !dut_service_timer);
+    CHECK(!rdx_dut_service_needs_poll());
         rdx_dut_service_wake(); rdx_dut_service_wake();
         CHECK(service_posts==1);
         dispatch_dut();
@@ -299,6 +300,7 @@ int test_service_queue_and_timer_failure_recovery(void) {
     boot(); post_fail=1;
     CHECK(!dut_enqueue(DUT_CMD_KEY_LAYOUT,1));
     CHECK(dut_count==1 && dut_service_pending && !dut_service_posted);
+    CHECK(rdx_dut_service_needs_poll());
     rdx_dut_service_poll();
     CHECK(dut_key_gate && !dut_count && !dut_service_timer);
     rdx_dut_key_scan(KEY_IO_NUM0,NO_KEY);

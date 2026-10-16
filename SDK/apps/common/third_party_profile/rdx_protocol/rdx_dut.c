@@ -193,7 +193,7 @@ static struct dut_request dut_queue[DUT_QUEUE_CAPACITY];
 static u8 dut_head, dut_count;
 static u16 dut_service_timer;
 static volatile u8 dut_initialized, dut_service_posted, dut_service_pending, dut_servicing;
-static u8 dut_timer_failed;
+static volatile u8 dut_timer_failed;
 static u32 dut_timer_serial, dut_timer_due;
 static volatile u8 dut_emergency_cancel;
 static volatile u8 dut_queue_abort;
@@ -258,7 +258,14 @@ void rdx_dut_service_wake(void)
     local_irq_enable();
 }
 
-/* 只恢复通知失败或超时分配失败，不在产品周期中执行正常 DUT 轮询。 */
+int rdx_dut_service_needs_poll(void)
+{
+    /* 分配失败时保留运行条件直至原截止点，不能靠下一次用户操作恢复。 */
+    return dut_initialized && !dut_servicing &&
+           ((dut_service_pending && !dut_service_posted) || dut_timer_failed);
+}
+
+/* 只恢复通知失败或超时分配失败，不在恢复入口执行正常 DUT 轮询。 */
 void rdx_dut_service_poll(void)
 {
     if (!dut_initialized) return;

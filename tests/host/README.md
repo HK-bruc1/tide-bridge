@@ -40,10 +40,11 @@ sessions, TX-full control reception, coalesced wakeups and bounded output.
 
 The HOGP harness also checks event-only offline first-key/multi-click/KEY5
 gestures, idle with no 10 ms timer, HID-ready start/stop, and queue/timer failure
-recovery using the existing product tick. CDC checks cover DTR-scoped protocol
+recovery through the priority-0 product bridge (no idle system polling). CDC checks cover DTR-scoped protocol
 timers, transport state notifications and detached audio/file cleanup. Neither
-module needs a persistent 10 ms service without its valid session; the existing
-100 ms product recovery tick and USB transport lifecycle remain separate.
+module needs a persistent 10 ms service without its valid session. The former
+100 ms product system timer is removed; the priority-0 bridge posts only actual
+work and does not force wakeups. USB transport lifecycle remains separate.
 These scheduling checks do not prove on-device current or latency; see the
 [disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
 and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
@@ -195,7 +196,7 @@ and CDC TEST firmware. Use the CDC port, not the debug log port. This independen
 tool checks startup bytes and four echoes; host validation never opens a port.
 See [factory USB protocol](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
-Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
+Power recovery executes the real DIP implementation in 12 scenarios with MSC both disabled and enabled: stable idle without system timers or empty posts, timed debounce, stalled app_core, fixed OFF deadline, cold charging/ON entry, bounded mode retries, failed posts/timer allocation, stale callbacks, re-notification, recovery flags and clock wrap. Native shutdown and legacy PA4 delegation are checked separately. USB policy tests cover three-attempt exhaustion, event-independent deadlines, 300 ms reenumeration across wrap and unplug cancellation. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
 
 BLE 连续下载、会议单声道及 RAW 回放特性已实板验收并收敛，对应的行为套件（`test_ble_download.py`、`test_meeting_mono.py`）及 `test_rdx_keymap_contract.ps1` 静态令牌检查已移除；下载策略结论见提交 366ce688，keymap 在线事务回归由 `test_keymap_factory_reset.py` 与实板验收覆盖。
 

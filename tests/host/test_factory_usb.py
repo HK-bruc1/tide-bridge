@@ -30,7 +30,8 @@ typedef unsigned char usb_dev;
 #define g_printf(...) ((void)0)
 int on, vbus, role, pc, business, blocked, deferred, host_owned, dut_ready;
 int rdx_dut_factory_usb_ready(void);
-int post_fail, init_fail, posts, starts, stops, hw_class, violation, masked;
+void rdx_dip_switch_wake(void) {}
+int post_fail, init_fail, posts, starts, stops, hw_class, violation, masked, restart;
 struct { int goto_poweroff_flag; } app_var;
 int get_power_on_status(void) { return on; }
 int get_charge_online_flag(void) { return vbus; }
@@ -52,7 +53,7 @@ int cdc_stops;
 void factory_cdc_stop(void) { ++cdc_stops; }
 void factory_cdc_quiesce(void) {}
 void factory_cdc_process(void) {}
-int factory_cdc_needs_restart(void) { return 0; }
+int factory_cdc_needs_restart(void) { return restart; }
 int usb_message_to_stack(int msg, void *arg, int sync) {
     ++posts;
     if (sync) violation=10;
@@ -93,9 +94,11 @@ void boot(void) {
     dut_ready=1;
     on=vbus=role=business=1; pc=blocked=deferred=host_owned=0;
     post_fail=init_fail=posts=starts=stops=hw_class=violation=masked=0;
+    restart=0;
     app_var.goto_poweroff_flag=0;
     factory_cdc_requested=factory_usb_state=factory_usb_shutdown=0;
     factory_cdc_retry_at=factory_cdc_retry_wait=0;
+    factory_cdc_attempts=factory_cdc_post_wait=factory_cdc_post_at=0;
     test_now=0;
 }
 int test_all(void) {
@@ -142,7 +145,7 @@ int test_all(void) {
     boot(); usb_factory_service(); vbus=0;
     usb_cdc_background_run(0); CHECK(!hw_class);
     boot(); post_fail=1; usb_factory_service(); CHECK(posts==1 && !hw_class);
-    post_fail=0; usb_factory_service(); CHECK(posts==2);
+    post_fail=0; test_now+=100; usb_factory_service(); CHECK(posts==2);
     init_fail=1; usb_cdc_background_run(0); CHECK(!usb_factory_cdc_started());
     init_fail=0; usb_factory_service(); usb_cdc_background_run(0);
     CHECK(usb_factory_cdc_started());
@@ -168,6 +171,60 @@ int test_all(void) {
     usb_factory_shutdown(); usb_factory_shutdown_process();
     CHECK(hw_class==MASSSTORAGE_CLASS && stops==old_stops);
     boot(); usb_factory_service(); usb_cdc_background_run(1); CHECK(!hw_class);
+    return 0;
+}
+int test_policy_bounded_recovery(void) {
+    boot(); vbus=role=0; usb_factory_service();
+    CHECK(!posts && !usb_factory_service_delay());
+    vbus=role=1; post_fail=1; usb_factory_service();
+    CHECK(posts==1 && usb_factory_service_delay()==100);
+    for(int i=0;i<20;++i) usb_factory_service();
+    CHECK(posts==1); test_now=99; CHECK(usb_factory_service_delay()==1);
+    usb_factory_service(); CHECK(posts==1);
+    factory_usb_state=FACTORY_USB_STOPPING; usb_factory_service();
+    CHECK(factory_cdc_attempts==1);
+    factory_usb_state=FACTORY_USB_MSC; usb_factory_service();
+    CHECK(factory_cdc_attempts==1);
+    factory_usb_state=FACTORY_USB_NONE;
+    test_now=100; usb_factory_service(); CHECK(posts==2);
+    test_now=200; usb_factory_service(); CHECK(posts==3 && !usb_factory_service_delay());
+    for(int i=0;i<100;++i) { test_now+=1000; usb_factory_service(); }
+    CHECK(posts==3);
+    vbus=0; usb_factory_service(); vbus=1; post_fail=0; usb_factory_service();
+    CHECK(posts==4); usb_cdc_background_run(0); usb_factory_service();
+    CHECK(hw_class==CDC_CLASS && !usb_factory_service_delay() && !factory_cdc_attempts);
+    int old=posts;
+    for(int i=0;i<100;++i) { test_now+=1000; usb_factory_service(); }
+    CHECK(posts==old && starts==1);
+    return 0;
+}
+int test_policy_rebuild_deadline(void) {
+    boot(); test_now=0xffffff80u; usb_factory_service(); usb_cdc_background_run(0);
+    usb_factory_service(); CHECK(hw_class==CDC_CLASS && !usb_factory_service_delay());
+    restart=1; usb_factory_cdc_poll(); restart=0;
+    CHECK(!hw_class && factory_cdc_retry_wait);
+    int old=posts; u32 since=test_now;
+    usb_factory_service(); CHECK(posts==old && usb_factory_service_delay()==300);
+    test_now=since+299; usb_factory_service(); usb_cdc_background_run(0);
+    CHECK(posts==old && !hw_class && usb_factory_service_delay()==1);
+    test_now=since+300; usb_factory_service(); CHECK(posts==old+1);
+    usb_cdc_background_run(0); usb_factory_service();
+    CHECK(hw_class==CDC_CLASS && starts==2 && !usb_factory_service_delay());
+    restart=1; usb_factory_cdc_poll(); restart=0; vbus=0;
+    usb_factory_service(); test_now+=1000; usb_cdc_background_run(0);
+    CHECK(!hw_class && !usb_factory_service_delay() && !violation);
+    return 0;
+}
+int test_policy_init_failure_exhaustion(void) {
+    boot(); init_fail=1;
+    for(int i=0;i<3;++i) {
+        usb_factory_service(); usb_cdc_background_run(0); test_now+=100;
+    }
+    CHECK(posts==3 && !hw_class && !usb_factory_service_delay());
+    init_fail=0; usb_factory_service(); CHECK(posts==3);
+    on=0; usb_factory_service(); on=1; usb_factory_service();
+    CHECK(posts==4); usb_cdc_background_run(0); usb_factory_service();
+    CHECK(hw_class==CDC_CLASS && !usb_factory_service_delay());
     return 0;
 }
 '''
@@ -251,7 +308,10 @@ int test_poweroff_gate(void) {
     c_path.write_text(STUBS + policy + functions + TESTS + lifecycle_stubs +
                      key_entry.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready') +
                      lifecycle_tests.replace('rdx_dut_factory_usb_ready', 'real_factory_usb_ready') + gate_tests, encoding='utf-8')
-    run_c_checks(c_path, ('test_all', 'test_key_entry', 'test_poweroff_gate'))
+    run_c_checks(c_path, ('test_all', 'test_key_entry', 'test_poweroff_gate',
+                          'test_policy_bounded_recovery', 'test_policy_rebuild_deadline',
+                          'test_policy_init_failure_exhaustion'))
+    print('PASS: USB policy idle stop, bounded retries, 300ms rebuild, wraparound and unplug cancellation')
     print('PASS: shutdown continues without USB, worker ACK or queue capacity; MSC preserved; TWS matches')
     print('PASS: CDC independent of DUT/key/SD; key entry still guarded; OFF and shutdown revoke CDC')
     print('PASS: actual factory USB C: SD ownership, stale requests, retry, idempotence, IRQ-before-release and shutdown')

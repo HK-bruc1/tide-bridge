@@ -461,10 +461,10 @@ Assert-Contract 'PC_FAILURE_CANNOT_FALL_BACK_TO_BLE_WHILE_OFF' (
 
 Assert-Contract 'PC_RETRY_IS_BOUNDED_AND_REVALIDATED' (
     $Dip -match '#define DIP_SERVICE_MAX_ATTEMPTS 3' -and
-    $Dip -match '(?s)on != s_last_on \|\| usb != s_last_usb \|\| vbus != s_last_vbus.*?s_attempts = 0;.*?s_retry_ticks = 0;' -and
-    $Dip -match '(?s)if \(s_attempts >= DIP_SERVICE_MAX_ATTEMPTS\).*?return;.*?rdx_dip_switch_pc_allowed\(\).*?target = APP_MODE_PC;' -and
-    $Dip -match '(?s)if \(target >= 0\).*?\+\+s_attempts;.*?s_retry_ticks = DIP_SERVICE_RETRY_TICKS;.*?app_send_message\(APP_MSG_GOTO_MODE, target\)' -and
-    $AppMain -match '(?s)if \(err != 0\).*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?next_mode->name == APP_MODE_PC \|\| app_in_mode\(APP_MODE_PC\).*?return NULL;.*?#endif.*?sys_timeout_add'
+    $Dip -match '(?s)on != s_last_on \|\| usb != s_last_usb \|\| vbus != s_last_vbus.*?s_attempts = 0;.*?s_retry_wait = 0;' -and
+    $Dip -match '(?s)rdx_dip_switch_pc_allowed\(\).*?target = APP_MODE_PC;.*?if \(s_attempts >= DIP_SERVICE_MAX_ATTEMPTS\) return 0;' -and
+    $Dip -match '(?s)if \(target >= 0\).*?\+\+s_attempts;.*?s_retry_due = now \+ DIP_SERVICE_RETRY_MS;.*?app_send_message\(APP_MSG_GOTO_MODE, target\)' -and
+    $AppMain -match '(?s)if \(err != 0\).*?#if TCFG_DIP_SWITCH_POWER_ENABLE.*?next_mode->name == APP_MODE_PC \|\| app_in_mode\(APP_MODE_PC\).*?next_mode->name == APP_MODE_BT && app_in_mode\(APP_MODE_IDLE\).*?rdx_dip_switch_wake\(\);.*?return NULL;.*?#endif.*?sys_timeout_add'
 ) 'Rejected or failed PC entry must be reconsidered with bounded requests; native timers must not replay stale PC targets'
 
 Assert-Contract 'PC_GENERIC_FALLBACK_IS_PRESERVED' (
@@ -488,8 +488,8 @@ Assert-Contract 'ON_USB_PRESERVES_RECORDING_AND_STORAGE' (
 $Poweroff = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\bt\poweroff.c'
 $autoShutdown = Get-SourceSlice $Poweroff 'void sys_auto_shut_down_enable(void)' 'static void sys_auto_shut_down_deal(void *priv)'
 Assert-Contract 'CHARGING_WITHOUT_USB_SLAVE' (
-    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_KEEP:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
-    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_IN:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_KEEP:\s+rdx_dip_switch_wake\(\);\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_IN:\s+rdx_dip_switch_wake\(\);\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
     $RdxCharge -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
     $RdxLedCtrl -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
     $autoShutdown -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE'
@@ -533,9 +533,26 @@ Assert-Contract 'NATIVE_OFF_NOT_STORAGE_FENCED' (
     $Dip -match '(?s)rdx_dip_switch_shutdown_begin\(\);.*?app_send_message\(APP_MSG_REQUEST_POWEROFF' -and
     $Poweroff -match 'app_send_message\(APP_MSG_RECORD_OFF, 0\)' -and
     $Dip -match 'usr_timer_add\(NULL, rdx_dip_switch_guard, 100, 0\)' -and
-    $Dip -match 's_shutdown_ticks >= 30' -and
+    $Dip -match '\(u32\)\(now - s_shutdown_since\) >= 3000' -and
     $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag'
 ) 'OFF must retain native cleanup and an independent deadline, without storage/record/BLE save vetoes'
+
+$dipGuard = Get-SourceSlice $Dip 'static void rdx_dip_switch_guard(' 'void rdx_dip_switch_shutdown_begin('
+$dipP33 = Get-SourceSlice $Dip 'void rdx_dip_switch_p33_irq(' 'void rdx_dip_switch_init('
+Assert-Contract 'DIP_EVENT_SCHEDULING_AND_RECOVERY' (
+    $Dip -notmatch 'sys_timer_add\(' -and
+    $Dip -match 'usr_timer_add\(NULL, rdx_dip_switch_recovery_tick, 100, 0\)' -and
+    $Dip -match 's_work_failed = !s_work_timer' -and
+    $Dip -match '\(u32\)priv != s_work_serial' -and
+    $dipGuard -match '\(u32\)\(now - s_sample_since\) >= 100' -and
+    ($dipGuard + $dipP33) -notmatch 'os_taskq_|app_send_message|rdx_storage_lifecycle_service|usb_factory_service' -and
+    $UsbTask -match '(?s)case USBSTACK_OTG_MSG:\s+rdx_dip_switch_wake\(\)' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_OFF:\s+rdx_dip_switch_wake\(\)' -and
+    $PcDevice -match 'FACTORY_CDC_MAX_ATTEMPTS 3' -and
+    $PcDevice -match 'factory_cdc_retry_at = sys_timer_get_ms\(\) \+ 300' -and
+    $PcDevice -match '(?s)factory_usb_state = FACTORY_USB_CDC;\s+rdx_dip_switch_wake\(\)' -and
+    $PcDevice -match '(?s)factory_usb_state = FACTORY_USB_NONE;\s+rdx_dip_switch_wake\(\)'
+) 'DIP must have no idle system poll; preserve isolated protection, event producers, failed-post recovery and bounded USB retries'
 Assert-Contract 'WORKER_OWNS_INDEX_BEFORE_CACHE' (
     $RdxApp -notmatch 'if \(!rdx_record_format_boot\(\)\)' -and
     $RecoveryPatch -match 'call i32 @rdx_record_format_boot' -and

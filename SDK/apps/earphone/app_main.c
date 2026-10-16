@@ -669,10 +669,12 @@ struct app_mode *app_mode_switch_handler(int *msg)
     err = app_goto_mode(next_mode->name, arg);
 
     if (err != 0) {
-#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
-        /* The product monitor retries PC transitions against current inputs.
-         * Do not accumulate native timers replaying an obsolete target. */
-        if (next_mode->name == APP_MODE_PC || app_in_mode(APP_MODE_PC)) {
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+        /* 拨码管理的模式切换只由产品截止点重试，避免原生 100 ms
+         * 重放旧目标绕过三次上限；其他模式继续沿用原生重试。 */
+        if (next_mode->name == APP_MODE_PC || app_in_mode(APP_MODE_PC) ||
+            (next_mode->name == APP_MODE_BT && app_in_mode(APP_MODE_IDLE))) {
+            rdx_dip_switch_wake();
             return NULL;
         }
 #endif
@@ -688,6 +690,7 @@ struct app_mode *app_mode_switch_handler(int *msg)
         if (next_mode->name == APP_MODE_BT || next_mode->name == APP_MODE_POWERON) {
             rdx_dip_switch_note_business_mode();
         }
+        rdx_dip_switch_wake();
 #endif
         return next_mode;
     }

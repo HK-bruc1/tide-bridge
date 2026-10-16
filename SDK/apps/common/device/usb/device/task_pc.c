@@ -101,8 +101,12 @@ enum { FACTORY_USB_NONE, FACTORY_USB_MSC, FACTORY_USB_CDC, FACTORY_USB_STOPPING 
 static volatile u8 factory_cdc_requested;
 static volatile u8 factory_usb_state;
 static volatile u8 factory_usb_shutdown;
-static u32 factory_cdc_retry_at;
-static u8 factory_cdc_retry_wait;
+static volatile u32 factory_cdc_retry_at;
+static volatile u8 factory_cdc_retry_wait;
+static volatile u8 factory_cdc_attempts, factory_cdc_post_wait;
+static volatile u32 factory_cdc_post_at;
+#define FACTORY_CDC_MAX_ATTEMPTS 3
+#define FACTORY_CDC_RETRY_MS 100
 
 static int factory_cdc_allowed(void)
 {
@@ -122,15 +126,44 @@ static int factory_cdc_allowed(void)
 
 void usb_factory_service(void)
 {
-    factory_cdc_requested = !factory_usb_shutdown &&
+    u8 requested = !factory_usb_shutdown &&
         rdx_dut_factory_usb_ready() && get_charge_online_flag() &&
         usb_otg_online(0) == SLAVE_MODE && !app_in_mode(APP_MODE_PC);
-    /* Retry rejected posts on the next app_core tick. Messages carry no old
-     * target and never start MSC; usb_stack rechecks current admission. */
+    if (requested != factory_cdc_requested) {
+        factory_cdc_attempts = factory_cdc_post_wait = 0;
+        if (!requested) factory_cdc_retry_wait = 0;
+    }
+    factory_cdc_requested = requested;
+    if (factory_usb_shutdown) return;
+    /* 稳定态不续表；同一准入条件最多尝试三次，事件不能推迟原重试期限。 */
     if ((factory_cdc_requested && factory_usb_state == FACTORY_USB_NONE) ||
         (!factory_cdc_requested && factory_usb_state == FACTORY_USB_CDC)) {
+        u32 now = sys_timer_get_ms();
+        if (factory_cdc_retry_wait && (int)(now - factory_cdc_retry_at) < 0) return;
+        if (factory_cdc_post_wait && (int)(now - factory_cdc_post_at) < 0) return;
+        if (factory_cdc_attempts >= FACTORY_CDC_MAX_ATTEMPTS) return;
+        ++factory_cdc_attempts;
+        factory_cdc_post_wait = 1;
+        factory_cdc_post_at = now + FACTORY_CDC_RETRY_MS;
         usb_message_to_stack(USBSTACK_CDC_BACKGROUND, 0, 0);
+    } else if ((factory_cdc_requested && factory_usb_state == FACTORY_USB_CDC) ||
+               (!factory_cdc_requested && factory_usb_state == FACTORY_USB_NONE)) {
+        /* STOPPING/MSC 不是目标已达成，不能据此重置失败次数。 */
+        factory_cdc_attempts = factory_cdc_post_wait = 0;
     }
+}
+
+u32 usb_factory_service_delay(void)
+{
+    if (factory_usb_shutdown || factory_cdc_attempts >= FACTORY_CDC_MAX_ATTEMPTS) return 0;
+    if (!((factory_cdc_requested && factory_usb_state == FACTORY_USB_NONE) ||
+          (!factory_cdc_requested && factory_usb_state == FACTORY_USB_CDC))) return 0;
+    u32 now = sys_timer_get_ms();
+    if (factory_cdc_retry_wait && (int)(now - factory_cdc_retry_at) < 0)
+        return factory_cdc_retry_at - now;
+    if (factory_cdc_post_wait && (int)(now - factory_cdc_post_at) < 0)
+        return factory_cdc_post_at - now;
+    return 1;
 }
 
 int usb_factory_msc_started(void) { return factory_usb_state == FACTORY_USB_MSC; }
@@ -148,6 +181,8 @@ void usb_factory_cdc_poll(void)
         usb_stop(0);
         factory_cdc_retry_at = sys_timer_get_ms() + 300;
         factory_cdc_retry_wait = 1;
+        factory_cdc_attempts = factory_cdc_post_wait = 0;
+        rdx_dip_switch_wake();
         log_info("[FACTORY-USB] session closed; reenumerate after 300 ms");
     }
 }
@@ -408,6 +443,7 @@ void usb_start(const usb_dev usbfd)
 #endif
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
     factory_usb_state = FACTORY_USB_MSC;
+    rdx_dip_switch_wake();
 #endif
 }
 
@@ -446,6 +482,7 @@ void usb_pause(const usb_dev usbfd)
     usb_device_mode(usbfd, 0);
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
     factory_usb_state = FACTORY_USB_NONE;
+    rdx_dip_switch_wake();
 #endif
 }
 
@@ -494,10 +531,11 @@ void usb_cdc_background_run(const usb_dev usbfd)
     }
     if (factory_cdc_start()) {
         factory_cdc_stop();
-        return; /* app_core policy tick retries a failed timer allocation */
+        return; /* 由有界协调重试恢复定时器申请失败。 */
     }
     if (!usb_device_mode(usbfd, CDC_CLASS)) {
         factory_usb_state = FACTORY_USB_CDC;
+        rdx_dip_switch_wake();
         log_info("[FACTORY-USB] CDC byte transport, test=%d", TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE);
     } else {
         factory_cdc_stop();

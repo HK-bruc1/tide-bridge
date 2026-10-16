@@ -215,6 +215,7 @@ int test_identity(void) {
 int test_idle_session_lifecycle(void) {
     boot(); generation=0; pump();
     CHECK(consumer && state_handler && !timer_live && !timer_adds);
+    CHECK(!rdx_factory_cdc_needs_poll());
     int services=audio_services, posts=app_posts;
     for(int i=0;i<100;i++) rdx_factory_cdc_poll();
     CHECK(audio_services==services && app_posts==posts && !timer_adds);
@@ -234,10 +235,13 @@ int test_idle_session_lifecycle(void) {
 int test_notification_and_timer_failure_recovery(void) {
     boot(); generation=0; pump();
     app_fail=1; generation=2; state_handler(); CHECK(factory_pending && !app_queued);
+    CHECK(rdx_factory_cdc_needs_poll());
     timer_fail=1; rdx_factory_cdc_poll(); CHECK(!timer_live && consumer);
+    CHECK(rdx_factory_cdc_needs_poll());
     app_fail=0; CHECK(!factory_receive(2,(const u8 *)"PING\r\n",6)); pump();
     CHECK(!strcmp(wire,"OK PONG\r\n") && !timer_live);
     timer_fail=0; rdx_factory_cdc_poll(); CHECK(timer_live);
+    CHECK(!rdx_factory_cdc_needs_poll());
     app_fail=1; generation=0; state_handler(); rdx_factory_cdc_poll();
     CHECK(!timer_live && !factory_count && !irq);
     app_fail=0; pump(); CHECK(!timer_live); /* 旧唤醒通知不能重新开启会话。 */

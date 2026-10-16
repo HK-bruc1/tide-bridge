@@ -429,6 +429,7 @@ int test_async_overflow_and_release_retry(void) {
 int test_idle_worker_lifecycle(void) {
     boot(0); run_app(); rdx_hogp_input_poll(); run_app();
     CHECK(admission && !timer_live && !input_timer && !timer_adds);
+    CHECK(!rdx_hogp_input_needs_poll());
     int posts=app_posts;
     for(int i=0;i<100;i++) { sample(NO_KEY); rdx_hogp_input_poll(); run_app(); }
     CHECK(app_posts==posts && !timer_adds && !input_count);
@@ -452,6 +453,7 @@ int test_worker_notification_and_timer_failure_recovery(void) {
     boot(0); run_app(); rdx_hogp_input_poll(); run_app();
     app_post_fail=1; rdx_hogp_input_invalidate();
     CHECK(input_pending && !app_queued);
+    CHECK(rdx_hogp_input_needs_poll());
     app_post_fail=0; rdx_hogp_input_poll(); sample(NO_KEY); run_app();
     CHECK(admission && !input_timer);
     app_post_fail=1; sample(KEY_IO_NUM0); sample(NO_KEY);
@@ -461,6 +463,7 @@ int test_worker_notification_and_timer_failure_recovery(void) {
     timer_fail=1; ready=1; route=RDX_HOGP_INPUT_HID; ++s_hid_epoch;
     rdx_hogp_input_wake(); run_app();
     CHECK(!input_timer && timer_adds && !app_queued);
+    CHECK(rdx_hogp_input_needs_poll());
     timer_fail=0; rdx_hogp_input_poll(); CHECK(input_timer);
     ready=0; route=RDX_HOGP_INPUT_OFFLINE; rdx_hogp_input_poll(); run_app();
     CHECK(!input_timer && !release_pending && !irq_depth && !context_errors);

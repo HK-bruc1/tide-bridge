@@ -29,14 +29,16 @@ struct factory_packet {
 static struct factory_packet factory_mailbox[FACTORY_RX_DEPTH];
 static u8 factory_head, factory_count;
 static struct {
-    u32 generation, response_since;
-    u16 timer, length, response_length;
+    volatile u32 generation;
+    u32 response_since;
+    volatile u16 timer;
+    u16 length, response_length;
     u8 cr, error;
     char line[FACTORY_LINE_MAX + 1];
     char response[FACTORY_CDC_TX_MAX];
 } factory_protocol;
 
-static u8 factory_event_posted, factory_pending, factory_initialized;
+static volatile u8 factory_event_posted, factory_pending, factory_initialized;
 static void factory_service(void *priv);
 static void factory_event(void *priv)
 {
@@ -341,19 +343,21 @@ void rdx_factory_cdc_init(void)
     factory_wake();
 }
 
-void rdx_factory_cdc_poll(void)
+int rdx_factory_cdc_needs_poll(void)
 {
-    if (!factory_initialized) return;
+    if (!factory_initialized || factory_event_posted) return 0;
     u32 generation = factory_cdc_generation();
     int cleanup = rdx_factory_audio_needs_service();
 #if TCFG_T2620_CDC_FILE_ENABLE
     cleanup |= rdx_cdc_source_busy() && rdx_cdc_source_closed() != 2;
 #endif
-    /* 复用已有产品服务处理通知投递失败、定时器分配失败及断线后的异步收尾。
-     * 无会话且无待处理业务时，不执行协议周期服务。 */
-    if (factory_pending || generation != factory_protocol.generation ||
-        !!generation != !!factory_protocol.timer || (!generation && cleanup)) {
-        factory_service(NULL);
-    }
+    /* 只读状态，供优先级 0 恢复入口判断；不得在此执行协议或文件操作。 */
+    return factory_pending || generation != factory_protocol.generation ||
+           !!generation != !!factory_protocol.timer || (!generation && cleanup);
+}
+
+void rdx_factory_cdc_poll(void)
+{
+    if (rdx_factory_cdc_needs_poll()) factory_service(NULL);
 }
 #endif

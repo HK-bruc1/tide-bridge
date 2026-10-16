@@ -5,6 +5,7 @@
 #pragma code_seg(".charge.text")
 #endif
 #include "app_config.h"
+#include "rdx_dip_switch.h"
 #include "asm/charge.h"
 #include "asm/power_interface.h"
 #include "system/event.h"
@@ -421,6 +422,7 @@ static int app_charge_event_handler(int *msg)
         charge_full_deal();
         break;
     case CHARGE_EVENT_LDO5V_KEEP:
+        rdx_dip_switch_wake();
 #if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
         /* 即使未编译 USB 从机协议栈，也必须允许 CPU 运行以处理充电业务。 */
         set_charge_poweron_en(1);
@@ -432,6 +434,7 @@ static int app_charge_event_handler(int *msg)
         ldo5v_keep_deal();
         break;
     case CHARGE_EVENT_LDO5V_IN:
+        rdx_dip_switch_wake();
 #if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE
         /* 即使未编译 USB 从机协议栈，也必须允许 CPU 运行以处理充电业务。 */
         set_charge_poweron_en(1);
@@ -460,6 +463,7 @@ static int app_charge_event_handler(int *msg)
         }
         break;
     case CHARGE_EVENT_LDO5V_OFF:
+        rdx_dip_switch_wake();
 #if TCFG_DIP_SWITCH_POWER_ENABLE
         if (!get_power_on_status()) {
             /* Route through PC cleanup instead of direct power_set_soft_poweroff. */

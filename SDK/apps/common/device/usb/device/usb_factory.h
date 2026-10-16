@@ -6,6 +6,8 @@
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
 /* app_core publishes policy; usb_stack alone owns class resources. */
 void usb_factory_service(void);
+/* 返回实际协调待办的下次等待时间，稳定态为 0；仅由 app_core 调用。 */
+unsigned int usb_factory_service_delay(void);
 void usb_factory_cdc_poll(void);
 int usb_factory_msc_started(void);
 int usb_factory_cdc_started(void);
