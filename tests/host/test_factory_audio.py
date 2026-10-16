@@ -57,6 +57,8 @@ u8 rdx_app_factory_file_is_busy(void) { return blocked; }
 void rdx_app_emmc_poweroff_check_timer_stop(void) {}
 int rdx_rtc_set_timestamp(u32 t) { return 0; }
 void rdx_dut_factory_record_stop(void) { ++stops; }
+static int dut_wakes;
+void rdx_dut_service_wake(void) { ++dut_wakes; }
 void *rdx_record_format_factory_open(u32 sn,const char *name,u32 start,u32 *size,u32 *crc) {
     if (fail_open) return NULL;
     ++handles; *size=160; *crc=123; return (void *)1;
@@ -72,6 +74,7 @@ int mock_close(void *h) { --handles; return fail_close ? -1 : 0; }
 TESTS = r'''
 #define CHECK(x) do { if (!(x)) return __LINE__; } while(0)
 static void boot(void) {
+    dut_wakes=0;
     memset(&audio,0,sizeof(audio)); memset(&file,0,sizeof(file));
     generation=1; now=0; stops=blocked=dut=full=fail_open=fail_read=fail_close=handles=0;
     wire_len=0; wire[0]=0; delay_work=NULL;
@@ -82,6 +85,7 @@ int test_audio_delivery(void) {
     boot(); CHECK(!rdx_factory_audio_ready(1) && !rdx_factory_audio_needs_service()); begin();
     CHECK(rdx_factory_audio_owned() && rdx_factory_audio_needs_service());
     u8 frame[40]={0}; rdx_factory_audio_frame(frame,40); rdx_factory_audio_frame(frame,40);
+    CHECK(dut_wakes==1);
     rdx_factory_audio_saved(0); rdx_factory_audio_stopped(8,0);
     CHECK(audio.saved && audio.complete && !audio.end_sent);
     CHECK(!rdx_factory_audio_needs_service());

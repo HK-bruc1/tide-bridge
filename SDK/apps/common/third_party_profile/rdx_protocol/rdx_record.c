@@ -2665,6 +2665,7 @@ static void rdx_record_task(void *arg)
                             rdx_record_set_process_state_ready();
                             dut_record_result = saved < 0 ? -1 : 0;
                             dut_record_done = (u32)msg[2];
+                            rdx_dut_service_wake();
                             continue;
                         }
                         if (msg[1] == RDX_RECORD_USB_FENCE) {

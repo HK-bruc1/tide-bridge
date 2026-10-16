@@ -48,6 +48,13 @@ These scheduling checks do not prove on-device current or latency; see the
 [disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
 and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
+DUT 调度检查覆盖未连接、BLE 已连接、USB 在线和 DUT 模式内无待办停表；
+执行实际初始化、物理键/命令入口、事件合并及处理中再次通知、消息与定时器失败恢复、
+固定截止时间、旧超时回调、计数回绕、录音停止投递重试上限及迟到保存结果。
+按键等待和喇叭稳定播放不保留通用服务周期；PCM 供数只在启动/结束通知，录音只在首帧通知，
+包装提示音只在间隔阶段安排单次超时。生产者通知接线另做源检查；硬件线程时序、
+USB/音频实际延迟和连接前后电流仍须板测，不由这些模拟用例证明。
+
 Power contracts also reject the obsolete PA0-as-VDD alias and direct PA0 GPIO
 use in RDX, preserving ADC0/ADC3's JL MIC_LDO selection. The storage ABI harness
 checks wake/idle delegation and failed-wake retry without a second timer or power

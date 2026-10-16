@@ -35,6 +35,9 @@ static int on=1, vbus, mode=APP_MODE_BT, started, reset_count, off_requests, ser
 static int worker_polls;
 void rdx_factory_cdc_poll(void) { ++worker_polls; }
 void rdx_hogp_input_poll(void) { ++worker_polls; }
+void rdx_dut_service_poll(void) {}
+void rdx_dut_service_wake(void) {}
+int rdx_dut_test_keys_active(void) { return 0; }
 static struct { int goto_poweroff_flag, goto_poweroff_cnt; } app_var;
 int get_power_on_status(void) { return on; }
 int get_charge_online_flag(void) { return vbus; }

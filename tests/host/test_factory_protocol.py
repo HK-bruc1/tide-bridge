@@ -29,6 +29,7 @@ char *strcpy(char *, const char *);
 int strcmp(const char *, const char *);
 int strncmp(const char *, const char *, unsigned int);
 char *strchr(const char *, int);
+void rdx_dut_service_wake(void) {}
 void rdx_dut_cdc_status(char *out, unsigned int capacity, int keys) { strcpy(out,"OK STATUS\r\n"); }
 void rdx_dut_cdc_request(u32 gen, const char *name, u8 value, char *out, unsigned int capacity) {
     snprintf(out,capacity,"OK ACTION=%s;VALUE=%u;GEN=%u\r\n",name,value,gen);

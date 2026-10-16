@@ -87,6 +87,7 @@ void rdx_factory_audio_frame(const u8 *data, u32 length)
 {
     if (!audio.running || audio.complete) return;
     local_irq_disable();
+    u8 first = !audio.started;
     if (!audio.started) {
         audio.since = audio.tx_since = sys_timer_get_ms();
         uxfile_data_t *info = rdx_uxfile_get_operateFile_info();
@@ -106,6 +107,7 @@ void rdx_factory_audio_frame(const u8 *data, u32 length)
         audio.crc = rdx_factory_audio_crc(audio.crc, data, 40);
     }
     local_irq_enable();
+    if (first) rdx_dut_service_wake();
 }
 
 /* Called before the recorder clears its file context, after finish_record. */

@@ -274,6 +274,7 @@ static void factory_service(void *priv)
         factory_protocol.generation = generation;
         factory_protocol.length = factory_protocol.response_length = 0;
         factory_protocol.cr = factory_protocol.error = 0;
+        rdx_dut_service_wake();
     }
     rdx_factory_audio_service(generation);
 #if TCFG_T2620_CDC_FILE_ENABLE

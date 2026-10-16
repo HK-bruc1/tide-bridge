@@ -17,10 +17,12 @@
 #include "rdx_storage_lifecycle.h"
 #include "rdx_hogp_input.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_dut.h"
 
 #if TCFG_DIP_SWITCH_POWER_ENABLE
 static int s_refresh_previous;
 static u8 s_pc_refresh_pending;
+static int s_business_blocked_previous;
 
 void rdx_storage_lifecycle_pc_returned(void)
 {
@@ -50,6 +52,11 @@ int rdx_storage_lifecycle_transition_led(void)
 
 int rdx_storage_lifecycle_service(int on, int vbus)
 {
+    int blocked = rdx_storage_lifecycle_business_blocked();
+    if (blocked != s_business_blocked_previous) {
+        s_business_blocked_previous = blocked;
+        if (rdx_dut_test_keys_active()) rdx_dut_service_wake();
+    }
     int refresh = rdx_uxfile_pc_refresh_status();
     if (refresh != s_refresh_previous) {
         r_printf("[USB-SWITCH] PC index refresh=%d\n", refresh);

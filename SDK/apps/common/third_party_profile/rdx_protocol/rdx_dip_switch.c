@@ -14,6 +14,7 @@
 #include "rdx_storage_lifecycle.h"
 #include "rdx_factory_cdc.h"
 #include "rdx_hogp_input.h"
+#include "rdx_dut.h"
 
 static bool s_init_done;
 static volatile bool s_business_mode_entered;
@@ -112,6 +113,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     /* Runs even when the DIP/PC service is waiting, retrying or failing. */
     usb_factory_service();
 #endif
+    rdx_dut_service_poll();
     /* Require two matching samples before reacting to a mechanical edge. */
     if (on != s_sample_on) {
         s_sample_on = on;
@@ -120,6 +122,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     p33_io_wakeup_edge(TCFG_DIP_SWITCH_POWER_IO,
                        on ? RISING_EDGE : FALLING_EDGE);
     if (on != s_last_on || usb != s_last_usb || vbus != s_last_vbus) {
+        if (rdx_dut_test_keys_active()) rdx_dut_service_wake();
         s_attempts = 0;
         s_retry_ticks = 0;
     }
