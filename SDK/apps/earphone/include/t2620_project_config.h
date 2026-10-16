@@ -184,10 +184,16 @@
 
 /*
  * T2620 外置功放使能：PE5 高有效。开机默认电平由板级配置保持为低，
- * 运行时只允许 RDX/T2620 外设电源模块跟随 DAC 模拟电源生命周期驱动。
+ * 运行时由 RDX/T2620 外设电源模块按 DAC 数字输出启停控制，模拟就绪作为安全门禁；
+ * 关闭功放不能绕过 SDK 的 ADC/DAC 共享模拟资源保护。
  */
 #ifndef TCFG_T2620_AMP_POWER_ENABLE
 #define TCFG_T2620_AMP_POWER_ENABLE               1
+#endif
+
+/* PE5 边沿诊断：回调内只记录，app_core 打印 [AMP]；量产保持 0。 */
+#ifndef TCFG_T2620_AMP_TRACE_ENABLE
+#define TCFG_T2620_AMP_TRACE_ENABLE                1
 #endif
 
 #ifndef TCFG_T2620_AMP_ENABLE_IO

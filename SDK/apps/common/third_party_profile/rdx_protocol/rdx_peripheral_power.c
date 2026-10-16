@@ -952,6 +952,41 @@ u32 rdx_peripheral_power_vdd_generation_get(void)
 #if TCFG_T2620_AMP_POWER_ENABLE
 
 static u8 g_rdx_amp_enabled;
+static u8 g_rdx_amp_analog_ready;
+static u8 g_rdx_amp_output_running;
+
+enum {
+    RDX_AMP_SRC_ANALOG = 0,
+    RDX_AMP_SRC_DIGITAL = 1,
+};
+
+/* BR28 media.a 中 _audio_dac_status_hook 的数字输出状态值；
+ * 由 tests/host/amp_output_checks.py 对照 SDK 库校验，库升级时需复核。 */
+enum {
+    RDX_DAC_STATUS_INIT = 0,
+    RDX_DAC_STATUS_START = 2,
+    RDX_DAC_STATUS_STOP = 4,
+};
+
+#if TCFG_T2620_AMP_TRACE_ENABLE
+/* PE5 边沿诊断：回调上下文只记录，app_core 统一打印 [AMP]。 */
+#define RDX_AMP_TRACE_SIZE 8
+struct rdx_amp_trace {
+    u32 seq;
+    u32 ms;
+    u8 src;
+    u8 state;
+    u8 pe5;
+    u8 analog_ready;
+    u8 output_running;
+};
+static struct rdx_amp_trace g_rdx_amp_trace[RDX_AMP_TRACE_SIZE];
+static u32 g_rdx_amp_trace_seq;
+static u8 g_rdx_amp_trace_head;
+static u8 g_rdx_amp_trace_count;
+static u8 g_rdx_amp_trace_queued;
+static u32 g_rdx_amp_trace_dropped;
+#endif
 
 void rdx_peripheral_power_amp_set(u8 enable)
 {
@@ -966,30 +1001,142 @@ void rdx_peripheral_power_amp_set(u8 enable)
     g_rdx_amp_enabled = next;
 }
 
+#if TCFG_T2620_AMP_TRACE_ENABLE
+static const char *rdx_amp_trace_event_name(u8 src, u8 state)
+{
+    if (src == RDX_AMP_SRC_DIGITAL) {
+        return state == RDX_DAC_STATUS_INIT ? "DAC_INIT" :
+               state == RDX_DAC_STATUS_START ? "DAC_START" :
+               state == RDX_DAC_STATUS_STOP ? "DAC_STOP" : "DAC_UNKNOWN";
+    }
+    return state == DAC_ANALOG_OPEN_PREPARE ? "ANA_OPEN_PREP" :
+           state == DAC_ANALOG_OPEN_FINISH ? "ANA_OPEN_DONE" :
+           state == DAC_ANALOG_CLOSE_PREPARE ? "ANA_CLOSE_PREP" :
+           state == DAC_ANALOG_CLOSE_FINISH ? "ANA_CLOSE_DONE" : "ANA_UNKNOWN";
+}
+
+static void rdx_amp_trace_flush(void)
+{
+    struct rdx_amp_trace item;
+    u32 dropped;
+
+    while (1) {
+        local_irq_disable();
+        if (!g_rdx_amp_trace_count) {
+            dropped = g_rdx_amp_trace_dropped;
+            g_rdx_amp_trace_dropped = 0;
+            g_rdx_amp_trace_queued = 0;
+            local_irq_enable();
+            break;
+        }
+        item = g_rdx_amp_trace[(u8)(g_rdx_amp_trace_head - g_rdx_amp_trace_count) % RDX_AMP_TRACE_SIZE];
+        --g_rdx_amp_trace_count;
+        local_irq_enable();
+        r_printf("[AMP] pe5=%u ev=%s analog=%u output=%u seq=%u t=%u\n",
+                 item.pe5, rdx_amp_trace_event_name(item.src, item.state),
+                 item.analog_ready, item.output_running, item.seq, item.ms);
+    }
+    if (dropped) {
+        r_printf("[AMP] dropped=%u\n", dropped);
+    }
+}
+
+/* 仅记录 PE5 实际翻转；返回 1 表示需要投递一次打印任务。 */
+static u8 rdx_amp_trace_record(u8 src, u8 state, u8 old_pe5)
+{
+    struct rdx_amp_trace *item;
+
+    if (old_pe5 == g_rdx_amp_enabled) {
+        return 0;
+    }
+    if (g_rdx_amp_trace_count >= RDX_AMP_TRACE_SIZE) {
+        ++g_rdx_amp_trace_dropped;
+        --g_rdx_amp_trace_count;
+    }
+    item = &g_rdx_amp_trace[g_rdx_amp_trace_head];
+    item->seq = ++g_rdx_amp_trace_seq;
+    item->ms = sys_timer_get_ms();
+    item->src = src;
+    item->state = state;
+    item->pe5 = g_rdx_amp_enabled;
+    item->analog_ready = g_rdx_amp_analog_ready;
+    item->output_running = g_rdx_amp_output_running;
+    g_rdx_amp_trace_head = (g_rdx_amp_trace_head + 1) % RDX_AMP_TRACE_SIZE;
+    ++g_rdx_amp_trace_count;
+    if (g_rdx_amp_trace_queued) {
+        return 0;
+    }
+    g_rdx_amp_trace_queued = 1;
+    return 1;
+}
+
+/* 在临界区外投递；投递失败时清除排队标记，下一次翻转重试。 */
+static void rdx_amp_trace_post(void)
+{
+    int msg[1] = { (int)rdx_amp_trace_flush };
+
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 1, msg)) {
+        local_irq_disable();
+        g_rdx_amp_trace_queued = 0;
+        local_irq_enable();
+    }
+}
+#endif
+
 u8 rdx_peripheral_power_amp_is_enabled(void)
 {
     return g_rdx_amp_enabled;
 }
 
 /*
- * JL's DAC implementation calls this application override synchronously.
- * Keep the external amplifier disabled until the DAC analog path is ready,
- * and disable it before the DAC analog path starts closing.
+ * PE5 = 模拟就绪 && 数字输出运行。
+ * BLE 连接后 SDK 不关闭 DAC 模拟，只跟随模拟生命周期会让功放常开；
+ * 这里只控制功放，不强关 DAC 模拟，避免影响共享资源的 ADC/MIC。
  */
+static void rdx_amp_apply(u8 src, u8 state)
+{
+    u8 old_pe5;
+    u8 post = 0;
+
+    local_irq_disable();
+    old_pe5 = g_rdx_amp_enabled;
+    if (src == RDX_AMP_SRC_ANALOG) {
+        /* 只有 OPEN_FINISH 表示模拟就绪；其余状态同时作废输出状态，需重新 START。 */
+        g_rdx_amp_analog_ready = state == DAC_ANALOG_OPEN_FINISH;
+        if (!g_rdx_amp_analog_ready) {
+            g_rdx_amp_output_running = 0;
+        }
+    } else {
+        /* INIT 表示 DAC 重新初始化，模拟就绪需等待新的 OPEN_FINISH；未知状态按停止处理。 */
+        g_rdx_amp_output_running = state == RDX_DAC_STATUS_START;
+        if (state == RDX_DAC_STATUS_INIT) {
+            g_rdx_amp_analog_ready = 0;
+        }
+    }
+    rdx_peripheral_power_amp_set(g_rdx_amp_analog_ready && g_rdx_amp_output_running);
+#if TCFG_T2620_AMP_TRACE_ENABLE
+    post = rdx_amp_trace_record(src, state, old_pe5);
+#endif
+    local_irq_enable();
+#if TCFG_T2620_AMP_TRACE_ENABLE
+    if (post) {
+        rdx_amp_trace_post();
+    }
+#endif
+    (void)old_pe5;
+    (void)post;
+}
+
+/* SDK 模拟通路回调：OPEN_FINISH 后才允许开功放。 */
 void audio_dac_power_state(u8 state)
 {
-    switch (state) {
-    case DAC_ANALOG_OPEN_FINISH:
-        rdx_peripheral_power_amp_set(1);
-        break;
+    rdx_amp_apply(RDX_AMP_SRC_ANALOG, state);
+}
 
-    case DAC_ANALOG_OPEN_PREPARE:
-    case DAC_ANALOG_CLOSE_PREPARE:
-    case DAC_ANALOG_CLOSE_FINISH:
-    default:
-        rdx_peripheral_power_amp_set(0);
-        break;
-    }
+/* SDK 数字输出回调（覆盖 media.a 弱函数）：START 开、STOP（淡出后）立即关。 */
+void _audio_dac_status_hook(u8 status)
+{
+    rdx_amp_apply(RDX_AMP_SRC_DIGITAL, status);
 }
 
 #else

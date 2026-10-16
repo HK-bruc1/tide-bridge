@@ -77,11 +77,13 @@ $ampImplementation = Get-SourceSlice $PeripheralPower `
     'static u8 g_rdx_amp_enabled;' `
     '#else'
 $ampDacLifecycleOk = $PeripheralPowerH -match 'void\s+rdx_peripheral_power_amp_set\s*\(u8\s+enable\)' -and
-                     $ampImplementation -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\).*?case\s+DAC_ANALOG_OPEN_FINISH\s*:.*?rdx_peripheral_power_amp_set\(1\).*?case\s+DAC_ANALOG_OPEN_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_FINISH\s*:.*?default\s*:.*?rdx_peripheral_power_amp_set\(0\)' -and
+                     $ampImplementation -match 'rdx_peripheral_power_amp_set\(g_rdx_amp_analog_ready\s*&&\s*g_rdx_amp_output_running\)' -and
+                     $ampImplementation -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\)\s*\{\s*rdx_amp_apply\(RDX_AMP_SRC_ANALOG,\s*state\);' -and
+                     $ampImplementation -match '(?s)void\s+_audio_dac_status_hook\s*\(u8\s+status\)\s*\{\s*rdx_amp_apply\(RDX_AMP_SRC_DIGITAL,\s*status\);' -and
                      $ampImplementation -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_AMP_ENABLE_IO\)' -and
                      $ampImplementation -notmatch 'sys_timeout_add|sys_timer_add|os_time_dly'
 Assert-Contract 'T2620_AMP_FOLLOWS_DAC_LIFECYCLE' $ampDacLifecycleOk `
-    'PE5 must rise only after DAC analog open finishes and fall synchronously before/after DAC analog close'
+    'PE5 must follow DAC analog readiness AND digital output running, without timers'
 
 $ampPinConflictOk = $RdxAppConfig -match '(?m)^\s*#define\s+RDX_WIFI_ENABLE\s+\(0\)' -and
                     $PeripheralPower -match '(?s)#if\s+TCFG_T2620_AMP_POWER_ENABLE\s*&&\s*RDX_WIFI_ENABLE.*?#error\s+"T2620 PE5 amplifier enable conflicts with the legacy RDX WiFi SPI CS assignment"'
