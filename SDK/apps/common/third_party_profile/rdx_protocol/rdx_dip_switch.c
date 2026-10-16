@@ -12,6 +12,8 @@
 #include "usb/otg.h"
 #include "rdx_app.h"
 #include "rdx_storage_lifecycle.h"
+#include "rdx_factory_cdc.h"
+#include "rdx_hogp_input.h"
 
 static bool s_init_done;
 static volatile bool s_business_mode_entered;
@@ -133,6 +135,8 @@ static void rdx_dip_switch_deferred_handle(void *priv)
         app_send_message(APP_MSG_REQUEST_POWEROFF, POWEROFF_NORMAL);
         return;
     }
+    rdx_factory_cdc_poll();
+    rdx_hogp_input_poll();
     rdx_storage_lifecycle_service(on, vbus);
     if (s_retry_ticks) {
         --s_retry_ticks;

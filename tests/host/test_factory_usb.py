@@ -321,6 +321,12 @@ static int consumer(u32 gen, const u8 *data, u32 len) {
     }
     return factory_cdc_send(gen,data,len);
 }
+static int state_notifications;
+static u32 notified_generation;
+static void state_notify(void) {
+    ++state_notifications;
+    notified_generation=factory_cdc_generation();
+}
 static void tick(void) {
     now+=10;
     factory_cdc_kick(NULL);
@@ -338,6 +344,17 @@ static void boot(void) {
     factory_cdc_set_rx_handler(consumer);
 }
 int test_transport(void) {
+    boot();
+    state_notifications=0; factory_cdc_set_state_handler(state_notify);
+    factory_cdc_open(); CHECK(!state_notifications); /* 重复 DTR 打开操作必须幂等。 */
+    local_irq_disable(); factory_cdc_invalidate(FACTORY_CDC_RESET); local_irq_enable();
+    CHECK(state_notifications==1 && !notified_generation && !irq_depth);
+    local_irq_disable(); factory_cdc_open(); local_irq_enable();
+    CHECK(state_notifications==2 && notified_generation && !irq_depth);
+    factory_cdc_quiesce(); CHECK(state_notifications==3 && !notified_generation);
+    factory_cdc_stop(); CHECK(state_notifications==4 && !notified_generation);
+    factory_cdc_start(); factory_cdc_open();
+    CHECK(state_notifications==6 && notified_generation); /* 重启后仍保留状态通知回调。 */
     boot();
     u32 abort_generation = factory_cdc_generation();
     factory_cdc_abort(abort_generation + 1);

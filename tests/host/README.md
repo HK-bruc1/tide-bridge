@@ -26,18 +26,35 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
 | `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries; KEY1/F13、KEY2/F14 单击反馈分流及 `led_key_feedback_checks.py` 中真实灯效引擎的颜色、超时、优先级、绑定后静默广播与实时恢复 |
-| `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery and bounded identity fields |
+| `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
-| `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
+| `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
 
 The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers
 golden CRC/frame vectors, 1/2/4/8 KB blocks, partial-frame cancellation, stale
 sessions, TX-full control reception, coalesced wakeups and bounded output.
-Its cdc_source_checks.py harness executes the recording worker with two read
+
+The HOGP harness also checks event-only offline first-key/multi-click/KEY5
+gestures, idle with no 10 ms timer, HID-ready start/stop, and queue/timer failure
+recovery using the existing product tick. CDC checks cover DTR-scoped protocol
+timers, transport state notifications and detached audio/file cleanup. Neither
+module needs a persistent 10 ms service without its valid session; the existing
+100 ms product recovery tick and USB transport lifecycle remain separate.
+These scheduling checks do not prove on-device current or latency; see the
+[disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
+and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
+
+Power contracts also reject the obsolete PA0-as-VDD alias and direct PA0 GPIO
+use in RDX, preserving ADC0/ADC3's JL MIC_LDO selection. The storage ABI harness
+checks wake/idle delegation and failed-wake retry without a second timer or power
+state. These checks cannot prove PA0/MIC rail voltages, audio quality or current;
+board tests must distinguish PA0 MIC power, PA4 SD/RGB power and PE5 amplifier enable.
+
+The CDC suite's cdc_source_checks.py harness executes the recording worker with two read
 buffers, delayed completion, read/close failures, cancellation, quarantine,
 deadlines and bounded shutdown. Record-format tests cover the public in-flight
 gate; archive regression tests cover queued format admission and locked DAT
@@ -50,8 +67,9 @@ seconds. The C worker streams the same length with fixed buffers; producer and
 format tests cover offsets/lengths above 16 MiB and 2 GiB through the aligned
 u32 boundary, idle timeout and timer wrap, large-offset cancellation, legacy/new
 CAPS negotiation, and preservation of the short factory-recording limit.
-These simulations do not certify physical large-file storage or USB transfer;
-the real 143 MB recording still requires on-device download/content validation.
+These simulations do not certify physical large-file storage or USB transfer.
+The historical 143 MB single-run board result does not replace large-file repeat,
+independent-source comparison or regression of the new session-scoped scheduling.
 The `cdc_conflict_checks.py` harness executes admission predicates and entry
 reservations extracted from the patched protocol archive, deferred BLE list
 admission and production OTA dispatch. Additional cases cover post-acquire CDC
@@ -59,7 +77,8 @@ conflicts, index activity independent of the CDC lease, and reset rejection.
 These are targeted gate tests, not a simulation of the entire BLE parser or JL
 scheduler. The patched archive now contains protocol and UXFILE modifications.
 It does not establish physical USB timing, storage throughput or 600 KB/s.
-See docs/10-4.CDC通用文件传输业务方案.md sections 7 and 9.3–9.7 for real-file board validation.
+See [CDC file transfer](../../docs/10-4.CDC通用文件传输业务方案.md),
+sections 6.3–6.4 for board validation and section 7 for historical performance.
 
 ## Keeping the suite small
 
@@ -162,7 +181,7 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 单文件 `CDC-test.bat`，由 `host_c_test_lib.load_cdc_tool()` 加载后测试。提供基础检查、受固件能力
 门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
 由 factory USB 组调用，覆盖旧固件阻断、超时不重发、LAST 覆盖、AUTH 完整显示/保存及控制顺序；
-使用模拟串口，不打开硬件。完整录音/文件/包装流程尚未实现。
+使用模拟串口，不打开硬件。工具已接入录音、文件和独立包装流程；本段的主机模拟覆盖不等于完整实板验收，业务证据及剩余回归见 board README 和关联 CDC 文档。
 
 `python tests/board/factory_cdc_bytes.py --port COM6` requires `pyserial`, a DUT
 and CDC TEST firmware. Use the CDC port, not the debug log port. This independent

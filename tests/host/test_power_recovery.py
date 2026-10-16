@@ -32,6 +32,9 @@ typedef int P33_IO_WKUP_EDGE;
 #define false 0
 #define NULL ((void*)0)
 static int on=1, vbus, mode=APP_MODE_BT, started, reset_count, off_requests, service_calls, edge;
+static int worker_polls;
+void rdx_factory_cdc_poll(void) { ++worker_polls; }
+void rdx_hogp_input_poll(void) { ++worker_polls; }
 static struct { int goto_poweroff_flag, goto_poweroff_cnt; } app_var;
 int get_power_on_status(void) { return on; }
 int get_charge_online_flag(void) { return vbus; }
@@ -50,6 +53,7 @@ tests = r"""
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 static void reset(void) {
     on=1; vbus=0; started=0; reset_count=off_requests=service_calls=0;
+    worker_polls=0;
     s_init_done=s_business_mode_entered=0;
     s_shutdown_ticks=s_guard_off_samples=s_shutdown_pending=s_irq_pending=0;
     s_last_on=s_sample_on=-1; s_attempts=s_retry_ticks=0;
@@ -76,11 +80,13 @@ int test_native_off_priority(void) {
     rdx_dip_switch_deferred_handle(0); CHECK(!off_requests);
     rdx_dip_switch_deferred_handle(0);
     CHECK(off_requests==1 && s_shutdown_pending && !service_calls);
+    CHECK(!worker_polls); /* 恢复工作不能延迟已接受的关机。 */
     /* USB 或 ON 状态变化不得重新进入已部分销毁的运行时。 */
     on=1; vbus=0; rdx_dip_switch_deferred_handle(0);
     rdx_dip_switch_deferred_handle(0); CHECK(off_requests==2 && !service_calls);
     app_var.goto_poweroff_flag=1;
     rdx_dip_switch_deferred_handle(0); CHECK(off_requests==2);
+    CHECK(!worker_polls);
     return 0;
 }
 int test_cold_charge_and_battery(void) {
@@ -140,3 +146,46 @@ path.write_text(stubs + source + tests + native_stubs +
                 function(idle, 'app_idle_enter_softoff') + native_tests, encoding='utf-8')
 run_c_checks(path, ['test_native_normal_off', 'test_native_dip_restart'])
 print('Native power: normal ON shutdown and accepted DIP OFF/ON remain distinct.')
+
+# 验证旧库 ABI 兼容入口，测试环境不提供 GPIO、SD 或定时器接口。
+app = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c').read_text(encoding='utf-8')
+storage_stubs = r'''
+typedef unsigned char u8;
+#define RDX_SHARED_VDD_WAKE_BUSINESS 3
+#define r_printf(...) ((void)0)
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+static int wake_calls, idle_notifications, wake_error, wake_reason;
+int rdx_peripheral_power_vdd_ensure_on(int reason) {
+    ++wake_calls; wake_reason = reason; return wake_error;
+}
+void rdx_peripheral_power_vdd_business_changed_notify(void) {
+    ++idle_notifications;
+}
+'''
+storage_tests = r'''
+int test_legacy_storage_delegation(void) {
+    wake_calls=idle_notifications=wake_error=0;
+    rdx_app_emmc_poweron(0);
+    CHECK(wake_calls==1 && wake_reason==RDX_SHARED_VDD_WAKE_BUSINESS);
+    rdx_app_emmc_poweron(1);
+    CHECK(wake_calls==2 && !idle_notifications);
+    rdx_app_emmc_poweroff();
+    rdx_app_emmc_poweroff_check();
+    CHECK(wake_calls==2 && idle_notifications==2);
+    rdx_app_emmc_poweroff_check_timer_stop();
+    CHECK(wake_calls==2 && idle_notifications==2);
+    /* 恢复失败不能产生额外的“已上电”影子状态。 */
+    wake_error=-1; rdx_app_emmc_poweron(1);
+    CHECK(wake_calls==3 && idle_notifications==2);
+    wake_error=0; rdx_app_emmc_poweron(0);
+    CHECK(wake_calls==4 && idle_notifications==2);
+    return 0;
+}
+'''
+path = path.with_name('storage_power.c')
+path.write_text(storage_stubs + ''.join(function(app, name) for name in (
+    'rdx_app_emmc_poweron', 'rdx_app_emmc_poweroff',
+    'rdx_app_emmc_poweroff_check_timer_stop', 'rdx_app_emmc_poweroff_check',
+)) + storage_tests, encoding='utf-8')
+run_c_checks(path, ['test_legacy_storage_delegation'])
+print('Storage power: legacy ABI delegates wake/idle to PA4 manager, without MIC GPIO or a second timer/state.')

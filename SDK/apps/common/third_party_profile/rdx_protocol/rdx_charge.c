@@ -521,7 +521,6 @@ void rdx_app_charge_stop(void)
     // gpio_set_mode(IO_PORT_SPILT(IO_PORTC_02), PORT_HIGHZ);
     // gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
     // //power off vdd.
-    // gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 
     power_set_mode(TCFG_LOWPOWER_POWER_SEL);
     // power_awakeup_gpio_enable(IO_CHGFL_DET, 0);

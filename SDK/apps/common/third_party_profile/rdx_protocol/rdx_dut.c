@@ -1992,8 +1992,6 @@ static void dut_mode_apply(void)
         rdx_ble_server_auto_shut_down_enable(0);
         DUT_LOG("Auto shutdown disabled!\r");
         
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
-        
         rdx_spp_init();
         
     }else{

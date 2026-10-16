@@ -95,6 +95,25 @@ $sharedVddPowerCutConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED
 Assert-Contract 'T2620_SHARED_VDD_POWER_CUT_CONFIG' $sharedVddPowerCutConfigOk `
     'PA4 shared SD/RGB rail must use the POWER_CUT path with a nonzero power-stable window'
 
+$rdxPowerSources = Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol') -Recurse -File |
+    Where-Object { $_.Extension -in '.c', '.h' } |
+    ForEach-Object { Get-Content -Raw -Encoding UTF8 -LiteralPath $_.FullName }
+$micNativeOwnershipOk = ($rdxPowerSources -join "`n") -notmatch '\bVDD_POWER_(PORT_IO|PORT|PIN)\b|\bIO_PORTA_00\b|\brdx_app_do_emmc_reset\b' -and
+                        $SdkConfigH -match '(?m)^#define\s+TCFG_ADC0_BIAS_SEL\s+16\b' -and
+                        $SdkConfigH -match '(?m)^#define\s+TCFG_ADC3_BIAS_SEL\s+16\b'
+Assert-Contract 'T2620_MIC_PA0_NATIVE_OWNERSHIP' $micNativeOwnershipOk `
+    'PA0 must stay with JL MIC_LDO (ADC0/ADC3), never the legacy RDX VDD alias or GPIO paths'
+
+$legacyStoragePower = Get-SourceSlice $RdxApp `
+    'void rdx_app_emmc_poweron(u8 check_en)' `
+    '#if RDX_WIFI_ENABLE' -Last
+$legacyStorageDelegatesOk = $legacyStoragePower -match 'rdx_peripheral_power_vdd_ensure_on\(RDX_SHARED_VDD_WAKE_BUSINESS\)' -and
+                           $legacyStoragePower -match 'rdx_peripheral_power_vdd_business_changed_notify\(\)' -and
+                           $legacyStoragePower -notmatch 'gpio_set_mode|sd_set_power|sys_(timeout|timer)_(add|del)' -and
+                           $RdxApp -notmatch '\bemmc_poweroff_flag\b|\bemmc_poweroff_check_timer\b|\bEMMC_LDO_POWER_OFF_CHECK_TIMEOUT\b|\brdx_app_emmc_poweroff_check_timer_(start|rerun|cb)\b'
+Assert-Contract 'T2620_LEGACY_STORAGE_POWER_DELEGATES' $legacyStorageDelegatesOk `
+    'legacy library entry points must delegate to the shared rail manager without a second power state or timer'
+
 $sdPowerCallback = Get-SourceSlice $AppMain `
     'void sd_set_power_user(u8 en)' `
     'static struct app_mode *app_task_init()'

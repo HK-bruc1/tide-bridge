@@ -79,11 +79,12 @@ static void boot(void) {
 static void begin(void) { audio.negotiated=audio.timed=1; rdx_factory_audio_begin(1,7); }
 static int command(const char *s,char *out) { return rdx_factory_audio_command(1,s,out,258); }
 int test_audio_delivery(void) {
-    boot(); CHECK(!rdx_factory_audio_ready(1)); begin();
-    CHECK(rdx_factory_audio_owned());
+    boot(); CHECK(!rdx_factory_audio_ready(1) && !rdx_factory_audio_needs_service()); begin();
+    CHECK(rdx_factory_audio_owned() && rdx_factory_audio_needs_service());
     u8 frame[40]={0}; rdx_factory_audio_frame(frame,40); rdx_factory_audio_frame(frame,40);
     rdx_factory_audio_saved(0); rdx_factory_audio_stopped(8,0);
     CHECK(audio.saved && audio.complete && !audio.end_sent);
+    CHECK(!rdx_factory_audio_needs_service());
     full=1; rdx_factory_audio_send(1); CHECK(audio.count==2 && !wire_len);
     full=0; rdx_factory_audio_send(1); rdx_factory_audio_send(1);
     CHECK(audio.sent==2 && !audio.count && !strstr(wire,"@E"));

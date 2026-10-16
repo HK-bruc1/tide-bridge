@@ -261,6 +261,7 @@ static void rdx_hogp_subscription_restore_if_available(void)
                              HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE,
                              0x0001);
     s_hid_notify_enabled = 1;
+    rdx_hogp_input_wake();
     RDX_HOGP_LOG("subscription restored hdl=0x%04x", s_hid_con_handle);
     rdx_hogp_dump_state();
 }
@@ -420,6 +421,7 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
         }
         if (buffer[0] == RDX_HOGP_CONTROL_POINT_EXIT_SUSPEND) {
             s_hogp_suspended = 0;
+            rdx_hogp_input_wake();
             RDX_HOGP_LOG("control point: exit suspend");
             rdx_hogp_dump_state();
             return 0;
@@ -444,6 +446,7 @@ int rdx_hogp_att_write(hci_con_handle_t connection_handle,
                 rdx_hogp_ready_drop_cleanup();
             }
             s_hid_notify_enabled = (cfg == 0x0001) ? 1 : 0;
+            rdx_hogp_input_wake();
             multi_att_set_ccc_config(connection_handle, att_handle, cfg);
             s_subscription_update_pending = s_hid_notify_enabled ?
                 RDX_HOGP_SUB_UPDATE_ENABLE : RDX_HOGP_SUB_UPDATE_DISABLE;
@@ -704,6 +707,7 @@ void rdx_hogp_on_connected_with_hdl(void *app_ble_hdl,
     s_hid_notify_enabled = (ccc_config & 0x0001) ? 1 : 0;
     s_hogp_encrypted = encrypted ? 1 : 0;
     s_hogp_suspended = 0;
+    rdx_hogp_input_wake();
     s_hid_protocol_mode = RDX_HOGP_PROTOCOL_MODE_REPORT;
     if (s_hid_notify_enabled) {
         s_subscription_update_pending = RDX_HOGP_SUB_UPDATE_ENABLE;
@@ -763,6 +767,7 @@ void rdx_hogp_on_encryption_change(u16 con_handle, u8 enabled, u8 status)
         rdx_hogp_ready_drop_cleanup();
     }
     s_hogp_encrypted = encrypted;
+    rdx_hogp_input_wake();
     if (!s_hogp_encrypted) {
         RDX_HOGP_ERROR("link encryption disabled or failed");
     } else {

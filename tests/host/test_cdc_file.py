@@ -1120,8 +1120,6 @@ def check_parser_integration():
                        for name in ('rdx_cdc_file.c', 'rdx_factory_cdc.c'))
     stubs = r'''
 #define TCFG_T2620_CDC_FILE_ENABLE 1
-#define Q_CALLBACK 1
-int os_taskq_post_type(const char *task,int kind,int count,int *message) { return 0; }
 void factory_cdc_set_tx_handler(void (*handler)(void)) {}
 int rdx_dut_is_in_mode(void) { return 0; }
 int rdx_factory_audio_owned(void) { return 0; }

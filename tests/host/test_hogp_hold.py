@@ -52,7 +52,11 @@ static int irq_depth, in_irq, context_errors;
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 u32 jiffies;
 int jiffies_offset_to_msec(u32 a,u32 b) { return b-a; }
-u16 sys_timer_add(void *p, void (*f)(void *), u32 ms) { return 1; }
+static int timer_live, timer_adds, timer_dels, timer_fail;
+u16 sys_timer_add(void *p, void (*f)(void *), u32 ms) {
+    ++timer_adds; if(timer_fail) return 0; timer_live=1; return 1;
+}
+void sys_timer_del(u16 id) { ++timer_dels; timer_live=0; }
 int offline, key5, route, ready, fail_down, fail_up, reports, attempts;
 u8 report_bytes[512][8];
 int offline_event;
@@ -74,13 +78,27 @@ void rdx_hogp_current_report_set(const u8 *p,u8 n) {}
 static void hogp_tx_execute(u32 ticket);
 static const char *task_name="btstack";
 static int queue_fail, queue_count, queued_ticket, invalidate_on_send;
+static int app_queued, app_posts, app_post_fail;
+static void input_event(void *priv);
 #define Q_CALLBACK 1
 const char *os_current_task(void) { return task_name; }
 int os_taskq_post_type(const char *task,int type,int n,int *msg) {
+    if (!strcmp(task,"app_core")) {
+        if(type!=Q_CALLBACK || n!=3 || msg[1]!=1 || msg[0]!=(int)input_event) ++context_errors;
+        ++app_posts;
+        if(app_post_fail || app_queued) return -1;
+        app_queued=1; return 0;
+    }
     if (irq_depth || in_irq || strcmp(task,"btstack") || type!=Q_CALLBACK ||
         n!=3 || msg[1]!=1 || msg[0]!=(int)hogp_tx_execute) ++context_errors;
     if (queue_fail || queue_count) return -1;
     queued_ticket=msg[2]; queue_count=1; return 0;
+}
+static void run_app(void) {
+    if (!app_queued) return;
+    app_queued=0;
+    const char *saved=task_name; task_name="app_core";
+    input_event(NULL); task_name=saved;
 }
 static void run_btstack(void) {
     if (!queue_count) return;
@@ -103,6 +121,9 @@ int app_ble_att_send_data(void *hdl,u16 att,u8 *b,u16 n,int op) {
 SESSION_TESTS = r'''
 static rdx_ble_link_state_t *rdx_link, *hid_link;
 static void session_boot(int split) {
+    input_initialized=input_pending=input_posted=input_servicing=0;
+    input_timer=0; timer_live=timer_adds=timer_dels=timer_fail=0;
+    app_queued=app_posts=app_post_fail=0;
     task_name="btstack"; irq_depth=in_irq=context_errors=0;
     queue_fail=queue_count=invalidate_on_send=0; hogp_tx.state=HOGP_TX_IDLE;
     s_rdx_runtime_consumed_this_boot=0;
@@ -403,6 +424,68 @@ int test_async_overflow_and_release_retry(void) {
     fail_up=0; pump(12); edge(NO_KEY); pump(6);
     CHECK(reports==2 && !report_bytes[1][2] && !release_pending && admission);
     CHECK(!context_errors && !irq_depth);
+    return 0;
+}
+int test_idle_worker_lifecycle(void) {
+    boot(0); run_app(); rdx_hogp_input_poll(); run_app();
+    CHECK(admission && !timer_live && !input_timer && !timer_adds);
+    int posts=app_posts;
+    for(int i=0;i<100;i++) { sample(NO_KEY); rdx_hogp_input_poll(); run_app(); }
+    CHECK(app_posts==posts && !timer_adds && !input_count);
+    /* 不手动触发定时器：首次离线单击由事件送达。 */
+    sample(KEY_IO_NUM0); run_app(); sample(NO_KEY); run_app();
+    sample(NO_KEY); run_app(); sample(NO_KEY); run_app();
+    CHECK(offline==1 && offline_event==KEY_ACTION_CLICK && !timer_adds);
+    route=RDX_HOGP_INPUT_DISCARD; rdx_hogp_input_invalidate(); run_app();
+    CHECK(!input_timer); /* 仅有 RDX 链路不等于 HID 已就绪。 */
+    ready=1; route=RDX_HOGP_INPUT_HID; ++s_hid_epoch;
+    rdx_hogp_input_wake(); run_app();
+    CHECK(input_timer && timer_live);
+    ready=0; route=RDX_HOGP_INPUT_OFFLINE; rdx_hogp_input_invalidate();
+    rdx_hogp_input_poll(); run_app();
+    CHECK(!input_timer && !timer_live && timer_dels==1 && !release_pending);
+    sample(NO_KEY); run_app(); CHECK(admission);
+    CHECK(!irq_depth && !context_errors);
+    return 0;
+}
+int test_worker_notification_and_timer_failure_recovery(void) {
+    boot(0); run_app(); rdx_hogp_input_poll(); run_app();
+    app_post_fail=1; rdx_hogp_input_invalidate();
+    CHECK(input_pending && !app_queued);
+    app_post_fail=0; rdx_hogp_input_poll(); sample(NO_KEY); run_app();
+    CHECK(admission && !input_timer);
+    app_post_fail=1; sample(KEY_IO_NUM0); sample(NO_KEY);
+    CHECK(input_count && !app_queued);
+    app_post_fail=0; rdx_hogp_input_poll(); sample(NO_KEY); run_app();
+    sample(NO_KEY); run_app(); CHECK(offline==1);
+    timer_fail=1; ready=1; route=RDX_HOGP_INPUT_HID; ++s_hid_epoch;
+    rdx_hogp_input_wake(); run_app();
+    CHECK(!input_timer && timer_adds && !app_queued);
+    timer_fail=0; rdx_hogp_input_poll(); CHECK(input_timer);
+    ready=0; route=RDX_HOGP_INPUT_OFFLINE; rdx_hogp_input_poll(); run_app();
+    CHECK(!input_timer && !release_pending && !irq_depth && !context_errors);
+    return 0;
+}
+int test_offline_gestures_without_periodic_ticks(void) {
+    for(int clicks=1;clicks<=3;clicks++) {
+        boot(0); run_app(); rdx_hogp_input_poll(); run_app();
+        for(int i=0;i<clicks;i++) {
+            sample(KEY_IO_NUM0); run_app(); sample(NO_KEY); run_app();
+        }
+        sample(NO_KEY); run_app(); sample(NO_KEY); run_app();
+        CHECK(offline==1 && offline_event==(clicks==1?KEY_ACTION_CLICK:
+              clicks==2?KEY_ACTION_DOUBLE_CLICK:KEY_ACTION_TRIPLE_CLICK));
+        CHECK(!input_timer && !timer_adds);
+    }
+    boot(0); run_app(); rdx_hogp_input_poll(); run_app();
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); run_app(); }
+    sample(NO_KEY); run_app(); sample(NO_KEY); run_app();
+    CHECK(key5>=2 && key5_events[0]==KEY_ACTION_LONG &&
+          key5_events[key5-1]==KEY_ACTION_UP && !timer_adds);
+    filtered=1; sample(NO_KEY); run_app(); CHECK(!admission);
+    filtered=0; sample(NO_KEY); run_app(); CHECK(admission && !input_timer);
+    rdx_hogp_input_stats_t stats; rdx_hogp_input_stats_get(&stats);
+    CHECK(stats.worker_available && !stats.periodic_running && !context_errors);
     return 0;
 }
 '''

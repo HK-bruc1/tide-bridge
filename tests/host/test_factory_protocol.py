@@ -6,7 +6,9 @@ from host_c_test_lib import ROOT, run_c_checks
 
 STUBS = r'''
 int rdx_factory_audio_command(unsigned g, const char *s, char *o, unsigned c) { return 0; }
-void rdx_factory_audio_service(unsigned g) {}
+static int cleanup_pending, audio_services;
+void rdx_factory_audio_service(unsigned g) { ++audio_services; }
+int rdx_factory_audio_needs_service(void) { return cleanup_pending; }
 void rdx_factory_audio_send(unsigned g) {}
 
 typedef unsigned char u8;
@@ -35,6 +37,15 @@ unsigned int strlen(const char *);
 int snprintf(char *, unsigned int, const char *, ...);
 static u32 generation=1, now;
 static int full, initialized=1, mac_error, aborted, irq, timer_fail;
+static int timer_live, timer_adds, timer_dels, app_queued, app_posts, app_fail;
+static void factory_event(void *priv);
+#define Q_CALLBACK 1
+int os_taskq_post_type(const char *task,int type,int count,int *message) {
+    ++app_posts;
+    if (app_fail || app_queued) return -1;
+    app_queued=1; return 0;
+}
+static void pump(void) { if(app_queued) { app_queued=0; factory_event(NULL); } }
 static char command_log[180];
 static unsigned int command_logs;
 static int log_in_irq;
@@ -57,7 +68,12 @@ void local_irq_disable(void) { ++irq; }
 void local_irq_enable(void) { --irq; }
 u32 factory_cdc_generation(void) { return generation; }
 u32 sys_timer_get_ms(void) { return now; }
-u16 sys_timer_add(void *p, void (*cb)(void *), int period) { return !timer_fail; }
+u16 sys_timer_add(void *p, void (*cb)(void *), int period) {
+    ++timer_adds; if(timer_fail) return 0; timer_live=1; return 1;
+}
+void sys_timer_del(u16 id) { ++timer_dels; timer_live=0; }
+static void (*state_handler)(void);
+void factory_cdc_set_state_handler(void (*handler)(void)) { state_handler=handler; }
 static int (*consumer)(u32, const u8 *, u32);
 void factory_cdc_set_rx_handler(int (*cb)(u32, const u8 *, u32)) { consumer=cb; }
 void factory_cdc_abort(u32 gen) { if (gen==generation) { generation=0; ++aborted; } }
@@ -78,6 +94,9 @@ static void boot(void) {
     full=aborted=irq=timer_fail=mac_error=0; initialized=1;
     wire_length=0; wire[0]=0; strcpy(name,"T2620"); consumer=NULL;
     command_logs=0; command_log[0]=0; log_in_irq=0;
+    factory_event_posted=factory_pending=factory_initialized=0;
+    timer_live=timer_adds=timer_dels=app_queued=app_posts=app_fail=0;
+    cleanup_pending=audio_services=0; state_handler=NULL;
     for (int i=0;i<6;++i) mac[i]=i+1;
     rdx_factory_cdc_init();
 }
@@ -192,6 +211,37 @@ int test_identity(void) {
     boot(); strcpy(name,"bad;name"); CHECK(!input("GET_INFO\r\n")); CHECK(!strcmp(wire,"ERR DATA\r\n"));
     return 0;
 }
+int test_idle_session_lifecycle(void) {
+    boot(); generation=0; pump();
+    CHECK(consumer && state_handler && !timer_live && !timer_adds);
+    int services=audio_services, posts=app_posts;
+    for(int i=0;i<100;i++) rdx_factory_cdc_poll();
+    CHECK(audio_services==services && app_posts==posts && !timer_adds);
+    generation=2; state_handler(); pump(); CHECK(timer_live && timer_adds==1);
+    CHECK(!input("PING\r\n") && !strcmp(wire,"OK PONG\r\n")); pump();
+    full=1; CHECK(!input("PING\r\n")); CHECK(factory_protocol.response_length);
+    generation=0; cleanup_pending=1; state_handler(); pump();
+    CHECK(!timer_live && timer_dels==1 && !factory_protocol.response_length && !factory_count);
+    services=audio_services; rdx_factory_cdc_poll(); CHECK(audio_services==services+1);
+    cleanup_pending=0; services=audio_services; rdx_factory_cdc_poll();
+    CHECK(audio_services==services && !timer_live);
+    generation=3; full=0; state_handler(); pump(); CHECK(timer_live);
+    CHECK(factory_receive(2,(const u8 *)"PING\r\n",6));
+    CHECK(!input("PING\r\n") && !strcmp(wire,"OK PONG\r\nOK PONG\r\n"));
+    return 0;
+}
+int test_notification_and_timer_failure_recovery(void) {
+    boot(); generation=0; pump();
+    app_fail=1; generation=2; state_handler(); CHECK(factory_pending && !app_queued);
+    timer_fail=1; rdx_factory_cdc_poll(); CHECK(!timer_live && consumer);
+    app_fail=0; CHECK(!factory_receive(2,(const u8 *)"PING\r\n",6)); pump();
+    CHECK(!strcmp(wire,"OK PONG\r\n") && !timer_live);
+    timer_fail=0; rdx_factory_cdc_poll(); CHECK(timer_live);
+    app_fail=1; generation=0; state_handler(); rdx_factory_cdc_poll();
+    CHECK(!timer_live && !factory_count && !irq);
+    app_fail=0; pump(); CHECK(!timer_live); /* 旧唤醒通知不能重新开启会话。 */
+    return 0;
+}
 '''
 
 
@@ -205,7 +255,7 @@ def check_protocol():
     path = ROOT / 'cache/factory-usb-test/protocol.c'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(STUBS + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ('test_frames', 'test_sessions', 'test_legacy_rejected', 'test_identity', 'test_command_logging', 'test_custom_framing'), native=True)
+    run_c_checks(path, ('test_frames', 'test_sessions', 'test_legacy_rejected', 'test_identity', 'test_command_logging', 'test_custom_framing', 'test_idle_session_lifecycle', 'test_notification_and_timer_failure_recovery'), native=True)
     print('PASS: CDC protocol framing, overflow isolation, mailbox/TX backpressure, session/timeout, bounded identity')
 
 

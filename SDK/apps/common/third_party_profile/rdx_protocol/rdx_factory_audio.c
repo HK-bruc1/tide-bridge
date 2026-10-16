@@ -53,6 +53,11 @@ u32 rdx_factory_audio_crc(u32 crc, const u8 *data, u32 length)
 
 int rdx_factory_audio_file_busy(void) { return file.busy; }
 int rdx_factory_audio_owned(void) { return audio.running; }
+int rdx_factory_audio_needs_service(void)
+{
+    return (audio.running && !audio.complete) ||
+           (file.busy && !(file.close_error && file.state == 3 && !file.pending));
+}
 int rdx_factory_audio_tx_pending(u32 generation)
 {
     return audio.generation == generation && (audio.count || (audio.complete && !audio.end_sent));
