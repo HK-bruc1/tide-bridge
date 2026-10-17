@@ -289,7 +289,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'A0AAC1F1E424197A0D965429D8C31B656A35DEA96BE161CB1BA4A329CE160E91' -and
+                           $PatchedRdxArchiveHash -eq 'DE8D9F5A43980ECA0E6E73FD4965EF44FB17A3AE64BA40E279432931C809DDD0' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and

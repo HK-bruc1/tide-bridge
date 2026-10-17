@@ -40,6 +40,8 @@ typedef struct clock_manager_st {
 static u8 ref_cnt;
 static u8 clk_adjust_step = 0;
 static u16 clk_ref_timer;
+static u32 clk_ref_deadline;
+static u32 clk_ref_generation;
 static clock_manager_item clk_locker;
 static struct list_head clk_mgr_head = LIST_HEAD_INIT(clk_mgr_head);
 
@@ -379,16 +381,37 @@ __again:
  * @param p
  */
 /* ----------------------------------------------------------------------------*/
+static void clk_ref_fun(void *p);
+
+static void clk_ref_arm(u32 delay)
+{
+    /* 提频可能来自阻塞式工作任务，观察回调必须由 app_core 分发。 */
+    clk_ref_timer = sys_timeout_add_2_task((void *)++clk_ref_generation,
+                                         clk_ref_fun, delay, "app_core");
+    ASSERT(clk_ref_timer);
+}
+
 static void clk_ref_fun(void *p)
 {
+    s32 remaining;
+
     CLOCK_MANAGER_ENTER_CRITICAL();
-    if (ref_cnt < CLOCK_DETECT_COUNTER) {
-        /* log_info("CLOCK_DETECT_COUNTER:%d\n", ref_cnt); */
+    if (!clk_ref_timer || (u32)p != clk_ref_generation) {
+        CLOCK_MANAGER_EXIT_CRITICAL();
+        return;
+    }
+    clk_ref_timer = 0;
+
+    /* 业务只刷新期限；已排队的旧超时不能提前启动新一轮降频。 */
+    remaining = (s32)(clk_ref_deadline - sys_timer_get_ms());
+    if (remaining <= 0) {
         ref_cnt++;
         clk_ref_cal();
-    } else {
-        sys_timer_del(clk_ref_timer);
-        clk_ref_timer = 0;
+        remaining = CLOCK_DETECT_PERIOD;
+        clk_ref_deadline = sys_timer_get_ms() + remaining;
+    }
+    if (ref_cnt < CLOCK_DETECT_COUNTER) {
+        clk_ref_arm(remaining);
     }
     CLOCK_MANAGER_EXIT_CRITICAL();
 }
@@ -421,10 +444,9 @@ void clock_refurbish(void)
     ref_cnt = 0;
     clk_adjust_step = 0;
 
-    if (clk_ref_timer) {
-        sys_timer_modify(clk_ref_timer, CLOCK_DETECT_PERIOD);
-    } else {
-        clk_ref_timer = sys_timer_add(NULL, clk_ref_fun, CLOCK_DETECT_PERIOD);
+    clk_ref_deadline = sys_timer_get_ms() + CLOCK_DETECT_PERIOD;
+    if (!clk_ref_timer) {
+        clk_ref_arm(CLOCK_DETECT_PERIOD);
     }
 
     ASSERT(clk_ref_timer);
