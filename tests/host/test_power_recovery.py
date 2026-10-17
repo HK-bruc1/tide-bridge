@@ -54,6 +54,8 @@ int rdx_hogp_input_needs_poll(void) { return hid_need; }
 int rdx_dut_service_needs_poll(void) { return dut_need; }
 int rdx_led_ctrl_needs_service(void) { return led_need; }
 void rdx_led_ctrl_service(void) { ++worker_polls; led_need=0; }
+int rdx_ble_server_conn_param_needs_service(void) { return 0; }
+void rdx_ble_server_conn_param_service(void) {}
 int rdx_storage_lifecycle_changed(void) { return storage_changed; }
 void rdx_dut_service_wake(void) {}
 int rdx_dut_test_keys_active(void) { return 0; }

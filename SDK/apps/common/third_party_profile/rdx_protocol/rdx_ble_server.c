@@ -769,71 +769,67 @@ void rdx_ble_server_adv_interval_change_timer_stop(void);
 #define ATT_RAM_BUFSIZE             (ATT_CTRL_BLOCK_SIZE + ATT_LOCAL_MTU_SIZE + ATT_SEND_CBUF_SIZE)//note:
 static u8 att_ram_buffer[ATT_RAM_BUFSIZE] __attribute__((aligned(4)));
 
-// Connection parameter update request settings
-// Whether to enable parameter update request, 0--disable, 1--enable
-static const uint8_t connection_update_enable = 1; ///0--disable, 1--enable
-// Current request parameter table index
-static uint8_t connection_update_cnt = 0; //
-
-// Parameter table //total 9.
-static const struct conn_update_param_t connection_param_table[] = {
-    /* 连续下载请求 7.5 ms 间隔，实际参数由双方协商决定。 */
-    {6,  6, 4, 600},
-    {10, 14, 4, 600},
-    {14, 20, 4, 600},
-    {8,  20, 10, 800},
-    {12, 28, 10, 800},
-    {16, 24, 10, 800},
-    {20, 40, 19, 2000},
-    {40, 60, 19, 2000},
-    {60, 80, 19, 2000}, //8
-}; 
-
-#define CONN_PARAM_TABLE_CNT      (sizeof(connection_param_table)/sizeof(struct conn_update_param_t))
-#define RDX_CONN_PARAM_STREAM_FAST_INDEX          (0u)
-#define RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX \
-    ((u8)(CONN_PARAM_TABLE_CNT - 1u))
+/* 暂停自动慢档，只保留既有快档请求；实际参数仍由双方协商。 */
+static const struct conn_update_param_t rdx_fast_conn_param = {6, 6, 4, 600};
+#define RDX_CONN_PARAM_STREAM_FAST_INDEX 0u
+/* 保留旧库参数索引的合法范围，不再保留可被误用的慢档参数表。 */
+#define RDX_CONN_PARAM_LEGACY_COUNT 9u
 
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 
-#define RDX_TRANSFER_IDLE_MS 5000u
 #define RDX_TRANSFER_RETRY_MS 2000u
 #define RDX_TRANSFER_REQUEST_MAX 3u
 
-/* 参数意图同步更新，定时器和请求统一在 app_core 执行。 */
+/* 跨任务只通知重读当前链路；请求和有限重试只在 app_core 执行。 */
 static struct {
+    volatile u32 revision;
+    volatile u8 dirty;
+    volatile u8 queued;
+} g_rdx_param_events;
+
+typedef struct {
     rdx_ble_async_token_t token;
-    u32 generation;
-    u32 deadline;
+    u32 revision;
     u32 next_request;
+    u32 timer_serial;
+    u32 recovery_due;
     u16 timer;
-    u8 enabled;
-    u8 fast;
+    u8 managed;
     u8 attempts;
-} g_rdx_transfer_param;
+    u8 request_sent;
+    u8 recovery_attempts;
+    u8 unconfirmed_logged;
+} rdx_conn_param_state_t;
+
+/* 按物理 ACL 保留节流与回调代次；RDX 释放后仍能收尾同链 HID 的快档恢复。 */
+static rdx_conn_param_state_t g_rdx_transfer_params[RDX_BLE_LINK_MAX];
+
+static void rdx_ble_server_transfer_param_run(void *unused);
 
 static u8 rdx_ble_server_request_connect_parameter_for_token(
-    const rdx_ble_async_token_t *token,
-    u8 table_index)
+    const rdx_ble_async_token_t *token, u8 attempts)
 {
     rdx_ble_link_state_t *link;
-    const struct conn_update_param_t *param;
-
-    if (!token || table_index >= CONN_PARAM_TABLE_CNT) {
+    if (!token) {
         return 0;
     }
     link = rdx_ble_session_rdx_token_resolve(token, 1);
     if (!link) {
+        link = rdx_ble_session_link_token_resolve(token);
+        if (!rdx_ble_session_link_is_hid(link)) return 0;
+    }
+    if (!link) {
         return 0;
     }
-    param = &connection_param_table[table_index];
-    log_info("====== update_request:-%d-%d-%d-%d-\r",
-             param->interval_min, param->interval_max,
-             param->latency, param->timeout);
-    rdx_ble_session_link_set_conn_param_index(link, table_index);
-    ble_op_conn_param_request(link->con_handle,
-                              (struct conn_update_param_t *)param);
-    return 1;
+    rdx_ble_session_link_set_conn_param_index(link, RDX_CONN_PARAM_STREAM_FAST_INDEX);
+    int ret = ble_op_conn_param_request(link->con_handle,
+                                       (struct conn_update_param_t *)&rdx_fast_conn_param);
+    r_printf("[RDX_CONN_POLICY] request slot=%u con=0x%04x mode=FAST "
+             "attempt=%u interval=%u-%u latency=%u ret=%d\n",
+             rdx_ble_session_link_index(link), link->con_handle,
+             attempts, rdx_fast_conn_param.interval_min,
+             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency, ret);
+    return ret == 0;
 }
 
 /**************************************************************************
@@ -844,178 +840,200 @@ static u8 rdx_ble_server_request_connect_parameter_for_token(
  **************************************************************************/
 void rdx_ble_server_send_request_connect_parameter(u8 table_index)
 {
-    rdx_ble_async_token_t token;
+    /* 旧库包括慢档在内的有效索引统一走快档检查，不能绕过当前策略。 */
+    if (table_index >= RDX_CONN_PARAM_LEGACY_COUNT) return;
+    rdx_ble_server_request_stream_fast_param();
+}
 
-    if (rdx_ble_session_rdx_token_capture(&token, 1)) {
-        rdx_ble_server_request_connect_parameter_for_token(
-            &token, table_index);
+static void rdx_ble_server_transfer_timer_cancel(rdx_conn_param_state_t *param)
+{
+    param->timer_serial = (param->timer_serial + 1u) & 0x7fffffffu;
+    if (param->timer) {
+        sys_timeout_del(param->timer);
+        param->timer = 0;
     }
 }
 
-static void rdx_ble_server_transfer_param_run(void *priv);
+void rdx_ble_server_conn_param_changed(void)
+{
+    int msg[] = { (int)rdx_ble_server_transfer_param_run, 1, 0 };
+    local_irq_disable();
+    ++g_rdx_param_events.revision;
+    g_rdx_param_events.dirty = 1;
+    if (g_rdx_param_events.queued) {
+        local_irq_enable();
+        return;
+    }
+    g_rdx_param_events.queued = 1;
+    local_irq_enable();
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        /* 队列失败保留待办，由已有优先级 0 桥接恢复，不另建轮询。 */
+        g_rdx_param_events.queued = 0;
+    }
+}
+
+u8 rdx_ble_server_conn_param_needs_service(void)
+{
+    return g_rdx_param_events.dirty && !g_rdx_param_events.queued;
+}
+
+void rdx_ble_server_conn_param_service(void)
+{
+    if (rdx_ble_server_conn_param_needs_service())
+        rdx_ble_server_transfer_param_run(NULL);
+}
 
 static void rdx_ble_server_transfer_param_cancel(void)
 {
-    /* 代次使已经投递的回调失效，不依赖连接句柄是否被复用。 */
+    /* 不携带历史业务目标；在主任务取消失效链路的重试。 */
+    rdx_ble_server_conn_param_changed();
+}
+
+static void rdx_ble_server_transfer_param_timeout(void *serial)
+{
+    u32 cookie = (u32)serial;
+    rdx_conn_param_state_t *param = &g_rdx_transfer_params[cookie & 1u];
+    if ((cookie >> 1) != param->timer_serial) return;
+    param->timer = 0;
+    if (!g_rdx_param_events.queued) rdx_ble_server_transfer_param_run(NULL);
+}
+
+static void rdx_ble_server_transfer_param_arm(rdx_conn_param_state_t *param, u32 delay)
+{
+    rdx_ble_server_transfer_timer_cancel(param);
+    param->timer = sys_timeout_add_2_task(
+        (void *)((param->timer_serial << 1) | (u32)(param - g_rdx_transfer_params)),
+        rdx_ble_server_transfer_param_timeout, delay ? delay : 1, "app_core");
+    if (!param->timer) {
+        if (++param->recovery_attempts <= RDX_TRANSFER_REQUEST_MAX) {
+            param->recovery_due = sys_timer_get_ms() + 100;
+            g_rdx_param_events.dirty = 1;
+        } else {
+            r_printf("[RDX_CONN_POLICY] timer failed; keep current parameters\n");
+        }
+    } else {
+        param->recovery_attempts = 0;
+    }
+}
+
+static u8 rdx_ble_server_transfer_target_matches(const rdx_ble_link_state_t *link)
+{
+    /* 手机可协商为 11.25/15 ms，不为追求精确 7.5 ms 反复请求。 */
+    return link->conn_interval >= 6 && link->conn_interval <= 12 &&
+           link->conn_latency <= 4;
+}
+
+static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param,
+                                                  rdx_ble_link_state_t *link,
+                                                  u8 rdx, u32 revision)
+{
+    u32 now, epoch, retry;
+    rdx_ble_async_token_t token = rdx_ble_session_token_capture(link);
+
+    now = sys_timer_get_ms();
+    if (param->revision != revision) {
+        param->recovery_due = 0;
+        param->recovery_attempts = 0;
+        param->revision = revision;
+    } else if (param->recovery_due && (s32)(now - param->recovery_due) < 0) {
+        g_rdx_param_events.dirty = 1;
+        return;
+    }
+    rdx_ble_server_transfer_timer_cancel(param);
+    epoch = rdx ? rdx_ble_session_rdx_runtime_epoch_get() : 0;
+    if (!param->managed ||
+        rdx_ble_session_link_token_resolve(&param->token) != link) {
+        param->token = token;
+        param->managed = 1;
+        param->attempts = 0;
+        param->request_sent = 0;
+        param->unconfirmed_logged = 0;
+    }
+    if (revision != g_rdx_param_events.revision ||
+        (rdx && (epoch != rdx_ble_session_rdx_runtime_epoch_get() ||
+                 rdx_ble_session_rdx_token_resolve(&token, 1) != link)) ||
+        (!rdx && (!rdx_ble_session_link_is_hid(link) ||
+                  rdx_ble_session_link_token_resolve(&token) != link))) {
+        rdx_ble_server_conn_param_changed();
+        return;
+    }
+    if (rdx_ble_server_transfer_target_matches(link)) {
+        /* 只有实际快档确认后，下一次参数退化才获得新的有限恢复预算。 */
+        param->attempts = 0;
+        param->unconfirmed_logged = 0;
+        return;
+    }
+    if (param->attempts >= RDX_TRANSFER_REQUEST_MAX) {
+        if (!param->unconfirmed_logged) {
+            param->unconfirmed_logged = 1;
+            r_printf("[RDX_CONN_POLICY] unconfirmed slot=%u mode=FAST "
+                     "interval=%u latency=%u; wait parameter event\n",
+                     rdx_ble_session_link_index(link),
+                     link->conn_interval, link->conn_latency);
+        }
+        return;
+    }
+    retry = param->request_sent && (s32)(now - param->next_request) < 0 ?
+            param->next_request - now : 0;
+    if (!retry) {
+        ++param->attempts;
+        param->request_sent = 1;
+        param->next_request = now + RDX_TRANSFER_RETRY_MS;
+        rdx_ble_server_request_connect_parameter_for_token(&token, param->attempts);
+        retry = RDX_TRANSFER_RETRY_MS;
+    }
+    rdx_ble_server_transfer_param_arm(param, retry);
+}
+
+static void rdx_ble_server_transfer_param_run(void *unused)
+{
+    rdx_ble_async_token_t token;
+    u32 revision;
+    u8 rdx;
+    (void)unused;
     local_irq_disable();
-    g_rdx_transfer_param.enabled = 0;
-    ++g_rdx_transfer_param.generation;
+    revision = g_rdx_param_events.revision;
+    g_rdx_param_events.queued = 0;
+    g_rdx_param_events.dirty = 0;
     local_irq_enable();
-    if (g_rdx_transfer_param.timer) {
-        sys_timeout_del(g_rdx_transfer_param.timer);
-        g_rdx_transfer_param.timer = 0;
+    rdx = rdx_ble_session_rdx_token_capture(&token, 1);
+    for (u8 i = 0; i < RDX_BLE_LINK_MAX; ++i) {
+        rdx_conn_param_state_t *param = &g_rdx_transfer_params[i];
+        u8 owner = rdx && token.slot_index == i;
+        rdx_ble_link_state_t *link = owner ?
+            rdx_ble_session_rdx_token_resolve(&token, 1) :
+            (param->managed ? rdx_ble_session_link_token_resolve(&param->token) : NULL);
+        if (app_var.goto_poweroff_flag || !link ||
+            (!owner && !rdx_ble_session_link_is_hid(link))) {
+            rdx_ble_server_transfer_timer_cancel(param);
+            continue;
+        }
+        rdx_ble_server_transfer_param_evaluate(param, link, owner, revision);
     }
 }
 
-static void rdx_ble_server_transfer_param_arm(u32 generation, u32 delay)
-{
-    g_rdx_transfer_param.timer = sys_timeout_add_2_task(
-        (void *)generation, rdx_ble_server_transfer_param_run, delay, "app_core");
-    if (!g_rdx_transfer_param.timer) {
-        r_printf("[RDX_BLE] transfer timer failed gen=%u\n", generation);
-    }
-}
-
-static void rdx_ble_server_transfer_param_run(void *priv)
-{
-    u32 generation = (u32)priv;
-    u32 now = sys_timer_get_ms();
-    rdx_ble_async_token_t token;
-    rdx_ble_link_state_t *link;
-    ReqFileInfo *file;
-    RecordStatus *record;
-    u8 fast;
-
-    if (!g_rdx_transfer_param.enabled ||
-        generation != g_rdx_transfer_param.generation) {
-        return;
-    }
-    if (g_rdx_transfer_param.timer) {
-        sys_timeout_del(g_rdx_transfer_param.timer);
-        g_rdx_transfer_param.timer = 0;
-    }
-    token = g_rdx_transfer_param.token;
-    fast = g_rdx_transfer_param.fast;
-    link = rdx_ble_session_rdx_token_resolve(&token, 1);
-    if (!link) {
-        rdx_ble_server_transfer_param_cancel();
-        return;
-    }
-    if (!fast) {
-        if ((s32)(now - g_rdx_transfer_param.deadline) < 0) {
-            rdx_ble_server_transfer_param_arm(
-                generation, g_rdx_transfer_param.deadline - now);
-            return;
-        }
-        file = rdx_protocol_get_uploadfileInfo();
-        record = rdx_record_get_status();
-        if ((file && file->file_send_busy) || rdx_is_file_transfer_active() ||
-            rdx_is_file_sync_busy() || !record ||
-            record->run != RECORD_STATE_STOP ||
-            record->process_state == REC_PROCESS_STATE_BUSY) {
-            g_rdx_transfer_param.deadline = now + RDX_TRANSFER_IDLE_MS;
-            rdx_ble_server_transfer_param_arm(generation, RDX_TRANSFER_IDLE_MS);
-            return;
-        }
-        /* 新业务可能已更新意图；旧省电回调不能覆盖新业务。 */
-        if (generation != g_rdx_transfer_param.generation) {
-            return;
-        }
-        rdx_ble_server_request_connect_parameter_for_token(
-            &token, RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX);
-        /* 实际提交省电后，下一轮业务才获得新的快档重试预算。 */
-        g_rdx_transfer_param.attempts = 0;
-        return;
-    }
-    /* 请求已提交后仍可能收到旧慢档，有限重试等待真实参数收敛。 */
-    if (link->conn_interval == 6 &&
-        link->conn_latency <= 4) {
-        return;
-    }
-    if (g_rdx_transfer_param.attempts >= RDX_TRANSFER_REQUEST_MAX) {
-        return;
-    }
-    if (generation != g_rdx_transfer_param.generation) {
-        return;
-    }
-    /* 重复业务入口只更新意图，不能绕过同一连接的请求间隔。 */
-    if (g_rdx_transfer_param.attempts &&
-        (s32)(now - g_rdx_transfer_param.next_request) < 0) {
-        rdx_ble_server_transfer_param_arm(
-            generation, g_rdx_transfer_param.next_request - now);
-        return;
-    }
-    ++g_rdx_transfer_param.attempts;
-    g_rdx_transfer_param.next_request = now + RDX_TRANSFER_RETRY_MS;
-    rdx_ble_server_request_connect_parameter_for_token(
-        &token, RDX_CONN_PARAM_STREAM_FAST_INDEX);
-    rdx_ble_server_transfer_param_arm(generation, RDX_TRANSFER_RETRY_MS);
-}
-
-static void rdx_ble_server_transfer_param_post(u8 fast)
+static void rdx_ble_server_transfer_param_post(void)
 {
     rdx_ble_async_token_t token;
-    u32 generation;
-    int msg[3];
-
+    /* 旧业务入口仅通知检查当前快档，不携带可跨会话生效的参数意图。 */
+    local_irq_disable();
     if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
+        local_irq_enable();
         return;
     }
-    local_irq_disable();
-    /* 代次用于隔离旧回调；重试预算按连接保留，不能被 getlist 重置。 */
-    if (!g_rdx_transfer_param.enabled ||
-        rdx_ble_session_rdx_token_resolve(&g_rdx_transfer_param.token, 1) !=
-        rdx_ble_session_rdx_token_resolve(&token, 1)) {
-        g_rdx_transfer_param.attempts = 0;
-    }
-    g_rdx_transfer_param.token = token;
-    g_rdx_transfer_param.enabled = 1;
-    g_rdx_transfer_param.fast = fast;
-    generation = ++g_rdx_transfer_param.generation;
-    g_rdx_transfer_param.deadline = sys_timer_get_ms() + RDX_TRANSFER_IDLE_MS;
     local_irq_enable();
-    msg[0] = (int)rdx_ble_server_transfer_param_run;
-    msg[1] = 1;
-    msg[2] = generation;
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
-        /* 队列短暂拥塞时通过定时消息重投，仍在 app_core 执行。 */
-        if (!sys_timeout_add_2_task((void *)generation,
-                rdx_ble_server_transfer_param_run, 1, "app_core")) {
-            r_printf("[RDX_BLE] transfer parameter dispatch failed gen=%u\n", generation);
-        }
-    }
+    rdx_ble_server_conn_param_changed();
 }
 
 void rdx_ble_server_request_stream_fast_param(void)
 {
-    rdx_ble_server_transfer_param_post(1);
+    rdx_ble_server_transfer_param_post();
 }
 
 void rdx_ble_server_post_transfer_lowpower(void)
 {
-    rdx_ble_server_transfer_param_post(0);
-}
-
-/**************************************************************************
- * function: rdx_ble_server_check_connetion_updata_deal
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
-static void rdx_ble_server_check_connetion_updata_deal(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if (connection_update_enable) {
-        if (connection_update_cnt < CONN_PARAM_TABLE_CNT) {
-            rdx_ble_server_send_request_connect_parameter(connection_update_cnt);
-        }
-    }
+    /* 保留静态库 ABI，下载结束不再启动降档窗口。 */
+    rdx_ble_server_transfer_param_post();
 }
 
 static u8 rdx_ble_server_local_name_copy(char *dst, const char *src, u8 len)
@@ -2217,12 +2235,9 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
              link->supervision_timeout);
-    /* 已经确认过快档后，迟到的慢档更新仍需重新核对当前下载意图。 */
-    if (g_rdx_transfer_param.enabled && g_rdx_transfer_param.fast &&
-        !g_rdx_transfer_param.timer &&
-        rdx_ble_session_rdx_token_resolve(&g_rdx_transfer_param.token, 1) == link) {
-        rdx_ble_server_transfer_param_run((void *)g_rdx_transfer_param.generation);
-    }
+    /* 迟到的参数完成事件只通知协调器，不在蓝牙回调中创建定时器。 */
+    if (rdx_ble_session_link_is_rdx(link) || rdx_ble_session_link_is_hid(link))
+        rdx_ble_server_conn_param_changed();
 }
 
 static u32 rdx_ble_server_conn_tone_epoch_advance(void)
@@ -2487,6 +2502,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
                 if (encrypted || status != 0) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 0);
+                    rdx_ble_server_conn_param_changed();
                 }
 #if TCFG_RDX_HOGP_ENABLE
                 if (rdx_ble_session_link_is_hid(link)) {
@@ -2559,6 +2575,7 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
         }
         if (!rdx_ble_session_get_hid_link()) {
             rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+            rdx_ble_server_conn_param_changed();
             r_printf("[RDX_BLE_SEC] Just Works confirmed for provisional HID candidate con=0x%04x capability=0x%02x\n",
                      con_handle, link->capability);
             sm_just_works_confirm(con_handle);
@@ -2898,6 +2915,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
         }
     }
     rdx_ble_server_rdx_connected_handle();
+    rdx_ble_server_conn_param_changed();
     if (had_hid_owner) {
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=HID+RDX\n",
                  rdx_ble_session_link_index(link), link->con_handle);
@@ -3009,6 +3027,7 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=RDX+HID\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
+    rdx_ble_server_conn_param_changed();
     return rdx_hogp_keyboard_is_connected() ? 0 :
            RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
 }
@@ -3380,6 +3399,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             if (!link || !link->encrypted) {
                 if (link) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+                    rdx_ble_server_conn_param_changed();
                 }
                 r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x (no claim)\n",
                          connection_handle);

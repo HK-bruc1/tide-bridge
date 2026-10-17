@@ -132,6 +132,7 @@ int get_vbat_need_shutdown(void) { return lowbat; }
 u8 rdx_adv_policy_idle_valid(void) { return offline_valid; }
 void rdx_adv_policy_changed(void) {}
 void rdx_adv_policy_activity(void) { ++version; }
+void rdx_ble_server_conn_param_changed(void) {}
 '''
 
 TESTS = r'''

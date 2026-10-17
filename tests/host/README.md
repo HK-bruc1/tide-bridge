@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and twelve behavioral suites
-as **16 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and thirteen behavioral suites
+as **17 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -33,7 +33,8 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
 | `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
-| `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断。MIC、功放时序与电流仍需板测 |
+| `test_connected_params.py` | 实际 RDX 快档协调器：长时间空闲不降档、下载结束及旧参数索引均不恢复慢档、实际快档范围、延迟/拒绝时有界重试和停表、逻辑会话切换不刷新物理 ACL 预算、迟到慢参数恢复、HID 同链保护与异链隔离、RDX 退出后的 HID 快档收尾与跨 peer 接管、重连/旧回调隔离、消息/定时器失败恢复及计数回绕；协商、交互、射频与电流仍须板测 |
+| `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
 
 The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers

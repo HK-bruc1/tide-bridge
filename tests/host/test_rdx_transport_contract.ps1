@@ -45,7 +45,7 @@ $PacketHandlerBody = Get-SourceSlice $Server `
     'static void rdx_ble_server_sm_event_callback('
 $ConnParamBody = Get-SourceSlice $Server `
     'static u8 rdx_ble_server_request_connect_parameter_for_token(' `
-    'static void rdx_ble_server_check_connetion_updata_deal(void)'
+    'static u8 rdx_ble_server_local_name_copy('
 $ConnToneCallbackBody = Get-SourceSlice $Server `
     'static int rdx_ble_server_conn_tone_callback(' `
     'static void rdx_ble_server_conn_tone_play('
@@ -157,10 +157,12 @@ Assert-Contract 'TRANSFER_CONN_PARAMS_ARE_OWNER_SCOPED' `
      $ConnParamBody -match 'rdx_ble_session_rdx_token_capture\s*\(' -and
      $ConnParamBody -match 'rdx_ble_session_rdx_token_resolve\s*\(\s*token\s*,\s*1\s*\)' -and
      $ConnParamBody -match 'RDX_CONN_PARAM_STREAM_FAST_INDEX' -and
-     $ConnParamBody -match 'RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX' -and
+     $ConnParamBody -match 'RDX_CONN_PARAM_LEGACY_COUNT' -and
+     $ConnParamBody -match '&rdx_fast_conn_param' -and
+     $ConnParamBody -notmatch 'RDX_PARAM_IDLE|RDX_TRANSFER_IDLE_MS' -and
      $ConnParamBody -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK' -and
      $ConnParamBody -notmatch 'g_rdx_ble_server_info\.ble_con_handle') `
-    'stream-fast and post-transfer lowpower requests must stay bound to the current RDX owner token'
+    'legacy entries must use owner-scoped fast checks with same-link HID cleanup and no idle downgrade window'
 
 $retryArmOrder = Test-TokensInOrder $SendBody @(
     'rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot)',

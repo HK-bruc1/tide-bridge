@@ -221,39 +221,84 @@ int check_disabled(void) {
         traced = Path(tmp) / 'amp_trace.c'
         traced.write_text('#define TCFG_T2620_AMP_POWER_ENABLE 1\n#define TCFG_T2620_AMP_TRACE_ENABLE 1\n' +
                           defines + '\n' + STUBS + r'''
-#define Q_CALLBACK 1
+#define Q_CALLBACK 0x300000
 typedef unsigned int u32;
-static int posts, prints, post_fail;
-static int queued_msg;
+static int posts, prints, post_fail, queued_argc, queue_pending;
+static int queued_msg[8], stale_return_write, stale_sem_post;
 unsigned int sys_timer_get_ms(void) { return 1234; }
 int os_taskq_post_type(const char *name, int type, int argc, int *argv) {
-    if (irq_depth) ++violation;
+    if (irq_depth || type != Q_CALLBACK || argc < 1 || argc > 7 ||
+        name[0] != 'a' || name[4] != 'c') ++violation;
     if (post_fail) return -1;
-    ++posts; queued_msg = argv[0]; return 0;
+    if (queue_pending) ++violation;
+    ++posts; queued_argc = argc; queue_pending = 1;
+    /* JL 接收缓冲会复用；只覆盖本条消息，故意保留旧消息尾部。 */
+    queued_msg[0] = type;
+    for (int i = 0; i < argc; ++i) queued_msg[i + 1] = argv[i];
+    return 0;
+}
+static void poison_queue(int flags) {
+    for (int i = 0; i < 8; ++i) queued_msg[i] = 0x13579bdf;
+    queued_msg[2] = flags;
+}
+static int dispatch_trace(void) {
+    /* 对应链接版 OSTaskQCallBack：低字节是参数数，位 8/9 控制写回和信号量。 */
+    unsigned int flags = queued_msg[2];
+    int count = flags & 0xff;
+    if (!queue_pending || queued_msg[0] != Q_CALLBACK) return 0;
+    queue_pending = 0;
+    stale_return_write += !!(flags & 0x100);
+    stale_sem_post += !!(flags & 0x200);
+    /* 主机不真的解引用毒化地址；直接报告本会发生的错误副作用。 */
+    if (stale_return_write || stale_sem_post || flags != 1 ||
+        queued_argc != count + 2 || queued_msg[3] != 0) return 0;
+    ((void (*)(void *))queued_msg[1])((void *)queued_msg[3]);
+    return 1;
 }
 #define r_printf(...) (++prints)
 ''' + amp + r'''
+int check_trace_message_abi(void) {
+    const int poison[] = {0x101, 0x201, 0x301, 0x7f, 0};
+    /* 负例重放旧的一字消息，确认模型确实能发现残留写回标志。 */
+    int legacy[] = {(int)rdx_amp_trace_flush};
+    poison_queue(0x101);
+    CHECK(!os_taskq_post_type("app_core", Q_CALLBACK, 1, legacy));
+    CHECK(!dispatch_trace() && stale_return_write == 1);
+    stale_return_write = stale_sem_post = posts = 0;
+    for (unsigned int i = 0; i < sizeof(poison) / sizeof(poison[0]); ++i) {
+        poison_queue(poison[i]);
+        g_rdx_amp_trace_queued = 1;
+        rdx_amp_trace_post();
+        CHECK(dispatch_trace());
+        CHECK(!g_rdx_amp_trace_queued && !stale_return_write && !stale_sem_post);
+    }
+    posts = 0;
+    CHECK(!prints && !violation && !irq_depth && !queue_pending);
+    return 0;
+}
 int check_trace(void) {
+    poison_queue(0x101);
     audio_dac_power_state(DAC_ANALOG_OPEN_FINISH);
     CHECK(!posts && !prints);
     _audio_dac_status_hook(RDX_DAC_STATUS_START); CHECK(pe5 && posts == 1);
     _audio_dac_status_hook(RDX_DAC_STATUS_START); CHECK(posts == 1 && g_rdx_amp_trace_count == 1);
     _audio_dac_status_hook(RDX_DAC_STATUS_STOP); CHECK(!pe5 && posts == 1 && g_rdx_amp_trace_count == 2);
-    ((void (*)(void))queued_msg)();
+    CHECK(dispatch_trace());
     CHECK(prints == 2 && !g_rdx_amp_trace_count && !g_rdx_amp_trace_queued);
     post_fail = 1;
+    poison_queue(0x301);
     _audio_dac_status_hook(RDX_DAC_STATUS_START); CHECK(pe5 && !g_rdx_amp_trace_queued);
     post_fail = 0;
     for (int i = 0; i < 20; ++i) {
         _audio_dac_status_hook(i & 1 ? RDX_DAC_STATUS_START : RDX_DAC_STATUS_STOP);
     }
     CHECK(g_rdx_amp_trace_count == RDX_AMP_TRACE_SIZE && g_rdx_amp_trace_dropped);
-    ((void (*)(void))queued_msg)();
+    CHECK(dispatch_trace());
     CHECK(!g_rdx_amp_trace_count && !g_rdx_amp_trace_dropped && !violation && !irq_depth);
     return 0;
 }
 ''', encoding='utf-8')
-        run_c_checks(traced, ['check_trace'])
+        run_c_checks(traced, ['check_trace_message_abi', 'check_trace'])
     print(f'PE5 output policy: {len(checks)} groups + disabled + trace configurations passed; '
           'MIC, amplifier timing and current still require board tests.')
 

@@ -1057,6 +1057,7 @@ void rdx_peripheral_power_vdd_slow_adv_notify(void)
 
 void rdx_peripheral_power_vdd_ble_links_changed_notify(void)
 {
+    rdx_ble_server_conn_param_changed();
     if (rdx_ble_server_get_connected_count()) {
         rdx_peripheral_power_vdd_ensure_on(RDX_SHARED_VDD_WAKE_BLE_LINK);
     } else {
@@ -1320,11 +1321,12 @@ static const char *rdx_amp_trace_event_name(u8 src, u8 state)
            state == DAC_ANALOG_CLOSE_FINISH ? "ANA_CLOSE_DONE" : "ANA_UNKNOWN";
 }
 
-static void rdx_amp_trace_flush(void)
+static void rdx_amp_trace_flush(void *unused)
 {
     struct rdx_amp_trace item;
     u32 dropped;
 
+    (void)unused;
     while (1) {
         local_irq_disable();
         if (!g_rdx_amp_trace_count) {
@@ -1378,9 +1380,10 @@ static u8 rdx_amp_trace_record(u8 src, u8 state, u8 old_pe5)
 /* 在临界区外投递；投递失败时清除排队标记，下一次翻转重试。 */
 static void rdx_amp_trace_post(void)
 {
-    int msg[1] = { (int)rdx_amp_trace_flush };
+    /* 必须覆盖参数描述，避免复用缓冲中的旧标志触发返回值写回或信号量操作。 */
+    int msg[3] = { (int)rdx_amp_trace_flush, 1, 0 };
 
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 1, msg)) {
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
         local_irq_disable();
         g_rdx_amp_trace_queued = 0;
         local_irq_enable();
