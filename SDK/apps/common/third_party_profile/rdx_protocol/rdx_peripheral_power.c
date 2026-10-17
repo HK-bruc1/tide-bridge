@@ -23,6 +23,11 @@
 #include "rdx_protocol.h"
 #include "rdx_record.h"
 #include "rdx_uxfile.h"
+#include "rdx_record_format.h"
+#include "rdx_factory_audio.h"
+#include "app_power_manage.h"
+#include "asm/charge.h"
+#include "usb/otg.h"
 
 #if TCFG_T2620_SHARED_VDD_ENABLE && RDX_WIFI_ENABLE
 #error "T2620 PA4 shared VDD conflicts with the legacy RDX WiFi power assignment"
@@ -54,7 +59,17 @@ typedef enum {
     RDX_SHARED_VDD_EVENT_SLOW_ADV,
     RDX_SHARED_VDD_EVENT_BLE_LINKS_CHANGED,
     RDX_SHARED_VDD_EVENT_BUSINESS_CHANGED,
+    RDX_SHARED_VDD_EVENT_CONNECTED_EVAL,
 } rdx_shared_vdd_event_t;
+
+/* 停用来源：决定执行器每一级复检使用哪套资格 */
+enum {
+    RDX_VDD_SRC_OFFLINE = 0,
+    RDX_VDD_SRC_CONNECTED = 1,
+};
+
+/* 瞬时占用只等待归零事件，不作废连接态空闲窗口 */
+#define RDX_VDD_CONN_TRANSIENT_BUSY    (RDX_SHARED_VDD_BUSY_STORAGE_IO)
 
 typedef struct {
     u8 initialized;
@@ -74,6 +89,20 @@ typedef struct {
     u32 idle_recheck_epoch;
     u32 last_would_off_generation;
     u32 last_reject_generation;
+    /* 连接态空闲窗口：只在 app_core 修改 */
+    u8 conn_armed;
+    volatile u8 conn_hint_wanted;
+    volatile u8 conn_queued;
+    volatile u8 conn_delivery_failed;
+    u16 conn_timer;
+    u32 conn_timer_serial;
+    u32 conn_version;
+    u32 conn_epoch;
+    u32 conn_deadline;
+    u32 conn_logged_busy;
+    u8 conn_done;
+    u8 conn_failed;
+    u8 stop_source;
     OS_MUTEX transition_mutex;
 } rdx_shared_vdd_context_t;
 
@@ -95,17 +124,7 @@ static void rdx_peripheral_power_vdd_event_post(
     rdx_shared_vdd_event_t event, u32 epoch);
 static void rdx_peripheral_power_vdd_idle_recheck_cancel(void);
 static void rdx_peripheral_power_vdd_idle_recheck_schedule(u32 epoch);
-
-static const char *rdx_peripheral_power_vdd_mode_name(void)
-{
-#if TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_DRY_RUN
-    return "DRY_RUN";
-#elif TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_UNMOUNT_ONLY
-    return "UNMOUNT_ONLY";
-#else
-    return "POWER_CUT";
-#endif
-}
+static void rdx_vdd_conn_post(void);
 
 static const char *rdx_peripheral_power_vdd_wake_name(
     rdx_shared_vdd_wake_reason_t reason)
@@ -129,6 +148,8 @@ extern u8 get_ota_status(void);
 extern bool rdx_app_get_dut_status(void);
 extern bool rdx_uxfile_sd_format_status_check(void);
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
+/* 补丁库提供：脏缓存、打开的读句柄、IO 错误或删除排队时禁止卸载 */
+extern u8 rdx_uxfile_power_busy(void);
 
 /* This is the only PA4 hardware write entry in the product. */
 static void rdx_peripheral_power_vdd_hw_set(u8 enable)
@@ -232,6 +253,8 @@ static int rdx_peripheral_power_vdd_restore_idle_domain(
     r_printf("[PWR] restored reason=%s owner=DEVICE pa4=%u state=ON_READY\n",
              rdx_peripheral_power_vdd_wake_name(reason),
              g_rdx_shared_vdd.pa4_enabled);
+    /* 恢复期间的业务事件可能已被消费，恢复成功后补发一次连接态评估 */
+    rdx_vdd_conn_post();
     return 0;
 }
 
@@ -377,6 +400,66 @@ u32 rdx_adv_policy_hold_snapshot(void)
     return mask;
 }
 
+/* 连接态资格：基础忙位去掉 BLE_LINK，再叠加外部电源、业务占用与库内存储事实。
+ * 只在 app_core 调用（内部会查询 BLE 封装接口）。 */
+static u32 rdx_vdd_conn_busy_snapshot(void)
+{
+    u32 busy = rdx_peripheral_power_vdd_busy_snapshot() &
+               ~RDX_SHARED_VDD_BUSY_BLE_LINK;
+    u32 usb = usb_otg_online(0);
+
+    if (get_charge_online_flag() ||
+        rdx_app_get_charge_state() != RDX_CHARGE_OUT ||
+        (usb != IDLE_MODE && usb != DISCONN_MODE)) {
+        busy |= RDX_SHARED_VDD_BUSY_EXTERNAL_POWER;
+    }
+    if (rdx_adv_policy_business_pending() || rdx_record_adv_busy() ||
+        rdx_record_format_download_busy() || rdx_factory_audio_file_busy()) {
+        busy |= RDX_SHARED_VDD_BUSY_BUSINESS;
+    }
+    if (rdx_record_format_io_users()) {
+        busy |= RDX_SHARED_VDD_BUSY_STORAGE_IO;
+    }
+    if (rdx_uxfile_power_busy()) {
+        busy |= RDX_SHARED_VDD_BUSY_STORAGE_STATE;
+    }
+    if (rdx_record_format_service_status() || rdx_record_format_status()) {
+        busy |= RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY;
+    }
+    if (app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||
+        get_vbat_need_shutdown()) {
+        busy |= RDX_SHARED_VDD_BUSY_SHUTDOWN;
+    }
+    return busy;
+}
+
+/* 关中断期间可调用：只读原子计数，不调用 SDK 接口 */
+static u8 rdx_vdd_conn_atomic_valid(void)
+{
+    return g_rdx_shared_vdd.conn_armed &&
+           !g_rdx_shared_vdd.conn_delivery_failed &&
+           rdx_adv_policy_business_version() == g_rdx_shared_vdd.conn_version &&
+           !rdx_adv_policy_business_pending() &&
+           !rdx_record_format_io_users();
+}
+
+static u8 rdx_vdd_source_valid(u8 source)
+{
+    if (source == RDX_VDD_SRC_CONNECTED) {
+        return rdx_ble_server_get_connected_count() &&
+               rdx_vdd_conn_atomic_valid();
+    }
+    return !rdx_ble_server_get_connected_count() &&
+           g_rdx_shared_vdd.slow_adv && rdx_adv_policy_idle_valid();
+}
+
+static u32 rdx_vdd_source_busy(u8 source)
+{
+    return source == RDX_VDD_SRC_CONNECTED ?
+           rdx_vdd_conn_busy_snapshot() :
+           rdx_peripheral_power_vdd_busy_snapshot();
+}
+
 static const char *rdx_peripheral_power_vdd_first_busy_name(u32 busy)
 {
     if (busy & RDX_SHARED_VDD_BUSY_BLE_LINK) {
@@ -399,6 +482,21 @@ static const char *rdx_peripheral_power_vdd_first_busy_name(u32 busy)
     }
     if (busy & RDX_SHARED_VDD_BUSY_RGB_REQUIRED) {
         return "RGB_REQUIRED";
+    }
+    if (busy & RDX_SHARED_VDD_BUSY_EXTERNAL_POWER) {
+        return "EXTERNAL_POWER";
+    }
+    if (busy & RDX_SHARED_VDD_BUSY_BUSINESS) {
+        return "BUSINESS";
+    }
+    if (busy & RDX_SHARED_VDD_BUSY_STORAGE_IO) {
+        return "STORAGE_IO";
+    }
+    if (busy & RDX_SHARED_VDD_BUSY_STORAGE_STATE) {
+        return "STORAGE_STATE";
+    }
+    if (busy & RDX_SHARED_VDD_BUSY_SHUTDOWN) {
+        return "SHUTDOWN";
     }
     return "NONE";
 }
@@ -467,9 +565,46 @@ static void rdx_peripheral_power_vdd_idle_recheck_schedule(u32 epoch)
     }
 }
 
+static u8 rdx_vdd_mode(u8 source)
+{
+    return source == RDX_VDD_SRC_CONNECTED ?
+           TCFG_T2620_CONNECTED_VDD_MODE : TCFG_T2620_SHARED_VDD_MODE;
+}
+
+static const char *rdx_vdd_mode_name_of(u8 mode)
+{
+    return mode == T2620_SHARED_VDD_MODE_DRY_RUN ? "DRY_RUN" :
+           mode == T2620_SHARED_VDD_MODE_UNMOUNT_ONLY ? "UNMOUNT_ONLY" :
+           "POWER_CUT";
+}
+
+static const char *rdx_vdd_tag(u8 source)
+{
+    return source == RDX_VDD_SRC_CONNECTED ? "[PWR_CONN]" : "[PWR]";
+}
+
+/* 竞争导致停用取消时重新评估；硬件失败另外锁存，不自动周期重试。 */
+static void rdx_vdd_conn_restart(void)
+{
+    g_rdx_shared_vdd.conn_armed = 0;
+    rdx_vdd_conn_post();
+}
+
+static void rdx_vdd_stop_defer(u8 source)
+{
+    if (source == RDX_VDD_SRC_CONNECTED) {
+        rdx_vdd_conn_restart();
+    } else {
+        /* 新增的短暂 IO 复检不能让原慢广播代次永久失去重试机会。 */
+        g_rdx_shared_vdd.last_would_off_generation = (u32)-1;
+        rdx_peripheral_power_vdd_idle_recheck_schedule(g_rdx_shared_vdd.wake_epoch);
+    }
+}
+
 static void rdx_peripheral_power_vdd_stop_abort(const char *step)
 {
     int err = 0;
+    u8 source = g_rdx_shared_vdd.stop_source;
 
     /* A canceled transition must be eligible for a later business-complete
      * retry within the same slow-advertising generation. */
@@ -481,82 +616,109 @@ static void rdx_peripheral_power_vdd_stop_abort(const char *step)
     } else {
         g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_ON_READY;
     }
-    r_printf("[PWR] stop_aborted step=%s err=%d links=%u busy=0x%02x pa4=%u\n",
-             step, err, rdx_ble_server_get_connected_count(),
+    r_printf("%s stop_aborted step=%s err=%d links=%u busy=0x%03x pa4=%u\n",
+             rdx_vdd_tag(source), step, err,
+             rdx_ble_server_get_connected_count(),
              g_rdx_shared_vdd.busy_mask,
              g_rdx_shared_vdd.pa4_enabled);
-    if (!err && g_rdx_shared_vdd.slow_adv &&
-        g_rdx_shared_vdd.busy_mask) {
+    if (source == RDX_VDD_SRC_CONNECTED) {
+        if (!err) {
+            rdx_vdd_conn_restart();
+        }
+        return;
+    }
+    if (!err && g_rdx_shared_vdd.slow_adv) {
         rdx_peripheral_power_vdd_idle_recheck_schedule(
             g_rdx_shared_vdd.wake_epoch);
     }
 }
 
-static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch)
+/* 共用停用执行器。source 决定每一级复检的资格：未连接要求零 ACL + 慢广播，
+ * 连接态要求窗口仍有效；两者都以 wake_epoch 同步取消。 */
+static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch, u8 source)
 {
     u32 stop_epoch;
     u8 canceled;
+    u8 mode = rdx_vdd_mode(source);
+    const char *tag = rdx_vdd_tag(source);
     int err;
-
-#if TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_DRY_RUN
-    r_printf("[PWR] would_off gen=%u mode=%s pa4=%u state=ON_READY\n",
-             g_rdx_shared_vdd.generation,
-             rdx_peripheral_power_vdd_mode_name(),
-             g_rdx_shared_vdd.pa4_enabled);
-    return;
-#endif
 
     if (g_rdx_shared_vdd.transition_mutex_initialized) {
         os_mutex_pend(&g_rdx_shared_vdd.transition_mutex, 0);
+    }
+    g_rdx_shared_vdd.stop_source = source;
+
+    /* 卸载前再取一次完整快照：脏缓存、打开的句柄等事实必须在 takeover 前拦截 */
+    if (source == RDX_VDD_SRC_CONNECTED) g_rdx_shared_vdd.conn_hint_wanted = 1;
+    g_rdx_shared_vdd.busy_mask = rdx_vdd_source_busy(source);
+    if (g_rdx_shared_vdd.busy_mask || !rdx_vdd_source_valid(source)) {
+        r_printf("%s stop_aborted step=PRE_TAKEOVER busy=0x%03x\n",
+                 tag, g_rdx_shared_vdd.busy_mask);
+        rdx_vdd_stop_defer(source);
+        goto __exit;
     }
 
     local_irq_disable();
     stop_epoch = idle_epoch;
     canceled = g_rdx_shared_vdd.wake_requested ||
                g_rdx_shared_vdd.wake_epoch != stop_epoch ||
+               rdx_record_format_io_users() ||
+               (source == RDX_VDD_SRC_CONNECTED ?
+                !rdx_vdd_conn_atomic_valid() : !rdx_adv_policy_idle_valid()) ||
                g_rdx_shared_vdd.state != RDX_SHARED_VDD_STATE_ON_READY;
     if (canceled) {
         local_irq_enable();
-        r_printf("[PWR] stop_aborted step=PRECHECK idle_epoch=%u wake_epoch=%u state=%u\n",
-                 stop_epoch, g_rdx_shared_vdd.wake_epoch,
+        r_printf("%s stop_aborted step=PRECHECK idle_epoch=%u wake_epoch=%u state=%u\n",
+                 tag, stop_epoch, g_rdx_shared_vdd.wake_epoch,
                  g_rdx_shared_vdd.state);
+        rdx_vdd_stop_defer(source);
+        goto __exit;
+    }
+    if (mode == T2620_SHARED_VDD_MODE_DRY_RUN) {
+        local_irq_enable();
+        r_printf("%s would_off gen=%u mode=%s pa4=%u state=ON_READY\n",
+                 tag, g_rdx_shared_vdd.generation,
+                 rdx_vdd_mode_name_of(mode), g_rdx_shared_vdd.pa4_enabled);
         goto __exit;
     }
     g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_STOPPING;
     local_irq_enable();
-    r_printf("[PWR] stopping gen=%u mode=%s epoch=%u\n",
-             g_rdx_shared_vdd.generation,
-             rdx_peripheral_power_vdd_mode_name(), stop_epoch);
+    r_printf("%s stopping gen=%u mode=%s epoch=%u links=%u\n",
+             tag, g_rdx_shared_vdd.generation,
+             rdx_vdd_mode_name_of(mode), stop_epoch,
+             rdx_ble_server_get_connected_count());
 
     err = dev_manager_takeover("sd0");
     if (err) {
         g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_ON_READY;
-        r_printf("[PWR] stop_failed step=SD0_TAKEOVER err=%d pa4=%u\n",
-                 err, g_rdx_shared_vdd.pa4_enabled);
+        r_printf("%s stop_failed step=SD0_TAKEOVER err=%d pa4=%u\n",
+                 tag, err, g_rdx_shared_vdd.pa4_enabled);
+        if (source == RDX_VDD_SRC_CONNECTED) {
+            /* 硬件停用失败不自动续调，等新的活动或拓扑代次再尝试。 */
+            g_rdx_shared_vdd.conn_failed = 1;
+        }
         goto __exit;
     }
     g_rdx_shared_vdd.owner = RDX_SHARED_VDD_OWNER_IDLE_BLOCKED;
-    r_printf("[PWR] sd0_owner=IDLE_BLOCKED\n");
+    r_printf("%s sd0_owner=IDLE_BLOCKED\n", tag);
 
-    g_rdx_shared_vdd.busy_mask =
-        rdx_peripheral_power_vdd_busy_snapshot();
+    g_rdx_shared_vdd.busy_mask = rdx_vdd_source_busy(source);
     if (g_rdx_shared_vdd.wake_requested ||
         g_rdx_shared_vdd.wake_epoch != stop_epoch ||
-        rdx_ble_server_get_connected_count() ||
-        g_rdx_shared_vdd.busy_mask || (!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid())) {
+        g_rdx_shared_vdd.busy_mask || !rdx_vdd_source_valid(source)) {
         rdx_peripheral_power_vdd_stop_abort("POST_TAKEOVER_RECHECK");
         goto __exit;
     }
 
     err = rdx_led_hardware_deinit();
     if (err) {
+        if (source == RDX_VDD_SRC_CONNECTED) g_rdx_shared_vdd.conn_failed = 1;
         rdx_peripheral_power_vdd_stop_abort("RGB_QUIESCE");
         goto __exit;
     }
-    r_printf("[PWR] rgb_quiesced data=LOW spi=OFF\n");
+    r_printf("%s rgb_quiesced data=LOW spi=OFF\n", tag);
 
-    g_rdx_shared_vdd.busy_mask =
-        rdx_peripheral_power_vdd_busy_snapshot();
+    g_rdx_shared_vdd.busy_mask = rdx_vdd_source_busy(source);
 
     /* Close the final race with BLE/task wake sources. A BLE topology change
      * raises wake_requested/wake_epoch synchronously before its app_core event
@@ -568,15 +730,18 @@ static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch)
     canceled = g_rdx_shared_vdd.wake_requested ||
                g_rdx_shared_vdd.wake_epoch != stop_epoch ||
                g_rdx_shared_vdd.busy_mask ||
-               (!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid());
+               rdx_record_format_io_users() ||
+               (source == RDX_VDD_SRC_CONNECTED ?
+                !rdx_vdd_conn_atomic_valid() :
+                (!g_rdx_shared_vdd.slow_adv || !rdx_adv_policy_idle_valid()));
     if (!canceled) {
-#if TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_POWER_CUT
-        rdx_peripheral_power_vdd_storage_io_safe();
-        rdx_peripheral_power_vdd_hw_set(0);
-        g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_OFF;
-#else
-        g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_QUIESCED_ON;
-#endif
+        if (mode == T2620_SHARED_VDD_MODE_POWER_CUT) {
+            rdx_peripheral_power_vdd_storage_io_safe();
+            rdx_peripheral_power_vdd_hw_set(0);
+            g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_OFF;
+        } else {
+            g_rdx_shared_vdd.state = RDX_SHARED_VDD_STATE_QUIESCED_ON;
+        }
     }
     local_irq_enable();
 
@@ -585,11 +750,12 @@ static void rdx_peripheral_power_vdd_idle_stop(u32 idle_epoch)
         goto __exit;
     }
 
-#if TCFG_T2620_SHARED_VDD_MODE == T2620_SHARED_VDD_MODE_POWER_CUT
-    r_printf("[PWR] pa4=0 state=OFF owner=IDLE_BLOCKED\n");
-#else
-    r_printf("[PWR] quiesced mode=UNMOUNT_ONLY pa4=1 state=QUIESCED_ON owner=IDLE_BLOCKED\n");
-#endif
+    if (mode == T2620_SHARED_VDD_MODE_POWER_CUT) {
+        r_printf("%s pa4=0 state=OFF owner=IDLE_BLOCKED\n", tag);
+    } else {
+        r_printf("%s quiesced mode=UNMOUNT_ONLY pa4=1 state=QUIESCED_ON owner=IDLE_BLOCKED\n", tag);
+    }
+    if (source == RDX_VDD_SRC_CONNECTED) g_rdx_shared_vdd.conn_hint_wanted = 0;
 
 __exit:
     if (g_rdx_shared_vdd.transition_mutex_initialized) {
@@ -635,7 +801,103 @@ static void rdx_peripheral_power_vdd_idle_evaluate(u32 idle_epoch)
     g_rdx_shared_vdd.last_would_off_generation =
         g_rdx_shared_vdd.generation;
     rdx_peripheral_power_vdd_idle_recheck_cancel();
-    rdx_peripheral_power_vdd_idle_stop(idle_epoch);
+    rdx_peripheral_power_vdd_idle_stop(idle_epoch, RDX_VDD_SRC_OFFLINE);
+}
+
+static void rdx_vdd_conn_evaluate(void);
+
+static void rdx_vdd_conn_cancel(void)
+{
+    ++g_rdx_shared_vdd.conn_timer_serial;
+    if (g_rdx_shared_vdd.conn_timer) {
+        sys_timeout_del(g_rdx_shared_vdd.conn_timer);
+        g_rdx_shared_vdd.conn_timer = 0;
+    }
+}
+
+/* 定时器只在 app_core 创建，SDK 保证回调回到创建任务；不跨任务改窗口。 */
+static void rdx_vdd_conn_timeout(void *serial)
+{
+    if ((u32)serial != g_rdx_shared_vdd.conn_timer_serial) return;
+    g_rdx_shared_vdd.conn_timer = 0;
+    rdx_vdd_conn_evaluate();
+}
+
+static void rdx_vdd_conn_evaluate(void)
+{
+    u32 busy, version, epoch, now;
+
+    /* 先允许归零通知，再读占用，防止在快照与等待之间丢失完成事件。 */
+    g_rdx_shared_vdd.conn_hint_wanted = 1;
+    if (g_rdx_shared_vdd.conn_delivery_failed) {
+        g_rdx_shared_vdd.conn_delivery_failed = 0;
+        g_rdx_shared_vdd.conn_armed = 0;
+    }
+    if (!rdx_ble_server_get_connected_count() ||
+        !rdx_peripheral_power_vdd_is_ready()) {
+        rdx_vdd_conn_cancel();
+        g_rdx_shared_vdd.conn_armed = 0;
+        g_rdx_shared_vdd.conn_done = 0;
+        g_rdx_shared_vdd.conn_hint_wanted = 0;
+        return;
+    }
+    epoch = g_rdx_shared_vdd.wake_epoch;
+    version = rdx_adv_policy_business_version();
+    busy = rdx_vdd_conn_busy_snapshot();
+    now = sys_timer_get_ms();
+    if (version != g_rdx_shared_vdd.conn_version ||
+        epoch != g_rdx_shared_vdd.conn_epoch) {
+        g_rdx_shared_vdd.conn_armed = 0;
+        g_rdx_shared_vdd.conn_done = 0;
+        g_rdx_shared_vdd.conn_failed = 0;
+    }
+    if (busy) {
+        rdx_vdd_conn_cancel();
+        if (busy & ~RDX_VDD_CONN_TRANSIENT_BUSY) {
+            g_rdx_shared_vdd.conn_armed = 0;
+            g_rdx_shared_vdd.conn_done = 0;
+        }
+        if (busy != g_rdx_shared_vdd.conn_logged_busy) {
+            r_printf("[PWR_CONN] wait busy=0x%03x reason=%s timer=OFF\n",
+                     busy, rdx_peripheral_power_vdd_first_busy_name(busy));
+        }
+        g_rdx_shared_vdd.conn_logged_busy = busy;
+        return;
+    }
+    g_rdx_shared_vdd.conn_logged_busy = 0;
+    g_rdx_shared_vdd.conn_hint_wanted = 0;
+    if (g_rdx_shared_vdd.conn_failed) {
+        rdx_vdd_conn_cancel();
+        return;
+    }
+    if (!g_rdx_shared_vdd.conn_armed) {
+        rdx_vdd_conn_cancel();
+        g_rdx_shared_vdd.conn_version = version;
+        g_rdx_shared_vdd.conn_epoch = epoch;
+        g_rdx_shared_vdd.conn_deadline = now + TCFG_T2620_CONNECTED_VDD_IDLE_MS;
+        g_rdx_shared_vdd.conn_armed = 1;
+        g_rdx_shared_vdd.conn_done = 0;
+        r_printf("[PWR_CONN] armed idle_ms=%u version=%u epoch=%u links=%u\n",
+                 TCFG_T2620_CONNECTED_VDD_IDLE_MS, version, epoch,
+                 rdx_ble_server_get_connected_count());
+    }
+    if (g_rdx_shared_vdd.conn_done) return;
+    if ((s32)(now - g_rdx_shared_vdd.conn_deadline) >= 0) {
+        rdx_vdd_conn_cancel();
+        g_rdx_shared_vdd.conn_done = 1;
+        rdx_peripheral_power_vdd_idle_stop(epoch, RDX_VDD_SRC_CONNECTED);
+        return;
+    }
+    if (!g_rdx_shared_vdd.conn_timer) {
+        g_rdx_shared_vdd.conn_timer = sys_timeout_add(
+            (void *)g_rdx_shared_vdd.conn_timer_serial, rdx_vdd_conn_timeout,
+            g_rdx_shared_vdd.conn_deadline - now);
+        if (!g_rdx_shared_vdd.conn_timer) {
+            /* 分配失败只保留供电，下一次真实事件重新开始完整窗口。 */
+            g_rdx_shared_vdd.conn_armed = 0;
+            r_printf("[PWR_CONN] timer_failed pa4=1\n");
+        }
+    }
 }
 
 static void rdx_peripheral_power_vdd_event_on_app_core(int event, int epoch)
@@ -647,6 +909,9 @@ static void rdx_peripheral_power_vdd_event_on_app_core(int event, int epoch)
     }
 
     switch ((rdx_shared_vdd_event_t)event) {
+    case RDX_SHARED_VDD_EVENT_CONNECTED_EVAL:
+        g_rdx_shared_vdd.conn_queued = 0;
+        break;
     case RDX_SHARED_VDD_EVENT_FAST_ADV:
         rdx_peripheral_power_vdd_idle_recheck_cancel();
         if (!rdx_peripheral_power_vdd_is_ready()) {
@@ -725,6 +990,38 @@ static void rdx_peripheral_power_vdd_event_on_app_core(int event, int epoch)
     default:
         break;
     }
+    rdx_vdd_conn_evaluate();
+}
+
+/* 跨任务只合并通知；队列失败不在调用线程修改定时器，也不周期重试。 */
+static void rdx_vdd_conn_post(void)
+{
+    int msg[] = { (int)rdx_peripheral_power_vdd_event_on_app_core, 2,
+                  RDX_SHARED_VDD_EVENT_CONNECTED_EVAL, 0 };
+    local_irq_disable();
+    if (g_rdx_shared_vdd.conn_queued) {
+        local_irq_enable();
+        return;
+    }
+    g_rdx_shared_vdd.conn_queued = 1;
+    local_irq_enable();
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
+        local_irq_disable();
+        g_rdx_shared_vdd.conn_queued = 0;
+        g_rdx_shared_vdd.conn_delivery_failed = 1;
+        local_irq_enable();
+        r_printf("[PWR_CONN] event_failed cutoff_deferred\n");
+    }
+}
+
+void rdx_peripheral_power_vdd_connected_changed_notify(void)
+{
+    rdx_vdd_conn_post();
+}
+
+void rdx_peripheral_power_vdd_idle_hint(void)
+{
+    if (g_rdx_shared_vdd.conn_hint_wanted) rdx_vdd_conn_post();
 }
 
 static void rdx_peripheral_power_vdd_event_post(rdx_shared_vdd_event_t event,
@@ -864,6 +1161,14 @@ u32 rdx_peripheral_power_vdd_generation_get(void)
 }
 
 #else
+
+void rdx_peripheral_power_vdd_connected_changed_notify(void)
+{
+}
+
+void rdx_peripheral_power_vdd_idle_hint(void)
+{
+}
 
 void rdx_peripheral_power_vdd_early_init(void)
 {

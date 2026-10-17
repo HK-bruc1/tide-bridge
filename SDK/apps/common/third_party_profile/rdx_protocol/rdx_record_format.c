@@ -10,6 +10,8 @@
 #include "dev_manager.h"
 #include "rdx_util.h"
 #include "rdx_record_storage.h"
+#include "rdx_adv_policy.h"
+#include "rdx_peripheral_power.h"
 
 /* RAW and the App's DAT schema are unchanged. MTA is firmware-only metadata.
  * A durable first-frame fingerprint binds it to the RAW, including after a
@@ -46,6 +48,7 @@ static volatile int rf_error;
 static u8 rf_boot_started;
 static volatile int rf_service = 1;
 static volatile u32 rf_io_users;
+static volatile u32 rf_command_users;
 static volatile u8 rf_download;
 static char rf_deleted_name[12];
 static volatile u8 rf_erasing;
@@ -87,7 +90,7 @@ int rdx_record_format_erase_enter(void)
 {
     if (rdx_app_format_is_busy() || rdx_record_storage_active()) return -1;
     local_irq_disable();
-    int busy = rf_erasing || rf_service > 0 || rf_io_users || rf_download ||
+    int busy = rf_erasing || rf_service > 0 || rf_io_users || rf_command_users || rf_download ||
                rdx_record_storage_active() ||
                rdx_factory_audio_file_busy();
     if (!busy) {
@@ -138,21 +141,55 @@ int rdx_record_format_io_enter(void)
     int blocked = rdx_record_format_service_status();
     if (!blocked) ++rf_io_users;
     local_irq_enable();
+    /* 先登记占用再恢复 PA4，关断执行器能在每一级复检看见这次访问。 */
+    if (!blocked && rdx_adv_policy_business_enter()) {
+        local_irq_disable();
+        --rf_io_users;
+        local_irq_enable();
+        rdx_peripheral_power_vdd_idle_hint();
+        return -1;
+    }
     return blocked;
 }
 
+u32 rdx_record_format_io_users(void)
+{
+    return rf_io_users + rf_command_users;
+}
+
+/* 协议解析与缓存空检查只占用准入，不唤醒 PA4，也不发布业务活动。 */
 void rdx_record_format_command_enter(void)
 {
     local_irq_disable();
-    ++rf_io_users;
+    ++rf_command_users;
     local_irq_enable();
+}
+
+int rdx_record_format_flush_enter(void)
+{
+    local_irq_disable();
+    int blocked = rdx_record_format_service_status();
+    if (!blocked) ++rf_command_users;
+    local_irq_enable();
+    return blocked;
+}
+
+void rdx_record_format_command_leave(void)
+{
+    local_irq_disable();
+    if (rf_command_users) --rf_command_users;
+    u8 idle = !rf_io_users && !rf_command_users;
+    local_irq_enable();
+    if (idle) rdx_peripheral_power_vdd_idle_hint();
 }
 
 void rdx_record_format_io_leave(void)
 {
     local_irq_disable();
-    if (rf_io_users) --rf_io_users;
+    u8 held = rf_io_users != 0;
+    if (held) --rf_io_users;
     local_irq_enable();
+    if (held) rdx_adv_policy_business_exit();
 }
 
 int rdx_record_format_download_busy(void)
@@ -176,7 +213,7 @@ int rdx_record_format_download_acquire(void)
 {
     local_irq_disable();
     int blocked = rf_error || rf_erasing || rf_service || rf_download ||
-                  rf_io_users || rdx_factory_audio_file_busy();
+                  rf_io_users || rf_command_users || rdx_factory_audio_file_busy();
     if (!blocked) rf_download = 1;
     local_irq_enable();
     return blocked ? -1 : 0;
@@ -187,12 +224,14 @@ void rdx_record_format_download_release(void)
     local_irq_disable();
     rf_download = 0;
     local_irq_enable();
+    rdx_peripheral_power_vdd_connected_changed_notify();
 }
 
 void rdx_record_format_service_ready(int result)
 {
     rf_service = result < 0 ? -1 : result > 0 ? 1 : 0;
     printf("[REC_FORMAT] file service=%d\n", rf_service);
+    rdx_peripheral_power_vdd_connected_changed_notify();
 }
 /* Boot is serialized before RDX initialization; cJSON owns parsed strings. */
 static char rf_json[RF_OBJECT_SIZE];

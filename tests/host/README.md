@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and eleven behavioral suites
-as **15 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and twelve behavioral suites
+as **16 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -32,6 +32,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
+| `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断。MIC、功放时序与电流仍需板测 |
 
 The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
@@ -62,6 +63,20 @@ use in RDX, preserving ADC0/ADC3's JL MIC_LDO selection. The storage ABI harness
 checks wake/idle delegation and failed-wake retry without a second timer or power
 state. These checks cannot prove PA0/MIC rail voltages, audio quality or current;
 board tests must distinguish PA0 MIC power, PA4 SD/RGB power and PE5 amplifier enable.
+
+连接态第二阶段同时扩充现有套件：录音格式准入验证先占用再恢复、失败释放、解析/缓存空检查不发布活动；
+实际补丁库验证脏缓存、持久读句柄、删除队列及 IO 错误阻止停用，干净的 5 秒检查不进入业务，
+查询恢复失败返回独立空对象，GETLIST 带占用投递及队列失败响应，UXFILE bit29 标记不破坏内部消息号。
+这些测试不能证明真实 SD 挂载时序、文件耐久性、首键延迟或功耗；板测要求见
+[连接待机设计](../../docs/6-2.T2620BLE连接后低功耗设计.md)。
+
+RGB 调度回归在 `led_key_feedback_checks.py` 中执行实际硬件恢复入口及灯效引擎，
+模拟创建任务、目标任务、系统消息和真实毫秒期限：协议任务恢复后 OFF 不建表，
+动态灯效固定在 `app_core`，常亮停表，短提示仅在到期处理，低电提醒独立保留；
+覆盖多轮恢复、旧回调、请求乱序、时间/请求序号回绕、关机与分配失败。
+队列和备用单次超时同时失败时，已有 DIP 优先级 0 桥接恢复灯效待办，
+不会另建常驻轮询，也不会丢掉停止灯效的请求。绑定通知只在持久化成功后发送。
+这些用例不等于执行了 JL 二进制调度器；首次 GETLIST 和实际灯效仍需板测。
 
 The CDC suite's cdc_source_checks.py harness executes the recording worker with two read
 buffers, delayed completion, read/close failures, cancellation, quarantine,

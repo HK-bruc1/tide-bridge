@@ -143,12 +143,12 @@ Assert-Contract 'T2620_SHARED_VDD_QUIESCE_AND_RESTORE' $sharedVddQuiesceOk `
 $sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transition_mutex' -and
                                       $PeripheralPower -match 'os_mutex_create\(&g_rdx_shared_vdd\.transition_mutex\)' -and
                                       $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_ensure_on.*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?rdx_peripheral_power_vdd_restore_idle_domain.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
-                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop\(u32\s+idle_epoch\).*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
+                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop\(u32\s+idle_epoch,\s*u8\s+source\).*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
                                       $PeripheralPower -match 'g_rdx_shared_vdd\.slow_adv_epoch\s*=\s*\(u32\)epoch'
 Assert-Contract 'T2620_SHARED_VDD_TRANSITIONS_SERIALIZED' $sharedVddTransitionSerializationOk `
     'stop/restore transitions must be mutex-serialized and revalidate the exact slow-advertising epoch'
 
-$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv\s*\|\|\s*!rdx_adv_policy_idle_valid\(\)\);\s*if\s*\(!canceled\)' -and
+$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv\s*\|\|\s*!rdx_adv_policy_idle_valid\(\)\)\);\s*if\s*\(!canceled\)' -and
                                   $AdvPolicy -match '(?s)u8 rdx_adv_policy_idle_valid\(void\)\s*\{\s*return adv.enabled && adv.qualified && !adv.pending &&\s*adv.consumed == adv.version;\s*\}' -and
                                   $PeripheralPower -notmatch '(?s)local_irq_disable\(\);(?:(?!local_irq_enable\(\);).)*rdx_ble_server_get_connected_count\(\)'
 Assert-Contract 'T2620_SHARED_VDD_FINAL_RECHECK_IS_IRQ_SAFE' $sharedVddIrqSafeFinalRecheckOk `
@@ -289,7 +289,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'DA44AE30A683D645E474A386975C8DECDE087E5F1E5B665E871A3BFE2F3CB454' -and
+                           $PatchedRdxArchiveHash -eq 'A0AAC1F1E424197A0D965429D8C31B656A35DEA96BE161CB1BA4A329CE160E91' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and

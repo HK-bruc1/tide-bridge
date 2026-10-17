@@ -50,6 +50,30 @@ def run_recovery_checks():
     def integer(engine, name):
         return ctypes.c_int.from_address(engine.get_global_value_address(name))
 
+    facts = engine_for(types_for(['uxfile_data_t']) + '\n' + globals_for([
+        'uxReadFileData', 'g_dat_cache.4', 'rdx_storage_io_error',
+        'delete_queue_head', 'delete_queue_tail', 'delete_in_progress']) + '\n' +
+        extract('rdx_uxfile_power_busy') + '''
+define void @set_reader(i8* %handle) {
+ store i8* %handle, i8** getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxReadFileData, i32 0, i32 12)
+ ret void
+}
+''')
+    power_busy = ctypes.CFUNCTYPE(ctypes.c_uint8)(facts.get_function_address('rdx_uxfile_power_busy'))
+    assert not power_busy()
+    for name in ('g_dat_cache.4', 'rdx_storage_io_error', 'delete_queue_head', 'delete_in_progress'):
+        value = ctypes.c_ubyte.from_address(facts.get_global_value_address(name))
+        value.value = 1
+        assert power_busy(), name
+        value.value = 0
+        assert not power_busy(), name
+    reader = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(facts.get_function_address('set_reader'))
+    reader(1)
+    assert power_busy()
+    reader(None)
+    assert not power_busy()
+    assert 'and i32 %rdx_adv_message, -536870913' in ir
+
     index_gate = engine_for('''
 @g_sync_state = global i32 0
 @g_dat_need_upgrade_rebuild = global i1 false
@@ -90,7 +114,8 @@ define void @rdx_record_format_io_leave() {
  ret void
 }
 '''
-    timer = engine_for(service + '''
+    passive_service = service.replace('rdx_record_format_io_enter', 'rdx_record_format_flush_enter').replace('rdx_record_format_io_leave', 'rdx_record_format_command_leave')
+    timer = engine_for(passive_service + '''
 @rdx_storage_quiet = global i32 0
 @rdx_storage_refresh = global i32 0
 @scheduled = global i32 0
@@ -119,6 +144,48 @@ define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
         assert integer(timer, 'flushed').value == flushed
         assert integer(timer, 'io_users').value == 0
 
+    # 实际缓存回调和准入包装一起执行：干净时仅续约，脏缓存才进入真实业务。
+    flush_impl = extract('rdx_uxfile_flush_cache_timer_cb_impl')
+    strings = sorted(set(re.findall(r'@([.]str[.]\d+)', flush_impl)))
+    clean_timer = engine_for(passive_service + '\n' + globals_for(strings) + '''
+@rdx_storage_quiet = global i32 0
+@rdx_storage_refresh = global i32 0
+@g_dat_need_upgrade_rebuild = global i1 false
+@g_dat_cache.3 = global i1 true
+@g_dat_cache.4 = global i8 0
+@saved = global i32 0
+@scheduled = global i32 0
+@business = global i32 0
+define void @log_print(i32 %n, i8* %a, i8* %b, ...) { ret void }
+define zeroext i16 @sys_timeout_add(i8* %p, void(i8*)* %f, i32 %ms) {
+ store i32 %ms, i32* @scheduled
+ ret i16 1
+}
+define i32 @rdx_adv_policy_business_enter() {
+ %old = load i32, i32* @business
+ %next = add i32 %old, 1
+ store i32 %next, i32* @business
+ ret i32 0
+}
+define void @rdx_adv_policy_business_exit() { ret void }
+define fastcc i32 @rdx_dat_cache_save_adv_impl() {
+ store i32 1, i32* @saved
+ ret i32 0
+}
+''' + extract('rdx_dat_cache_save') + flush_impl + extract('rdx_uxfile_flush_cache_timer_cb'))
+    clean_tick = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(
+        clean_timer.get_function_address('rdx_uxfile_flush_cache_timer_cb'))
+    for _ in range(25):
+        clean_tick(None)
+    assert integer(clean_timer, 'business').value == 0
+    assert integer(clean_timer, 'saved').value == 0
+    assert integer(clean_timer, 'scheduled').value == 5000
+    ctypes.c_ubyte.from_address(clean_timer.get_global_value_address('g_dat_cache.4')).value = 1
+    clean_tick(None)
+    assert integer(clean_timer, 'business').value == 1
+    assert integer(clean_timer, 'saved').value == 1
+    assert integer(clean_timer, 'io_users').value == 0
+
     gate_types = types_for(['uxfile_data_t', 'uxfile_datfile_info_t'])
     gate_globals = globals_for(['uxReadFileData', 'uxDatFileInfo', 'rdx_empty_file', 'rdx_empty_list'])
     gate_stubs = ''
@@ -133,6 +200,24 @@ define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
         gate_fns += extract(fn_name) + '\n'
         gate_stubs += f'define %struct.{ret}* @{full}_ready({args}) {{ ret %struct.{ret}* @{shared} }}\n'
     gate = engine_for(service + gate_types + '\n' + gate_globals + '\n' + gate_stubs + gate_fns)
+    wake_gate = engine_for(service + gate_types + '\n' + gate_globals + '\n' + gate_stubs + gate_fns + '''
+define i32 @rdx_adv_policy_business_enter() { ret i32 -1 }
+define void @rdx_adv_policy_business_exit() { ret void }
+''' + ''.join(extract('rdx_uxfile_' + name) for name in (
+        'get_file_data_by_sn', 'get_file_data_by_filename', 'get_datFileInfo')))
+    # 恢复失败不能给闭源查询调用者返回 NULL，也不能清空已有传输对象。
+    for name, argtypes, args, shared, empty in [
+        ('get_file_data_by_sn', [ctypes.c_uint, ctypes.c_ubyte, ctypes.c_int], [9, 0, 0], 'uxReadFileData', 'rdx_empty_file'),
+        ('get_file_data_by_filename', [ctypes.c_void_p], [None], 'uxReadFileData', 'rdx_empty_file'),
+        ('get_datFileInfo', [], [], 'uxDatFileInfo', 'rdx_empty_list'),
+    ]:
+        integer(wake_gate, shared).value = 456
+        integer(wake_gate, empty).value = 123
+        query = ctypes.CFUNCTYPE(ctypes.c_void_p, *argtypes)(
+            wake_gate.get_function_address('rdx_uxfile_' + name))
+        assert query(*args) == wake_gate.get_global_value_address(empty)
+        assert integer(wake_gate, shared).value == 456
+        assert integer(wake_gate, empty).value == 0
     # 所有忙/失败结果都必须指向独立的全零对象，且保留旧传输快照。
     for state in [1, -1]:
         integer(gate, 'service').value = state

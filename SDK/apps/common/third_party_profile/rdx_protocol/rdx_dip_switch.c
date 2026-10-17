@@ -15,6 +15,8 @@
 #include "rdx_factory_cdc.h"
 #include "rdx_hogp_input.h"
 #include "rdx_dut.h"
+#include "rdx_adv_policy.h"
+#include "rdx_led_ctrl.h"
 
 static volatile bool s_init_done;
 static volatile bool s_business_mode_entered;
@@ -43,7 +45,8 @@ static void rdx_dip_switch_deferred_handle(void *priv);
 static int rdx_dip_switch_recovery_needed(void)
 {
     return rdx_dut_service_needs_poll() || rdx_factory_cdc_needs_poll() ||
-           rdx_hogp_input_needs_poll() || rdx_storage_lifecycle_changed();
+           rdx_hogp_input_needs_poll() || rdx_storage_lifecycle_changed() ||
+           rdx_led_ctrl_needs_service();
 }
 
 static u8 rdx_dip_switch_idle(void)
@@ -167,6 +170,8 @@ static u32 rdx_dip_switch_mode_delay(int on, int vbus, u32 usb)
 {
     u32 now = sys_timer_get_ms();
     if (on != s_last_on || usb != s_last_usb || vbus != s_last_vbus) {
+        /* 复用现有电源边沿观察，USB 插拔使连接空闲窗口作废，不增加轮询。 */
+        rdx_adv_policy_activity();
         if (rdx_dut_test_keys_active()) rdx_dut_service_wake();
         s_attempts = 0;
         s_retry_wait = 0;
@@ -240,6 +245,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     rdx_dut_service_poll();
     rdx_factory_cdc_poll();
     rdx_hogp_input_poll();
+    rdx_led_ctrl_service();
     if (rdx_storage_lifecycle_service(on, vbus)) {
         u32 storage_due = sys_timer_get_ms() + 100;
         if (!scheduled || (int)(storage_due - due) < 0) due = storage_due;

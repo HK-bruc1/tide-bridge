@@ -60,6 +60,10 @@ run:
  call void @rdx_record_format_command_enter()
  ret i32 0
 }
+define void @rdx_record_format_command_leave() {
+ call void @rdx_record_format_io_leave()
+ ret void
+}
 define void @rdx_record_format_io_leave() {
  %value = load i32, i32* @users
  %next = sub i32 %value, 1
@@ -96,6 +100,7 @@ define void @{name}_admitted(i8* %data, i16 zeroext %length) {{
 }}
 '''
     source += extract('rdx_protocol_record_file_info_indicate')
+    source += extract('rdx_protocol_list_queue_rejected')
     llvm.initialize_native_target()
     llvm.initialize_native_asmprinter()
     target = llvm.Target.from_default_triple().create_target_machine()
@@ -109,6 +114,14 @@ define void @{name}_admitted(i8* %data, i16 zeroext %length) {{
     def integer(name):
         return ctypes.c_int.from_address(engine.get_global_value_address(name))
 
+    reject = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_void_p)(
+        engine.get_function_address('rdx_protocol_list_queue_rejected'))
+    assert reject(None, 0, 0, None) == -1 and integer('rejected').value == 1
+    integer('rejected').value = 0
+    # 直接读取实际库，确认 GETLIST 没有遗漏的未跟踪生产者或队列失败旁路。
+    assert re.search(r'@rdx_adv_uxfile_post\([^\n]*i32 1, i32 233\)', actual)
+    assert not re.search(r'@os_taskq_post_msg\([^\n]*i32 1, i32 233\)', actual)
     busy = ctypes.CFUNCTYPE(ctypes.c_bool)(
         engine.get_function_address('_rdx_is_storage_busy'))
     assert not busy()
@@ -158,6 +171,8 @@ static int g_rdx_ota_finalizing, busy, owner, held, binds, timers, starts, data_
 RecordStatus *rdx_record_get_status(void) { return NULL; }
 ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return NULL; }
 int rdx_record_format_io_enter(void) { if(busy) return 1; ++held; return 0; }
+int rdx_record_format_service_status(void) { return busy; }
+void rdx_ota_session_clear(void) {}
 void rdx_record_format_io_leave(void) { --held; }
 int rdx_record_format_download_conflict(const char *operation) { return busy; }
 int rdx_ota_session_bind_current(void) { ++binds; return owner; }

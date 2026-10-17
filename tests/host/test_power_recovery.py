@@ -36,7 +36,7 @@ typedef int P33_IO_WKUP_EDGE;
 #define false 0
 #define NULL ((void*)0)
 static int on=1, vbus, role, mode=APP_MODE_BT, started, reset_count, off_requests, service_calls, edge;
-static int worker_polls, dut_need, cdc_need, hid_need, storage_changed, storage_wait;
+static int worker_polls, dut_need, cdc_need, hid_need, led_need, storage_changed, storage_wait;
 static int posts, queued, post_fail, timer_fail, timeout_adds, periodic_adds, user_adds, bad_priority;
 static int mode_requests, target_mode, wake_inside_service, usb_calls;
 static u32 now, timer_due, timer_ms, usb_delay;
@@ -44,6 +44,7 @@ static u16 timer_id, next_id;
 static void *timer_priv;
 static void (*timer_cb)(void *);
 void rdx_dip_switch_wake(void);
+void rdx_adv_policy_activity(void) {}
 void rdx_dip_switch_shutdown_begin(void);
 void rdx_factory_cdc_poll(void) { ++worker_polls; cdc_need=0; }
 void rdx_hogp_input_poll(void) { ++worker_polls; hid_need=0; }
@@ -51,6 +52,8 @@ void rdx_dut_service_poll(void) { ++worker_polls; dut_need=0; }
 int rdx_factory_cdc_needs_poll(void) { return cdc_need; }
 int rdx_hogp_input_needs_poll(void) { return hid_need; }
 int rdx_dut_service_needs_poll(void) { return dut_need; }
+int rdx_led_ctrl_needs_service(void) { return led_need; }
+void rdx_led_ctrl_service(void) { ++worker_polls; led_need=0; }
 int rdx_storage_lifecycle_changed(void) { return storage_changed; }
 void rdx_dut_service_wake(void) {}
 int rdx_dut_test_keys_active(void) { return 0; }
@@ -96,7 +99,7 @@ tests = r"""
 static void reset(void) {
     on=1; vbus=role=started=0; mode=APP_MODE_BT;
     reset_count=off_requests=service_calls=worker_polls=usb_calls=0;
-    dut_need=cdc_need=hid_need=storage_changed=storage_wait=0;
+    dut_need=cdc_need=hid_need=led_need=storage_changed=storage_wait=0;
     posts=queued=post_fail=timer_fail=timeout_adds=periodic_adds=user_adds=bad_priority=0;
     mode_requests=target_mode=wake_inside_service=0;
     now=timer_due=timer_ms=usb_delay=0; timer_id=next_id=0;
@@ -232,9 +235,9 @@ int test_wraparound(void) {
 }
 int test_worker_recovery(void) {
     reset(); boot(); int old=posts;
-    dut_need=cdc_need=hid_need=storage_changed=1;
+    dut_need=cdc_need=hid_need=led_need=storage_changed=1;
     CHECK(!rdx_dip_switch_idle()); tick(100);
-    CHECK(posts==old+1 && !dut_need && !cdc_need && !hid_need && !storage_changed);
+    CHECK(posts==old+1 && !dut_need && !cdc_need && !hid_need && !led_need && !storage_changed);
     CHECK(rdx_dip_switch_idle());
     storage_wait=1; rdx_dip_switch_wake(); tick(100); CHECK(timer_ms==100);
     storage_wait=0; tick(100); CHECK(!timer_id);

@@ -23,6 +23,7 @@
 * Include files
 ******************************************************************************/ 
 #include "rdx_charge.h"
+#include "rdx_peripheral_power.h"
 #include "app_config.h"
 #include "app_msg.h"
 #include "system/includes.h"
@@ -154,6 +155,7 @@ void rdx_app_set_charge_state(u8 st)
     /* Code Body													  */
     /*----------------------------------------------------------------*/
     cur_charge_state = st;
+    rdx_peripheral_power_vdd_business_changed_notify();
     y_printf("===== %s -->cur_charge_state = %d \r", __func__, cur_charge_state);
 }
 

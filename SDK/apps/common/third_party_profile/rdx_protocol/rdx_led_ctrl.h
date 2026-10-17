@@ -130,12 +130,19 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene);
 rdx_led_scene_e rdx_led_ctrl_get_scene(void);
 
 /**
- * @brief 更新LED显示（需要在定时器中调用）
+ * @brief 在 app_core 更新LED显示，由按需单次超时驱动
  */
 void rdx_led_ctrl_update(void);
 
 /* Refresh the <10% reminder policy on app_core after a battery sample. */
 void rdx_led_ctrl_update_low_battery(void);
+
+/* 绑定持久化成功后的通知；OFF 停表时也能重算基础灯态。 */
+void rdx_led_ctrl_bound_changed(void);
+
+/* 产品优先级 0 桥接只查询失败待办；恢复处理仅由 app_core 调用。 */
+int rdx_led_ctrl_needs_service(void);
+void rdx_led_ctrl_service(void);
 
 /* Show the sampled battery level for two seconds, then restore SMART. */
 void rdx_led_ctrl_show_battery(void);

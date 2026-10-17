@@ -915,7 +915,8 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
 	switch (type){
 		case OTA_UPGRADE_BEGIN:
 			{
-                if (rdx_record_format_io_enter()) {
+                /* 先拒绝存储冲突；身份绑定先于可能阻塞的恢复，恢复后再校验代次。 */
+                if (rdx_record_format_service_status()) {
                     rdx_record_format_download_conflict("OTA_BEGIN");
                     static const u8 rejected[] = CMD_UP_UPGRADE "1#";
                     rdx_ble_server_ota_send((u8 *)rejected, sizeof(rejected) - 1);
@@ -923,6 +924,17 @@ void rdx_ota_proc(u16 type, u8 *recv_data, u32 recv_len)
                 }
                 if (!rdx_ota_session_bind_current()) {
                     y_printf("[RDX_OTA] drop begin without RDX owner\r");
+                    break;
+                }
+                if (rdx_record_format_io_enter()) {
+                    rdx_ota_session_clear();
+                    rdx_record_format_download_conflict("OTA_BEGIN");
+                    static const u8 rejected[] = CMD_UP_UPGRADE "1#";
+                    rdx_ble_server_ota_send((u8 *)rejected, sizeof(rejected) - 1);
+                    break;
+                }
+                if (!rdx_ota_session_is_current()) {
+                    rdx_ota_session_clear();
                     rdx_record_format_io_leave();
                     break;
                 }

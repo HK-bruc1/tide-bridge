@@ -4498,7 +4498,7 @@ int rdx_led_hardware_deinit(void)
         return 0;
     }
 
-    /* Stop the 20 ms effect timer before closing SPI and freeing buffers. */
+    /* 先撤销灯效期限并使旧回调失效，再关闭 SPI 和释放缓冲区。 */
     rdx_led_ctrl_deinit();
     ret = led_pt0807_deinit(&led_pt0807_config);
     gpio_set_mode(IO_PORT_SPILT(LED_PT0807_DATA_PORT_IO), PORT_OUTPUT_LOW);
