@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and sixteen behavioral suites
-as **20 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and seventeen behavioral suites
+as **21 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -38,6 +38,20 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_cache_flush.py` | 实际缓存协调器：干净停表、固定 5 秒期限、重复修改不续期、同步清除、临时忙和故障、队列/定时器失败恢复、生命周期隔离及回绕；实际库的 dirty 通知/准入/有界互斥由 `test_record_format.py` 中的 `cache_flush_library_checks.py` 执行 |
 | `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
+
+`test_lowpower_lrc.py` 验证独立 LRC 正常业务配置：真实工具配置与项目覆盖仅允许
+产品开关及原生睡眠时钟类型不同，非法值、关闭原生低功耗或混入非零实验开关必须失败。
+实际电源参数初始化和 `board_power_init()` 在模拟原生 API 下执行，覆盖 LRC/BT_OSC、
+充电开关、初始化先于单次快照、按键唤醒不变，以及原生选择不同于默认值时只观察不强制。
+默认保持 LRC=1，从启动配置所有状态的睡眠策略，不随快慢广播切钟；保留按键、USB、
+UART 和动态调频，组合探针及其套件仅在实验分支。
+
+2026-10-19 用户确认锁定正常业务版未连接慢广播 **0.6–1.6 mA 波动**，证据为
+`COM3_2026-10-19_20-11-56.log` 与仪表反馈；日志支持低功耗后建链、一次 APP 录音
+停止保存及断连后再次慢广播/PA4 OFF。电流不是主机测试推算，也不是积分平均值；
+完整 USB/首键恢复、HID/双 ACL、RF/计时/温压长稳仍需资格验证。后续降耗项按用户决定
+**暂不执行，仅保留方向**，不补做 A/B 包。详见
+[6-0 第 5 节](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)。
 
 The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers

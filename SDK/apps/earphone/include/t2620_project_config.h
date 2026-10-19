@@ -179,6 +179,30 @@
 #endif
 
 /* -------------------------------------------------------------------------- */
+/* 原生 LRC 已锁定未连接慢广播收益；设为 0 可恢复工具的睡眠时钟策略。 */
+/* -------------------------------------------------------------------------- */
+#ifndef TCFG_T2620_LOWPOWER_LRC_ENABLE
+#define TCFG_T2620_LOWPOWER_LRC_ENABLE             1
+#endif
+#if TCFG_T2620_LOWPOWER_LRC_ENABLE != 0 && TCFG_T2620_LOWPOWER_LRC_ENABLE != 1
+#error "T2620 low-power LRC switch must be 0 or 1"
+#endif
+#if TCFG_T2620_LOWPOWER_LRC_ENABLE && !TCFG_LOWPOWER_LOWPOWER_SEL
+#error "T2620 low-power LRC requires native low power"
+#endif
+
+/* 组合探底仅保留在独立实验分支，正常业务构建禁止混入实验开关。 */
+#if TCFG_T2620_IDLE_PROBE_ENABLE || TCFG_T2620_IDLE_PROBE_UART_OFF || TCFG_T2620_IDLE_PROBE_LRC
+#error "T2620 idle probe is not supported in the normal-business build"
+#endif
+
+#if TCFG_T2620_LOWPOWER_LRC_ENABLE
+/* 启动时统一配置，不随快慢广播切钟；保留 SDK 校准和时钟回退。 */
+#undef TCFG_LOWPOWER_OSC_TYPE
+#define TCFG_LOWPOWER_OSC_TYPE                    OSC_TYPE_LRC
+#endif
+
+/* -------------------------------------------------------------------------- */
 /* RDX 与 HOGP 功能                                                           */
 /* -------------------------------------------------------------------------- */
 
