@@ -1,5 +1,5 @@
 {
- "name": "t2620-firmware",
+ "name": "tide-bridge",
  "type": "耳机",
  "sdk": "TWS耳机",
  "chip": "AC701N",
@@ -139,9 +139,9 @@
   }
  ],
  "create_time": "2024-12-24T09:42:31.813Z",
- "update_time": "2026-07-03T02:02:24.504Z",
+ "update_time": "2026-10-19T06:45:54.598Z",
  "standardPatch": "3.3.5",
- "lastOpenToolVersion": "4.10.3",
+ "lastOpenToolVersion": "4.11.5",
  "lastStencilFlowTime": "20260316151503",
  "proxyRepoid": null,
  "versionName": "3.0.0",

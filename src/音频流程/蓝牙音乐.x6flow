@@ -1011,94 +1011,96 @@
          {
           "name": "arg0",
           "enable": true,
+          "range": 48,
+          "gain": -3,
           "data": [
            {
-            "id": 1675670402192,
+            "id": 1686704298380,
             "name": "1",
-            "CenterFrequency": 25,
-            "Gain": 0,
+            "CenterFrequency": 394,
+            "Gain": -9.96,
             "QValue": 0.7,
-            "type": 2,
+            "type": 0,
             "fEnable": true
            },
            {
-            "id": 1675670402193,
+            "id": 1686704298381,
             "name": "2",
-            "CenterFrequency": 53,
-            "Gain": 0,
-            "QValue": 0.7,
+            "CenterFrequency": 200,
+            "Gain": -41.94,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402194,
+            "id": 1686704298382,
             "name": "3",
-            "CenterFrequency": 113,
-            "Gain": 0,
-            "QValue": 0.7,
+            "CenterFrequency": 250,
+            "Gain": -7.34,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402195,
+            "id": 1686704298383,
             "name": "4",
-            "CenterFrequency": 240,
-            "Gain": 0,
+            "CenterFrequency": 600,
+            "Gain": 1,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402196,
+            "id": 1686704298384,
             "name": "5",
-            "CenterFrequency": 509,
-            "Gain": 0,
+            "CenterFrequency": 821,
+            "Gain": 2.74,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402197,
+            "id": 1686704298385,
             "name": "6",
-            "CenterFrequency": 1082,
-            "Gain": 0,
+            "CenterFrequency": 1146,
+            "Gain": 6.14,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402198,
+            "id": 1686704298386,
             "name": "7",
-            "CenterFrequency": 2299,
-            "Gain": 0,
+            "CenterFrequency": 2384,
+            "Gain": 0.57,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402199,
+            "id": 1686704298387,
             "name": "8",
-            "CenterFrequency": 4885,
-            "Gain": 0,
-            "QValue": 0.7,
+            "CenterFrequency": 4451,
+            "Gain": 2,
+            "QValue": 0.66,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402200,
+            "id": 1686704298388,
             "name": "9",
-            "CenterFrequency": 10378,
-            "Gain": 0,
+            "CenterFrequency": 5491,
+            "Gain": -0.06,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
            },
            {
-            "id": 1675670402201,
+            "id": 1686704298389,
             "name": "10",
-            "CenterFrequency": 21600,
-            "Gain": 0,
-            "QValue": 0.7,
+            "CenterFrequency": 9686,
+            "Gain": -36.7,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
            },
@@ -1108,7 +1110,7 @@
             "Gain": 1,
             "QValue": 0,
             "type": 7,
-            "fEnable": false
+            "fEnable": true
            },
            {
             "name": "Lp",
@@ -1119,51 +1121,48 @@
             "fEnable": false
            }
           ],
-          "size": 10,
-          "gain": 0,
-          "range": 20,
-          "bypass": false,
-          "sampleRate": 48000
+          "sampleRate": 48000,
+          "bypass": false
          },
          {
           "name": "gam_eff",
           "enable": true,
-          "range": 20,
-          "gain": -9.5,
+          "range": 48,
+          "gain": -3,
           "bypass": false,
           "data": [
            {
             "id": 1686704298380,
             "name": "1",
-            "CenterFrequency": 34,
-            "Gain": -7.3,
+            "CenterFrequency": 394,
+            "Gain": -9.96,
             "QValue": 0.7,
-            "type": 2,
+            "type": 0,
             "fEnable": true
            },
            {
             "id": 1686704298381,
             "name": "2",
-            "CenterFrequency": 46,
-            "Gain": -5.1,
-            "QValue": 0.7,
+            "CenterFrequency": 200,
+            "Gain": -41.94,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
            },
            {
             "id": 1686704298382,
             "name": "3",
-            "CenterFrequency": 93,
-            "Gain": 8.4,
-            "QValue": 0.7,
+            "CenterFrequency": 250,
+            "Gain": -7.34,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
            },
            {
             "id": 1686704298383,
             "name": "4",
-            "CenterFrequency": 358,
-            "Gain": 2.5,
+            "CenterFrequency": 600,
+            "Gain": 1,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
@@ -1171,8 +1170,8 @@
            {
             "id": 1686704298384,
             "name": "5",
-            "CenterFrequency": 908,
-            "Gain": 4.2,
+            "CenterFrequency": 821,
+            "Gain": 2.74,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
@@ -1180,8 +1179,8 @@
            {
             "id": 1686704298385,
             "name": "6",
-            "CenterFrequency": 1972,
-            "Gain": 4,
+            "CenterFrequency": 1146,
+            "Gain": 6.14,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
@@ -1189,8 +1188,8 @@
            {
             "id": 1686704298386,
             "name": "7",
-            "CenterFrequency": 2945,
-            "Gain": -1.3,
+            "CenterFrequency": 2384,
+            "Gain": 0.57,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
@@ -1198,17 +1197,17 @@
            {
             "id": 1686704298387,
             "name": "8",
-            "CenterFrequency": 4940,
-            "Gain": -3.1,
-            "QValue": 0.7,
+            "CenterFrequency": 4451,
+            "Gain": 2,
+            "QValue": 0.66,
             "type": 2,
             "fEnable": true
            },
            {
             "id": 1686704298388,
             "name": "9",
-            "CenterFrequency": 11749,
-            "Gain": 3.1,
+            "CenterFrequency": 5491,
+            "Gain": -0.06,
             "QValue": 0.7,
             "type": 2,
             "fEnable": true
@@ -1216,13 +1215,30 @@
            {
             "id": 1686704298389,
             "name": "10",
-            "CenterFrequency": 22000,
-            "Gain": 0,
-            "QValue": 0.7,
+            "CenterFrequency": 9686,
+            "Gain": -36.7,
+            "QValue": 1,
             "type": 2,
             "fEnable": true
+           },
+           {
+            "name": "Hp",
+            "CenterFrequency": 40,
+            "Gain": 1,
+            "QValue": 0,
+            "type": 7,
+            "fEnable": true
+           },
+           {
+            "name": "Lp",
+            "CenterFrequency": 18000,
+            "Gain": 1,
+            "QValue": 0,
+            "type": 8,
+            "fEnable": false
            }
-          ]
+          ],
+          "sampleRate": 48000
          }
         ]
        }
