@@ -10,6 +10,7 @@
 #include "system/event.h"
 #include "os/os_api.h"
 #include "app_main.h"
+#include "rdx_dip_switch.h"
 
 #if  USB_PC_NO_APP_MODE == 0
 #include "app_task.h"
@@ -132,6 +133,7 @@ static void usb_task(void *p)
             break;
 #endif
         case USBSTACK_OTG_MSG:
+            rdx_dip_switch_wake();
             from = msg[2];
             event = msg[3];
             usb_msg = (char *)msg[4];

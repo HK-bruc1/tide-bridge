@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and ten behavioral suites
-as **14 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and sixteen behavioral suites
+as **20 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -26,18 +26,88 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
 | `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries; KEY1/F13、KEY2/F14 单击反馈分流及 `led_key_feedback_checks.py` 中真实灯效引擎的颜色、超时、优先级、绑定后静默广播与实时恢复 |
-| `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery and bounded identity fields |
+| `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
 | `test_record_storage.py` | Async frame ownership/order, simulated 220ms/2s storage stalls, saturation, metadata/write failures, pause/stop drain and two-hour mono/stereo frame counts |
 | `test_record_format.py` | Real cJSON metadata, DAT merge, identity conflicts, failed I/O and interrupted transaction replay; allocation failure preserves files; `file_delete_checks.py` executes APP deletion and the actual LLVM cache handoff for rejected requests, queue failures and cache/I/O failures; `recovery_regression_checks.py` executes the patched archive for empty busy results, cache load failures, flush retry, invalidated-cache reload/retry and sparse-ID playback navigation |
-| `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart |
+| `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
+| `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
+| `test_connected_params.py` | 实际 RDX 快档协调器：长时间空闲不降档、下载结束及旧参数索引均不恢复慢档、实际快档范围、延迟/拒绝时有界重试和停表、逻辑会话切换不刷新物理 ACL 预算、迟到慢参数恢复、HID 同链保护与异链隔离、RDX 退出后的 HID 快档收尾与跨 peer 接管、重连/旧回调隔离、消息/定时器失败恢复及计数回绕；协商、交互、射频与电流仍须板测 |
+| `test_ble_entry.py` | 实际第二入口协调器、广播/连接适配与退出函数：120 秒到期、持续业务不续期、真实业务/物理键重开且纯 HID 不恢复 PA4、双 ACL/零 ACL、关闭两阶段确认与在途建链、软件缓存提前清零、超时/错误保守锁定、开放前取消、退出/重初始化及旧任务隔离、队列/定时器失败与回绕；固定已审阅 SDK 库哈希，不替代实际 HCI/RF 时序、睡眠与电流板测 |
+| `test_cache_flush.py` | 实际缓存协调器：干净停表、固定 5 秒期限、重复修改不续期、同步清除、临时忙和故障、队列/定时器失败恢复、生命周期隔离及回绕；实际库的 dirty 通知/准入/有界互斥由 `test_record_format.py` 中的 `cache_flush_library_checks.py` 执行 |
+| `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
+| `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
 
 The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers
 golden CRC/frame vectors, 1/2/4/8 KB blocks, partial-frame cancellation, stale
 sessions, TX-full control reception, coalesced wakeups and bounded output.
-Its cdc_source_checks.py harness executes the recording worker with two read
+
+第二入口测试固定当前 `btstack.a` / `btctrler.a` 的 SHA-256，防止 SDK 公共广播句柄
+编号、命令缓冲生命周期及完成事件 ABI 变化后继续误用模拟结果；升级库必须重新审阅，
+不能只替换哈希。关闭使用 `0x2039` 停广播、`0x203c` 移除确认，再用第二次移除完成
+隔离 SDK 清理命令。退出在 `app_core` 有界排空；未确认的故障保留保护且禁止重开直到重启，
+不能把退出/重新初始化或迟到完成当成恢复证据。此检查不等于执行真实 controller。
+
+2026-10-19 第二入口单 RDX 核心路径已板测：两次关窗后的睡眠、列表唤醒重开和窗口内
+不续期，用户实测入口开放/关窗待机约 4/2 mA，确认锁定阶段收益。第二手机物理接入后
+因 RDX runtime 已占用而被拒绝接管，随后退回单 ACL 并重开窗口，也已覆盖一次。
+此记录不代表持续录音/下载、HID/双 ACL、关闭故障、退出或长稳板测通过；完整边界见
+`docs/6-2.T2620BLE连接后低功耗设计.md` 第 1.1、4.4 节。
+
+The HOGP harness also checks event-only offline first-key/multi-click/KEY5
+gestures, idle with no 10 ms timer, HID-ready start/stop, and queue/timer failure
+recovery through the priority-0 product bridge (no idle system polling). CDC checks cover DTR-scoped protocol
+timers, transport state notifications and detached audio/file cleanup. Neither
+module needs a persistent 10 ms service without its valid session. The former
+100 ms product system timer is removed; the priority-0 bridge posts only actual
+work and does not force wakeups. USB transport lifecycle remains separate.
+These scheduling checks do not prove on-device current or latency; see the
+[disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
+and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
+
+DUT 调度检查覆盖未连接、BLE 已连接、USB 在线和 DUT 模式内无待办停表；
+执行实际初始化、物理键/命令入口、事件合并及处理中再次通知、消息与定时器失败恢复、
+固定截止时间、旧超时回调、计数回绕、录音停止投递重试上限及迟到保存结果。
+按键等待和喇叭稳定播放不保留通用服务周期；PCM 供数只在启动/结束通知，录音只在首帧通知，
+包装提示音只在间隔阶段安排单次超时。生产者通知接线另做源检查；硬件线程时序、
+USB/音频实际延迟和连接前后电流仍须板测，不由这些模拟用例证明。
+
+Power contracts also reject the obsolete PA0-as-VDD alias and direct PA0 GPIO
+use in RDX, preserving ADC0/ADC3's JL MIC_LDO selection. The storage ABI harness
+checks wake/idle delegation and failed-wake retry without a second timer or power
+state. These checks cannot prove PA0/MIC rail voltages, audio quality or current;
+board tests must distinguish PA0 MIC power, PA4 SD/RGB power and PE5 amplifier enable.
+
+连接态第二阶段同时扩充现有套件：录音格式准入验证先占用再恢复、失败释放、解析/缓存空检查不发布活动；
+实际补丁库验证脏缓存、持久读句柄、删除队列及 IO 错误阻止停用，干净缓存不进入保存业务，
+查询恢复失败返回独立空对象，GETLIST 带占用投递及队列失败响应，UXFILE bit29 标记不破坏内部消息号。
+这些测试不能证明真实 SD 挂载时序、文件耐久性、首键延迟或功耗；板测要求见
+[连接待机设计](../../docs/6-2.T2620BLE连接后低功耗设计.md)。
+
+`test_cache_flush.py` 执行实际缓存调度器：干净态无定时器、脏缓存 5 秒固定期限、重复修改不续期、
+同步保存取消待办、临时忙重试、故障停表、队列/定时器失败经现有桥接恢复、退出/重初始化、
+旧回调隔离与时间回绕。`test_record_format.py` 内的 `cache_flush_library_checks.py` 提取实际
+链接库，检查全部 14 处 dirty 写入通知、旧周期链删除及生命周期接线，并执行实际准入/保存包装。
+清洁状态不访问存储，获取锁最多等待 1 个 OS tick，超时不保存；真实 IO 失败保留脏位及错误，不修改 JL USB 检测。
+主机替身不证明真实调度器并发、断电耐久性或 mA 收益，须独立板测。
+
+RGB 调度回归在 `led_key_feedback_checks.py` 中执行实际硬件恢复入口及灯效引擎，
+模拟创建任务、目标任务、系统消息和真实毫秒期限：协议任务恢复后 OFF 不建表，
+动态灯效固定在 `app_core`，常亮停表，短提示仅在到期处理，低电提醒独立保留；
+覆盖多轮恢复、旧回调、请求乱序、时间/请求序号回绕、关机与分配失败。
+队列和备用单次超时同时失败时，已有 DIP 优先级 0 桥接恢复灯效待办，
+不会另建常驻轮询，也不会丢掉停止灯效的请求。绑定通知只在持久化成功后发送。
+这些用例不等于执行了 JL 二进制调度器；首次 GETLIST 和实际灯效仍需板测。
+
+接收任务测试直接提取当前链接库的 LLVM 函数，不另写接收循环模型；主机只在模拟的
+无限阻塞点终止该轮执行，OS、队列内存分配及命令解析仍是替身。逻辑退出/断连的完整
+所有权状态机由生命周期契约约束，接收测试只证明同一生产者的 FIFO 屏障可唤醒并排空，
+不等于完成真实协议解析或 JL 调度器并发测试。调频测试验证任务归属和观察期限，
+不模拟底层频率计算、RF 或电流；板测必须覆盖观察器停表后首次业务，以及业务后的再次降频。
+
+The CDC suite's cdc_source_checks.py harness executes the recording worker with two read
 buffers, delayed completion, read/close failures, cancellation, quarantine,
 deadlines and bounded shutdown. Record-format tests cover the public in-flight
 gate; archive regression tests cover queued format admission and locked DAT
@@ -50,8 +120,9 @@ seconds. The C worker streams the same length with fixed buffers; producer and
 format tests cover offsets/lengths above 16 MiB and 2 GiB through the aligned
 u32 boundary, idle timeout and timer wrap, large-offset cancellation, legacy/new
 CAPS negotiation, and preservation of the short factory-recording limit.
-These simulations do not certify physical large-file storage or USB transfer;
-the real 143 MB recording still requires on-device download/content validation.
+These simulations do not certify physical large-file storage or USB transfer.
+The historical 143 MB single-run board result does not replace large-file repeat,
+independent-source comparison or regression of the new session-scoped scheduling.
 The `cdc_conflict_checks.py` harness executes admission predicates and entry
 reservations extracted from the patched protocol archive, deferred BLE list
 admission and production OTA dispatch. Additional cases cover post-acquire CDC
@@ -59,7 +130,8 @@ conflicts, index activity independent of the CDC lease, and reset rejection.
 These are targeted gate tests, not a simulation of the entire BLE parser or JL
 scheduler. The patched archive now contains protocol and UXFILE modifications.
 It does not establish physical USB timing, storage throughput or 600 KB/s.
-See docs/10-4.CDC通用文件传输业务方案.md sections 7 and 9.3–9.7 for real-file board validation.
+See [CDC file transfer](../../docs/10-4.CDC通用文件传输业务方案.md),
+sections 6.3–6.4 for board validation and section 7 for historical performance.
 
 ## Keeping the suite small
 
@@ -162,14 +234,14 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 单文件 `CDC-test.bat`，由 `host_c_test_lib.load_cdc_tool()` 加载后测试。提供基础检查、受固件能力
 门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
 由 factory USB 组调用，覆盖旧固件阻断、超时不重发、LAST 覆盖、AUTH 完整显示/保存及控制顺序；
-使用模拟串口，不打开硬件。完整录音/文件/包装流程尚未实现。
+使用模拟串口，不打开硬件。工具已接入录音、文件和独立包装流程；本段的主机模拟覆盖不等于完整实板验收，业务证据及剩余回归见 board README 和关联 CDC 文档。
 
 `python tests/board/factory_cdc_bytes.py --port COM6` requires `pyserial`, a DUT
 and CDC TEST firmware. Use the CDC port, not the debug log port. This independent
 tool checks startup bytes and four echoes; host validation never opens a port.
 See [factory USB protocol](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
-Power recovery executes the real DIP implementation with mocked pins and independent timers: debounce, stalled app_core, fixed deadline, OFF/ON latch and cold USB/battery behavior. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
+Power recovery executes the real DIP implementation in 12 scenarios with MSC both disabled and enabled: stable idle without system timers or empty posts, timed debounce, stalled app_core, fixed OFF deadline, cold charging/ON entry, bounded mode retries, failed posts/timer allocation, stale callbacks, re-notification, recovery flags and clock wrap. Native shutdown and legacy PA4 delegation are checked separately. USB policy tests cover three-attempt exhaustion, event-independent deadlines, 300 ms reenumeration across wrap and unplug cancellation. Recording recovery covers damaged metadata, retained RAW tails, orphan metadata, duplicate identities, transactional deletion/retry and listing/deletion beyond 300 entries. App rendering and hardware timing/current require device validation.
 
 BLE 连续下载、会议单声道及 RAW 回放特性已实板验收并收敛，对应的行为套件（`test_ble_download.py`、`test_meeting_mono.py`）及 `test_rdx_keymap_contract.ps1` 静态令牌检查已移除；下载策略结论见提交 366ce688，keymap 在线事务回归由 `test_keymap_factory_reset.py` 与实板验收覆盖。
 

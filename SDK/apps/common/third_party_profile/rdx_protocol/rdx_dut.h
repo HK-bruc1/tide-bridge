@@ -150,6 +150,10 @@ bool rdx_dut_key_scan(u8 value, u8 previous);
 bool rdx_dut_key_consume(u8 value, u32 timestamp);
 void rdx_dut_test_cancel(void);
 void rdx_dut_test_session_revoke(void);
+/* 生产者只发布状态并唤醒；兜底检查只能在 app_core 中调用。 */
+void rdx_dut_service_wake(void);
+void rdx_dut_service_poll(void);
+int rdx_dut_service_needs_poll(void);
 
 /******************************************************************************
 * Function Section - DUT消息处理

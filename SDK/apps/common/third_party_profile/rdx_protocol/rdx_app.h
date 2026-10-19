@@ -46,10 +46,6 @@ u8 rdx_app_record_is_hold_active(void);
 /******************************************************************************
 * Macro Define Section
 ******************************************************************************/ 
-#define VDD_POWER_PORT_IO                           IO_PORTA_00
-#define VDD_POWER_PORT                              PORTA
-#define VDD_POWER_PIN                               PORT_PIN_0
-
 #define LED_PT0807_DATA_PORT_IO                     IO_PORTC_01
 
 #define RECORD_STATE_START                          (0u)

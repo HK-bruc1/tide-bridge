@@ -660,7 +660,6 @@ extern int get_buffer_vaild_len(void);
 extern int rdx_protocol_audio_data_indicate(uint8_t* d, uint16_t len);
 extern void rdx_ble_server_auto_shut_down_enable(u8 enable);
 extern int rdx_uxfile_dat_1_gen(u8 scene);
-extern void rdx_app_do_emmc_reset(void);
 extern void os_system_info_output(void);
 extern void rdx_app_emmc_poweroff_check(void);
 extern void rdx_app_emmc_poweroff_check_timer_stop(void);
@@ -2666,6 +2665,7 @@ static void rdx_record_task(void *arg)
                             rdx_record_set_process_state_ready();
                             dut_record_result = saved < 0 ? -1 : 0;
                             dut_record_done = (u32)msg[2];
+                            rdx_dut_service_wake();
                             continue;
                         }
                         if (msg[1] == RDX_RECORD_USB_FENCE) {

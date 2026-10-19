@@ -18,6 +18,7 @@ typedef struct {
     u8 admitted;
     u8 cleanup_pending;
     u8 worker_available;
+    u8 periodic_running;
 } rdx_hogp_input_stats_t;
 
 void rdx_hogp_input_stats_get(rdx_hogp_input_stats_t *stats);
@@ -25,6 +26,10 @@ void rdx_hogp_input_stats_get(rdx_hogp_input_stats_t *stats);
 /* All business/report work runs on app_core. The scan APIs only copy data. */
 u8 rdx_hogp_input_current_locked(u32 epoch);
 void rdx_hogp_input_init(void);
+/* poll 仅在 app_core 调用；needs_poll 只读状态，供恢复桥接和休眠准入查询。 */
+void rdx_hogp_input_poll(void);
+int rdx_hogp_input_needs_poll(void);
+void rdx_hogp_input_wake(void);
 void rdx_hogp_input_invalidate(void);
 void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered);
 u32 rdx_hogp_input_feedback_epoch(u8 value);

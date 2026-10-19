@@ -184,10 +184,16 @@
 
 /*
  * T2620 外置功放使能：PE5 高有效。开机默认电平由板级配置保持为低，
- * 运行时只允许 RDX/T2620 外设电源模块跟随 DAC 模拟电源生命周期驱动。
+ * 运行时由 RDX/T2620 外设电源模块按 DAC 数字输出启停控制，模拟就绪作为安全门禁；
+ * 关闭功放不能绕过 SDK 的 ADC/DAC 共享模拟资源保护。
  */
 #ifndef TCFG_T2620_AMP_POWER_ENABLE
 #define TCFG_T2620_AMP_POWER_ENABLE               1
+#endif
+
+/* PE5 边沿诊断：回调内只记录，app_core 打印 [AMP]；量产保持 0。 */
+#ifndef TCFG_T2620_AMP_TRACE_ENABLE
+#define TCFG_T2620_AMP_TRACE_ENABLE                1
 #endif
 
 #ifndef TCFG_T2620_AMP_ENABLE_IO
@@ -215,6 +221,21 @@
 
 #ifndef TCFG_T2620_SHARED_VDD_MODE
 #define TCFG_T2620_SHARED_VDD_MODE                 T2620_SHARED_VDD_MODE_POWER_CUT
+#endif
+
+/* 连接态独立窗口与分级开关，不改变未连接慢广播资格。 */
+#ifndef TCFG_T2620_CONNECTED_VDD_IDLE_MS
+#define TCFG_T2620_CONNECTED_VDD_IDLE_MS           120000u
+#endif
+#ifndef TCFG_T2620_CONNECTED_VDD_MODE
+#define TCFG_T2620_CONNECTED_VDD_MODE              T2620_SHARED_VDD_MODE_POWER_CUT
+#endif
+#if (TCFG_T2620_CONNECTED_VDD_IDLE_MS < 1) || (TCFG_T2620_CONNECTED_VDD_IDLE_MS > 0x7fffffffu)
+#error "Invalid T2620 connected VDD idle window"
+#endif
+#if (TCFG_T2620_CONNECTED_VDD_MODE < T2620_SHARED_VDD_MODE_DRY_RUN) || \
+    (TCFG_T2620_CONNECTED_VDD_MODE > T2620_SHARED_VDD_MODE_POWER_CUT)
+#error "Invalid T2620 connected VDD mode"
 #endif
 
 /* PA4 真正断电后的 LDO/SD NAND 上电稳定窗口；1 个 OS tick 约 10 ms。 */

@@ -42,6 +42,7 @@
 #include "rdx_util.h"
 #include "rdx_hogp_subscription_store.h"
 #include "rdx_hogp_keymap_config.h"
+#include "rdx_led_ctrl.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
 #pragma bss_seg(".rdx_vm.data.bss")
@@ -266,6 +267,7 @@ int rdx_vm_set_bound_status(u8 d, u8 show_en)
 
     rdx_vm_bound_transition_unlock();
 
+    rdx_led_ctrl_bound_changed();
     if(show_en){
         // OLED 功能已删除
     }

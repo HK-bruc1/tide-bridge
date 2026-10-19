@@ -6,6 +6,7 @@ from pathlib import Path
 from host_c_test_lib import ROOT, function, run_c_checks
 
 STUBS = r'''
+void rdx_dut_service_wake(void) {}
 void rdx_hogp_input_invalidate(void) {}
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -69,7 +70,7 @@ int strcmp(const char *a, const char *b) {
 void rdx_protocol_custom_msg_indicate(const char *cmd, char *value) { ++replies; }
 void rdx_app_time_to_reset(void) { ++reset_requests; }
 int write_fail, read_fail, mismatch, fail_id, resets_fail, busy, posts_fail, timer_fail;
-int formats, resets, revokes, timers, disconnects, poweroffs, posts;
+int formats, resets, revokes, timers, disconnects, poweroffs, posts, bound_notices;
 u8 flash[2];
 void (*timer_cb)(void *);
 int syscfg_write(int id, const void *p, int n) {
@@ -85,6 +86,7 @@ int syscfg_read(int id, void *p, int n) {
 int rdx_vm_bound_transition_lock(void) { return 0; }
 void rdx_vm_bound_transition_unlock(void) {}
 void rdx_record_binding_revoke(void) { ++revokes; }
+void rdx_led_ctrl_bound_changed(void) { ++bound_notices; }
 int rdx_vm_reset_defaults_no_poweroff(void) { ++resets; return resets_fail; }
 void rdx_dut_poweroff(void) { ++poweroffs; }
 void rdx_ble_server_app_disconnect(void) { ++disconnects; }
@@ -135,7 +137,7 @@ static void boot(void) {
     power_on=1; tone_plays=tone_stops=tone_fail=0; jiffies=0;
     app_var.wtone_volume=11; tones.dut_done="tone_en/dut_off.*";
     write_fail=read_fail=mismatch=resets_fail=busy=posts_fail=timer_fail=0;
-    formats=resets=revokes=timers=disconnects=poweroffs=posts=0;
+    formats=resets=revokes=timers=disconnects=poweroffs=posts=bound_notices=0;
     done_led=0; auto_off=1; replies=reset_requests=0;
     fail_id=0; flash[0]=0xff; flash[1]=1;
     rdx_bound_info.bound_state=1; bound_epoch=bound_token=1;
@@ -156,7 +158,7 @@ int test_finalpack_success(void) {
     CHECK(g_finalpack_end_pending && done_led==RDX_LED_SCENE_DUT_ENTER);
     rdx_dut_finalpack_end(); CHECK(formats==1);
     finish(MEM_FORMAT_RESULT_OK);
-    CHECK(flash[1]==0 && rdx_bound_info.bound_state==0 && bound_token==0 && revokes==1);
+    CHECK(flash[1]==0 && rdx_bound_info.bound_state==0 && bound_token==0 && revokes==1 && bound_notices==1);
     CHECK(flash[0]==0xaa && rdx_dut_info.key_dut_disabled && timers==0 && g_finalpack_end_pending);
     rdx_dut_finalpack_end_format_cb(1); CHECK(posts==0);
     CHECK(done_led==RDX_LED_SCENE_FINALPACK_DONE && !auto_off);
@@ -195,7 +197,7 @@ int test_finalpack_failures(void) {
             CHECK(!timers && !poweroffs && done_led==RDX_LED_SCENE_DUT_ENTER && !g_finalpack_end_pending);
             CHECK(!tone_plays);
             CHECK(!rdx_dut_info.key_dut_disabled);
-            if(id==1) CHECK(rdx_bound_info.bound_state==1 && !revokes && flash[0]==0xff);
+            if(id==1) CHECK(rdx_bound_info.bound_state==1 && !revokes && !bound_notices && flash[0]==0xff);
         }
     }
     return 0;
@@ -232,12 +234,16 @@ int test_key_entry_recovery(void) {
 int test_finalpack_reminder(void) {
     boot(); rdx_dut_finalpack_end(); finish(1);
     CHECK(tone_plays==1 && finalpack_tone_active);
+    CHECK(dut_finalpack_delay(jiffies)==0);
     dut_finalpack_tone_start(); CHECK(tone_plays==1);
     tone_complete(NULL); tone_callback(NULL, STREAM_EVENT_STOP);
     CHECK(tone_plays==1); /* No reentrant player calls in callbacks. */
     dut_finalpack_tone_poll();
+    CHECK(dut_finalpack_delay(jiffies)==1000);
     jiffies=999; dut_finalpack_tone_poll(); CHECK(tone_plays==1);
+    CHECK(dut_finalpack_delay(jiffies)==1);
     jiffies=1000; dut_finalpack_tone_poll(); CHECK(tone_plays==2);
+    CHECK(dut_finalpack_delay(jiffies)==0);
     power_on=0; dut_finalpack_tone_poll();
     CHECK(tone_stops==1 && !finalpack_tone_active && app_var.wtone_volume==11);
     CHECK(tone_callback(NULL, STREAM_EVENT_INIT)==-1);
@@ -304,12 +310,12 @@ def main():
     audio_header = (base / 'rdx_dut_speaker.h').read_text(encoding='utf-8')
     reminder = dut[dut.index('static u8 finalpack_tone_active;'):
                    dut.index('static void rdx_dut_finalpack_fail(')]
-    source = audio_header + STUBS + reminder + function(ble[ble.rindex('void rdx_ble_server_auto_shut_down_enable('):],
+    source = audio_header + STUBS + function(dut, 'dut_remaining') + reminder + function(ble[ble.rindex('void rdx_ble_server_auto_shut_down_enable('):],
                               'void rdx_ble_server_auto_shut_down_enable(')
     power = (ROOT / 'SDK/apps/earphone/mode/bt/poweroff.c').read_text(encoding='utf-8')
     enable = function(power, 'void sys_auto_shut_down_enable(')
     assert 'rdx_dut_finalpack_tone_stop();' in function(power, 'void sys_enter_soft_poweroff(')
-    assert 'dut_finalpack_tone_poll();' in function(dut, 'static void dut_service(')
+    assert 'dut_finalpack_tone_poll();' in function(dut, 'static void dut_service_run(')
     assert 'if (rdx_app_get_dut_status()) {\n        sys_auto_shut_down_disable();\n        return;' in enable
     overlay = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(encoding='utf-8')
     assert '#undef TCFG_AUTO_SHUT_DOWN_TIME' not in overlay

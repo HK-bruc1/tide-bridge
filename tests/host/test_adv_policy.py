@@ -13,6 +13,7 @@ def main():
     source = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_adv_policy.c').read_text(encoding='utf-8-sig')
     source = re.sub(r'^#include "[^\n]+\n', '', source, flags=re.M)
     stubs = r'''
+#include <stdarg.h>
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -24,6 +25,7 @@ typedef int s32;
 static u32 now_ms, hold_mask, timer_delay;
 static int allowed, queue_fail, timer_fail, radio_fail, restore_fail;
 static int queue_pending, radio_calls, radio_slow, slow_commits, file_queue_fail;
+static int ready, restore_calls, last_message;
 static void (*timer_cb)(void *);
 static void *timer_arg;
 void local_irq_disable(void) {}
@@ -34,14 +36,21 @@ int os_taskq_post_type(const char *t, int type, int n, int *msg) {
     queue_pending = 1;
     return 0;
 }
-int os_taskq_post_msg(const char *t, int argc, ...) { return file_queue_fail; }
+int os_taskq_post_msg(const char *t, int argc, ...) {
+    va_list ap; va_start(ap, argc); last_message=va_arg(ap,int); va_end(ap);
+    return file_queue_fail;
+}
 u16 sys_timeout_add(void *arg, void (*cb)(void *), u32 delay) {
     if (timer_fail) return 0;
     timer_arg = arg; timer_cb = cb; timer_delay = delay;
     return 1;
 }
 void sys_timeout_del(u16 id) { timer_cb = 0; }
-int rdx_peripheral_power_vdd_ensure_on(int reason) { return restore_fail; }
+int rdx_peripheral_power_vdd_ensure_on(int reason) { ++restore_calls; return restore_fail; }
+u8 rdx_peripheral_power_vdd_is_ready(void) { return ready; }
+void rdx_peripheral_power_vdd_connected_changed_notify(void) {}
+void rdx_ble_entry_activity(void) {}
+void rdx_ble_entry_changed(void) {}
 u8 rdx_adv_policy_allowed(void) { return allowed; }
 u32 rdx_adv_policy_hold_snapshot(void) { return hold_mask; }
 int rdx_adv_policy_radio_set(u8 slow) {
@@ -58,6 +67,7 @@ static void reset(void) {
     for (unsigned int i=0; i<sizeof(adv); ++i) ((unsigned char *)&adv)[i] = 0;
     now_ms = hold_mask = timer_delay = 0;
     allowed = 1;
+    ready=restore_calls=last_message=0;
     queue_fail = timer_fail = radio_fail = restore_fail = 0;
     queue_pending = radio_calls = radio_slow = slow_commits = file_queue_fail = 0;
     timer_cb = 0;
@@ -136,8 +146,15 @@ int check_failures_and_recovery(void) {
     CHECK(rdx_adv_uxfile_post("UXFILE", 1, 3) != 0); CHECK(!adv.pending);
     file_queue_fail = 0;
     CHECK(!rdx_adv_uxfile_post("UXFILE", 1, 3)); CHECK(adv.pending == 1);
-    rdx_adv_uxfile_done(0, 0x40000003); CHECK(adv.pending == 1);
-    rdx_adv_uxfile_done(1, 0x40000003); CHECK(!adv.pending);
+    rdx_adv_uxfile_done(0, 0x20000003); CHECK(adv.pending == 1);
+    rdx_adv_uxfile_done(1, 0x20000003); CHECK(!adv.pending);
+    ready=1; restore_fail=1; restore_calls=0;
+    CHECK(!rdx_adv_policy_business_enter() && adv.pending==1 && !restore_calls);
+    rdx_adv_policy_business_exit();
+    CHECK(!rdx_adv_uxfile_post("uxfile",2,1380210758,7));
+    CHECK((last_message & ~0x20000000)==1380210758 && adv.pending==1);
+    rdx_adv_uxfile_done(1,1380210758); CHECK(adv.pending==1);
+    rdx_adv_uxfile_done(1,last_message); CHECK(!adv.pending);
     return 0;
 }
 int check_deferred_and_wrap(void) {
@@ -145,6 +162,9 @@ int check_deferred_and_wrap(void) {
     now_ms += 119999; rdx_adv_policy_changed(); CHECK(drain()); CHECK(!radio_slow);
     now_ms++; fire(); CHECK(drain()); CHECK(radio_slow);
     rdx_adv_policy_disable(); CHECK(!rdx_adv_policy_idle_valid()); CHECK(drain());
+    u32 disabled_version=rdx_adv_policy_business_version();
+    rdx_adv_policy_disable(); CHECK(drain());
+    CHECK(rdx_adv_policy_business_version()==disabled_version);
     int calls = radio_calls;
     rdx_adv_policy_activity(); CHECK(drain()); CHECK(radio_calls == calls);
     allowed = 0; rdx_adv_policy_enable(); CHECK(drain()); CHECK(radio_calls == calls);

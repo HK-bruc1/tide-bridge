@@ -4,6 +4,7 @@
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_app.h"
+#include "rdx_ble_entry.h"
 
 #define INPUT_FIFO_SIZE 24
 
@@ -20,12 +21,40 @@ static u32 input_epoch = 1, scan_seq, scan_epoch, scan_baseline;
 static u32 cycle_epoch[5];
 static u8 cycle_route[5];
 static u8 stable_key = NO_KEY, scan_filtered;
-static u8 published_route, admission, cleanup_pending = 1;
-static u32 published_map;
+static volatile u8 published_route;
+static u8 admission, cleanup_pending = 1;
+static volatile u32 published_map;
 static rdx_hogp_token_t published_token;
-static u16 input_timer;
+static volatile u16 input_timer;
+static volatile u8 input_initialized, input_pending, input_posted, input_servicing;
 static u32 overflow_count, reported_overflows;
 static u8 input_high_water;
+
+static void input_service(void *priv);
+static void input_event(void *priv)
+{
+    local_irq_disable();
+    input_posted = 0;
+    local_irq_enable();
+    input_service(NULL);
+}
+
+/* 队列满导致投递失败时，由已有产品服务兜底重试；中断中不执行业务。 */
+static void input_wake_locked(void)
+{
+    int message[] = { (int)input_event, 1, 0 };
+    input_pending = 1;
+    if (!input_initialized || input_timer || input_posted || input_servicing) return;
+    input_posted = 1;
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, message)) input_posted = 0;
+}
+
+void rdx_hogp_input_wake(void)
+{
+    local_irq_disable();
+    input_wake_locked();
+    local_irq_enable();
+}
 
 static u8 product_key(u8 value)
 {
@@ -43,6 +72,7 @@ static void invalidate_locked(void)
     scan_baseline = scan_seq;
     input_head = input_count = 0;
     cleanup_pending = 1;
+    input_wake_locked();
 }
 
 u8 rdx_hogp_input_current_locked(u32 epoch)
@@ -59,7 +89,7 @@ void rdx_hogp_input_invalidate(void)
 
 static void enqueue_locked(const struct input_event *event)
 {
-    if (!input_timer) return; /* Failure to create the worker fails closed. */
+    if (!input_initialized) return;
     if (input_count == INPUT_FIFO_SIZE) {
         ++overflow_count;
         invalidate_locked();
@@ -68,12 +98,17 @@ static void enqueue_locked(const struct input_event *event)
     input_fifo[(input_head + input_count) % INPUT_FIFO_SIZE] = *event;
     ++input_count;
     if (input_count > input_high_water) input_high_water = input_count;
+    input_wake_locked();
 }
 
 void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
 {
     struct input_event event = {0};
     if (type != KEY_DRIVER_TYPE_IO) return;
+    if (previous != current && (product_key(previous) || product_key(current))) {
+        if (!filtered || current == NO_KEY)
+            rdx_ble_entry_key(product_key(current) && !filtered);
+    }
     local_irq_disable();
     ++scan_seq;
     scan_epoch = input_epoch;
@@ -94,6 +129,9 @@ void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
         }
         if (product_key(previous) || product_key(current)) enqueue_locked(&event);
     }
+    /* 新的稳定松键采样可重新开放输入接纳，无需常驻周期服务。 */
+    if (!admission && !cleanup_pending && published_route && !filtered &&
+        current == NO_KEY && scan_seq != scan_baseline) input_wake_locked();
     local_irq_enable();
 }
 
@@ -157,7 +195,7 @@ static u8 tokens_equal(const rdx_hogp_token_t *a, const rdx_hogp_token_t *b)
            a->slot_generation == b->slot_generation;
 }
 
-static void input_service(void *priv)
+static void input_service_run(void *priv)
 {
     struct input_event event;
     rdx_hogp_token_t token = {0};
@@ -260,6 +298,45 @@ static void input_service(void *priv)
     }
 }
 
+static void input_service(void *priv)
+{
+    if (!input_initialized) return;
+    if (rdx_hogp_keyboard_is_ready()) {
+        if (!input_timer) input_timer = sys_timer_add(NULL, input_service, 10);
+    } else if (input_timer) {
+        sys_timer_del(input_timer);
+        input_timer = 0;
+    }
+    local_irq_disable();
+    input_pending = 0;
+    input_servicing = 1;
+    local_irq_enable();
+    input_service_run(priv);
+    local_irq_disable();
+    input_servicing = 0;
+    /* 松键释放或定时器分配失败时，不连续自投递重试，避免忙循环。
+     * 待处理工作由新的外部事件或已有产品服务兜底恢复。 */
+    local_irq_enable();
+}
+
+void rdx_hogp_input_poll(void)
+{
+    if (!input_initialized) return;
+    /* 仅由有待办的产品恢复任务调用，不恢复离线周期服务。 */
+    if (input_pending || rdx_app_hogp_input_route() != published_route ||
+        rdx_hogp_key_action_generation() != published_map ||
+        !!input_timer != !!rdx_hogp_keyboard_is_ready()) input_service(NULL);
+}
+
+int rdx_hogp_input_needs_poll(void)
+{
+    /* 只读查询供优先级 0 恢复入口使用，业务执行仍限于 app_core。 */
+    return input_initialized && !input_posted && !input_servicing &&
+           (input_pending || rdx_app_hogp_input_route() != published_route ||
+            rdx_hogp_key_action_generation() != published_map ||
+            !!input_timer != !!rdx_hogp_keyboard_is_ready());
+}
+
 void rdx_hogp_input_stats_get(rdx_hogp_input_stats_t *stats)
 {
     if (!stats) return;
@@ -271,16 +348,13 @@ void rdx_hogp_input_stats_get(rdx_hogp_input_stats_t *stats)
     stats->route = published_route;
     stats->admitted = admission;
     stats->cleanup_pending = cleanup_pending;
-    stats->worker_available = input_timer != 0;
+    stats->worker_available = input_initialized;
+    stats->periodic_running = input_timer != 0;
     local_irq_enable();
 }
 
 void rdx_hogp_input_init(void)
 {
+    input_initialized = 1;
     rdx_hogp_input_invalidate();
-    /* Persistent recovery source: do not stop while idle without providing
-     * an independent wakeup for ready changes and failed release retries.
-     * Measure idle current and app_core load on target before tuning 10 ms. */
-    if (!input_timer) input_timer = sys_timer_add(NULL, input_service, 10);
-    if (!input_timer) y_printf("[HOGP_INPUT] worker unavailable; input disabled\n");
 }

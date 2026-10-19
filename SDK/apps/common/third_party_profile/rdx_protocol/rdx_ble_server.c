@@ -71,6 +71,8 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
+#include "rdx_ble_entry.h"
+#include "btctrler_task.h"
 
 /*******************************************************************************
 * Macro Define Section
@@ -142,6 +144,7 @@
 * Forward declarations
 ******************************************************************************/
 static u8   rdx_ble_server_broadcast_suppressed(void);
+static void rdx_ble_server_adv_close_event(void *hdl, const u8 *packet, u16 size);
 static void rdx_ble_server_link_disconnected_cleanup_internal(void);
 static void rdx_ble_server_rdx_disconnected_cleanup_internal(void);
 static void rdx_ble_server_rdx_session_abort(void);
@@ -204,6 +207,20 @@ static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
+static u8 g_rdx_ble_exiting;
+/* 控制器确认广播集停止前保留 SDK 广播句柄，
+ * 在途连接完成和广播集终止事件仍需依靠它确定归属。 */
+static struct {
+    void *hdl;
+    u32 deadline;
+    u8 disable[6];
+    u8 handle;
+    volatile u8 waiting, complete, status;
+    u8 fault, cleanup;
+} g_rdx_adv_close;
+#define RDX_ADV_CLOSE_TIMEOUT_MS 1000u
+#define RDX_HCI_EXT_ADV_ENABLE 0x2039
+#define RDX_HCI_REMOVE_ADV_SET 0x203c
 static u8 g_rdx_lifecycle_barrier_armed;
 static char g_rdx_lifecycle_barrier_value[
     RDX_LIFECYCLE_BARRIER_VALUE_SIZE];
@@ -424,10 +441,12 @@ u8 rdx_ble_server_get_connected_count(void)
 static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
 {
     u8 connected = rdx_ble_server_phase0a_connected_count();
-    u8 second_acl_window = g_rdx_ble_advertising_hdl ? 1 : 0;
+    u8 second_acl_window = g_rdx_ble_advertising_hdl ||
+                          g_rdx_adv_close.waiting || g_rdx_adv_close.fault;
     u8 block;
 
-    block = (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
+    block = g_rdx_adv_close.fault ||
+            (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
             (connected == 1 && second_acl_window);
     if (g_rdx_ble_dual_acl_sleep_blocked != block) {
         g_rdx_ble_dual_acl_sleep_blocked = block;
@@ -769,71 +788,67 @@ void rdx_ble_server_adv_interval_change_timer_stop(void);
 #define ATT_RAM_BUFSIZE             (ATT_CTRL_BLOCK_SIZE + ATT_LOCAL_MTU_SIZE + ATT_SEND_CBUF_SIZE)//note:
 static u8 att_ram_buffer[ATT_RAM_BUFSIZE] __attribute__((aligned(4)));
 
-// Connection parameter update request settings
-// Whether to enable parameter update request, 0--disable, 1--enable
-static const uint8_t connection_update_enable = 1; ///0--disable, 1--enable
-// Current request parameter table index
-static uint8_t connection_update_cnt = 0; //
-
-// Parameter table //total 9.
-static const struct conn_update_param_t connection_param_table[] = {
-    /* 连续下载请求 7.5 ms 间隔，实际参数由双方协商决定。 */
-    {6,  6, 4, 600},
-    {10, 14, 4, 600},
-    {14, 20, 4, 600},
-    {8,  20, 10, 800},
-    {12, 28, 10, 800},
-    {16, 24, 10, 800},
-    {20, 40, 19, 2000},
-    {40, 60, 19, 2000},
-    {60, 80, 19, 2000}, //8
-}; 
-
-#define CONN_PARAM_TABLE_CNT      (sizeof(connection_param_table)/sizeof(struct conn_update_param_t))
-#define RDX_CONN_PARAM_STREAM_FAST_INDEX          (0u)
-#define RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX \
-    ((u8)(CONN_PARAM_TABLE_CNT - 1u))
+/* 暂停自动慢档，只保留既有快档请求；实际参数仍由双方协商。 */
+static const struct conn_update_param_t rdx_fast_conn_param = {6, 6, 4, 600};
+#define RDX_CONN_PARAM_STREAM_FAST_INDEX 0u
+/* 保留旧库参数索引的合法范围，不再保留可被误用的慢档参数表。 */
+#define RDX_CONN_PARAM_LEGACY_COUNT 9u
 
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 
-#define RDX_TRANSFER_IDLE_MS 5000u
 #define RDX_TRANSFER_RETRY_MS 2000u
 #define RDX_TRANSFER_REQUEST_MAX 3u
 
-/* 参数意图同步更新，定时器和请求统一在 app_core 执行。 */
+/* 跨任务只通知重读当前链路；请求和有限重试只在 app_core 执行。 */
 static struct {
+    volatile u32 revision;
+    volatile u8 dirty;
+    volatile u8 queued;
+} g_rdx_param_events;
+
+typedef struct {
     rdx_ble_async_token_t token;
-    u32 generation;
-    u32 deadline;
+    u32 revision;
     u32 next_request;
+    u32 timer_serial;
+    u32 recovery_due;
     u16 timer;
-    u8 enabled;
-    u8 fast;
+    u8 managed;
     u8 attempts;
-} g_rdx_transfer_param;
+    u8 request_sent;
+    u8 recovery_attempts;
+    u8 unconfirmed_logged;
+} rdx_conn_param_state_t;
+
+/* 按物理 ACL 保留节流与回调代次；RDX 释放后仍能收尾同链 HID 的快档恢复。 */
+static rdx_conn_param_state_t g_rdx_transfer_params[RDX_BLE_LINK_MAX];
+
+static void rdx_ble_server_transfer_param_run(void *unused);
 
 static u8 rdx_ble_server_request_connect_parameter_for_token(
-    const rdx_ble_async_token_t *token,
-    u8 table_index)
+    const rdx_ble_async_token_t *token, u8 attempts)
 {
     rdx_ble_link_state_t *link;
-    const struct conn_update_param_t *param;
-
-    if (!token || table_index >= CONN_PARAM_TABLE_CNT) {
+    if (!token) {
         return 0;
     }
     link = rdx_ble_session_rdx_token_resolve(token, 1);
     if (!link) {
+        link = rdx_ble_session_link_token_resolve(token);
+        if (!rdx_ble_session_link_is_hid(link)) return 0;
+    }
+    if (!link) {
         return 0;
     }
-    param = &connection_param_table[table_index];
-    log_info("====== update_request:-%d-%d-%d-%d-\r",
-             param->interval_min, param->interval_max,
-             param->latency, param->timeout);
-    rdx_ble_session_link_set_conn_param_index(link, table_index);
-    ble_op_conn_param_request(link->con_handle,
-                              (struct conn_update_param_t *)param);
-    return 1;
+    rdx_ble_session_link_set_conn_param_index(link, RDX_CONN_PARAM_STREAM_FAST_INDEX);
+    int ret = ble_op_conn_param_request(link->con_handle,
+                                       (struct conn_update_param_t *)&rdx_fast_conn_param);
+    r_printf("[RDX_CONN_POLICY] request slot=%u con=0x%04x mode=FAST "
+             "attempt=%u interval=%u-%u latency=%u ret=%d\n",
+             rdx_ble_session_link_index(link), link->con_handle,
+             attempts, rdx_fast_conn_param.interval_min,
+             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency, ret);
+    return ret == 0;
 }
 
 /**************************************************************************
@@ -844,178 +859,200 @@ static u8 rdx_ble_server_request_connect_parameter_for_token(
  **************************************************************************/
 void rdx_ble_server_send_request_connect_parameter(u8 table_index)
 {
-    rdx_ble_async_token_t token;
+    /* 旧库包括慢档在内的有效索引统一走快档检查，不能绕过当前策略。 */
+    if (table_index >= RDX_CONN_PARAM_LEGACY_COUNT) return;
+    rdx_ble_server_request_stream_fast_param();
+}
 
-    if (rdx_ble_session_rdx_token_capture(&token, 1)) {
-        rdx_ble_server_request_connect_parameter_for_token(
-            &token, table_index);
+static void rdx_ble_server_transfer_timer_cancel(rdx_conn_param_state_t *param)
+{
+    param->timer_serial = (param->timer_serial + 1u) & 0x7fffffffu;
+    if (param->timer) {
+        sys_timeout_del(param->timer);
+        param->timer = 0;
     }
 }
 
-static void rdx_ble_server_transfer_param_run(void *priv);
+void rdx_ble_server_conn_param_changed(void)
+{
+    int msg[] = { (int)rdx_ble_server_transfer_param_run, 1, 0 };
+    local_irq_disable();
+    ++g_rdx_param_events.revision;
+    g_rdx_param_events.dirty = 1;
+    if (g_rdx_param_events.queued) {
+        local_irq_enable();
+        return;
+    }
+    g_rdx_param_events.queued = 1;
+    local_irq_enable();
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
+        /* 队列失败保留待办，由已有优先级 0 桥接恢复，不另建轮询。 */
+        g_rdx_param_events.queued = 0;
+    }
+}
+
+u8 rdx_ble_server_conn_param_needs_service(void)
+{
+    return g_rdx_param_events.dirty && !g_rdx_param_events.queued;
+}
+
+void rdx_ble_server_conn_param_service(void)
+{
+    if (rdx_ble_server_conn_param_needs_service())
+        rdx_ble_server_transfer_param_run(NULL);
+}
 
 static void rdx_ble_server_transfer_param_cancel(void)
 {
-    /* 代次使已经投递的回调失效，不依赖连接句柄是否被复用。 */
+    /* 不携带历史业务目标；在主任务取消失效链路的重试。 */
+    rdx_ble_server_conn_param_changed();
+}
+
+static void rdx_ble_server_transfer_param_timeout(void *serial)
+{
+    u32 cookie = (u32)serial;
+    rdx_conn_param_state_t *param = &g_rdx_transfer_params[cookie & 1u];
+    if ((cookie >> 1) != param->timer_serial) return;
+    param->timer = 0;
+    if (!g_rdx_param_events.queued) rdx_ble_server_transfer_param_run(NULL);
+}
+
+static void rdx_ble_server_transfer_param_arm(rdx_conn_param_state_t *param, u32 delay)
+{
+    rdx_ble_server_transfer_timer_cancel(param);
+    param->timer = sys_timeout_add_2_task(
+        (void *)((param->timer_serial << 1) | (u32)(param - g_rdx_transfer_params)),
+        rdx_ble_server_transfer_param_timeout, delay ? delay : 1, "app_core");
+    if (!param->timer) {
+        if (++param->recovery_attempts <= RDX_TRANSFER_REQUEST_MAX) {
+            param->recovery_due = sys_timer_get_ms() + 100;
+            g_rdx_param_events.dirty = 1;
+        } else {
+            r_printf("[RDX_CONN_POLICY] timer failed; keep current parameters\n");
+        }
+    } else {
+        param->recovery_attempts = 0;
+    }
+}
+
+static u8 rdx_ble_server_transfer_target_matches(const rdx_ble_link_state_t *link)
+{
+    /* 手机可协商为 11.25/15 ms，不为追求精确 7.5 ms 反复请求。 */
+    return link->conn_interval >= 6 && link->conn_interval <= 12 &&
+           link->conn_latency <= 4;
+}
+
+static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param,
+                                                  rdx_ble_link_state_t *link,
+                                                  u8 rdx, u32 revision)
+{
+    u32 now, epoch, retry;
+    rdx_ble_async_token_t token = rdx_ble_session_token_capture(link);
+
+    now = sys_timer_get_ms();
+    if (param->revision != revision) {
+        param->recovery_due = 0;
+        param->recovery_attempts = 0;
+        param->revision = revision;
+    } else if (param->recovery_due && (s32)(now - param->recovery_due) < 0) {
+        g_rdx_param_events.dirty = 1;
+        return;
+    }
+    rdx_ble_server_transfer_timer_cancel(param);
+    epoch = rdx ? rdx_ble_session_rdx_runtime_epoch_get() : 0;
+    if (!param->managed ||
+        rdx_ble_session_link_token_resolve(&param->token) != link) {
+        param->token = token;
+        param->managed = 1;
+        param->attempts = 0;
+        param->request_sent = 0;
+        param->unconfirmed_logged = 0;
+    }
+    if (revision != g_rdx_param_events.revision ||
+        (rdx && (epoch != rdx_ble_session_rdx_runtime_epoch_get() ||
+                 rdx_ble_session_rdx_token_resolve(&token, 1) != link)) ||
+        (!rdx && (!rdx_ble_session_link_is_hid(link) ||
+                  rdx_ble_session_link_token_resolve(&token) != link))) {
+        rdx_ble_server_conn_param_changed();
+        return;
+    }
+    if (rdx_ble_server_transfer_target_matches(link)) {
+        /* 只有实际快档确认后，下一次参数退化才获得新的有限恢复预算。 */
+        param->attempts = 0;
+        param->unconfirmed_logged = 0;
+        return;
+    }
+    if (param->attempts >= RDX_TRANSFER_REQUEST_MAX) {
+        if (!param->unconfirmed_logged) {
+            param->unconfirmed_logged = 1;
+            r_printf("[RDX_CONN_POLICY] unconfirmed slot=%u mode=FAST "
+                     "interval=%u latency=%u; wait parameter event\n",
+                     rdx_ble_session_link_index(link),
+                     link->conn_interval, link->conn_latency);
+        }
+        return;
+    }
+    retry = param->request_sent && (s32)(now - param->next_request) < 0 ?
+            param->next_request - now : 0;
+    if (!retry) {
+        ++param->attempts;
+        param->request_sent = 1;
+        param->next_request = now + RDX_TRANSFER_RETRY_MS;
+        rdx_ble_server_request_connect_parameter_for_token(&token, param->attempts);
+        retry = RDX_TRANSFER_RETRY_MS;
+    }
+    rdx_ble_server_transfer_param_arm(param, retry);
+}
+
+static void rdx_ble_server_transfer_param_run(void *unused)
+{
+    rdx_ble_async_token_t token;
+    u32 revision;
+    u8 rdx;
+    (void)unused;
     local_irq_disable();
-    g_rdx_transfer_param.enabled = 0;
-    ++g_rdx_transfer_param.generation;
+    revision = g_rdx_param_events.revision;
+    g_rdx_param_events.queued = 0;
+    g_rdx_param_events.dirty = 0;
     local_irq_enable();
-    if (g_rdx_transfer_param.timer) {
-        sys_timeout_del(g_rdx_transfer_param.timer);
-        g_rdx_transfer_param.timer = 0;
+    rdx = rdx_ble_session_rdx_token_capture(&token, 1);
+    for (u8 i = 0; i < RDX_BLE_LINK_MAX; ++i) {
+        rdx_conn_param_state_t *param = &g_rdx_transfer_params[i];
+        u8 owner = rdx && token.slot_index == i;
+        rdx_ble_link_state_t *link = owner ?
+            rdx_ble_session_rdx_token_resolve(&token, 1) :
+            (param->managed ? rdx_ble_session_link_token_resolve(&param->token) : NULL);
+        if (app_var.goto_poweroff_flag || !link ||
+            (!owner && !rdx_ble_session_link_is_hid(link))) {
+            rdx_ble_server_transfer_timer_cancel(param);
+            continue;
+        }
+        rdx_ble_server_transfer_param_evaluate(param, link, owner, revision);
     }
 }
 
-static void rdx_ble_server_transfer_param_arm(u32 generation, u32 delay)
-{
-    g_rdx_transfer_param.timer = sys_timeout_add_2_task(
-        (void *)generation, rdx_ble_server_transfer_param_run, delay, "app_core");
-    if (!g_rdx_transfer_param.timer) {
-        r_printf("[RDX_BLE] transfer timer failed gen=%u\n", generation);
-    }
-}
-
-static void rdx_ble_server_transfer_param_run(void *priv)
-{
-    u32 generation = (u32)priv;
-    u32 now = sys_timer_get_ms();
-    rdx_ble_async_token_t token;
-    rdx_ble_link_state_t *link;
-    ReqFileInfo *file;
-    RecordStatus *record;
-    u8 fast;
-
-    if (!g_rdx_transfer_param.enabled ||
-        generation != g_rdx_transfer_param.generation) {
-        return;
-    }
-    if (g_rdx_transfer_param.timer) {
-        sys_timeout_del(g_rdx_transfer_param.timer);
-        g_rdx_transfer_param.timer = 0;
-    }
-    token = g_rdx_transfer_param.token;
-    fast = g_rdx_transfer_param.fast;
-    link = rdx_ble_session_rdx_token_resolve(&token, 1);
-    if (!link) {
-        rdx_ble_server_transfer_param_cancel();
-        return;
-    }
-    if (!fast) {
-        if ((s32)(now - g_rdx_transfer_param.deadline) < 0) {
-            rdx_ble_server_transfer_param_arm(
-                generation, g_rdx_transfer_param.deadline - now);
-            return;
-        }
-        file = rdx_protocol_get_uploadfileInfo();
-        record = rdx_record_get_status();
-        if ((file && file->file_send_busy) || rdx_is_file_transfer_active() ||
-            rdx_is_file_sync_busy() || !record ||
-            record->run != RECORD_STATE_STOP ||
-            record->process_state == REC_PROCESS_STATE_BUSY) {
-            g_rdx_transfer_param.deadline = now + RDX_TRANSFER_IDLE_MS;
-            rdx_ble_server_transfer_param_arm(generation, RDX_TRANSFER_IDLE_MS);
-            return;
-        }
-        /* 新业务可能已更新意图；旧省电回调不能覆盖新业务。 */
-        if (generation != g_rdx_transfer_param.generation) {
-            return;
-        }
-        rdx_ble_server_request_connect_parameter_for_token(
-            &token, RDX_CONN_PARAM_POST_TRANSFER_LOWPOWER_INDEX);
-        /* 实际提交省电后，下一轮业务才获得新的快档重试预算。 */
-        g_rdx_transfer_param.attempts = 0;
-        return;
-    }
-    /* 请求已提交后仍可能收到旧慢档，有限重试等待真实参数收敛。 */
-    if (link->conn_interval == 6 &&
-        link->conn_latency <= 4) {
-        return;
-    }
-    if (g_rdx_transfer_param.attempts >= RDX_TRANSFER_REQUEST_MAX) {
-        return;
-    }
-    if (generation != g_rdx_transfer_param.generation) {
-        return;
-    }
-    /* 重复业务入口只更新意图，不能绕过同一连接的请求间隔。 */
-    if (g_rdx_transfer_param.attempts &&
-        (s32)(now - g_rdx_transfer_param.next_request) < 0) {
-        rdx_ble_server_transfer_param_arm(
-            generation, g_rdx_transfer_param.next_request - now);
-        return;
-    }
-    ++g_rdx_transfer_param.attempts;
-    g_rdx_transfer_param.next_request = now + RDX_TRANSFER_RETRY_MS;
-    rdx_ble_server_request_connect_parameter_for_token(
-        &token, RDX_CONN_PARAM_STREAM_FAST_INDEX);
-    rdx_ble_server_transfer_param_arm(generation, RDX_TRANSFER_RETRY_MS);
-}
-
-static void rdx_ble_server_transfer_param_post(u8 fast)
+static void rdx_ble_server_transfer_param_post(void)
 {
     rdx_ble_async_token_t token;
-    u32 generation;
-    int msg[3];
-
+    /* 旧业务入口仅通知检查当前快档，不携带可跨会话生效的参数意图。 */
+    local_irq_disable();
     if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
+        local_irq_enable();
         return;
     }
-    local_irq_disable();
-    /* 代次用于隔离旧回调；重试预算按连接保留，不能被 getlist 重置。 */
-    if (!g_rdx_transfer_param.enabled ||
-        rdx_ble_session_rdx_token_resolve(&g_rdx_transfer_param.token, 1) !=
-        rdx_ble_session_rdx_token_resolve(&token, 1)) {
-        g_rdx_transfer_param.attempts = 0;
-    }
-    g_rdx_transfer_param.token = token;
-    g_rdx_transfer_param.enabled = 1;
-    g_rdx_transfer_param.fast = fast;
-    generation = ++g_rdx_transfer_param.generation;
-    g_rdx_transfer_param.deadline = sys_timer_get_ms() + RDX_TRANSFER_IDLE_MS;
     local_irq_enable();
-    msg[0] = (int)rdx_ble_server_transfer_param_run;
-    msg[1] = 1;
-    msg[2] = generation;
-    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
-        /* 队列短暂拥塞时通过定时消息重投，仍在 app_core 执行。 */
-        if (!sys_timeout_add_2_task((void *)generation,
-                rdx_ble_server_transfer_param_run, 1, "app_core")) {
-            r_printf("[RDX_BLE] transfer parameter dispatch failed gen=%u\n", generation);
-        }
-    }
+    rdx_ble_server_conn_param_changed();
 }
 
 void rdx_ble_server_request_stream_fast_param(void)
 {
-    rdx_ble_server_transfer_param_post(1);
+    rdx_ble_server_transfer_param_post();
 }
 
 void rdx_ble_server_post_transfer_lowpower(void)
 {
-    rdx_ble_server_transfer_param_post(0);
-}
-
-/**************************************************************************
- * function: rdx_ble_server_check_connetion_updata_deal
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
-static void rdx_ble_server_check_connetion_updata_deal(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    if (connection_update_enable) {
-        if (connection_update_cnt < CONN_PARAM_TABLE_CNT) {
-            rdx_ble_server_send_request_connect_parameter(connection_update_cnt);
-        }
-    }
+    /* 保留静态库 ABI，下载结束不再启动降档窗口。 */
+    rdx_ble_server_transfer_param_post();
 }
 
 static u8 rdx_ble_server_local_name_copy(char *dst, const char *src, u8 len)
@@ -1734,7 +1771,7 @@ static void rdx_ble_server_phase0a_connect_adv_restart_deferred(void *priv)
     }
 
     r_printf("[RDX_BLE_LINK] connection fan-out done; advertise on idle wrapper\n");
-    rdx_ble_server_adv_enable(1);
+    rdx_ble_entry_request(1, 1);
 }
 
 static void rdx_ble_server_phase0a_connect_adv_restart_schedule(void)
@@ -1798,12 +1835,13 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
 
     g_disconnected_adv_restart_retry = 0;
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
+    rdx_ble_entry_topology_changed();
     g_rdx_ble_server_info.adv_refresh_pending = FALSE;
     if (rdx_ble_server_phase0a_connected_count() <
             RDX_BLE_PHASE0A_WRAPPER_MAX &&
         !rdx_ble_server_broadcast_suppressed()) {
         r_printf("[RDX_BLE_LINK] advertising restart on released wrapper\n");
-        rdx_ble_server_adv_enable(1);
+        rdx_ble_entry_request(1, 1);
     }
     rdx_ble_server_dual_acl_sleep_policy_update("disconnect_cleanup");
     return;
@@ -2217,12 +2255,9 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
              link->supervision_timeout);
-    /* 已经确认过快档后，迟到的慢档更新仍需重新核对当前下载意图。 */
-    if (g_rdx_transfer_param.enabled && g_rdx_transfer_param.fast &&
-        !g_rdx_transfer_param.timer &&
-        rdx_ble_session_rdx_token_resolve(&g_rdx_transfer_param.token, 1) == link) {
-        rdx_ble_server_transfer_param_run((void *)g_rdx_transfer_param.generation);
-    }
+    /* 迟到的参数完成事件只通知协调器，不在蓝牙回调中创建定时器。 */
+    if (rdx_ble_session_link_is_rdx(link) || rdx_ble_session_link_is_hid(link))
+        rdx_ble_server_conn_param_changed();
 }
 
 static u32 rdx_ble_server_conn_tone_epoch_advance(void)
@@ -2314,7 +2349,9 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
      * Connection Complete. The SDK fans the HCI event out to every registered
      * wrapper, so connection-handle equality alone is not sufficient while
      * the event is still in flight. */
-    if (hdl != g_rdx_ble_advertising_hdl) {
+    link = rdx_ble_server_phase0b_link_find(hdl, con_handle);
+    if (link && link->connected) return;
+    if (hdl != g_rdx_ble_advertising_hdl && hdl != g_rdx_adv_close.hdl) {
         r_printf("[RDX_BLE_LINK] connect ignored: wrapper=%u advertiser=%u event_con=0x%04x\n",
                  rdx_ble_server_phase0a_wrapper_index(hdl),
                  rdx_ble_server_phase0a_wrapper_index(
@@ -2351,6 +2388,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     }
     rdx_ble_server_dual_acl_sleep_policy_update("connect");
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
+    rdx_ble_entry_topology_changed();
 }
 
 static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
@@ -2411,8 +2449,15 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
     if (packet_type != HCI_EVENT_PACKET || !packet) {
         return;
     }
+    /* 退出期间仍接收控制器完成事件；SDK 释放 wrapper 时可能让出执行权，
+     * 此时不得创建新会话或延迟重连任务。 */
+    if (g_rdx_ble_exiting &&
+        hci_event_packet_get_type(packet) != HCI_EVENT_COMMAND_COMPLETE) return;
 
     switch (hci_event_packet_get_type(packet)) {
+    case HCI_EVENT_COMMAND_COMPLETE:
+        rdx_ble_server_adv_close_event(hdl, packet, size);
+        break;
     case ATT_EVENT_CAN_SEND_NOW:
         {
             rdx_ble_link_state_t *link =
@@ -2487,6 +2532,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
                 if (encrypted || status != 0) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 0);
+                    rdx_ble_server_conn_param_changed();
                 }
 #if TCFG_RDX_HOGP_ENABLE
                 if (rdx_ble_session_link_is_hid(link)) {
@@ -2559,6 +2605,7 @@ static void rdx_ble_server_sm_event_callback(void *hdl, uint8_t packet_type, uin
         }
         if (!rdx_ble_session_get_hid_link()) {
             rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+            rdx_ble_server_conn_param_changed();
             r_printf("[RDX_BLE_SEC] Just Works confirmed for provisional HID candidate con=0x%04x capability=0x%02x\n",
                      con_handle, link->capability);
             sm_just_works_confirm(con_handle);
@@ -2898,6 +2945,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
         }
     }
     rdx_ble_server_rdx_connected_handle();
+    rdx_ble_server_conn_param_changed();
     if (had_hid_owner) {
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=HID+RDX\n",
                  rdx_ble_session_link_index(link), link->con_handle);
@@ -3009,6 +3057,7 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
         r_printf("[RDX_BLE_SESSION] composite owner slot=%u con=0x%04x order=RDX+HID\n",
                  rdx_ble_session_link_index(link), link->con_handle);
     }
+    rdx_ble_server_conn_param_changed();
     return rdx_hogp_keyboard_is_connected() ? 0 :
            RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
 }
@@ -3077,6 +3126,7 @@ static int rdx_ble_server_phase2_rdx_write(
                 link->rdx_stream_tx_ready = 0;
                 g_rdx_ble_server_info.ccc_configured = FALSE;
                 g_rdx_ble_server_info.stream_tx_ready = FALSE;
+                rdx_dut_service_wake();
             }
             return 0;
         }
@@ -3379,6 +3429,7 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             if (!link || !link->encrypted) {
                 if (link) {
                     rdx_ble_session_link_set_hid_pairing_pending(link, 1);
+                    rdx_ble_server_conn_param_changed();
                 }
                 r_printf("[RDX_BLE_HID] CCC pairing requested con=0x%04x (no claim)\n",
                          connection_handle);
@@ -3572,6 +3623,8 @@ static u8 rdx_ble_server_fill_rsp_data(u8 *rsp_data)
 u8 rdx_adv_policy_allowed(void)
 {
     return !rdx_ble_server_get_connected_count() &&
+           !g_rdx_adv_close.waiting && !g_rdx_adv_close.fault &&
+           rdx_ble_entry_allowed() &&
            !app_var.goto_poweroff_flag &&
            !rdx_app_get_poweroff_flag() && g_rdx_ble_advertising_hdl;
 }
@@ -3585,14 +3638,18 @@ int rdx_adv_policy_radio_set(u8 slow)
     /* 恢复期间可能让出执行权，从而处理连接或模式切换事件。 */
     if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return -1;
     err = app_ble_adv_enable(hdl, 0);
+    if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return -1;
     if (!err) err = app_ble_set_adv_param(hdl,
         slow ? RDX_BLE_ADV_INTERVAL_LOW : g_rdx_ble_server_info.adv_interval_min,
         ADV_IND, ADV_CHANNEL_ALL);
+    if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return -1;
     if (!err) err = app_ble_adv_enable(hdl, 1);
     if (!err && !app_ble_adv_state_get(hdl)) err = -1;
     if (err) {
+        if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return err;
         fallback = app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min,
                                         ADV_IND, ADV_CHANNEL_ALL);
+        if (hdl != g_rdx_ble_advertising_hdl || !rdx_adv_policy_allowed()) return err;
         /* 即使参数恢复失败，也尝试恢复广播，使设备可被发现。 */
         int enable_err = app_ble_adv_enable(hdl, 1);
         r_printf("[ADV_POLICY] radio update failed err=%d fallback_param=%d enable=%d active=%u\n",
@@ -3635,44 +3692,11 @@ void rdx_ble_server_adv_interval_change_timer_stop(void)
  * RETURNS
  *  null
  * **************************************************************************/
-void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
+void rdx_ble_server_adv_interval_change_timer_cb(void *priv)
 {
-    if (!rdx_ble_server_get_connected_count()) return;
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    uint8_t adv_type = ADV_IND;
-    uint8_t adv_channel = ADV_CHANNEL_ALL;
-    u16 change_adv_interval_min = RDX_BLE_ADV_INTERVAL_LOW; //800*1.25= 1000ms
-    void *adv_hdl = g_rdx_ble_advertising_hdl;
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    y_printf("=== %s --> 快速广播超时，切换到慢速广播 \r", __func__);
-    rdx_ble_server_adv_interval_change_timer_stop();
-
-    if (!adv_hdl) {
-        return;
-    }
-    
-    //check if adv is enabled.
-    if (0 == app_ble_adv_state_get(adv_hdl)) {
-        y_printf("=== %s --> adv is not enabled, return \r", __func__);
-        return;
-    }
-    //change adv interval to slow mode.
-    app_ble_adv_enable(adv_hdl, 0);
-    app_ble_set_adv_param(adv_hdl, change_adv_interval_min, adv_type, adv_channel);
-    app_ble_adv_enable(adv_hdl, 1);
-    
-    // 进入慢速广播后，关闭 LED 灯效（广播继续但 LED 熄灭），但WiFi传输 / 录音中不改变灯效
-    RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    RecordStatus* rp = rdx_record_get_status();
-    if(wifi_info->onoff != TRANSFER_BY_WIFI_ON
-       && !(rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME))){
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
-    }
-    rdx_peripheral_power_vdd_slow_adv_notify();
+    (void)priv;
+    /* 旧回调只通知协调器，不能重启或延长第二入口期限。 */
+    rdx_ble_entry_changed();
 }
 
 /**************************************************************************
@@ -3687,21 +3711,7 @@ void rdx_ble_server_adv_interval_change_timer_cb(void * priv)
  * **************************************************************************/
 void rdx_ble_server_adv_interval_change_timer_start(void)
 {
-    if (!rdx_ble_server_get_connected_count()) {
-        rdx_adv_policy_enable();
-        return;
-    }
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    y_printf("=== %s \r", __func__);
-    if(g_rdx_ble_server_info.adv_interval_change_timer == 0){
-        g_rdx_ble_server_info.adv_interval_change_timer = sys_timeout_add(NULL, rdx_ble_server_adv_interval_change_timer_cb, RDX_BLE_ADV_INTERVAL_CHANGE_TIMEOUT); //2 mins
-    }
+    if (!rdx_ble_server_get_connected_count()) rdx_adv_policy_enable();
 }
 
 /**************************************************************************
@@ -3750,113 +3760,230 @@ int rdx_ble_server_ble_is_on_adv(void)
  * RETURNS
  *  null
 **************************************************************************/
+static void rdx_ble_server_adv_fault(const char *reason, int error)
+{
+    if (!g_rdx_adv_close.fault)
+        r_printf("[BLE_ENTRY] radio fault reason=%s error=%d; protection retained until reboot\n",
+                 reason, error);
+    g_rdx_adv_close.fault = 1;
+    rdx_ble_server_dual_acl_sleep_policy_update(reason);
+}
+
 static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables												  */
-    /*----------------------------------------------------------------*/
-    uint8_t adv_type = ADV_IND;
-    uint8_t adv_channel = ADV_CHANNEL_ALL;
-    uint8_t advData[ADV_RSP_PACKET_MAX] = {0};
-    uint8_t rspData[ADV_RSP_PACKET_MAX] = {0};
-    uint8_t len = 0;
-
-    /*----------------------------------------------------------------*/
-    /* Code Body													  */
-    /*----------------------------------------------------------------*/
-    if (!hdl) {
-        return -1;
-    }
-    if (enable == app_ble_adv_state_get(hdl)) {
-        if (enable) {
-            g_rdx_ble_advertising_hdl = hdl;
-        } else if (g_rdx_ble_advertising_hdl == hdl) {
-            g_rdx_ble_advertising_hdl = NULL;
-        }
-        return 0;
-    }
-    if (enable) {
-        rdx_peripheral_power_vdd_fast_adv_notify();
-        app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min, adv_type, adv_channel);
-        len = rdx_ble_server_fill_adv_data(advData);
-        if (len) {
-            put_buf(advData, len);
-            app_ble_adv_data_set(hdl, advData, len);
-        }
-        len = rdx_ble_server_fill_rsp_data(rspData);
-        if (len) {
-            put_buf(rspData, len);
-            app_ble_rsp_data_set(hdl, rspData, len);
-        }
+    u8 advData[ADV_RSP_PACKET_MAX] = {0};
+    u8 rspData[ADV_RSP_PACKET_MAX] = {0};
+    u8 len;
+    int ret;
+    if (!hdl || !enable || g_rdx_adv_close.waiting || g_rdx_adv_close.fault ||
+        !rdx_ble_entry_allowed()) return -1;
+    if (!rdx_ble_server_get_connected_count() &&
+        rdx_peripheral_power_vdd_fast_adv_notify()) return -1;
+    /* 恢复 PA4 时可能让出执行权，操作广播前须重新检查准入条件。 */
+    if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) return 0;
+    g_rdx_ble_advertising_hdl = hdl;
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_prepare");
+    ret = app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min,
+                               ADV_IND, ADV_CHANNEL_ALL);
+    if (ret) goto not_enabled;
+    if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) goto not_enabled;
+    len = rdx_ble_server_fill_adv_data(advData);
+    ret = len ? app_ble_adv_data_set(hdl, advData, len) : -1;
+    if (ret) goto not_enabled;
+    if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) goto not_enabled;
+    len = rdx_ble_server_fill_rsp_data(rspData);
+    ret = len ? app_ble_rsp_data_set(hdl, rspData, len) : -1;
+    if (ret) goto not_enabled;
+    if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) goto not_enabled;
+    ret = app_ble_adv_enable(hdl, 1);
+    if (ret) {
+        /* SDK 的部分操作会先更新软件缓存再提交命令；
+         * 出错后不能依据该缓存解除保护。 */
+        rdx_ble_server_adv_fault("enable_failed", ret);
+    } else {
         g_rdx_ble_server_info.adv_refresh_pending = FALSE;
+        rdx_ble_server_adv_interval_change_timer_start();
+        if (!rdx_ble_server_get_connected_count())
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
-    int ret = app_ble_adv_enable(hdl, enable);
-    if (ret == 0) {
-        if (enable) {
-            g_rdx_ble_advertising_hdl = hdl;
-            /* 在 app_core 策略运行前发布当前广播句柄。 */
-            rdx_ble_server_adv_interval_change_timer_start();
-        } else if (g_rdx_ble_advertising_hdl == hdl) {
-            g_rdx_ble_advertising_hdl = NULL;
-        }
-    }
-    g_printf("===== rdx_adv_enable hdl=%p adv_handle=%d enable=%d ret=%d\r",
-             hdl, app_ble_adv_handle_get(hdl), enable, ret);
-    
-    //LED控制：BLE广播开启时，如果未连接则闪烁，但WiFi传输中不改变灯效
-    RdxWifiInfo* wifi_info = rdx_app_get_wifi_info();
-    if (enable &&
-        rdx_ble_server_phase0a_connected_count() < RDX_BLE_PHASE0A_WRAPPER_MAX &&
-        wifi_info->onoff != TRANSFER_BY_WIFI_ON) {
-        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
-    }
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_result");
+    r_printf("[BLE_ENTRY] open ret=%d wrapper=%u\n", ret,
+             rdx_ble_server_phase0a_wrapper_index(hdl));
+    return ret;
 
+not_enabled:
+    /* 设置参数和数据不会开启广播，提交开启前取消不构成广播故障；
+     * 只有已提交开启且结果不确定时才锁定保护。 */
+    if (g_rdx_ble_advertising_hdl == hdl) g_rdx_ble_advertising_hdl = NULL;
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_cancelled");
     return ret;
 }
 
 int rdx_ble_server_adv_enable(u8 enable)
 {
-    if (enable && app_var.goto_poweroff_flag) {
-        enable = 0;
-    }
-    u8 index;
-    int ret = 0;
-    void *target;
+    rdx_ble_entry_request(enable, 0);
+    return 0;
+}
 
-    if (!enable) {
-        rdx_ble_server_adv_interval_change_timer_stop();
-        for (index = 0; index < RDX_BLE_PHASE0A_WRAPPER_MAX; index++) {
-            void *hdl = rdx_ble_server_phase0a_wrapper_get(index);
-            if (hdl && app_ble_adv_state_get(hdl)) {
-                int stop_ret = rdx_ble_server_adv_enable_on_hdl(hdl, 0);
-                if (stop_ret && !ret) {
-                    ret = stop_ret;
-                }
-            }
-        }
-        g_rdx_ble_advertising_hdl = NULL;
-        rdx_ble_server_dual_acl_sleep_policy_update("advertising_off");
-        return ret;
-    }
+u8 rdx_ble_entry_suppressed(void)
+{
+    return rdx_ble_server_broadcast_suppressed() ||
+           app_in_mode(APP_MODE_PC) ||
+           rdx_peripheral_power_vdd_owner_get() == RDX_SHARED_VDD_OWNER_USB_HOST ||
+           rdx_peripheral_power_vdd_owner_get() == RDX_SHARED_VDD_OWNER_RECOVERY;
+}
 
-    target = rdx_ble_server_phase0a_idle_wrapper_get();
-    if (!target) {
-        r_printf("[RDX_BLE_LINK] no idle wrapper; advertising remains off\n");
-        rdx_ble_server_dual_acl_sleep_policy_update("advertising_full");
+u32 rdx_ble_entry_radio_deadline(void)
+{
+    return g_rdx_adv_close.deadline;
+}
+
+/* 移除命令的操作码独立于 SDK 建链时的内部停广播命令，同一时刻只允许一笔在途移除。
+ * 回执丢失后保持故障保护；新请求或超时均不得复用其事务位置、命令缓冲或重开广播。 */
+static int rdx_ble_server_adv_close_begin(void *hdl)
+{
+    int handle = app_ble_adv_handle_get(hdl);
+    u16 con_handle = app_ble_get_hdl_con_handle(hdl);
+    int ret;
+    /* SDK 查询会获取互斥锁，其间可能让出执行权，连接完成事件可能已消耗广播集；
+     * 已登记的有效 ACL 不应被误判为广播句柄故障。 */
+    if (con_handle && (g_rdx_ble_exiting ||
+        rdx_ble_server_phase0b_link_find(hdl, con_handle))) {
+        if (g_rdx_ble_advertising_hdl == hdl) g_rdx_ble_advertising_hdl = NULL;
+        rdx_ble_server_dual_acl_sleep_policy_update("advertising_consumed");
         return 0;
     }
-
-    for (index = 0; index < RDX_BLE_PHASE0A_WRAPPER_MAX; index++) {
-        void *hdl = rdx_ble_server_phase0a_wrapper_get(index);
-        if (hdl && hdl != target && app_ble_adv_state_get(hdl)) {
-            rdx_ble_server_adv_enable_on_hdl(hdl, 0);
-        }
+    /* 公共接口返回从 0 开始的控制器句柄；不存在时返回 0xff。 */
+    if (handle < 0 || handle >= RDX_BLE_PHASE0A_WRAPPER_MAX) {
+        rdx_ble_server_adv_fault("invalid_adv_handle", handle);
+        return -1;
     }
-    r_printf("[RDX_BLE_LINK] advertiser wrapper=%u hdl=%p\n",
-             rdx_ble_server_phase0a_wrapper_index(target), target);
-    ret = rdx_ble_server_adv_enable_on_hdl(target, 1);
-    rdx_ble_server_dual_acl_sleep_policy_update("advertising_on");
-    return ret;
+    g_rdx_adv_close.hdl = hdl;
+    g_rdx_adv_close.handle = handle;
+    memset(g_rdx_adv_close.disable, 0, sizeof(g_rdx_adv_close.disable));
+    g_rdx_adv_close.disable[1] = 1;
+    g_rdx_adv_close.disable[2] = handle;
+    g_rdx_adv_close.complete = 0;
+    g_rdx_adv_close.cleanup = 0;
+    g_rdx_adv_close.waiting = 1;
+    g_rdx_adv_close.deadline = sys_timer_get_ms() + RDX_ADV_CLOSE_TIMEOUT_MS;
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_closing");
+    /* 完成前保留 wrapper 状态和句柄，使 SDK 能正确路由先于关闭建立的连接；
+     * 命令缓冲在控制器消费前保持有效且内容不变。 */
+    ret = ll_hci_cmd_to_task(3, RDX_HCI_EXT_ADV_ENABLE,
+                           g_rdx_adv_close.disable, sizeof(g_rdx_adv_close.disable));
+    if (!ret) ret = ll_hci_cmd_to_task(3, RDX_HCI_REMOVE_ADV_SET,
+                                      &g_rdx_adv_close.handle, 1);
+    if (ret) {
+        rdx_ble_server_adv_fault("close_submission_failed", ret);
+        return -1;
+    }
+    return 1;
+}
+
+static void rdx_ble_server_adv_close_event(void *hdl, const u8 *packet, u16 size)
+{
+    /* app_ble 会向两个 wrapper 分发此事件，只允许主 wrapper 消费一次。 */
+    if (hdl != g_rdx_ble_server_info.rdx_ble_server_hdl || size < 5 ||
+        packet[1] < 4 || little_endian_read_16(packet, 3) != RDX_HCI_REMOVE_ADV_SET ||
+        g_rdx_adv_close.fault || !g_rdx_adv_close.waiting ||
+        g_rdx_adv_close.complete) return;
+    g_rdx_adv_close.status = packet[5];
+    g_rdx_adv_close.complete = 1;
+    rdx_ble_entry_changed();
+}
+
+int rdx_ble_entry_radio_apply(u8 enable, u8 refresh)
+{
+    void *hdl, *target;
+    int ret;
+    if (g_rdx_adv_close.fault) return -1;
+    if (g_rdx_adv_close.waiting) {
+        if (!g_rdx_adv_close.complete) {
+            if ((s32)(sys_timer_get_ms() - g_rdx_adv_close.deadline) >= 0) {
+                rdx_ble_server_adv_fault("close_timeout", g_rdx_adv_close.cleanup);
+                return -1;
+            }
+            return 1;
+        }
+        /* 0x42 表示广播标识不存在，即广播集已移除或被连接消耗；
+         * 除成功与此状态外，其他结果不能证明广播已关闭。 */
+        if (g_rdx_adv_close.status != 0 && g_rdx_adv_close.status != 0x42) {
+            rdx_ble_server_adv_fault("remove_status", g_rdx_adv_close.status);
+            return -1;
+        }
+        hdl = g_rdx_adv_close.hdl;
+        if (!g_rdx_adv_close.cleanup) {
+            ret = app_ble_adv_enable(hdl, 0);
+            if (ret) {
+                rdx_ble_server_adv_fault("sdk_cleanup_failed", ret);
+                return -1;
+            }
+            /* SDK 清理可能使用复用缓冲再提交一次关闭命令；
+             * 再等一次移除完成，避免后续开启提前覆盖该缓冲。 */
+            g_rdx_adv_close.cleanup = 1;
+            g_rdx_adv_close.complete = 0;
+            g_rdx_adv_close.deadline = sys_timer_get_ms() + RDX_ADV_CLOSE_TIMEOUT_MS;
+            ret = ll_hci_cmd_to_task(3, RDX_HCI_REMOVE_ADV_SET,
+                                    &g_rdx_adv_close.handle, 1);
+            if (ret) {
+                rdx_ble_server_adv_fault("cleanup_fence_failed", ret);
+                return -1;
+            }
+            return 1;
+        }
+        g_rdx_adv_close.waiting = g_rdx_adv_close.fault = 0;
+        g_rdx_adv_close.hdl = NULL;
+        if (g_rdx_ble_advertising_hdl == hdl) g_rdx_ble_advertising_hdl = NULL;
+        rdx_ble_server_dual_acl_sleep_policy_update("advertising_closed");
+        r_printf("[BLE_ENTRY] close confirmed status=0x%02x\n", g_rdx_adv_close.status);
+    }
+    if (g_rdx_adv_close.fault) return -1;
+    hdl = g_rdx_ble_advertising_hdl;
+    if (hdl && app_ble_get_hdl_con_handle(hdl)) {
+        /* 已接纳连接的 wrapper 不再广播；延迟到 app_core 评估时，
+         * SDK 已完成此次事件分发，只清广播跟踪，不断开有效连接。 */
+        g_rdx_ble_advertising_hdl = hdl = NULL;
+    }
+    enable = enable && rdx_ble_entry_allowed();
+    if (hdl && (!enable || refresh)) {
+        rdx_ble_server_adv_interval_change_timer_stop();
+        return rdx_ble_server_adv_close_begin(hdl);
+    }
+    if (enable && !hdl) {
+        /* 等现有延迟回调确认 SDK 已完成事件分发后，才选择空闲 wrapper。 */
+        if (g_rdx_ble_phase0a_connect_adv_timer ||
+            g_rdx_ble_phase0a_disconnect_pending_hdl) return 0;
+        target = rdx_ble_server_phase0a_idle_wrapper_get();
+        if (target) return rdx_ble_server_adv_enable_on_hdl(target, 1);
+    }
+    rdx_ble_server_dual_acl_sleep_policy_update("advertising_idle");
+    return 0;
+}
+
+static void rdx_ble_server_entry_stop(void)
+{
+    int ret;
+    g_rdx_ble_exiting = 1;
+    rdx_ble_entry_stop();
+    rdx_ble_server_adv_interval_change_timer_stop();
+    /* app_core 退出时暂不释放回调和 wrapper，等待 btctrler / btstack
+     * 完成同一套有界关闭流程；不增加空闲常驻轮询。 */
+    do {
+        ret = rdx_ble_entry_radio_apply(0, 0);
+        if (ret > 0) os_time_dly(1);
+    } while (ret > 0);
+    if (ret < 0) {
+        rdx_ble_server_adv_fault("exit_unconfirmed", ret);
+        if (g_rdx_ble_server_info.rdx_ble_server_hdl)
+            app_ble_adv_enable(g_rdx_ble_server_info.rdx_ble_server_hdl, 0);
+        if (g_rdx_ble_secondary_hdl) app_ble_adv_enable(g_rdx_ble_secondary_hdl, 0);
+        r_printf("[BLE_ENTRY] exit unconfirmed; radio quarantined until reboot\n");
+    }
+    /* 超时后控制器可能仍引用命令缓冲，不得清空或复用；
+     * 故障持续保留，重新初始化后的迟到回执也不能解除保护。 */
+    g_rdx_adv_close.waiting = g_rdx_adv_close.complete = 0;
+    g_rdx_adv_close.hdl = NULL;
 }
 
 /**************************************************************************
@@ -3932,7 +4059,7 @@ void rdx_ble_server_adv_data_changed(void)
     // rdx_util_reverse_byte(ble_mac, RDX_MAC_LEN);
 
     //adv on.
-    rdx_ble_server_adv_enable(1);
+    rdx_ble_entry_request(1, 1);
 }
 
 static u8 g_ble_send_fail_cnt = 0;
@@ -4146,7 +4273,8 @@ int rdx_ble_server_usb_quiesce(void)
             connected = 1;
         }
     }
-    if (connected) {
+    if (connected || g_rdx_ble_advertising_hdl ||
+        g_rdx_adv_close.waiting || g_rdx_adv_close.fault) {
         return 0;
     }
     /* No fabricated disconnect or SD owner in the BLE registry. This follows
@@ -4409,6 +4537,9 @@ void rdx_ble_server_init(void)
         //init sem.
         os_mutex_create(&g_rdx_ble_server_info.ble_send_queue_mutex);
 
+        g_rdx_ble_exiting = 0;
+        rdx_ble_entry_start();
+
         //DUT, poweroff, WiFi transfer and SD format suppress unified advertising.
         if (rdx_ble_server_broadcast_suppressed()) {
             y_printf("[BLE_SESSION] unified advertising suppressed\n");
@@ -4436,6 +4567,7 @@ void rdx_ble_server_exit(void)
     /*----------------------------------------------------------------*/
     log_info("====== %s\n", __func__);
 
+    rdx_ble_server_entry_stop();
     rdx_ble_server_transfer_param_cancel();
     rdx_ble_server_disconnected_adv_restart_cancel();
     rdx_ble_server_syn_data_timers_cancel();
@@ -4446,7 +4578,6 @@ void rdx_ble_server_exit(void)
     g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
 
     // BLE exit
-    rdx_ble_server_adv_enable(0);
     if (g_rdx_ble_server_info.rdx_ble_server_hdl &&
         app_ble_get_hdl_con_handle(
             g_rdx_ble_server_info.rdx_ble_server_hdl)) {
@@ -4470,7 +4601,7 @@ void rdx_ble_server_exit(void)
     }
     g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
     g_rdx_ble_advertising_hdl = NULL;
-    g_rdx_ble_dual_acl_sleep_blocked = 0;
+    g_rdx_ble_dual_acl_sleep_blocked = g_rdx_adv_close.fault;
 }
 
 u8 rdx_ble_server_is_stream_tx_ready(void)

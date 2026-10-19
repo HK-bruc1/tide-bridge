@@ -62,14 +62,30 @@ static LedPt0807Config_t *g_led_config = NULL;
 static const rdx_led_effect_cfg_t *g_active_effect = NULL;
 static rdx_led_scene_e g_current_scene = RDX_LED_SCENE_OFF;
 static u32 g_led_update_timer = 0;
+static u32 g_led_timer_generation;
+static u32 g_led_request_serial;
+static u32 g_led_applied_request;
+static u32 g_led_current_request;
+static u8 g_led_dispatching;
+static volatile u8 g_led_retry_flags;
+static u32 g_led_retry_request;
+static u32 g_effect_start_ms;
+static u32 g_last_update_ms;
 static u32 g_effect_elapsed_ms = 0;   /* 从不重置 — 用于超时检查 */
 static u32 g_phase_elapsed_ms = 0;    /* 每周期重置 — 用于引擎处理 */
 static u8 g_led_blink_state = 0;
 static u8 g_led_connected_on_done = 0;
 static u8 g_led_initialized = 0;
 static u8 g_led_bound_status = 0;
-/* Survives LED deinit while the shared rail sleeps between reminders. */
+/* 共享域在两次提醒间断电时，十分钟提醒仍独立保留。 */
 static u16 g_low_battery_timer = 0;
+static u32 g_low_battery_generation;
+
+enum {
+    LED_REQUEST_RESTORE = RDX_LED_SCENE_MAX,
+    LED_REQUEST_BATTERY,
+    LED_REQUEST_BOUND,
+};
 
 /******************************************************************************
 * Function Declaration Section
@@ -94,6 +110,102 @@ static bool _rdx_led_is_transfer_active(void);
 static bool _rdx_led_can_show_transfer_effect(void);
 static bool _rdx_led_refresh_transfer_scene(void);
 static bool _rdx_led_success_should_yield(void);
+static void _rdx_led_schedule_update(void);
+
+static u32 _rdx_led_next_request(void)
+{
+    local_irq_disable();
+    u32 serial = (++g_led_request_serial) & 0xffffff;
+    local_irq_enable();
+    return serial;
+}
+
+/* 场景和 SPI 灯效在 app_core 执行；存储恢复仍可在原工作任务同步完成。
+ * 请求序号隔离已被新场景或停用取代的消息，避免延迟的 START 覆盖 STOP。 */
+static void _rdx_led_request_cb(void *priv)
+{
+    u32 request = (u32)priv;
+    u8 action = request & 0xff;
+    /* 这两种通知只重读实时状态，不携带旧场景；无需按旧序号丢弃。 */
+    if (action == LED_REQUEST_BATTERY) {
+        rdx_led_ctrl_update_low_battery();
+        return;
+    }
+    if (action == LED_REQUEST_BOUND) {
+        rdx_led_ctrl_bound_changed();
+        return;
+    }
+    u32 serial = request >> 8;
+    if ((int)((serial - g_led_applied_request) << 8) < 0 ||
+        (action != RDX_LED_SCENE_OFF &&
+         (app_var.goto_poweroff_flag || get_vbat_need_shutdown()))) {
+        return;
+    }
+    g_led_dispatching = 1;
+    g_led_current_request = serial;
+    if (action < RDX_LED_SCENE_MAX) {
+        rdx_led_ctrl_set_scene((rdx_led_scene_e)action);
+    } else if (action == LED_REQUEST_RESTORE) {
+        rdx_led_ctrl_restore_system_state();
+    }
+    g_led_dispatching = 0;
+}
+
+static bool _rdx_led_defer_request(u8 action)
+{
+    if (!strcmp(os_current_task(), "app_core")) {
+        if (!g_led_dispatching) {
+            g_led_current_request = _rdx_led_next_request();
+        }
+        return false;
+    }
+    u32 request = (_rdx_led_next_request() << 8) | action;
+    int msg[3] = {(int)_rdx_led_request_cb, 1, (int)request};
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg) &&
+        !sys_timeout_add_2_task((void *)request, _rdx_led_request_cb, 1, "app_core")) {
+        /* 复用产品已有的优先级 0 恢复桥接，不新增常驻系统重试表。
+         * 保留失败的结束事件，不能让旧动态灯效永远阻止共享域休眠。 */
+        local_irq_disable();
+        if (action == LED_REQUEST_BATTERY) {
+            g_led_retry_flags |= 2;
+        } else if (action == LED_REQUEST_BOUND) {
+            g_led_retry_flags |= 4;
+        } else if (!(g_led_retry_flags & 1) ||
+                   (int)(request - g_led_retry_request) >= 0) {
+            g_led_retry_request = request;
+            g_led_retry_flags |= 1;
+        }
+        local_irq_enable();
+        r_printf("[RDX_LED] request dispatch failed action=%u\n", action);
+    }
+    return true;
+}
+
+int rdx_led_ctrl_needs_service(void)
+{
+    return g_led_retry_flags != 0;
+}
+
+void rdx_led_ctrl_service(void)
+{
+    local_irq_disable();
+    u8 flags = g_led_retry_flags;
+    u32 request = g_led_retry_request;
+    g_led_retry_flags = 0;
+    local_irq_enable();
+    if (flags & 1) _rdx_led_request_cb((void *)request);
+    if (flags & 4) rdx_led_ctrl_bound_changed();
+    if (flags & 2) rdx_led_ctrl_update_low_battery();
+}
+
+static void _rdx_led_cancel_update(void)
+{
+    ++g_led_timer_generation;
+    if (g_led_update_timer) {
+        sys_timeout_del(g_led_update_timer);
+        g_led_update_timer = 0;
+    }
+}
 
 static bool _rdx_led_is_advertising_scene(rdx_led_scene_e scene)
 {
@@ -150,18 +262,22 @@ static bool _rdx_led_can_start_battery_query(void)
 
 static void _rdx_led_low_battery_timer_cb(void *priv)
 {
-    if (!_rdx_led_low_battery_reminder_needed()) {
-        rdx_led_ctrl_update_low_battery();
+    if ((u32)priv != g_low_battery_generation || !g_low_battery_timer) {
         return;
     }
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
+    g_low_battery_timer = 0;
+    rdx_led_ctrl_update_low_battery();
 }
 
 void rdx_led_ctrl_update_low_battery(void)
 {
+    if (_rdx_led_defer_request(LED_REQUEST_BATTERY)) {
+        return;
+    }
     if (!_rdx_led_low_battery_reminder_needed()) {
+        ++g_low_battery_generation;
         if (g_low_battery_timer) {
-            sys_timer_del(g_low_battery_timer);
+            sys_timeout_del(g_low_battery_timer);
             g_low_battery_timer = 0;
         }
         if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY) {
@@ -176,10 +292,13 @@ void rdx_led_ctrl_update_low_battery(void)
         return;
     }
     if (!g_low_battery_timer) {
-        g_low_battery_timer = sys_timer_add(NULL,
-                _rdx_led_low_battery_timer_cb, RDX_LED_LOW_BATTERY_REMINDER_MS);
+        g_low_battery_timer = sys_timeout_add_2_task(
+                (void *)++g_low_battery_generation, _rdx_led_low_battery_timer_cb,
+                RDX_LED_LOW_BATTERY_REMINDER_MS, "app_core");
         if (g_low_battery_timer) {
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_LOW_BATTERY);
+        } else {
+            r_printf("[RDX_LED] battery reminder schedule failed\n");
         }
     }
 }
@@ -218,7 +337,54 @@ static void rdx_led_ctrl_off(void)
 
 static void rdx_led_ctrl_update_timer_cb(void *priv)
 {
+    if ((u32)priv != g_led_timer_generation || !g_led_update_timer ||
+        !g_led_initialized) {
+        return;
+    }
+    g_led_update_timer = 0;
     rdx_led_ctrl_update();
+    /* 场景切换可能已安排新期限，旧回调不得重复续约。 */
+    if ((u32)priv == g_led_timer_generation) {
+        _rdx_led_schedule_update();
+    }
+}
+
+static void _rdx_led_schedule_update(void)
+{
+    const rdx_led_effect_cfg_t *cfg = g_active_effect;
+    u32 delay = 0;
+    if (g_led_update_timer || !g_led_initialized || !g_led_config ||
+        !g_led_config->run_en || !cfg || cfg->mode == RDX_LED_MODE_OFF) {
+        return;
+    }
+    if (cfg->mode == RDX_LED_MODE_BLINK || cfg->mode == RDX_LED_MODE_BREATH ||
+        cfg->mode == RDX_LED_MODE_RAINBOW_BREATH ||
+        cfg->mode == RDX_LED_MODE_DOUBLE_BLINK) {
+        delay = RDX_LED_UPDATE_INTERVAL_MS;
+    }
+    u32 elapsed = sys_timer_get_ms() - g_effect_start_ms;
+    if (cfg->mode == RDX_LED_MODE_SOLID_TIMEOUT && !g_led_connected_on_done) {
+        delay = elapsed < cfg->on_ms ? cfg->on_ms - elapsed : 1;
+    }
+    if (cfg->timeout_ms) {
+        u32 remaining = elapsed < cfg->timeout_ms ? cfg->timeout_ms - elapsed : 1;
+        if (!delay || remaining < delay) {
+            delay = remaining;
+        }
+    }
+    if (!delay) {
+        return;
+    }
+    g_led_update_timer = sys_timeout_add_2_task((void *)++g_led_timer_generation,
+            rdx_led_ctrl_update_timer_cb, delay, "app_core");
+    if (!g_led_update_timer) {
+        /* 资源耗尽时放弃本次灯效，不能把临时提示卡成永久 RGB 忙位。 */
+        r_printf("[RDX_LED] effect schedule failed scene=%u\n", g_current_scene);
+        g_current_scene = RDX_LED_SCENE_OFF;
+        g_active_effect = NULL;
+        rdx_led_ctrl_off();
+        rdx_peripheral_power_vdd_business_changed_notify();
+    }
 }
 
 static bool _rdx_led_is_transfer_active(void)
@@ -275,6 +441,8 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
     if (effect >= RDX_LED_EFFECT_MAX) {
         return;
     }
+    g_led_applied_request = g_led_current_request;
+    _rdx_led_cancel_update();
     g_active_effect = &rdx_led_effect_cfg[effect];
     g_printf("RDX LED effect: id=%u mode=%u rgb=%u,%u,%u cycle=%u\r\n",
              (unsigned)effect, (unsigned)g_active_effect->mode,
@@ -282,6 +450,7 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
              (unsigned)g_active_effect->b, (unsigned)g_active_effect->cycle_ms);
     g_effect_elapsed_ms = 0;
     g_phase_elapsed_ms = 0;
+    g_effect_start_ms = g_last_update_ms = sys_timer_get_ms();
     g_led_blink_state = 0;
     g_led_connected_on_done = 0;
     led_pt0807_run_enable(g_led_config, 1);
@@ -318,14 +487,14 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
                                         g_active_effect->b, g_active_effect->brightness);
         break;
     }
+    _rdx_led_schedule_update();
 }
 
 static void _rdx_led_set_charge_effect_by_battery(u8 battery_percent)
 {
     (void)battery_percent;
-    _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_GREEN_BREATH);
-
     g_current_scene = RDX_LED_SCENE_CHARGE_PLUG_IN;
+    _rdx_led_apply_effect(RDX_LED_EFFECT_CHARGE_GREEN_BREATH);
 }
 
 static bool _rdx_led_on_usb_charge(void)
@@ -567,6 +736,10 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
         g_printf("RDX LED Ctrl: Init failed\r\n");
         return -1;
     }
+    if (g_led_initialized) {
+        return g_led_config == config ? 0 : -1;
+    }
+    _rdx_led_cancel_update();
     g_led_config = config;
     g_led_bound_status = rdx_vm_get_bound_status();
     g_current_scene = RDX_LED_SCENE_OFF;
@@ -577,12 +750,7 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
     g_led_connected_on_done = 0;
     led_pt0807_run_enable(config, 1);
     rdx_led_ctrl_off();
-    if (g_led_update_timer == 0) {
-        g_led_update_timer = sys_timer_add(NULL, rdx_led_ctrl_update_timer_cb, RDX_LED_UPDATE_INTERVAL_MS);
-        if (g_led_update_timer == 0) {
-            return -2;
-        }
-    }
+    /* 初始化只恢复硬件并灭灯；文件访问不应顺带启动灯效轮询。 */
     g_led_initialized = 1;
     g_printf("RDX LED Ctrl: Init ok\r\n");
     return 0;
@@ -590,12 +758,11 @@ int rdx_led_ctrl_init(LedPt0807Config_t *config)
 
 void rdx_led_ctrl_deinit(void)
 {
-    if (g_led_update_timer) {
-        sys_timer_del(g_led_update_timer);
-        g_led_update_timer = 0;
-    }
+    g_led_initialized = 0;
+    g_led_applied_request = _rdx_led_next_request();
+    _rdx_led_cancel_update();
     if (g_led_config && g_led_config->initialized) {
-        /* run_en is cleared before the synchronous black frame is sent. */
+        /* 先禁止刷新，再由硬件停用路径同步发送黑帧并释放 SPI。 */
         led_pt0807_run_enable(g_led_config, 0);
     }
     g_led_config = NULL;
@@ -607,6 +774,9 @@ void rdx_led_ctrl_deinit(void)
 void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
 {
     if (scene >= RDX_LED_SCENE_MAX) {
+        return;
+    }
+    if (_rdx_led_defer_request((u8)scene)) {
         return;
     }
     /* 已绑定的广播基础灯态是熄灯，而不是忽略事件。
@@ -724,6 +894,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     }
     if (g_led_config == NULL || !g_led_initialized) {
         if (scene == RDX_LED_SCENE_OFF) {
+            g_led_applied_request = g_led_current_request;
             rdx_peripheral_power_vdd_business_changed_notify();
             return;
         }
@@ -853,8 +1024,7 @@ void rdx_led_ctrl_update(void)
     if (!g_led_config->run_en) {
         return;
     }
-    /* 复用现有灯效任务的周期检查，绑定变化无需跨任务直接操作灯效。
-     * 仅重算基础灯态；业务提示结束后会自行按最新绑定状态恢复。 */
+    /* 动态灯效保留防御性核对；灭灯后的绑定变化由显式通知推进。 */
     u8 bound = rdx_vm_get_bound_status();
     if (g_led_bound_status != bound) {
         g_led_bound_status = bound;
@@ -903,8 +1073,11 @@ void rdx_led_ctrl_update(void)
         return;
     }
 
-    g_effect_elapsed_ms += RDX_LED_UPDATE_INTERVAL_MS;
-    g_phase_elapsed_ms += RDX_LED_UPDATE_INTERVAL_MS;
+    /* 使用实际时间而非回调次数，短提示可直接等待期限且不怕任务延迟。 */
+    u32 now = sys_timer_get_ms();
+    g_effect_elapsed_ms = now - g_effect_start_ms;
+    g_phase_elapsed_ms += now - g_last_update_ms;
+    g_last_update_ms = now;
 
     switch (g_active_effect->mode) {
     case RDX_LED_MODE_OFF:
@@ -983,6 +1156,9 @@ void rdx_led_ctrl_set_custom_color_brightness(u8 r, u8 g, u8 b, u8 brightness)
  */
 void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
 {
+    if (_rdx_led_defer_request(RDX_LED_SCENE_CHARGE_PLUG_IN)) {
+        return;
+    }
     if (_rdx_led_on_usb_charge() || rdx_app_get_dut_status()) {
         rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_IN);
         return;
@@ -998,6 +1174,9 @@ void rdx_led_ctrl_set_charge_state_by_battery(u8 battery_percent)
  */
 void rdx_led_ctrl_restore_system_state(void)
 {
+    if (_rdx_led_defer_request(LED_REQUEST_RESTORE)) {
+        return;
+    }
     /* Unplugging USB must not end a factory LED test. */
     if (rdx_app_get_dut_status() &&
         g_current_scene == RDX_LED_SCENE_DUT_LED_TEST &&
@@ -1009,4 +1188,21 @@ void rdx_led_ctrl_restore_system_state(void)
         return;
     }
     _rdx_led_restore_system_state();
+}
+
+void rdx_led_ctrl_bound_changed(void)
+{
+    if (_rdx_led_defer_request(LED_REQUEST_BOUND)) {
+        return;
+    }
+    u8 bound = rdx_vm_get_bound_status();
+    if (g_led_bound_status == bound) {
+        return;
+    }
+    g_led_bound_status = bound;
+    if (!app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        (g_current_scene == RDX_LED_SCENE_OFF ||
+         _rdx_led_is_advertising_scene(g_current_scene))) {
+        _rdx_led_restore_system_state();
+    }
 }

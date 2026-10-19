@@ -192,7 +192,9 @@ struct dut_request {
 static struct dut_request dut_queue[DUT_QUEUE_CAPACITY];
 static u8 dut_head, dut_count;
 static u16 dut_service_timer;
-static u16 dut_service_period = 1000;
+static volatile u8 dut_initialized, dut_service_posted, dut_service_pending, dut_servicing;
+static volatile u8 dut_timer_failed;
+static u32 dut_timer_serial, dut_timer_due;
 static volatile u8 dut_emergency_cancel;
 static volatile u8 dut_queue_abort;
 static volatile u8 dut_key_gate;
@@ -224,9 +226,119 @@ static u8 dut_record_wait, dut_record_posted;
 /* Storage errors are latched by the library until reboot. */
 static u8 dut_record_failed;
 static u32 dut_record_ticket;
+static u32 dut_record_retry_since;
 static void
 rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff);
 static void dut_service(void *priv);
+static void dut_service_run(void);
+static u32 dut_finalpack_delay(u32 now);
+
+static void dut_service_event(void *priv)
+{
+    local_irq_disable();
+    dut_service_posted = 0;
+    u8 pending = dut_service_pending;
+    local_irq_enable();
+    if (pending) dut_service(NULL);
+}
+
+void rdx_dut_service_wake(void)
+{
+    int message[] = {(int)dut_service_event, 1, 0};
+    local_irq_disable();
+    if (dut_initialized) {
+        dut_service_pending = 1;
+        if (!dut_service_posted && !dut_servicing) {
+            dut_service_posted = 1;
+            if (os_taskq_post_type("app_core", Q_CALLBACK, 3, message)) {
+                dut_service_posted = 0;
+            }
+        }
+    }
+    local_irq_enable();
+}
+
+int rdx_dut_service_needs_poll(void)
+{
+    /* 分配失败时保留运行条件直至原截止点，不能靠下一次用户操作恢复。 */
+    return dut_initialized && !dut_servicing &&
+           ((dut_service_pending && !dut_service_posted) || dut_timer_failed);
+}
+
+/* 只恢复通知失败或超时分配失败，不在恢复入口执行正常 DUT 轮询。 */
+void rdx_dut_service_poll(void)
+{
+    if (!dut_initialized) return;
+    if ((dut_service_pending && !dut_service_posted) ||
+        (dut_timer_failed && (s32)(jiffies_to_msecs(jiffies) - dut_timer_due) >= 0)) {
+        dut_service(NULL);
+    }
+}
+
+static u32 dut_remaining(u32 now, u32 since, u32 interval)
+{
+    u32 elapsed = now - since;
+    return elapsed >= interval ? 1 : interval - elapsed;
+}
+
+static void dut_service_timeout(void *priv)
+{
+    /* 删除定时器不能撤回已经投递的回调，用代次拒绝旧截止点。 */
+    if ((u32)priv != dut_timer_serial) return;
+    dut_service_timer = 0;
+    dut_timer_failed = 0;
+    dut_service(NULL);
+}
+
+static void dut_service_schedule(void)
+{
+    /* 只选实际待办的最近截止点，连接状态、DUT 模式和稳定播放都不续表。 */
+    u32 now = jiffies_to_msecs(jiffies);
+    u32 delay = dut_finalpack_delay(now);
+    u32 next;
+    if (dut_last_state == 1) {
+        next = dut_remaining(now, dut_action_since, 60000);
+        delay = delay ? MIN(delay, next) : next;
+    }
+    if (dut_waiting == 1) {
+        next = dut_remaining(now, dut_wait_started, 2001);
+        delay = delay ? MIN(delay, next) : next;
+    }
+    if (dut_record_wait && !dut_record_posted && !dut_record_failed &&
+        (u32)(now - dut_record_retry_since) < 60000) {
+        next = MIN(100, dut_remaining(now, dut_record_retry_since, 60000));
+        delay = delay ? MIN(delay, next) : next;
+    }
+    if (dut_stopping && (u32)(now - dut_wait_started) < 60000) {
+        next = dut_remaining(now, dut_wait_started, 60000);
+        delay = delay ? MIN(delay, next) : next;
+    }
+    if (delay && dut_service_timer && dut_timer_due == now + delay) return;
+    ++dut_timer_serial;
+    if (dut_service_timer) sys_timeout_del(dut_service_timer);
+    dut_service_timer = 0;
+    dut_timer_failed = 0;
+    if (!delay) return;
+    dut_timer_due = now + delay;
+    dut_service_timer = sys_timeout_add((void *)dut_timer_serial, dut_service_timeout, delay);
+    dut_timer_failed = !dut_service_timer;
+}
+
+static void dut_service(void *priv)
+{
+    if (!dut_initialized || dut_servicing) return;
+    local_irq_disable();
+    dut_service_pending = 0;
+    dut_servicing = 1;
+    local_irq_enable();
+    dut_service_run();
+    dut_service_schedule();
+    local_irq_disable();
+    dut_servicing = 0;
+    u8 pending = dut_service_pending;
+    local_irq_enable();
+    if (pending) rdx_dut_service_wake();
+}
 
 static bool dut_token_ready(const rdx_ble_async_token_t *token)
 {
@@ -331,6 +443,7 @@ static void dut_key_event(u32 generation, u32 value)
     if (!dut_key_gate || generation != dut_key_generation ||
         rdx_dut_info.current_func != DUT_FUNC_KEY || !dut_business_ready() ||
         !dut_request_ready(&dut_owner)) {
+        if (dut_key_gate && generation == dut_key_generation) rdx_dut_service_wake();
         return;
     }
     for (int i = 0; i < ARRAY_SIZE(dut_keys); ++i) {
@@ -370,6 +483,7 @@ bool rdx_dut_key_scan(u8 value, u8 previous)
                 int msg[4] = {(int)dut_key_event, 2, dut_key_generation, value};
                 if (os_taskq_post_type("app_core", Q_CALLBACK, 4, msg)) {
                     dut_emergency_cancel = 1;
+                    rdx_dut_service_wake();
                 }
             }
         } else if (value != previous) {
@@ -399,6 +513,7 @@ bool rdx_dut_key_consume(u8 value, u32 timestamp)
 void rdx_dut_test_cancel(void)
 {
     /* app_core only. A queued event retains its old generation. */
+    u8 changed = dut_key_gate || rdx_dut_info.current_func == DUT_FUNC_KEY;
     dut_key_gate = 0;
     ++dut_key_generation;
     dut_waiting = 0;
@@ -406,9 +521,14 @@ void rdx_dut_test_cancel(void)
         rdx_dut_info.current_func = DUT_FUNC_NONE;
     }
     if (rdx_dut_info.current_func == DUT_FUNC_SPEAKER) {
-        dut_stopping = 1;
-        rdx_dut_speaker_cancel();
+        if (!dut_stopping) {
+            dut_wait_started = jiffies_to_msecs(jiffies);
+            changed = 1;
+            dut_stopping = 1;
+            rdx_dut_speaker_cancel();
+        }
     }
+    if (changed) rdx_dut_service_wake();
 }
 
 static int dut_enqueue(u8 command, u8 value)
@@ -416,15 +536,15 @@ static int dut_enqueue(u8 command, u8 value)
     struct dut_request request = {0};
     request.command = command;
     request.value = value;
-    if (!dut_service_timer ||
+    if (!dut_initialized ||
         !rdx_ble_session_rdx_token_capture(&request.token, 1)) return -1;
     local_irq_disable();
     if (dut_count == DUT_QUEUE_CAPACITY || dut_emergency_cancel) {
-        /* Fail closed, including an unqueueable stop. The service timer is
-         * independent of app_core's Q_CALLBACK capacity. */
+        /* 命令溢出仍保留取消标记，通知失败由产品服务恢复。 */
         if (dut_count == DUT_QUEUE_CAPACITY) dut_queue_abort = 1;
         if (dut_owner.source != 1) dut_emergency_cancel = 1;
         local_irq_enable();
+        rdx_dut_service_wake();
         DUT_LOG("DUT queue full; cancel requested\n");
         return -1;
     }
@@ -434,19 +554,17 @@ static int dut_enqueue(u8 command, u8 value)
     DUT_LOG("Queued cmd=%u value=%u func=%u speaker=%d wait=%u stopping=%u record_wait=%u\n",
             command, value, rdx_dut_info.current_func, rdx_dut_speaker_state(),
             dut_waiting, dut_stopping, dut_record_wait);
-    int kick[3] = {(int)dut_service, 1, 0};
-    /* Queue owns the request even if this wakeup is full. The periodic
-     * service retries; while DUT is active it runs every 10 ms. */
-    os_taskq_post_type("app_core", Q_CALLBACK, 3, kick);
+    rdx_dut_service_wake();
     return 0;
 }
 
 void rdx_dut_test_session_revoke(void)
 {
     rdx_record_dut_ble_revoke();
-    /* BLE task: revoke producers immediately; timer performs app_core cleanup. */
+    /* BLE 任务只发布撤销，清理仍由 app_core 的事件处理执行。 */
     dut_ble_revoked_id = dut_owner.id;
     dut_ble_revoked = 1; /* app_core checks resource ownership before cleanup. */
+    rdx_dut_service_wake();
 }
 
 static void dut_execute_test(const struct dut_request *request)
@@ -540,7 +658,7 @@ static void dut_execute_test(const struct dut_request *request)
     dut_wait_started = jiffies_to_msecs(jiffies);
 }
 
-static void dut_service(void *priv)
+static void dut_service_run(void)
 {
     dut_finalpack_tone_poll();
     if (dut_completion_id) {
@@ -555,12 +673,6 @@ static void dut_service(void *priv)
                 rdx_dut_show();
             }
         }
-    }
-    u16 period = (rdx_dut_info.dut_mode || dut_count || dut_stopping ||
-                  dut_record_wait || rdx_dut_test_keys_active()) ? 10 : 1000;
-    if (period != dut_service_period) {
-        sys_timer_modify(dut_service_timer, period);
-        dut_service_period = period;
     }
     if (rdx_dut_info.dut_mode && rdx_dut_test_keys_active() && !get_power_on_status()) {
         dut_mode_apply();
@@ -611,8 +723,14 @@ static void dut_service(void *priv)
         }
     }
     if (dut_record_wait) {
-        if (!dut_record_posted && !rdx_record_dut_stop_request(dut_record_ticket)) {
-            dut_record_posted = 1;
+        if (!dut_record_posted) {
+            if (dut_record_failed ||
+                (u32)(jiffies_to_msecs(jiffies) - dut_record_retry_since) >= 60000) {
+                dut_record_failed = 1;
+                dut_finish(dut_last.id, "IO");
+                return; /* 投递失败保留资源隔离，不以超时冒充保存完成。 */
+            }
+            if (!rdx_record_dut_stop_request(dut_record_ticket)) dut_record_posted = 1;
         }
         int result = dut_record_posted ? rdx_record_dut_stop_poll(dut_record_ticket) : -2;
         if (result != -2) {
@@ -686,7 +804,9 @@ static void dut_record_stop(void)
     if (dut_record_wait) return;
     if (!++dut_record_ticket) ++dut_record_ticket;
     dut_record_wait = 1;
+    dut_record_retry_since = jiffies_to_msecs(jiffies);
     dut_record_posted = !rdx_record_dut_stop_request(dut_record_ticket);
+    rdx_dut_service_wake();
 }
 static bool dut_parse_test(const char *cmd, const char *value)
 {
@@ -788,7 +908,7 @@ static const char *dut_accept(struct dut_request *request)
         (request->source != dut_owner.source ||
          request->command != dut_owner.command)) return "BUSY";
     RecordStatus *rp = rdx_record_get_status();
-    if (!dut_service_timer || !get_power_on_status() || app_var.goto_poweroff_flag)
+    if (!dut_initialized || !get_power_on_status() || app_var.goto_poweroff_flag)
         return "STATE";
     if (g_finalpack_end_pending || dut_last_state == 1 || dut_emergency_cancel || dut_queue_abort || dut_waiting || dut_stopping ||
         dut_record_wait || rdx_uxfile_sd_format_status_check()) return "BUSY";
@@ -836,6 +956,7 @@ static const char *dut_accept(struct dut_request *request)
         /* Idempotent start: avoid resetting LED/audio/recording. */
     } else rdx_dut_cmd_async_handle(request->command, request->value);
     dut_poll_action();
+    if (!dut_servicing) dut_service(NULL);
     return NULL;
 }
 
@@ -1023,9 +1144,6 @@ static void rdx_dut_cmd_async_handle(u8 cmd_type, u8 onoff)
  **************************************************************************/
 void rdx_dut_init(void)
 {
-    if (!dut_service_timer) {
-        dut_service_timer = sys_timer_add(NULL, dut_service, dut_service_period);
-    }
     factory_usb_revoked = 0;
     u8 vm_value = 0xFF;
     int ret = syscfg_read(VM_RDX_KEY_DUT_DISABLED, &vm_value, 1);
@@ -1039,6 +1157,7 @@ void rdx_dut_init(void)
         rdx_dut_info.key_dut_disabled = false;
         DUT_LOG("Init: key_dut_disabled = 0 (enabled)\r");
     }
+    dut_initialized = 1;
 }
 
 /**************************************************************************
@@ -1268,6 +1387,7 @@ void rdx_dut_record_reset(void)
     if (rdx_dut_info.current_func == DUT_FUNC_REC ||
         rdx_dut_info.current_func == DUT_FUNC_REC_CALL) {
         rdx_dut_info.current_func = DUT_FUNC_NONE;
+        rdx_dut_service_wake();
     }
 }
 
@@ -1454,6 +1574,7 @@ static void rdx_dut_format_cb(u8 result)
 {
     dut_completion_result = result;
     dut_completion_id = dut_format_id;
+    rdx_dut_service_wake();
 }
 
 /**************************************************************************
@@ -1516,6 +1637,7 @@ static int dut_finalpack_tone_callback(void *priv, enum stream_event event)
     }
     if (event == STREAM_EVENT_STOP) {
         finalpack_tone_inflight = 0;
+        rdx_dut_service_wake();
     }
     return 0;
 }
@@ -1523,6 +1645,7 @@ static int dut_finalpack_tone_callback(void *priv, enum stream_event event)
 static void dut_finalpack_tone_complete(void *priv)
 {
     finalpack_tone_complete = 1;
+    rdx_dut_service_wake();
 }
 
 void rdx_dut_finalpack_tone_stop(void)
@@ -1533,6 +1656,7 @@ void rdx_dut_finalpack_tone_stop(void)
      * prompts when no reminder is queued or playing. */
     if (finalpack_tone_inflight) tone_player_stop();
     finalpack_tone_inflight = finalpack_tone_complete = finalpack_tone_gap = 0;
+    rdx_dut_service_wake();
     app_var.wtone_volume = finalpack_tone_old_volume;
     DUT_LOG("Finalpack reminder stopped; tone volume restored\n");
 }
@@ -1586,6 +1710,12 @@ static void dut_finalpack_tone_poll(void)
         finalpack_tone_gap = 0;
         dut_finalpack_tone_play();
     }
+}
+
+static u32 dut_finalpack_delay(u32 now)
+{
+    return finalpack_tone_active && finalpack_tone_gap ?
+        dut_remaining(now, finalpack_tone_gap_started, 1000) : 0;
 }
 
 static void rdx_dut_finalpack_fail(void)
@@ -1647,6 +1777,7 @@ void rdx_dut_finalpack_end_format_cb(u8 result)
     g_finalpack_format_waiting = false;
     dut_completion_result = result;
     dut_completion_id = dut_format_id;
+    rdx_dut_service_wake();
 }
 
 /**************************************************************************
@@ -1991,8 +2122,6 @@ static void dut_mode_apply(void)
         /* Keep BLE advertising/connection alive for the factory APP while classic BT SPP is initialized below. */
         rdx_ble_server_auto_shut_down_enable(0);
         DUT_LOG("Auto shutdown disabled!\r");
-        
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
         
         rdx_spp_init();
         

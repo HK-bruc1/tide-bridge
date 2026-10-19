@@ -9,6 +9,7 @@ void rdx_factory_audio_send(u32 generation);
 int rdx_factory_audio_begin(u32 generation, u32 id);
 int rdx_factory_audio_ready(u32 generation);
 int rdx_factory_audio_owned(void);
+int rdx_factory_audio_needs_service(void);
 int rdx_factory_audio_tx_pending(u32 generation);
 int rdx_factory_audio_started(void);
 void rdx_factory_audio_frame(const u8 *data, u32 length);
@@ -25,6 +26,7 @@ static inline void rdx_factory_audio_send(u32 g) {}
 static inline int rdx_factory_audio_begin(u32 g, u32 id) { return -1; }
 static inline int rdx_factory_audio_ready(u32 g) { return 0; }
 static inline int rdx_factory_audio_owned(void) { return 0; }
+static inline int rdx_factory_audio_needs_service(void) { return 0; }
 static inline int rdx_factory_audio_started(void) { return 0; }
 static inline void rdx_factory_audio_frame(const u8 *d, u32 n) {}
 static inline void rdx_factory_audio_saved(int r) {}

@@ -6,6 +6,7 @@
 #include "automute.h"
 #include "../../../../audio/common/pcm_data/sine_pcm.h"
 #include "rdx_dut_speaker.h"
+#include "rdx_dut.h"
 
 /* A private DAC channel, never the demo's global/default channel. The worker
  * only writes PCM. DAC control stays on app_core: SDK start/close paths can
@@ -110,7 +111,10 @@ static void speaker_worker(void *priv)
         /* A stalled DAC must not prevent DUT exit or power-off. */
         if (speaker_cancel && written == 0 && ++stop_stalls >= 10) break;
         if (written) {
-            speaker_state = DUT_AUDIO_PLAYING;
+            if (speaker_state != DUT_AUDIO_PLAYING) {
+                speaker_state = DUT_AUDIO_PLAYING;
+                rdx_dut_service_wake();
+            }
             offset = (offset + written) % bytes;
             if (offset == 0 && speaker_pink) {
                 if (fading_out) break;
@@ -124,6 +128,7 @@ static void speaker_worker(void *priv)
         }
     }
     speaker_state = DUT_AUDIO_DONE;
+    rdx_dut_service_wake();
     /* app_core deletes the finished worker before the next instance opens. */
     while (1) {
         os_time_dly(100);

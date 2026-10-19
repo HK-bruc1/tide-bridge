@@ -31,6 +31,12 @@ enum {
     RDX_SHARED_VDD_BUSY_USB_MSC         = (1u << 4),
     RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY = (1u << 5),
     RDX_SHARED_VDD_BUSY_RGB_REQUIRED    = (1u << 6),
+    /* 以下忙位只用于连接态资格 */
+    RDX_SHARED_VDD_BUSY_EXTERNAL_POWER  = (1u << 7),
+    RDX_SHARED_VDD_BUSY_BUSINESS        = (1u << 8),
+    RDX_SHARED_VDD_BUSY_STORAGE_IO      = (1u << 9),
+    RDX_SHARED_VDD_BUSY_STORAGE_STATE   = (1u << 10),
+    RDX_SHARED_VDD_BUSY_SHUTDOWN        = (1u << 11),
 };
 
 typedef enum {
@@ -45,12 +51,9 @@ typedef enum {
 void rdx_peripheral_power_amp_set(u8 enable);
 u8 rdx_peripheral_power_amp_is_enabled(void);
 
-/*
- * PA4 is active high and feeds the shared SD NAND + RGB rail. Early init and
- * ensure_on are synchronous and may be used before RDX/BLE tasks exist. They
- * only guarantee the electrical rail; a future OFF->ON path must separately
- * gate storage access until driver and filesystem recovery completes.
- */
+/* PA4 高有效，给 SD NAND/RGB 共同供电。early_init 负责早期上电；
+ * ensure_on 同步恢复电源、SD 挂载及 RGB，失败时禁止业务继续访问。
+ * SD_DRIVER 原生回调仅保证电气供电，不递归进入挂载流程。 */
 void rdx_peripheral_power_vdd_early_init(void);
 int rdx_peripheral_power_vdd_ensure_on(rdx_shared_vdd_wake_reason_t reason);
 
@@ -59,6 +62,10 @@ int rdx_peripheral_power_vdd_fast_adv_notify(void);
 void rdx_peripheral_power_vdd_slow_adv_notify(void);
 void rdx_peripheral_power_vdd_ble_links_changed_notify(void);
 void rdx_peripheral_power_vdd_business_changed_notify(void);
+/* 仅通知连接态评估，不递归发布广播策略事件。 */
+void rdx_peripheral_power_vdd_connected_changed_notify(void);
+/* 业务占用或存储 IO 用户归零时调用；仅在连接态评估等待时投递一次事件 */
+void rdx_peripheral_power_vdd_idle_hint(void);
 
 /* PC storage reserves the rail before taking SD0 over, then publishes owner. */
 int rdx_peripheral_power_vdd_usb_prepare(void);

@@ -77,11 +77,13 @@ $ampImplementation = Get-SourceSlice $PeripheralPower `
     'static u8 g_rdx_amp_enabled;' `
     '#else'
 $ampDacLifecycleOk = $PeripheralPowerH -match 'void\s+rdx_peripheral_power_amp_set\s*\(u8\s+enable\)' -and
-                     $ampImplementation -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\).*?case\s+DAC_ANALOG_OPEN_FINISH\s*:.*?rdx_peripheral_power_amp_set\(1\).*?case\s+DAC_ANALOG_OPEN_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_PREPARE\s*:.*?case\s+DAC_ANALOG_CLOSE_FINISH\s*:.*?default\s*:.*?rdx_peripheral_power_amp_set\(0\)' -and
+                     $ampImplementation -match 'rdx_peripheral_power_amp_set\(g_rdx_amp_analog_ready\s*&&\s*g_rdx_amp_output_running\)' -and
+                     $ampImplementation -match '(?s)void\s+audio_dac_power_state\s*\(u8\s+state\)\s*\{\s*rdx_amp_apply\(RDX_AMP_SRC_ANALOG,\s*state\);' -and
+                     $ampImplementation -match '(?s)void\s+_audio_dac_status_hook\s*\(u8\s+status\)\s*\{\s*rdx_amp_apply\(RDX_AMP_SRC_DIGITAL,\s*status\);' -and
                      $ampImplementation -match 'gpio_set_mode\(IO_PORT_SPILT\(TCFG_T2620_AMP_ENABLE_IO\)' -and
                      $ampImplementation -notmatch 'sys_timeout_add|sys_timer_add|os_time_dly'
 Assert-Contract 'T2620_AMP_FOLLOWS_DAC_LIFECYCLE' $ampDacLifecycleOk `
-    'PE5 must rise only after DAC analog open finishes and fall synchronously before/after DAC analog close'
+    'PE5 must follow DAC analog readiness AND digital output running, without timers'
 
 $ampPinConflictOk = $RdxAppConfig -match '(?m)^\s*#define\s+RDX_WIFI_ENABLE\s+\(0\)' -and
                     $PeripheralPower -match '(?s)#if\s+TCFG_T2620_AMP_POWER_ENABLE\s*&&\s*RDX_WIFI_ENABLE.*?#error\s+"T2620 PE5 amplifier enable conflicts with the legacy RDX WiFi SPI CS assignment"'
@@ -94,6 +96,25 @@ $sharedVddPowerCutConfigOk = $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED
                              $Config -match '(?m)^\s*#define\s+TCFG_T2620_SHARED_VDD_POWER_STABLE_TICKS\s+1\s*$'
 Assert-Contract 'T2620_SHARED_VDD_POWER_CUT_CONFIG' $sharedVddPowerCutConfigOk `
     'PA4 shared SD/RGB rail must use the POWER_CUT path with a nonzero power-stable window'
+
+$rdxPowerSources = Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol') -Recurse -File |
+    Where-Object { $_.Extension -in '.c', '.h' } |
+    ForEach-Object { Get-Content -Raw -Encoding UTF8 -LiteralPath $_.FullName }
+$micNativeOwnershipOk = ($rdxPowerSources -join "`n") -notmatch '\bVDD_POWER_(PORT_IO|PORT|PIN)\b|\bIO_PORTA_00\b|\brdx_app_do_emmc_reset\b' -and
+                        $SdkConfigH -match '(?m)^#define\s+TCFG_ADC0_BIAS_SEL\s+16\b' -and
+                        $SdkConfigH -match '(?m)^#define\s+TCFG_ADC3_BIAS_SEL\s+16\b'
+Assert-Contract 'T2620_MIC_PA0_NATIVE_OWNERSHIP' $micNativeOwnershipOk `
+    'PA0 must stay with JL MIC_LDO (ADC0/ADC3), never the legacy RDX VDD alias or GPIO paths'
+
+$legacyStoragePower = Get-SourceSlice $RdxApp `
+    'void rdx_app_emmc_poweron(u8 check_en)' `
+    '#if RDX_WIFI_ENABLE' -Last
+$legacyStorageDelegatesOk = $legacyStoragePower -match 'rdx_peripheral_power_vdd_ensure_on\(RDX_SHARED_VDD_WAKE_BUSINESS\)' -and
+                           $legacyStoragePower -match 'rdx_peripheral_power_vdd_business_changed_notify\(\)' -and
+                           $legacyStoragePower -notmatch 'gpio_set_mode|sd_set_power|sys_(timeout|timer)_(add|del)' -and
+                           $RdxApp -notmatch '\bemmc_poweroff_flag\b|\bemmc_poweroff_check_timer\b|\bEMMC_LDO_POWER_OFF_CHECK_TIMEOUT\b|\brdx_app_emmc_poweroff_check_timer_(start|rerun|cb)\b'
+Assert-Contract 'T2620_LEGACY_STORAGE_POWER_DELEGATES' $legacyStorageDelegatesOk `
+    'legacy library entry points must delegate to the shared rail manager without a second power state or timer'
 
 $sdPowerCallback = Get-SourceSlice $AppMain `
     'void sd_set_power_user(u8 en)' `
@@ -122,12 +143,12 @@ Assert-Contract 'T2620_SHARED_VDD_QUIESCE_AND_RESTORE' $sharedVddQuiesceOk `
 $sharedVddTransitionSerializationOk = $PeripheralPower -match 'OS_MUTEX\s+transition_mutex' -and
                                       $PeripheralPower -match 'os_mutex_create\(&g_rdx_shared_vdd\.transition_mutex\)' -and
                                       $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_ensure_on.*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?rdx_peripheral_power_vdd_restore_idle_domain.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
-                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop\(u32\s+idle_epoch\).*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
+                                      $PeripheralPower -match '(?s)rdx_peripheral_power_vdd_idle_stop\(u32\s+idle_epoch,\s*u8\s+source\).*?os_mutex_pend\(&g_rdx_shared_vdd\.transition_mutex.*?g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?os_mutex_post\(&g_rdx_shared_vdd\.transition_mutex' -and
                                       $PeripheralPower -match 'g_rdx_shared_vdd\.slow_adv_epoch\s*=\s*\(u32\)epoch'
 Assert-Contract 'T2620_SHARED_VDD_TRANSITIONS_SERIALIZED' $sharedVddTransitionSerializationOk `
     'stop/restore transitions must be mutex-serialized and revalidate the exact slow-advertising epoch'
 
-$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv\s*\|\|\s*!rdx_adv_policy_idle_valid\(\)\);\s*if\s*\(!canceled\)' -and
+$sharedVddIrqSafeFinalRecheckOk = $PeripheralPower -match '(?s)local_irq_disable\(\);\s*canceled\s*=\s*g_rdx_shared_vdd\.wake_requested\s*\|\|\s*g_rdx_shared_vdd\.wake_epoch\s*!=\s*stop_epoch.*?g_rdx_shared_vdd\.busy_mask.*?!g_rdx_shared_vdd\.slow_adv\s*\|\|\s*!rdx_adv_policy_idle_valid\(\)\)\);\s*if\s*\(!canceled\)' -and
                                   $AdvPolicy -match '(?s)u8 rdx_adv_policy_idle_valid\(void\)\s*\{\s*return adv.enabled && adv.qualified && !adv.pending &&\s*adv.consumed == adv.version;\s*\}' -and
                                   $PeripheralPower -notmatch '(?s)local_irq_disable\(\);(?:(?!local_irq_enable\(\);).)*rdx_ble_server_get_connected_count\(\)'
 Assert-Contract 'T2620_SHARED_VDD_FINAL_RECHECK_IS_IRQ_SAFE' $sharedVddIrqSafeFinalRecheckOk `
@@ -138,7 +159,7 @@ $sharedVddDualAclOk = $RdxServerH -match 'u8\s+rdx_ble_server_get_connected_coun
                        $RdxServer -match '(?s)u8\s+rdx_ble_server_get_connected_count\s*\(void\).*?return\s+rdx_ble_server_phase0a_connected_count\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_connected.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_disconnected.*?rdx_ble_session_link_release.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
-                       $RdxServer -match '(?s)rdx_ble_server_adv_interval_change_timer_cb.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
+                       $RdxServer -match '(?s)rdx_adv_policy_slow_committed.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
                        $RdxServer -match '(?s)void rdx_ble_server_fast_adv_restart\(void\).*?rdx_adv_policy_activity\(\)' -and
                        $RdxServer -match '(?s)int rdx_adv_policy_radio_set\(u8 slow\).*?if \(!slow\).*?rdx_peripheral_power_vdd_fast_adv_notify\(\)' -and
                        $RdxServer -match '(?s)void rdx_adv_policy_slow_committed\(void\).*?!rdx_adv_policy_idle_valid\(\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)'
@@ -268,7 +289,7 @@ Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'DA44AE30A683D645E474A386975C8DECDE087E5F1E5B665E871A3BFE2F3CB454' -and
+                           $PatchedRdxArchiveHash -eq 'E4C33DF568A7667777282DEB37A143770AF17619FB720077CB2C9C5231A8BF2B' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -442,10 +463,10 @@ Assert-Contract 'PC_FAILURE_CANNOT_FALL_BACK_TO_BLE_WHILE_OFF' (
 
 Assert-Contract 'PC_RETRY_IS_BOUNDED_AND_REVALIDATED' (
     $Dip -match '#define DIP_SERVICE_MAX_ATTEMPTS 3' -and
-    $Dip -match '(?s)on != s_last_on \|\| usb != s_last_usb \|\| vbus != s_last_vbus.*?s_attempts = 0;.*?s_retry_ticks = 0;' -and
-    $Dip -match '(?s)if \(s_attempts >= DIP_SERVICE_MAX_ATTEMPTS\).*?return;.*?rdx_dip_switch_pc_allowed\(\).*?target = APP_MODE_PC;' -and
-    $Dip -match '(?s)if \(target >= 0\).*?\+\+s_attempts;.*?s_retry_ticks = DIP_SERVICE_RETRY_TICKS;.*?app_send_message\(APP_MSG_GOTO_MODE, target\)' -and
-    $AppMain -match '(?s)if \(err != 0\).*?#if TCFG_T2620_PC_STORAGE_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?next_mode->name == APP_MODE_PC \|\| app_in_mode\(APP_MODE_PC\).*?return NULL;.*?#endif.*?sys_timeout_add'
+    $Dip -match '(?s)on != s_last_on \|\| usb != s_last_usb \|\| vbus != s_last_vbus.*?s_attempts = 0;.*?s_retry_wait = 0;' -and
+    $Dip -match '(?s)rdx_dip_switch_pc_allowed\(\).*?target = APP_MODE_PC;.*?if \(s_attempts >= DIP_SERVICE_MAX_ATTEMPTS\) return 0;' -and
+    $Dip -match '(?s)if \(target >= 0\).*?\+\+s_attempts;.*?s_retry_due = now \+ DIP_SERVICE_RETRY_MS;.*?app_send_message\(APP_MSG_GOTO_MODE, target\)' -and
+    $AppMain -match '(?s)if \(err != 0\).*?#if TCFG_DIP_SWITCH_POWER_ENABLE.*?next_mode->name == APP_MODE_PC \|\| app_in_mode\(APP_MODE_PC\).*?next_mode->name == APP_MODE_BT && app_in_mode\(APP_MODE_IDLE\).*?rdx_dip_switch_wake\(\);.*?return NULL;.*?#endif.*?sys_timeout_add'
 ) 'Rejected or failed PC entry must be reconsidered with bounded requests; native timers must not replay stale PC targets'
 
 Assert-Contract 'PC_GENERIC_FALLBACK_IS_PRESERVED' (
@@ -469,8 +490,8 @@ Assert-Contract 'ON_USB_PRESERVES_RECORDING_AND_STORAGE' (
 $Poweroff = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\bt\poweroff.c'
 $autoShutdown = Get-SourceSlice $Poweroff 'void sys_auto_shut_down_enable(void)' 'static void sys_auto_shut_down_deal(void *priv)'
 Assert-Contract 'CHARGING_WITHOUT_USB_SLAVE' (
-    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_KEEP:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
-    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_IN:\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_KEEP:\s+rdx_dip_switch_wake\(\);\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_IN:\s+rdx_dip_switch_wake\(\);\s+#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?set_charge_poweron_en\(1\);\s+#endif\s+#if \(\(TCFG_OTG_MODE' -and
     $RdxCharge -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
     $RdxLedCtrl -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE' -and
     $autoShutdown -notmatch 'TCFG_T2620_PC_STORAGE_ENABLE'
@@ -514,9 +535,26 @@ Assert-Contract 'NATIVE_OFF_NOT_STORAGE_FENCED' (
     $Dip -match '(?s)rdx_dip_switch_shutdown_begin\(\);.*?app_send_message\(APP_MSG_REQUEST_POWEROFF' -and
     $Poweroff -match 'app_send_message\(APP_MSG_RECORD_OFF, 0\)' -and
     $Dip -match 'usr_timer_add\(NULL, rdx_dip_switch_guard, 100, 0\)' -and
-    $Dip -match 's_shutdown_ticks >= 30' -and
+    $Dip -match '\(u32\)\(now - s_shutdown_since\) >= 3000' -and
     $Dip -match 'rdx_dip_switch_cold_service\(\) && !app_var.goto_poweroff_flag'
 ) 'OFF must retain native cleanup and an independent deadline, without storage/record/BLE save vetoes'
+
+$dipGuard = Get-SourceSlice $Dip 'static void rdx_dip_switch_guard(' 'void rdx_dip_switch_shutdown_begin('
+$dipP33 = Get-SourceSlice $Dip 'void rdx_dip_switch_p33_irq(' 'void rdx_dip_switch_init('
+Assert-Contract 'DIP_EVENT_SCHEDULING_AND_RECOVERY' (
+    $Dip -notmatch 'sys_timer_add\(' -and
+    $Dip -match 'usr_timer_add\(NULL, rdx_dip_switch_recovery_tick, 100, 0\)' -and
+    $Dip -match 's_work_failed = !s_work_timer' -and
+    $Dip -match '\(u32\)priv != s_work_serial' -and
+    $dipGuard -match '\(u32\)\(now - s_sample_since\) >= 100' -and
+    ($dipGuard + $dipP33) -notmatch 'os_taskq_|app_send_message|rdx_storage_lifecycle_service|usb_factory_service' -and
+    $UsbTask -match '(?s)case USBSTACK_OTG_MSG:\s+rdx_dip_switch_wake\(\)' -and
+    $Charge -match '(?s)case CHARGE_EVENT_LDO5V_OFF:\s+rdx_dip_switch_wake\(\)' -and
+    $PcDevice -match 'FACTORY_CDC_MAX_ATTEMPTS 3' -and
+    $PcDevice -match 'factory_cdc_retry_at = sys_timer_get_ms\(\) \+ 300' -and
+    $PcDevice -match '(?s)factory_usb_state = FACTORY_USB_CDC;\s+rdx_dip_switch_wake\(\)' -and
+    $PcDevice -match '(?s)factory_usb_state = FACTORY_USB_NONE;\s+rdx_dip_switch_wake\(\)'
+) 'DIP must have no idle system poll; preserve isolated protection, event producers, failed-post recovery and bounded USB retries'
 Assert-Contract 'WORKER_OWNS_INDEX_BEFORE_CACHE' (
     $RdxApp -notmatch 'if \(!rdx_record_format_boot\(\)\)' -and
     $RecoveryPatch -match 'call i32 @rdx_record_format_boot' -and

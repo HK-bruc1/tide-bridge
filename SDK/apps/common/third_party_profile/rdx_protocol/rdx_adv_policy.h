@@ -10,6 +10,9 @@ void rdx_adv_policy_disable(void);
 int rdx_adv_policy_business_enter(void);
 void rdx_adv_policy_business_exit(void);
 u8 rdx_adv_policy_idle_valid(void); /* 可在中断上下文安全调用，不查询 SDK 状态。 */
+/* 连接态 PA4 资格使用：只读计数，中断上下文安全 */
+u32 rdx_adv_policy_business_version(void);
+u32 rdx_adv_policy_business_pending(void);
 
 /* 产品适配接口，仅由策略消费端调用。 */
 u32 rdx_adv_policy_hold_snapshot(void);

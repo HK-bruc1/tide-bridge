@@ -5,9 +5,9 @@
 #include "generic/jiffies.h"
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
-/* usb_stack owns RX and release; file stream IN also runs in IRQ. Exclusion protects
- * short queue operations against reset/control IRQs and task preemption.
- * No mutex, sleeping operation, or application callback inside exclusion. */
+/* usb_stack 负责接收和资源释放，文件流 IN 也会在中断中运行。临界区保护短队列操作，
+ * 避免与复位/控制中断及任务抢占发生竞争；区内禁止互斥锁、休眠和业务回调。
+ * 状态回调仅发送通知，必须兼容中断调用上下文。 */
 struct factory_tx_item {
     u16 length;
     u16 offset;
@@ -30,6 +30,7 @@ static struct {
     u8 rx[FACTORY_CDC_PACKET];
     struct factory_tx_item tx[FACTORY_CDC_TX_DEPTH];
     factory_cdc_rx_cb receive;
+    void (*state_handler)(void);
 #if TCFG_T2620_CDC_FILE_ENABLE
     void (*tx_handler)(void);
     u8 refill_armed, tx_stream;
@@ -291,14 +292,18 @@ void factory_cdc_invalidate(enum factory_cdc_reason reason)
     if (reason == FACTORY_CDC_CLOSE || reason == FACTORY_CDC_TIMEOUT) {
         transport.restart = 1;
     }
+    void (*notify)(void) = transport.state_handler;
     local_irq_enable();
+    if (notify) notify();
 }
 
 void factory_cdc_open(void)
 {
+    void (*notify)(void) = NULL;
     local_irq_disable();
     if (transport.active && !transport.ready && !transport.restart) {
         transport.ready = 1;
+        notify = transport.state_handler;
         cdc_log_capture(CDC_LOG_OPEN, transport.generation, NULL, 0, 0);
 #if TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
         if (transport.receive == factory_cdc_test_receive) {
@@ -306,6 +311,14 @@ void factory_cdc_open(void)
         }
 #endif
     }
+    local_irq_enable();
+    if (notify) notify();
+}
+
+void factory_cdc_set_state_handler(void (*handler)(void))
+{
+    local_irq_disable();
+    transport.state_handler = handler;
     local_irq_enable();
 }
 
@@ -426,7 +439,9 @@ void factory_cdc_quiesce(void)
     local_irq_disable();
     transport.active = 0;
     transport.ready = 0;
+    void (*notify)(void) = transport.state_handler;
     local_irq_enable();
+    if (notify) notify();
 }
 
 void factory_cdc_stop(void)

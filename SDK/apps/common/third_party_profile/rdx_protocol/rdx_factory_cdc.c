@@ -7,6 +7,7 @@
 #include "rdx_dut.h"
 #include "rdx_factory_audio.h"
 #include "rdx_cdc_file.h"
+#include "rdx_cdc_source.h"
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
 extern char *rdx_ble_server_get_local_name(void);
@@ -28,15 +29,16 @@ struct factory_packet {
 static struct factory_packet factory_mailbox[FACTORY_RX_DEPTH];
 static u8 factory_head, factory_count;
 static struct {
-    u32 generation, response_since;
-    u16 timer, length, response_length;
+    volatile u32 generation;
+    u32 response_since;
+    volatile u16 timer;
+    u16 length, response_length;
     u8 cr, error;
     char line[FACTORY_LINE_MAX + 1];
     char response[FACTORY_CDC_TX_MAX];
 } factory_protocol;
 
-#if TCFG_T2620_CDC_FILE_ENABLE
-static u8 factory_event_posted;
+static volatile u8 factory_event_posted, factory_pending, factory_initialized;
 static void factory_service(void *priv);
 static void factory_event(void *priv)
 {
@@ -50,23 +52,25 @@ static void factory_wake(void)
 {
     int message[] = { (int)factory_event, 1, 0 };
     local_irq_disable();
-    if (!factory_event_posted) {
+    factory_pending = 1;
+    if (factory_initialized && !factory_event_posted) {
         factory_event_posted = 1;
         if (os_taskq_post_type("app_core", Q_CALLBACK, 3, message)) factory_event_posted = 0;
     }
     local_irq_enable();
 }
 
+#if TCFG_T2620_CDC_FILE_ENABLE
 static void factory_tx_wake(void)
 {
     if (rdx_cdc_file_active()) factory_wake();
 }
+#endif
 
 void rdx_factory_cdc_wake(void)
 {
     factory_wake();
 }
-#endif
 
 static int factory_receive(u32 generation, const u8 *bytes, u32 length)
 {
@@ -91,9 +95,7 @@ static int factory_receive(u32 generation, const u8 *bytes, u32 length)
     memcpy(packet->bytes, bytes, length);
     ++factory_count;
     local_irq_enable();
-#if TCFG_T2620_CDC_FILE_ENABLE
     factory_wake();
-#endif
     return 0;
 }
 
@@ -255,19 +257,37 @@ static void factory_byte(u8 byte)
 
 static void factory_service(void *priv)
 {
+    if (!factory_initialized) return;
+    local_irq_disable();
+    factory_pending = 0;
+    local_irq_enable();
     /* At most 256 bytes and four responses per tick, including error frames. */
     unsigned int bytes = 0, responses = 0;
     u32 generation = factory_cdc_generation();
+    if (generation) {
+        if (!factory_protocol.timer) {
+            factory_protocol.timer = sys_timer_add(NULL, factory_service, 10);
+        }
+    } else if (factory_protocol.timer) {
+        sys_timer_del(factory_protocol.timer);
+        factory_protocol.timer = 0;
+    }
     if (generation != factory_protocol.generation) {
         factory_protocol.generation = generation;
         factory_protocol.length = factory_protocol.response_length = 0;
         factory_protocol.cr = factory_protocol.error = 0;
+        rdx_dut_service_wake();
     }
     rdx_factory_audio_service(generation);
 #if TCFG_T2620_CDC_FILE_ENABLE
     rdx_cdc_file_session(generation);
 #endif
-    if (!generation) return;
+    if (!generation) {
+        local_irq_disable();
+        if (!factory_cdc_generation()) factory_head = factory_count = 0;
+        local_irq_enable();
+        return;
+    }
     while (bytes < 256 && responses < 4) {
         if (factory_cdc_generation() != generation) return;
         if (factory_protocol.response_length) {
@@ -314,13 +334,30 @@ static void factory_service(void *priv)
 
 void rdx_factory_cdc_init(void)
 {
-    if (!factory_protocol.timer) {
-        factory_protocol.timer = sys_timer_add(NULL, factory_service, 10);
-    }
-    /* Timer allocation failure leaves RX backpressured with no consumer. */
-    if (factory_protocol.timer) factory_cdc_set_rx_handler(factory_receive);
+    factory_initialized = 1;
+    factory_cdc_set_rx_handler(factory_receive);
+    factory_cdc_set_state_handler(factory_wake);
 #if TCFG_T2620_CDC_FILE_ENABLE
-    if (factory_protocol.timer) factory_cdc_set_tx_handler(factory_tx_wake);
+    factory_cdc_set_tx_handler(factory_tx_wake);
 #endif
+    factory_wake();
+}
+
+int rdx_factory_cdc_needs_poll(void)
+{
+    if (!factory_initialized || factory_event_posted) return 0;
+    u32 generation = factory_cdc_generation();
+    int cleanup = rdx_factory_audio_needs_service();
+#if TCFG_T2620_CDC_FILE_ENABLE
+    cleanup |= rdx_cdc_source_busy() && rdx_cdc_source_closed() != 2;
+#endif
+    /* 只读状态，供优先级 0 恢复入口判断；不得在此执行协议或文件操作。 */
+    return factory_pending || generation != factory_protocol.generation ||
+           !!generation != !!factory_protocol.timer || (!generation && cleanup);
+}
+
+void rdx_factory_cdc_poll(void)
+{
+    if (rdx_factory_cdc_needs_poll()) factory_service(NULL);
 }
 #endif

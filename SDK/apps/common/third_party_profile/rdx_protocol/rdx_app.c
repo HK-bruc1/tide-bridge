@@ -88,6 +88,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
+#include "rdx_ble_entry.h"
 #include "rdx_dut.h"
 #include "rdx_factory_cdc.h"
 #include "rdx_factory_audio.h"
@@ -129,8 +130,6 @@
 
 #define RDX_RECORD_CHANNAL_SINGLE                           (0)
 #define RDX_RECORD_CHANNAL_DUAL                             (1)
-
-#define EMMC_LDO_POWER_OFF_CHECK_TIMEOUT                    (10 * 1000)
 
 #define RDX_HOLD_RECORD_RETRY_MS                             (50)
 
@@ -221,9 +220,6 @@ static u8 qr_code[256];
 static int orig_sys_clk;
 static u16 rdx_clock_lock_timer;
 static bool rdx_clock_lock_flag = FALSE;
-
-static u16 emmc_poweroff_check_timer = 0;
-static bool emmc_poweroff_flag = FALSE;
 
 static RdxProtocolCallbacks protocol_cbs = {
     .app_select = RDX_AI_SEL_APP,
@@ -336,8 +332,6 @@ void rdx_app_record_state_upload_timer_stop(void);
 
 int rdx_app_format_handle(void);
 
-static void rdx_app_emmc_poweroff_check_timer_rerun(void);
-static void rdx_app_emmc_poweroff_check_timer_start(void);
 void rdx_app_emmc_poweroff_check(void);
 
 void rdx_app_emmc_poweron(u8 check_en);
@@ -1924,7 +1918,6 @@ void rdx_app_normal_poweroff_cb(void* priv)
 #if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
 #endif
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 
     sys_enter_soft_poweroff(POWEROFF_NORMAL);
 }
@@ -2838,6 +2831,7 @@ int rdx_app_msg_handler(int *msg)
     case APP_MSG_REC_FR:
     case APP_MSG_REC_FF:
     case APP_MSG_REC_PLAY_TOGGLE:
+        rdx_ble_entry_activity();
         rdx_adv_policy_activity();
         if (rdx_peripheral_power_vdd_ensure_on(
                 RDX_SHARED_VDD_WAKE_BUSINESS)) {
@@ -3600,243 +3594,29 @@ void rdx_app_clk_lock_with_timer(const char *task_name, int clk)
     log_info("====== %s, ret = %d \r", __func__, ret);
 }
 
-/**************************************************************************
- * function: rdx_app_do_emmc_reset
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
-void rdx_app_do_emmc_reset(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_LOW);
-    os_time_dly(50);
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
-}
-
-/**************************************************************************
- * function: rdx_app_emmc_poweron
- * description: 
- * param (*)
- * return (*)
- **************************************************************************/
+/* 保留 librdxApp 使用的 EMMC 兼容入口，PA4 只由 SD/RGB 共享电源管理器控制。
+ * PA0 是 MIC 供电使能，由 JL ADC 驱动管理，业务层不得直接操作。 */
 void rdx_app_emmc_poweron(u8 check_en)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("=====> %s --> emmc_poweroff_flag = %d \n", __func__, emmc_poweroff_flag);
-    if(emmc_poweroff_flag == TRUE){
-        //power on vdd.
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
-
-        //sd power on.
-        sd_set_power(1);
-
-        // //sd io resume.
-        // sd_io_resume(0, 0);
-
-        // //add detect timer.
-        // sdx_dev_detect_timer_add();
-
-        //oled init.
-#if (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_OLED) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_BOTH_OLED_EMMC)
-        OLED_Init();
-#endif
-
-        if (check_en) {
-            rdx_app_emmc_poweroff_check_timer_start();
-        }
-        emmc_poweroff_flag = false;
+    (void)check_en;
+    if (rdx_peripheral_power_vdd_ensure_on(RDX_SHARED_VDD_WAKE_BUSINESS)) {
+        r_printf("[PWR] legacy storage wake failed\n");
     }
 }
 
 void rdx_app_emmc_poweroff(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("=====> %s --> emmc_poweroff_flag = %d \r", __func__, emmc_poweroff_flag);
-
-    if(emmc_poweroff_flag == false){
-        rdx_app_emmc_poweroff_check_timer_stop();
-
-        // sdx_dev_detect_timer_del();
-        // sd_io_suspend("sd0", 0);
-        sd_set_power(0);
-
-        // PB5 已改为充满检测使用，不再设置为高阻态
-
-        gpio_set_mode(IO_PORT_SPILT(IO_PORTC_04), PORT_HIGHZ);
-        gpio_set_mode(IO_PORT_SPILT(IO_PORTC_05), PORT_HIGHZ);
-
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_LOW);
-        gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
-
-        emmc_poweroff_flag = true;
-    }
+    rdx_peripheral_power_vdd_business_changed_notify();
 }
 
 void rdx_app_emmc_poweroff_check_timer_stop(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    // y_printf("=====> %s \r", __func__);
-    if (emmc_poweroff_check_timer) {
-        sys_timeout_del(emmc_poweroff_check_timer);
-        emmc_poweroff_check_timer = 0;
-    }
-}
-
-static void rdx_app_emmc_poweroff_check_timer_cb(void* priv)
-{ 
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("=====> %s --> rp->run = %d \r", __func__, rp->run);
-    //check emmc state?
-    if(rp->orig_mode == RECORD_MODE_OFFLINE && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME)){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> emmc is busy, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_uxfile_is_sync_in_progress(void);
-    if(rdx_uxfile_is_sync_in_progress()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> DAT sync in progress, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_uxfile_is_datFileInfo_loading(void);
-    if(rdx_uxfile_is_datFileInfo_loading()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> datFileInfo loading, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_is_file_transfer_active(void);
-    if(rdx_is_file_transfer_active()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> file transfer active, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_is_file_sync_busy(void);
-    if(rdx_is_file_sync_busy()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> file sync busy, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_uxfile_is_scan_active(void);
-    if(rdx_uxfile_is_scan_active()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> async scan active, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    extern u8 rdx_uxfile_is_formatting(void);
-    if(rdx_uxfile_is_formatting()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> SD formatting, do not power off \r");
-        EXCEPTION_THROW();
-    }
-
-    //check motor state?
-#if (RDX_SUPPORT_MOTOR == 1)
-    if(true == motor_get_run_status()){
-        y_printf("rdx_app_emmc_poweroff_check_timer_cb --> motor is working, do not power off \r");
-        EXCEPTION_THROW();
-    }
-#endif
-    //do power off.
-    y_printf("rdx_app_emmc_poweroff_check_timer_cb --> emmc power off \r");
-    rdx_app_emmc_poweroff();
-
-    return;
-    
-EXCEPTION_POINTER()
-    rdx_app_emmc_poweroff_check_timer_stop();
-    rdx_app_emmc_poweroff_check_timer_start();
-
-}
-
-static void rdx_app_emmc_poweroff_check_timer_rerun(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    y_printf("=====> %s \r", __func__);
-    if (emmc_poweroff_check_timer) {
-        sys_timer_re_run(emmc_poweroff_check_timer);
-    }
-}
-
-static void rdx_app_emmc_poweroff_check_timer_start(void)
-{
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    RecordStatus* rp = rdx_record_get_status();
-    u16 con_hdl = rdx_ble_server_get_conn_handle();
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    // y_printf("=====> %s \r", __func__);
-    if(true == app_in_mode(APP_MODE_PC)){
-        r_printf("=====> %s --> APP_MODE_PC, do not start poweroff timer\r", __func__);
-        return;
-    }
-    //when ble connected, recording, wifi run, do not start timer.  
-    if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
-        return;
-    }
-    // if(0xffff != con_hdl && 0 != con_hdl){
-    //     return; //ble connected, do not start timer.
-    // }
-#if RDX_WIFI_ENABLE
-    if(wifiInfo.onoff == TRANSFER_BY_WIFI_ON){
-        return;
-    }
-#endif
-    if(emmc_poweroff_check_timer == 0){
-        emmc_poweroff_check_timer = sys_timeout_add(NULL, rdx_app_emmc_poweroff_check_timer_cb, EMMC_LDO_POWER_OFF_CHECK_TIMEOUT);
-    }
+    /* 仅保留库 ABI 兼容入口，独立 EMMC 断电定时器已废弃。 */
 }
 
 void rdx_app_emmc_poweroff_check(void)
 {
-    /*----------------------------------------------------------------*/
-    /* Local Variables                                                */
-    /*----------------------------------------------------------------*/
-    
-    /*----------------------------------------------------------------*/
-    /* Code Body                                                      */
-    /*----------------------------------------------------------------*/
-    return;
-    y_printf("=====> %s \r", __func__);
-    rdx_app_emmc_poweroff_check_timer_start();
+    rdx_peripheral_power_vdd_business_changed_notify();
 }
 
 /**************************************************************************
@@ -4720,7 +4500,7 @@ int rdx_led_hardware_deinit(void)
         return 0;
     }
 
-    /* Stop the 20 ms effect timer before closing SPI and freeing buffers. */
+    /* 先撤销灯效期限并使旧回调失效，再关闭 SPI 和释放缓冲区。 */
     rdx_led_ctrl_deinit();
     ret = led_pt0807_deinit(&led_pt0807_config);
     gpio_set_mode(IO_PORT_SPILT(LED_PT0807_DATA_PORT_IO), PORT_OUTPUT_LOW);
@@ -4769,7 +4549,6 @@ void rdx_app_all_init(void)
     g_printf("-----------------------------------------------------------\r");
     rdx_app_init_flag = false;
     poweron_ready_flag = false;
-    emmc_poweroff_check_timer = 0;
     rdx_app_hold_record_reset();
 
     // 在按键事件处理之前初始化 record_status.
@@ -4818,9 +4597,6 @@ void rdx_app_all_init(void)
 #if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
 #endif
-
-    //power on vdd.
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_OUTPUT_HIGH);
 
     //rtc init.
     rdx_rtc_init();
@@ -4911,7 +4687,6 @@ void sdmmc_set_power(u8 enable)
     } else {
         // Disable power to the SD card
         printf("SD card power off\n");
-        // gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
     }
 }
 
@@ -4974,7 +4749,6 @@ static void rdx_app_idle_handle(void* priv)
 #if RDX_WIFI_ENABLE
     gpio_set_mode(IO_PORT_SPILT(WIFI_POWER_PORT_IO), PORT_HIGHZ);
 #endif
-    gpio_set_mode(IO_PORT_SPILT(VDD_POWER_PORT_IO), PORT_HIGHZ);
 }
 
 /**************************************************************************

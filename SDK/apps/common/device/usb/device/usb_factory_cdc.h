@@ -18,6 +18,9 @@ enum factory_cdc_result {
 typedef int (*factory_cdc_rx_cb)(u32 generation, const u8 *bytes, u32 length);
 /* Register before start; stop/restart preserves this consumer. */
 void factory_cdc_set_rx_handler(factory_cdc_rx_cb handler);
+/* 仅发送中断安全的通知，可能在调用方的关中断临界区内执行；
+ * 将任务投递给 app_core，不在此处执行协议、定时器或文件操作。 */
+void factory_cdc_set_state_handler(void (*handler)(void));
 /* Copies all bytes or rejects all. Success means queued, NOT host received.
  * May be called by tasks; generation must come from this session's callback
  * or snapshot. Capacity is bounded; never retries an expired generation. */

@@ -12,6 +12,7 @@ from host_c_test_lib import ROOT, function, run_c_checks
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 STUBS = r'''
 static void dut_finalpack_tone_poll(void) {}
+static unsigned int dut_finalpack_delay(unsigned int now) { return 0; }
 void rdx_dut_finalpack_tone_stop(void) {}
 int rdx_factory_audio_ready(unsigned g) { return g != 0; }
 int rdx_factory_audio_begin(unsigned g, unsigned id) { return 0; }
@@ -50,7 +51,11 @@ typedef int s32;
 #define jiffies_to_msecs(x) (x)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while(0)
 u32 jiffies;
-struct { int dut_mode, current_func, motor_timer, motor_run; } rdx_dut_info;
+struct { int dut_mode, current_func, motor_timer, motor_run, key_dut_disabled; } rdx_dut_info;
+static u8 factory_usb_revoked;
+#define VM_RDX_KEY_DUT_DISABLED 1
+#define KEY_DUT_DISABLED_FLAG 0xaa
+int syscfg_read(int id, void *out, int size) { return 0; }
 struct { int goto_poweroff_flag; } app_var;
 typedef struct { int run, process_state, scene, formate; } RecordStatus;
 RecordStatus record;
@@ -103,6 +108,19 @@ u32 epoch;
 int connected, powered, blocked, deferred, audio_state, open_fail, opens, cancels;
 bool rdx_app_get_poweroff_flag(void) { return !powered; }
 int sends, send_fail_at, post_fail, events, capture_during_send;
+int service_posts, timeout_fail, timeout_adds, timeout_active;
+int wake_during_state;
+void rdx_dut_service_wake(void);
+u32 timeout_ms;
+void (*timeout_cb)(void *);
+void *timeout_priv;
+u16 sys_timeout_add(void *priv, void (*cb)(void *), u32 ms) {
+    ++timeout_adds;
+    if (timeout_fail) return 0;
+    timeout_cb=cb; timeout_priv=priv; timeout_ms=ms; timeout_active=1;
+    return (u16)timeout_adds;
+}
+void sys_timeout_del(u16 id) { timeout_active=0; }
 u32 event_gen[32], event_key[32];
 char wire[8192];
 int wire_size;
@@ -152,7 +170,7 @@ int rdx_ble_server_send_for_token(u8 *p, u32 n, const rdx_ble_async_token_t *t) 
 }
 int os_taskq_post_type(const char *task, int type, int count, int *msg) {
     if (post_fail) return -1;
-    if (count==3) return 0; /* The test explicitly steps app_core service. */
+    if (count==3) { ++service_posts; return 0; }
     event_gen[events]=msg[2]; event_key[events]=msg[3]; ++events; return 0;
 }
 int sys_timer_modify(int id, int ms) { return 0; }
@@ -163,7 +181,10 @@ int rdx_dut_speaker_open(void) {
 int pink_opens;
 int rdx_dut_speaker_open_pink(void) { ++pink_opens; return rdx_dut_speaker_open(); }
 void rdx_dut_speaker_cancel(void) { ++cancels; }
-int rdx_dut_speaker_state(void) { return audio_state; }
+int rdx_dut_speaker_state(void) {
+    if (wake_during_state) { wake_during_state=0; rdx_dut_service_wake(); }
+    return audio_state;
+}
 void rdx_dut_speaker_reap(void) { audio_state=DUT_AUDIO_IDLE; }
 int rdx_record_dut_stop_request(u32 ticket) {
     rdx_record_dut_authorization_revoke(); ++record_requests; return record_post_fail;
@@ -202,7 +223,12 @@ static void boot(void) {
     motor_power=timer_deleted=wifi_power=show_count=0;
     dut_waiting=dut_stopping=dut_record_wait=dut_record_posted=0;
     dut_record_failed=poweroffs=legacy_dispatches=0;
-    dut_service_timer=1; dut_key_generation=1;
+    dut_initialized=1; dut_service_timer=0; dut_key_generation=1;
+    dut_service_posted=dut_service_pending=dut_servicing=dut_timer_failed=0;
+    dut_timer_serial=dut_timer_due=0;
+    service_posts=timeout_fail=timeout_adds=timeout_active=0;
+    wake_during_state=0;
+    timeout_ms=0; timeout_cb=NULL; timeout_priv=NULL;
     memset(dut_key_cutoff,0,sizeof(dut_key_cutoff));
     memset(dut_key_quarantined,0,sizeof(dut_key_quarantined));
     audio_state=DUT_AUDIO_IDLE; open_fail=opens=cancels=pink_opens=0;
@@ -219,6 +245,146 @@ static void key_start(void) { dut_parse_test(FT_KEY_LAYOUT,"1"); dut_service(NUL
 static void speaker_start(void) { dut_parse_test(FT_SPEAKER,"1"); dut_service(NULL); }
 static void playing(void) { audio_state=DUT_AUDIO_PLAYING; dut_service(NULL); }
 static void finished(void) { audio_state=DUT_AUDIO_DONE; dut_service(NULL); }
+static void dispatch_dut(void) {
+    for (int i=0;i<8 && dut_service_posted;++i) dut_service_event(NULL);
+}
+static void expire_dut(void) {
+    void (*cb)(void *)=timeout_cb;
+    void *priv=timeout_priv;
+    jiffies=dut_timer_due; timeout_active=0;
+    cb(priv);
+    dispatch_dut();
+}
+int test_service_idle_in_all_connection_states(void) {
+    for (int ble=0;ble<2;++ble) for (int usb=0;usb<2;++usb) for (int mode=0;mode<2;++mode) {
+        boot(); connected=ble; usb_generation=usb; rdx_dut_info.dut_mode=mode;
+        for (int i=0;i<100;++i) { jiffies+=100; rdx_dut_service_poll(); }
+        CHECK(!timeout_adds && !service_posts && !dut_service_timer);
+    CHECK(!rdx_dut_service_needs_poll());
+        rdx_dut_service_wake(); rdx_dut_service_wake();
+        CHECK(service_posts==1);
+        dispatch_dut();
+        CHECK(!dut_service_pending && !dut_service_timer && !timeout_adds);
+    }
+    return 0;
+}
+int test_service_initialization_and_local_entry(void) {
+    boot(); connected=0; usb_generation=0; rdx_dut_info.dut_mode=0;
+    dut_initialized=0;
+    rdx_dut_msg_handle(); CHECK(!rdx_dut_info.dut_mode);
+    rdx_dut_init();
+    CHECK(dut_initialized && !dut_service_timer && !timeout_adds);
+    rdx_dut_msg_handle(); CHECK(rdx_dut_info.dut_mode && !dut_service_timer);
+    rdx_dut_msg_handle(); CHECK(!rdx_dut_info.dut_mode && !dut_service_timer);
+    return 0;
+}
+int test_cdc_service_entries_and_active_idle_stop(void) {
+    char out[256]; boot(); rdx_dut_info.dut_mode=0;
+    CHECK(!dut_enqueue(DUT_CMD_DUT_MODE,1)); dispatch_dut();
+    CHECK(rdx_dut_info.dut_mode && !dut_service_timer);
+    rdx_dut_cdc_request(1,"FT_KEY_LAYOUT",1,out,sizeof(out)); dispatch_dut();
+    CHECK(dut_key_gate && !dut_service_timer);
+    rdx_dut_cdc_request(1,"FT_KEY",0,out,sizeof(out)); dispatch_dut();
+    rdx_dut_cdc_request(1,"FT_SPEAKER",1,out,sizeof(out)); dispatch_dut();
+    CHECK(dut_service_timer && timeout_ms==2001);
+    audio_state=DUT_AUDIO_PLAYING; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(dut_last_state==2 && !dut_service_timer && rdx_dut_info.current_func==DUT_FUNC_SPEAKER);
+    audio_state=DUT_AUDIO_DONE; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(!dut_service_timer && rdx_dut_info.current_func==DUT_FUNC_NONE);
+    connected=0; usb_generation=0; rdx_dut_info.dut_mode=0;
+    struct dut_request request={0}; request.source=2; request.command=DUT_CMD_DUT_MODE; request.value=1;
+    CHECK(!dut_accept(&request) && rdx_dut_info.dut_mode && !dut_service_timer);
+    return 0;
+}
+int test_service_queue_and_timer_failure_recovery(void) {
+    boot(); post_fail=1;
+    CHECK(!dut_enqueue(DUT_CMD_KEY_LAYOUT,1));
+    CHECK(dut_count==1 && dut_service_pending && !dut_service_posted);
+    CHECK(rdx_dut_service_needs_poll());
+    rdx_dut_service_poll();
+    CHECK(dut_key_gate && !dut_count && !dut_service_timer);
+    rdx_dut_key_scan(KEY_IO_NUM0,NO_KEY);
+    CHECK(dut_emergency_cancel); rdx_dut_service_poll();
+    CHECK(!dut_key_gate && !dut_emergency_cancel);
+    boot(); timeout_fail=1; speaker_start();
+    CHECK(!dut_service_timer && dut_timer_failed);
+    u32 due=dut_timer_due; int adds=timeout_adds;
+    jiffies=due-1; rdx_dut_service_poll(); CHECK(timeout_adds==adds && !cancels);
+    jiffies=due; rdx_dut_service_poll(); dispatch_dut();
+    CHECK(cancels && dut_stopping && dut_last_state==3);
+    audio_state=DUT_AUDIO_DONE; post_fail=1; rdx_dut_service_wake();
+    rdx_dut_service_poll(); CHECK(!dut_stopping && !dut_timer_failed);
+    return 0;
+}
+int test_service_absolute_deadline_and_stale_timeout(void) {
+    boot(); jiffies=0xffffff00u; speaker_start();
+    u32 due=dut_timer_due; void *old=timeout_priv;
+    for (int i=0;i<5;++i) { jiffies+=100; rdx_dut_service_wake(); dispatch_dut(); CHECK(dut_timer_due==due); }
+    audio_state=DUT_AUDIO_PLAYING; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(!dut_service_timer);
+    dut_service_timeout(old); CHECK(!dut_service_timer && !cancels);
+    dut_enqueue(DUT_CMD_SPEAKER,0); dispatch_dut();
+    CHECK(dut_service_timer); u16 id=dut_service_timer;
+    dut_service_timeout(old); CHECK(dut_service_timer==id);
+    audio_state=DUT_AUDIO_DONE; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(!dut_service_timer && !dut_stopping);
+    boot(); jiffies=0xffffff00u; speaker_start(); expire_dut();
+    CHECK(dut_stopping && dut_last_state==3);
+    return 0;
+}
+int test_service_notifications_during_dispatch(void) {
+    boot(); wake_during_state=1; rdx_dut_service_wake();
+    dispatch_dut();
+    CHECK(service_posts==2 && !dut_service_pending && !dut_service_posted && !dut_service_timer);
+    return 0;
+}
+int test_service_format_deadline_and_completion(void) {
+    boot(); CHECK(!dut_enqueue(DUT_CMD_FORMAT,1)); dispatch_dut();
+    CHECK(timeout_ms==60000 && dut_last_state==1);
+    dut_format_id=dut_last.id;
+    u32 due=dut_timer_due;
+    jiffies+=1000; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(dut_timer_due==due);
+    post_fail=1; rdx_dut_format_cb(MEM_FORMAT_RESULT_OK);
+    rdx_dut_service_poll();
+    CHECK(dut_last_state==2 && !dut_service_timer && !rdx_dut_info.current_func);
+    boot(); CHECK(!dut_enqueue(DUT_CMD_FORMAT,1)); dispatch_dut();
+    dut_format_id=dut_last.id; expire_dut();
+    CHECK(dut_last_state==3 && !dut_service_timer && rdx_dut_info.current_func==DUT_FUNC_FORMAT);
+    rdx_dut_format_cb(MEM_FORMAT_RESULT_OK); dispatch_dut();
+    CHECK(dut_last_state==3 && !dut_service_timer);
+    return 0;
+}
+int test_service_record_wait_and_bounded_retry(void) {
+    boot(); rdx_dut_info.current_func=DUT_FUNC_REC;
+    dut_record_stop(); dispatch_dut();
+    CHECK(dut_record_wait && dut_record_posted && !dut_service_timer);
+    record_result=0; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(!dut_record_wait && !dut_service_timer);
+    boot(); rdx_dut_info.current_func=DUT_FUNC_REC; record_post_fail=1;
+    dut_record_stop(); dispatch_dut();
+    CHECK(dut_service_timer && timeout_ms==100);
+    record_post_fail=0; expire_dut();
+    CHECK(dut_record_posted && !dut_service_timer);
+    record_result=-1; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(dut_record_failed && !dut_record_wait && !dut_service_timer);
+    boot(); dut_last.id=1; dut_last.command=DUT_CMD_REC; dut_last_state=1;
+    dut_action_since=jiffies; rdx_dut_info.current_func=DUT_FUNC_REC;
+    dut_record_stop(); dispatch_dut(); expire_dut();
+    CHECK(dut_last_state==3 && dut_record_wait && !dut_service_timer);
+    record_result=0; rdx_dut_service_wake(); dispatch_dut();
+    CHECK(dut_last_state==3 && !dut_record_wait && !dut_service_timer);
+    boot(); record_post_fail=1; dut_record_stop(); dispatch_dut();
+    jiffies=dut_record_retry_since+60000; dut_service_timeout(timeout_priv);
+    CHECK(dut_record_failed && dut_record_wait && !dut_service_timer);
+    int requests=record_requests;
+    for (int i=0;i<100;++i) { jiffies+=100; rdx_dut_service_poll(); }
+    CHECK(record_requests==requests);
+    jiffies=dut_record_retry_since+1;
+    rdx_dut_service_wake(); dispatch_dut();
+    CHECK(record_requests==requests && !dut_service_timer);
+    return 0;
+}
 int test_local_burnin_toggle_and_keys(void) {
     boot(); connected=0;
     rdx_dut_burnin_toggle();
@@ -749,6 +915,8 @@ int test_cdc_failures_and_ids(void) {
 '''
 
 AUDIO_STUBS = r'''
+int speaker_wakes;
+void rdx_dut_service_wake(void) { ++speaker_wakes; }
 typedef unsigned int u32;
 void rdx_hogp_key_action_reset(void) {}
 typedef unsigned char u8;
@@ -831,6 +999,7 @@ int audio_dac_channel_write(void *c,void *p,int n) {
     return take;
 }
 static void audio_boot(void) {
+    speaker_wakes=0;
     speaker_state=DUT_AUDIO_IDLE; speaker_cancel=0; speaker_pink=0; dac_hdl.channel=1;
     captured_count=stall_write=0;
     volume=3; maximum=15; scene=0; rate=44100; working=width=0;
@@ -850,6 +1019,7 @@ int test_sine_volume_and_cleanup(void) {
         CHECK(rdx_dut_speaker_open()!=0); /* No duplicate worker/save. */
         in_worker=1; worker(NULL); in_worker=0;
         CHECK(speaker_state==DUT_AUDIO_DONE && first_playing && !bad_pcm && peak);
+        CHECK(speaker_wakes==2);
         CHECK(maximum_seen==1 && rate==48000);
         CHECK(close_count==0 && working); /* Retain until app_core reaps. */
         rdx_dut_speaker_reap(); rdx_dut_speaker_reap();
@@ -880,6 +1050,7 @@ int test_sine_failure_rollback(void) {
         if(fault==6) rdx_dut_speaker_cancel();
         in_worker=1; worker(NULL); in_worker=0;
         CHECK(speaker_state==DUT_AUDIO_DONE && !first_playing);
+        CHECK(speaker_wakes==1);
         CHECK(!close_count);
         rdx_dut_speaker_reap(); CHECK(deleted==1 && volume==3 && scene==0 && muted);
         CHECK(close_count==1 && !working && !wrong_control_task);
@@ -1084,6 +1255,20 @@ def main():
         export = '_snprintf' if name == 'snprintf' else name
         llvm.add_symbol(name, ctypes.cast(getattr(crt, export), ctypes.c_void_p).value)
     source = (BASE / 'rdx_dut.c').read_text(encoding='utf-8')
+    assert 'sys_timer_add' not in function(source, 'rdx_dut_init')
+    assert 'dut_service_period' not in source
+    schedule = function(source, 'dut_service_schedule')
+    assert 'dut_mode' not in schedule and 'factory_cdc_generation' not in schedule
+    for name in ('rdx_dut_format_cb', 'rdx_dut_finalpack_end_format_cb',
+                 'dut_finalpack_tone_callback', 'dut_finalpack_tone_complete',
+                 'rdx_dut_test_session_revoke'):
+        assert 'rdx_dut_service_wake();' in function(source, name)
+    record_text = (BASE / 'rdx_record.c').read_text(encoding='utf-8')
+    assert 'dut_record_done = (u32)msg[2];\n                            rdx_dut_service_wake();' in record_text
+    cdc_text = (BASE / 'rdx_factory_cdc.c').read_text(encoding='utf-8')
+    assert 'rdx_dut_service_wake();' in function(cdc_text, 'factory_service')
+    ble_text = (BASE / 'rdx_ble_server.c').read_text(encoding='utf-8')
+    assert re.search(r'link->rdx_ccc_configured = 0;.*?rdx_dut_service_wake\(\);', ble_text, re.S)
     header = (BASE / 'rdx_dut.h').read_text(encoding='utf-8')
     enums = re.search(r'typedef enum \{.*?\} rdx_dut_func_e;', header, re.S)[0]
     enums += re.search(r'typedef enum \{.*?\} DUT_CMD_TYPE;', source, re.S)[0]
@@ -1093,6 +1278,7 @@ def main():
     core = core.split('*/', 1)[1].split('/* DUT_TEST_CORE_END */', 1)[0]
     # Exercise the real legacy resource cleanup, not a state-only substitute.
     legacy = ''.join(function(source, name) for name in (
+        'rdx_dut_init', 'rdx_dut_msg_handle', 'rdx_dut_format_cb',
         'rdx_dut_close_current_func', 'rdx_dut_oled_stop', 'rdx_dut_motor_stop',
         'rdx_dut_rec_stop', 'rdx_dut_rec_call_stop', 'rdx_dut_wifi_stop'))
     record_source = (BASE / 'rdx_record.c').read_text(encoding='utf-8')

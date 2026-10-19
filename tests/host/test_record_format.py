@@ -17,6 +17,11 @@ typedef unsigned int u32;
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define SEEK_SET 0
 static int factory_busy;
+static int power_fail, power_users, power_enters, idle_hints;
+int rdx_adv_policy_business_enter(void) { ++power_enters; if(power_fail) return -1; ++power_users; return 0; }
+void rdx_adv_policy_business_exit(void) { --power_users; }
+void rdx_peripheral_power_vdd_idle_hint(void) { ++idle_hints; }
+void rdx_peripheral_power_vdd_connected_changed_notify(void) {}
 static int format_busy, writer_active, writer_resets, record_recovered;
 int rdx_app_format_is_busy(void) { return format_busy; }
 int rdx_record_storage_active(void) { return writer_active; }
@@ -124,7 +129,8 @@ static int recover(void) { rf_boot_started=0; return rdx_record_format_boot(); }
 static void reset(void) {
     format_busy=writer_active=writer_resets=record_recovered=rf_erasing=0;
     free_kb=100000; space_unknown=unmounted=0; partition.total_size=200000;
-    rf_download=0; rf_io_users=0; factory_busy=0;
+    rf_download=0; rf_io_users=rf_command_users=0; factory_busy=0;
+    power_fail=power_users=power_enters=idle_hints=0;
     snapshot_result=snapshot_calls=0;
     fail_alloc=0;
     fail_seek=0; read_bytes=0;
@@ -234,17 +240,37 @@ int test_download_admission(void) {
     factory_busy=0; CHECK(!rdx_record_format_download_acquire());
     rdx_record_format_download_release(); CHECK(!rdx_record_format_service_status());
     rdx_record_format_command_enter();
-    CHECK(rf_io_users==1 && rdx_record_format_download_acquire()<0);
-    rdx_record_format_io_leave();
+    CHECK(rf_command_users==1 && rdx_record_format_download_acquire()<0);
+    rdx_record_format_command_leave();
     CHECK(!rdx_record_format_download_acquire());
     rdx_record_format_command_enter();
-    CHECK(rdx_record_format_protocol_busy() && rf_io_users==1);
+    CHECK(rdx_record_format_protocol_busy() && rf_command_users==1);
     CHECK(rdx_record_format_io_enter()!=0);
     rdx_record_format_download_release();
     CHECK(!rdx_record_format_protocol_busy() && rdx_record_format_download_acquire()<0);
-    rdx_record_format_io_leave();
+    rdx_record_format_command_leave();
     CHECK(!rdx_record_format_download_acquire());
     rdx_record_format_download_release();
+    return 0;
+}
+int test_power_admission(void) {
+    reset(); rf_service=0;
+    rdx_record_format_command_enter();
+    CHECK(!rdx_record_format_flush_enter());
+    CHECK(rdx_record_format_io_users()==2 && power_enters==0);
+    rdx_record_format_command_leave(); rdx_record_format_command_leave();
+    CHECK(!rdx_record_format_io_users() && idle_hints==1 && !power_users);
+    power_fail=1;
+    CHECK(rdx_record_format_io_enter()<0);
+    CHECK(!rdx_record_format_io_users() && !power_users);
+    power_fail=0;
+    CHECK(!rdx_record_format_io_enter());
+    CHECK(rf_io_users==1 && power_users==1);
+    rdx_record_format_io_leave(); rdx_record_format_io_leave();
+    CHECK(!power_users && !rdx_record_format_io_users());
+    rf_service=-1;
+    CHECK(rdx_record_format_flush_enter()<0 && rdx_record_format_io_enter()<0);
+    CHECK(!rdx_record_format_io_users());
     return 0;
 }
 int test_verified_raw_reader(void) {
@@ -668,7 +694,7 @@ double fabs(double);
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
     path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_space_reserve', 'test_explicit_format_recovery',
-                        'test_download_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
+                        'test_download_admission', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',

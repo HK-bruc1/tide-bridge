@@ -29,6 +29,8 @@ function Update-RdxRecoveryIr {
 declare i32 @rdx_record_format_boot()
 declare i32 @rdx_record_format_service_status()
 declare i32 @rdx_record_format_io_enter()
+declare i32 @rdx_record_format_flush_enter()
+declare void @rdx_record_format_command_leave()
 declare void @rdx_record_format_io_leave()
 declare void @rdx_record_format_service_ready(i32)
 declare i32 @rdx_record_format_delete(i32, i8*)
@@ -245,8 +247,8 @@ exit:
     $timer = [regex]::Match($Ir, $pattern).Value
     $patched = $timer.Replace("run:`n  call void", "run:`n  %boot = call i32 @rdx_record_format_service_status()`n  %boot_ready = icmp eq i32 %boot, 0`n  br i1 %boot_ready, label %flush, label %boot_busy`nboot_busy:`n  %retry = icmp sgt i32 %boot, 0`n  br i1 %retry, label %defer, label %done`nflush:`n  call void")
     if (!$timer -or $patched -eq $timer) { throw 'Missing flush retry gate' }
-    $patched = $patched.Replace("flush:`n  call void", "flush:`n  %admit = call i32 @rdx_record_format_io_enter()`n  %admitted = icmp eq i32 %admit, 0`n  br i1 %admitted, label %flush_run, label %flush_busy`nflush_busy:`n  %admit_retry = icmp sgt i32 %admit, 0`n  br i1 %admit_retry, label %defer, label %done`nflush_run:`n  call void")
-    $patched = [regex]::Replace($patched, '(?m)^(  call void @rdx_uxfile_flush_cache_timer_cb_impl[^\n]*)$', '$1' + "`n  call void @rdx_record_format_io_leave()")
+    $patched = $patched.Replace("flush:`n  call void", "flush:`n  %admit = call i32 @rdx_record_format_flush_enter()`n  %admitted = icmp eq i32 %admit, 0`n  br i1 %admitted, label %flush_run, label %flush_busy`nflush_busy:`n  %admit_retry = icmp sgt i32 %admit, 0`n  br i1 %admit_retry, label %defer, label %done`nflush_run:`n  call void")
+    $patched = [regex]::Replace($patched, '(?m)^(  call void @rdx_uxfile_flush_cache_timer_cb_impl[^\n]*)$', '$1' + "`n  call void @rdx_record_format_command_leave()")
     $Ir = Replace-ExactlyOnce $Ir $timer $patched 'flush after cache handoff'
     $pattern = '(?m)^define [^\n]*@rdx_uxfile_get_datFileInfo_ready\([^\n]+\{'
     $m = [regex]::Match($Ir, $pattern)
