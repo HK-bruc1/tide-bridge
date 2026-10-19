@@ -95,10 +95,10 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs four source contracts and fifteen C/LLVM behavioral harnesses
+The host test runner runs four source contracts and sixteen C/LLVM behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 19 modules. The source contracts cover:
+focused run; the default runs all 20 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
@@ -119,6 +119,12 @@ See `tests/host/README.md` for coverage and on-device validation limits.
 测试固定已审阅的 `btstack.a` / `btctrler.a` ABI；升级库时必须重新审阅，不能只替换哈希。
 主机模拟不能替代实际 HCI/RF 时序、系统睡眠和电流板测；本轮已通过的单 RDX 核心路径
 及剩余验证项见 `docs/6-2.T2620BLE连接后低功耗设计.md`。
+
+`test_cache_flush.py` 覆盖 RDX 缓存按需调度；`test_record_format.py` 同时执行实际补丁库的
+全部 dirty 通知、保存准入、有界互斥与 IO 故障保留检查。缓存干净时停表，脏缓存按固定
+5 秒期限保存，临时占用时重试；JL 原生 USB 检测不变。2026-10-19 单 RDX 板测仍约
+4/2 mA，关窗待机及列表恢复未见明显退化，新增功耗收益未量化；作为按需调度基础设施保留，
+录音写入、下载、删除及重启持久化仍待验收，证据与边界见上述 6-2 文档第 4.6 节。
 
 The former phase-specific, playback, and split configuration scripts were
 historical evidence or inactive product checks and are no longer part of the

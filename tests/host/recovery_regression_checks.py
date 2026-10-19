@@ -38,6 +38,8 @@ def run_recovery_checks():
     llvm.initialize_native_asmprinter()
 
     def engine_for(source):
+        if '@rdx_cache_flush_changed()' in source:
+            source += '\ndefine void @rdx_cache_flush_changed() { ret void }\n'
         target = llvm.Target.from_default_triple().create_target_machine()
         module = llvm.parse_assembly(source)
         module.triple = llvm.get_default_triple()
@@ -114,77 +116,8 @@ define void @rdx_record_format_io_leave() {
  ret void
 }
 '''
-    passive_service = service.replace('rdx_record_format_io_enter', 'rdx_record_format_flush_enter').replace('rdx_record_format_io_leave', 'rdx_record_format_command_leave')
-    timer = engine_for(passive_service + '''
-@rdx_storage_quiet = global i32 0
-@rdx_storage_refresh = global i32 0
-@scheduled = global i32 0
-@flushed = global i32 0
-define zeroext i16 @sys_timeout_add(i8* %p, void(i8*)* %f, i32 %ms) {
- store i32 1, i32* @scheduled
- ret i16 1
-}
-define void @rdx_uxfile_flush_cache_timer_cb_impl(i8* %p) {
- store i32 1, i32* @flushed
- ret void
-}
-''' + extract('rdx_uxfile_flush_cache_timer_cb'))
-    tick = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(
-        timer.get_function_address('rdx_uxfile_flush_cache_timer_cb'))
-    for state, quiet, refresh, scheduled, flushed in [
-        (1, 0, 0, 1, 0), (0, 0, 0, 0, 1), (-1, 0, 0, 0, 0),
-        (1, 1, 0, 0, 0), (1, 2, 0, 0, 0), (0, 0, 1, 1, 0),
-        (1, 0, -1, 0, 0),
-    ]:
-        for name, value in [('service', state), ('rdx_storage_quiet', quiet),
-                            ('rdx_storage_refresh', refresh), ('scheduled', 0), ('flushed', 0)]:
-            integer(timer, name).value = value
-        tick(None)
-        assert integer(timer, 'scheduled').value == scheduled
-        assert integer(timer, 'flushed').value == flushed
-        assert integer(timer, 'io_users').value == 0
-
-    # 实际缓存回调和准入包装一起执行：干净时仅续约，脏缓存才进入真实业务。
-    flush_impl = extract('rdx_uxfile_flush_cache_timer_cb_impl')
-    strings = sorted(set(re.findall(r'@([.]str[.]\d+)', flush_impl)))
-    clean_timer = engine_for(passive_service + '\n' + globals_for(strings) + '''
-@rdx_storage_quiet = global i32 0
-@rdx_storage_refresh = global i32 0
-@g_dat_need_upgrade_rebuild = global i1 false
-@g_dat_cache.3 = global i1 true
-@g_dat_cache.4 = global i8 0
-@saved = global i32 0
-@scheduled = global i32 0
-@business = global i32 0
-define void @log_print(i32 %n, i8* %a, i8* %b, ...) { ret void }
-define zeroext i16 @sys_timeout_add(i8* %p, void(i8*)* %f, i32 %ms) {
- store i32 %ms, i32* @scheduled
- ret i16 1
-}
-define i32 @rdx_adv_policy_business_enter() {
- %old = load i32, i32* @business
- %next = add i32 %old, 1
- store i32 %next, i32* @business
- ret i32 0
-}
-define void @rdx_adv_policy_business_exit() { ret void }
-define fastcc i32 @rdx_dat_cache_save_adv_impl() {
- store i32 1, i32* @saved
- ret i32 0
-}
-''' + extract('rdx_dat_cache_save') + flush_impl + extract('rdx_uxfile_flush_cache_timer_cb'))
-    clean_tick = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(
-        clean_timer.get_function_address('rdx_uxfile_flush_cache_timer_cb'))
-    for _ in range(25):
-        clean_tick(None)
-    assert integer(clean_timer, 'business').value == 0
-    assert integer(clean_timer, 'saved').value == 0
-    assert integer(clean_timer, 'scheduled').value == 5000
-    ctypes.c_ubyte.from_address(clean_timer.get_global_value_address('g_dat_cache.4')).value = 1
-    clean_tick(None)
-    assert integer(clean_timer, 'business').value == 1
-    assert integer(clean_timer, 'saved').value == 1
-    assert integer(clean_timer, 'io_users').value == 0
+    from cache_flush_library_checks import run_cache_library_checks
+    run_cache_library_checks(ir, extract, globals_for, types_for, engine_for)
 
     gate_types = types_for(['uxfile_data_t', 'uxfile_datfile_info_t'])
     gate_globals = globals_for(['uxReadFileData', 'uxDatFileInfo', 'rdx_empty_file', 'rdx_empty_list'])

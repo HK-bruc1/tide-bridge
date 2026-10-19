@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and fifteen behavioral suites
-as **19 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and sixteen behavioral suites
+as **20 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -35,6 +35,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
 | `test_connected_params.py` | 实际 RDX 快档协调器：长时间空闲不降档、下载结束及旧参数索引均不恢复慢档、实际快档范围、延迟/拒绝时有界重试和停表、逻辑会话切换不刷新物理 ACL 预算、迟到慢参数恢复、HID 同链保护与异链隔离、RDX 退出后的 HID 快档收尾与跨 peer 接管、重连/旧回调隔离、消息/定时器失败恢复及计数回绕；协商、交互、射频与电流仍须板测 |
 | `test_ble_entry.py` | 实际第二入口协调器、广播/连接适配与退出函数：120 秒到期、持续业务不续期、真实业务/物理键重开且纯 HID 不恢复 PA4、双 ACL/零 ACL、关闭两阶段确认与在途建链、软件缓存提前清零、超时/错误保守锁定、开放前取消、退出/重初始化及旧任务隔离、队列/定时器失败与回绕；固定已审阅 SDK 库哈希，不替代实际 HCI/RF 时序、睡眠与电流板测 |
+| `test_cache_flush.py` | 实际缓存协调器：干净停表、固定 5 秒期限、重复修改不续期、同步清除、临时忙和故障、队列/定时器失败恢复、生命周期隔离及回绕；实际库的 dirty 通知/准入/有界互斥由 `test_record_format.py` 中的 `cache_flush_library_checks.py` 执行 |
 | `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
 
@@ -80,10 +81,17 @@ state. These checks cannot prove PA0/MIC rail voltages, audio quality or current
 board tests must distinguish PA0 MIC power, PA4 SD/RGB power and PE5 amplifier enable.
 
 连接态第二阶段同时扩充现有套件：录音格式准入验证先占用再恢复、失败释放、解析/缓存空检查不发布活动；
-实际补丁库验证脏缓存、持久读句柄、删除队列及 IO 错误阻止停用，干净的 5 秒检查不进入业务，
+实际补丁库验证脏缓存、持久读句柄、删除队列及 IO 错误阻止停用，干净缓存不进入保存业务，
 查询恢复失败返回独立空对象，GETLIST 带占用投递及队列失败响应，UXFILE bit29 标记不破坏内部消息号。
 这些测试不能证明真实 SD 挂载时序、文件耐久性、首键延迟或功耗；板测要求见
 [连接待机设计](../../docs/6-2.T2620BLE连接后低功耗设计.md)。
+
+`test_cache_flush.py` 执行实际缓存调度器：干净态无定时器、脏缓存 5 秒固定期限、重复修改不续期、
+同步保存取消待办、临时忙重试、故障停表、队列/定时器失败经现有桥接恢复、退出/重初始化、
+旧回调隔离与时间回绕。`test_record_format.py` 内的 `cache_flush_library_checks.py` 提取实际
+链接库，检查全部 14 处 dirty 写入通知、旧周期链删除及生命周期接线，并执行实际准入/保存包装。
+清洁状态不访问存储，获取锁最多等待 1 个 OS tick，超时不保存；真实 IO 失败保留脏位及错误，不修改 JL USB 检测。
+主机替身不证明真实调度器并发、断电耐久性或 mA 收益，须独立板测。
 
 RGB 调度回归在 `led_key_feedback_checks.py` 中执行实际硬件恢复入口及灯效引擎，
 模拟创建任务、目标任务、系统消息和真实毫秒期限：协议任务恢复后 OFF 不建表，

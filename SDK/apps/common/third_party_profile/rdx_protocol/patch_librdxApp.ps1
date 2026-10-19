@@ -192,6 +192,8 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
     $Ir = Update-RdxRecoveryIr $Ir
     . (Join-Path $PSScriptRoot 'patch_librdxApp_adv.ps1')
     $Ir = Update-RdxAdvIr $Ir
+    . (Join-Path $PSScriptRoot 'patch_librdxApp_cache.ps1')
+    $Ir = Update-RdxCacheIr $Ir
 
     $Utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
     [IO.File]::WriteAllText($PatchedIrPath, $Ir, $Utf8NoBom)
