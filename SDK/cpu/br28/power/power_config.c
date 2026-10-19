@@ -8,6 +8,7 @@
 #include "cpu/includes.h"
 #include "asm/charge.h"
 #include "gpio_config.h"
+#include "power/low_power.h"
 
 #include "rtc/rtc_dev.h"
 
@@ -40,6 +41,11 @@ void board_power_init(void)
     gpio_config_init();
 
     power_init(&power_param);
+
+    /* 仅在启动时观察一次原生选择，不强制切换睡眠时钟。 */
+    printf("[T2620_LP] sleep_clock product_lrc=%u cfg=%u default=%u selected=%u (0=LRC 1=BT_OSC)\n",
+           TCFG_T2620_LOWPOWER_LRC_ENABLE, TCFG_LOWPOWER_OSC_TYPE,
+           low_power_get_default_osc_type(), low_power_get_osc_type());
 
     key_wakeup_init();
 

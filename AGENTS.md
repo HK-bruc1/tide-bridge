@@ -95,10 +95,10 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs four source contracts and sixteen C/LLVM behavioral harnesses
+The host test runner runs four source contracts and seventeen C/LLVM behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 20 modules. The source contracts cover:
+focused run; the default runs all 21 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
@@ -125,6 +125,21 @@ See `tests/host/README.md` for coverage and on-device validation limits.
 5 秒期限保存，临时占用时重试；JL 原生 USB 检测不变。2026-10-19 单 RDX 板测仍约
 4/2 mA，关窗待机及列表恢复未见明显退化，新增功耗收益未量化；作为按需调度基础设施保留，
 录音写入、下载、删除及重启持久化仍待验收，证据与边界见上述 6-2 文档第 4.6 节。
+
+组合零 ACL 探底及 `test_idle_probe.py` 仅保留在独立实验分支；其 LRC 日志版
+0.6–1.3 mA 是历史实验波动区间，不是正常业务结果，机制与踩坑保留在 6-0 第 6 节。
+2026-10-19 独立 LRC 正常业务版已由用户确认锁定未连接慢广播 **0.6–1.6 mA 跳动**
+的阶段收益，证据为 `COM3_2026-10-19_20-11-56.log` 与用户仪表反馈。
+日志支持低功耗后建链、一次 APP 录音/停止保存、断连后再次慢广播和 PA4 OFF；
+不将显示区间当作积分平均值，也不外推连接态新增收益或全部业务/量产验收。
+`TCFG_T2620_LOWPOWER_LRC_ENABLE` 保持默认 `1`，从启动配置原生睡眠时钟，
+不随快慢广播运行时切钟；设为 `0` 并重新构建可回退至工具的原始时钟策略。
+正常按键、USB 检测/CDC、UART、动态调频、安全门禁与原 500 ms 可连接慢广播不变，
+非零旧探针开关仍编译拒绝。`test_lowpower_lrc.py` 覆盖真实配置、非法组合、
+板级初始化和原生时钟快照；不替代 HID/双 ACL、USB/首键恢复、RF/计时/温压长稳验证。
+**按用户决定，本阶段到 LRC 为止，后续日志、USB 检测、CPU/按键及板级排查仅保留
+为方向，暂不执行，不制作 A/B 包或自行叠加优化。** 当前方案、已测范围及剩余边界
+见 `docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md` 第 5 节。
 
 The former phase-specific, playback, and split configuration scripts were
 historical evidence or inactive product checks and are no longer part of the
@@ -197,6 +212,7 @@ This overlay is included by `SDK/apps/earphone/include/app_config.h` immediately
 Current overlay rules:
 
 - `TCFG_DIP_SWITCH_POWER_ENABLE` and `TCFG_DIP_SWITCH_POWER_IO` (PB1) are defined here
+- `TCFG_T2620_LOWPOWER_LRC_ENABLE` 默认 1，保留已锁定的未连接慢广播收益；仅覆盖原生睡眠时钟，不手动快慢广播切钟、不取消双 ACL 保护，验证边界见 6-0 第 5 节。
 - `TCFG_T2620_PC_STORAGE_ENABLE` defaults to 0 and owns only optional USB MSC export. When enabled it requires tool-configured SD0 + USB MSC; when disabled it forces PC mode off.
 - `TCFG_T2620_FACTORY_USB_CDC_ENABLE` defaults to 1 and enables ON-mode CDC independently of DUT, physical-key entry, SD health, and optional PC/MSC export. USB role/class ownership and shutdown still gate enumeration. With TEST=0, `rdx_factory_cdc.c` implements PING/GET_INFO, shared GET_STATUS/GET_KEY_STATUS and DUT entry/exit, LED, speaker and key controls; CDC finalpack reuses the shared packaging flow; recording/files remain pending. TEST=1 retains the historical byte test; protocol builds reject payload logging (LOG_LEVEL=2).
 - `TCFG_T2620_CHARGE_COEXIST_ENABLE` defaults to 1 and independently preserves ON charging with BLE/recording.
