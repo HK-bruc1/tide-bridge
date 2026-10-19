@@ -1,6 +1,7 @@
 #include "system/includes.h"
 #include "rdx_adv_policy.h"
 #include "rdx_peripheral_power.h"
+#include "rdx_ble_entry.h"
 #include <stdarg.h>
 
 #define ADV_IDLE_MS 120000u
@@ -94,7 +95,11 @@ static void adv_publish(u8 activity)
 }
 
 void rdx_adv_policy_activity(void) { adv_publish(1); }
-void rdx_adv_policy_changed(void) { adv_publish(0); }
+void rdx_adv_policy_changed(void)
+{
+    adv_publish(0);
+    rdx_ble_entry_changed();
+}
 
 void rdx_adv_policy_enable(void)
 {
@@ -120,6 +125,7 @@ int rdx_adv_policy_business_enter(void)
     adv.qualified = 0;
     adv.dirty = 1;
     local_irq_enable();
+    rdx_ble_entry_activity();
     adv_post();
     rdx_peripheral_power_vdd_connected_changed_notify();
     /* 先占用再查 READY：已就绪时不取电源转换锁，避免 DAT 锁与转换锁倒序。 */
@@ -142,6 +148,7 @@ void rdx_adv_policy_business_exit(void)
     }
     adv.dirty = 1;
     local_irq_enable();
+    rdx_ble_entry_changed();
     adv_post();
     rdx_peripheral_power_vdd_connected_changed_notify();
 }

@@ -49,6 +49,8 @@ void sys_timeout_del(u16 id) { timer_cb = 0; }
 int rdx_peripheral_power_vdd_ensure_on(int reason) { ++restore_calls; return restore_fail; }
 u8 rdx_peripheral_power_vdd_is_ready(void) { return ready; }
 void rdx_peripheral_power_vdd_connected_changed_notify(void) {}
+void rdx_ble_entry_activity(void) {}
+void rdx_ble_entry_changed(void) {}
 u8 rdx_adv_policy_allowed(void) { return allowed; }
 u32 rdx_adv_policy_hold_snapshot(void) { return hold_mask; }
 int rdx_adv_policy_radio_set(u8 slow) {

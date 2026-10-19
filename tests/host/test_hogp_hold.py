@@ -20,6 +20,7 @@ STUBS = r'''
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
+void rdx_ble_entry_key(unsigned char down) {}
 typedef int bool;
 typedef unsigned long long size_t;
 void *memset(void *, int, size_t);

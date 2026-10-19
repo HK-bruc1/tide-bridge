@@ -18,6 +18,7 @@
 #include "rdx_adv_policy.h"
 #include "rdx_led_ctrl.h"
 #include "rdx_ble_server.h"
+#include "rdx_ble_entry.h"
 
 static volatile bool s_init_done;
 static volatile bool s_business_mode_entered;
@@ -47,7 +48,8 @@ static int rdx_dip_switch_recovery_needed(void)
 {
     return rdx_dut_service_needs_poll() || rdx_factory_cdc_needs_poll() ||
            rdx_hogp_input_needs_poll() || rdx_storage_lifecycle_changed() ||
-           rdx_led_ctrl_needs_service() || rdx_ble_server_conn_param_needs_service();
+           rdx_led_ctrl_needs_service() || rdx_ble_server_conn_param_needs_service() ||
+           rdx_ble_entry_needs_service();
 }
 
 static u8 rdx_dip_switch_idle(void)
@@ -248,6 +250,7 @@ static void rdx_dip_switch_deferred_handle(void *priv)
     rdx_hogp_input_poll();
     rdx_led_ctrl_service();
     rdx_ble_server_conn_param_service();
+    rdx_ble_entry_service();
     if (rdx_storage_lifecycle_service(on, vbus)) {
         u32 storage_due = sys_timer_get_ms() + 100;
         if (!scheduled || (int)(storage_due - due) < 0) due = storage_due;

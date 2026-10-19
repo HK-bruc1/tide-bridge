@@ -4,6 +4,7 @@
 #include "rdx_hogp_keyboard.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_app.h"
+#include "rdx_ble_entry.h"
 
 #define INPUT_FIFO_SIZE 24
 
@@ -104,6 +105,10 @@ void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
 {
     struct input_event event = {0};
     if (type != KEY_DRIVER_TYPE_IO) return;
+    if (previous != current && (product_key(previous) || product_key(current))) {
+        if (!filtered || current == NO_KEY)
+            rdx_ble_entry_key(product_key(current) && !filtered);
+    }
     local_irq_disable();
     ++scan_seq;
     scan_epoch = input_epoch;

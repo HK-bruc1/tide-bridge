@@ -159,7 +159,7 @@ $sharedVddDualAclOk = $RdxServerH -match 'u8\s+rdx_ble_server_get_connected_coun
                        $RdxServer -match '(?s)u8\s+rdx_ble_server_get_connected_count\s*\(void\).*?return\s+rdx_ble_server_phase0a_connected_count\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_connected.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
                        $RdxServer -match '(?s)rdx_ble_server_phase0a_link_disconnected.*?rdx_ble_session_link_release.*?rdx_peripheral_power_vdd_ble_links_changed_notify\(\)' -and
-                       $RdxServer -match '(?s)rdx_ble_server_adv_interval_change_timer_cb.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
+                       $RdxServer -match '(?s)rdx_adv_policy_slow_committed.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)' -and
                        $RdxServer -match '(?s)void rdx_ble_server_fast_adv_restart\(void\).*?rdx_adv_policy_activity\(\)' -and
                        $RdxServer -match '(?s)int rdx_adv_policy_radio_set\(u8 slow\).*?if \(!slow\).*?rdx_peripheral_power_vdd_fast_adv_notify\(\)' -and
                        $RdxServer -match '(?s)void rdx_adv_policy_slow_committed\(void\).*?!rdx_adv_policy_idle_valid\(\).*?rdx_peripheral_power_vdd_slow_adv_notify\(\)'

@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and fourteen behavioral suites
-as **18 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and fifteen behavioral suites
+as **19 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -34,6 +34,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
 | `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
 | `test_connected_params.py` | 实际 RDX 快档协调器：长时间空闲不降档、下载结束及旧参数索引均不恢复慢档、实际快档范围、延迟/拒绝时有界重试和停表、逻辑会话切换不刷新物理 ACL 预算、迟到慢参数恢复、HID 同链保护与异链隔离、RDX 退出后的 HID 快档收尾与跨 peer 接管、重连/旧回调隔离、消息/定时器失败恢复及计数回绕；协商、交互、射频与电流仍须板测 |
+| `test_ble_entry.py` | 实际第二入口协调器、广播/连接适配与退出函数：120 秒到期、持续业务不续期、真实业务/物理键重开且纯 HID 不恢复 PA4、双 ACL/零 ACL、关闭两阶段确认与在途建链、软件缓存提前清零、超时/错误保守锁定、开放前取消、退出/重初始化及旧任务隔离、队列/定时器失败与回绕；固定已审阅 SDK 库哈希，不替代实际 HCI/RF 时序、睡眠与电流板测 |
 | `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
 
@@ -41,6 +42,18 @@ The CDC suite, test_cdc_file.py, runs the actual C memory/recording-source
 producer, common parser and transport queue, plus the Python receiver. It covers
 golden CRC/frame vectors, 1/2/4/8 KB blocks, partial-frame cancellation, stale
 sessions, TX-full control reception, coalesced wakeups and bounded output.
+
+第二入口测试固定当前 `btstack.a` / `btctrler.a` 的 SHA-256，防止 SDK 公共广播句柄
+编号、命令缓冲生命周期及完成事件 ABI 变化后继续误用模拟结果；升级库必须重新审阅，
+不能只替换哈希。关闭使用 `0x2039` 停广播、`0x203c` 移除确认，再用第二次移除完成
+隔离 SDK 清理命令。退出在 `app_core` 有界排空；未确认的故障保留保护且禁止重开直到重启，
+不能把退出/重新初始化或迟到完成当成恢复证据。此检查不等于执行真实 controller。
+
+2026-10-19 第二入口单 RDX 核心路径已板测：两次关窗后的睡眠、列表唤醒重开和窗口内
+不续期，用户实测入口开放/关窗待机约 4/2 mA，确认锁定阶段收益。第二手机物理接入后
+因 RDX runtime 已占用而被拒绝接管，随后退回单 ACL 并重开窗口，也已覆盖一次。
+此记录不代表持续录音/下载、HID/双 ACL、关闭故障、退出或长稳板测通过；完整边界见
+`docs/6-2.T2620BLE连接后低功耗设计.md` 第 1.1、4.4 节。
 
 The HOGP harness also checks event-only offline first-key/multi-click/KEY5
 gestures, idle with no 10 ms timer, HID-ready start/stop, and queue/timer failure

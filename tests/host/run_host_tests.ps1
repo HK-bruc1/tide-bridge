@@ -25,6 +25,7 @@ $Behavior = @(
     'test_power_recovery.py',
     'test_connected_power.py',
     'test_connected_params.py',
+    'test_ble_entry.py',
     'test_protocol_recv.py',
     'test_amp_output.py',
     'test_hogp_hold.py'

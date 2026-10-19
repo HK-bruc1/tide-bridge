@@ -88,6 +88,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
+#include "rdx_ble_entry.h"
 #include "rdx_dut.h"
 #include "rdx_factory_cdc.h"
 #include "rdx_factory_audio.h"
@@ -2830,6 +2831,7 @@ int rdx_app_msg_handler(int *msg)
     case APP_MSG_REC_FR:
     case APP_MSG_REC_FF:
     case APP_MSG_REC_PLAY_TOGGLE:
+        rdx_ble_entry_activity();
         rdx_adv_policy_activity();
         if (rdx_peripheral_power_vdd_ensure_on(
                 RDX_SHARED_VDD_WAKE_BUSINESS)) {

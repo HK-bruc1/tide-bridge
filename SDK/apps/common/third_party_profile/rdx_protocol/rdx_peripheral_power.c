@@ -19,6 +19,7 @@
 #include "rdx_led_ctrl.h"
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
+#include "rdx_ble_entry.h"
 #include "rdx_playback.h"
 #include "rdx_protocol.h"
 #include "rdx_record.h"
@@ -398,6 +399,15 @@ u32 rdx_adv_policy_hold_snapshot(void)
         mask |= RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY;
     if (rdx_app_get_dut_status() || get_ota_status()) mask |= 0x100;
     return mask;
+}
+
+u8 rdx_ble_entry_business_busy(void)
+{
+    /* 广播或灯效恢复、PA4 状态、USB 检测及电池轮询均不算新用户活动；
+     * 未结束的业务占用仍阻止重新受理待机唤醒。 */
+    return rdx_adv_policy_business_pending() || rdx_adv_policy_hold_snapshot() ||
+           rdx_record_format_download_busy() || rdx_factory_audio_file_busy() ||
+           rdx_record_format_io_users() || rdx_uxfile_power_busy();
 }
 
 /* 连接态资格：基础忙位去掉 BLE_LINK，再叠加外部电源、业务占用与库内存储事实。
@@ -1021,6 +1031,7 @@ void rdx_peripheral_power_vdd_connected_changed_notify(void)
 
 void rdx_peripheral_power_vdd_idle_hint(void)
 {
+    rdx_ble_entry_changed();
     if (g_rdx_shared_vdd.conn_hint_wanted) rdx_vdd_conn_post();
 }
 
