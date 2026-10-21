@@ -286,7 +286,7 @@
 
 
 // ------------表单节点全局配置宏------------
-#define MULTI_BAND_PHASE_COMPENSATION_EN          0                // MDRC 相位补偿
+#define MULTI_BAND_PHASE_COMPENSATION_EN          1                // MDRC 相位补偿
 // ------------表单节点全局配置宏------------
 #endif
 

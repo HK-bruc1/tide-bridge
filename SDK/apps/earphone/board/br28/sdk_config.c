@@ -14,47 +14,47 @@ const struct battery_curve g_battery_curve_table [] =  {
         .percent = 0
     },
     {
-        .voltage = 3600,
+        .voltage = 3450,
         .percent = 5
     },
     {
-        .voltage = 3678,
+        .voltage = 3650,
         .percent = 10
     },
     {
-        .voltage = 3719,
+        .voltage = 3712,
         .percent = 20
     },
     {
-        .voltage = 3755,
+        .voltage = 3752,
         .percent = 30
     },
     {
-        .voltage = 3788,
+        .voltage = 3790,
         .percent = 40
     },
     {
-        .voltage = 3817,
+        .voltage = 3825,
         .percent = 50
     },
     {
-        .voltage = 3866,
+        .voltage = 3875,
         .percent = 60
     },
     {
-        .voltage = 3920,
+        .voltage = 3952,
         .percent = 70
     },
     {
-        .voltage = 4032,
+        .voltage = 4054,
         .percent = 80
     },
     {
-        .voltage = 4117,
+        .voltage = 4159,
         .percent = 90
     },
     {
-        .voltage = 4206,
+        .voltage = 4300,
         .percent = 100
     }
 };
