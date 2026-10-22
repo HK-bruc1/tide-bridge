@@ -22,6 +22,7 @@
 #include "app_config.h"
 #include "system/includes.h"
 #include "user_cfg.h"
+#include "audio_config.h"
 #include "user_cfg_id.h"
 #include "syscfg_id.h"
 #include "btstack/avctp_user.h"
@@ -404,7 +405,7 @@ void rdx_vm_unbound_handle(void)
     unbounding = true;
     
     //format sd card.
-    rdx_hogp_input_invalidate();
+    rdx_hogp_input_cancel();
     rdx_uxfile_sd_format(rdx_vm_unbound_cb);
 }
 
@@ -486,7 +487,7 @@ void rdx_vm_choose_to_unbound_handle(int usr_para, int format_en)
     }
     if(format_en == 1){
         rdx_protocol_choose_to_unbound_ack_indicate(0, rdx_bound_info.bound_state);
-        rdx_hogp_input_invalidate();
+        rdx_hogp_input_cancel();
         rdx_uxfile_sd_format(rdx_vm_choose_to_unbound_cb);
     }else{
         //set unbound, do not show bound status on oled.
@@ -790,6 +791,21 @@ EarphoneInfo* rdx_vm_get_ep_info(void)
 }
 #endif /* RDX_PRODUCT_IS_CHARGE_CASE */
 
+static int rdx_vm_playback_volume_set_default(void)
+{
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+    s16 volume = app_audio_volume_max_query(AppVol_BT_MUSIC);
+    if (volume <= 0 ||
+        syscfg_write(CFG_MUSIC_VOL, &volume, sizeof(volume)) != sizeof(volume)) {
+        return -1;
+    }
+    /* 同步运行时音量，防止延迟保存或关机时把旧值写回 VM。 */
+    app_audio_set_volume_def_state(0);
+    app_audio_set_volume(APP_AUDIO_STATE_MUSIC, volume, 1);
+#endif
+    return 0;
+}
+
 /**************************************************************************
  * function: rdx_vm_sys_reset_to_defaults
  * description: 系统重置为默认值
@@ -818,6 +834,12 @@ int rdx_vm_reset_defaults_no_poweroff(void)
     ReqFileInfo* r_file = rdx_protocol_get_uploadfileInfo();
     if(r_file->file_send_busy == true){
         y_printf("\r =====%s --> command reject, now is file transferring \r", __func__);
+        return -1;
+    }
+
+    /* 音量写入失败时先返回，尚不锁定配键恢复或删除配对。 */
+    if (rdx_vm_playback_volume_set_default()) {
+        y_printf("[RDX_VM] factory reset aborted: playback volume reset failed\n");
         return -1;
     }
 

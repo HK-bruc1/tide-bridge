@@ -57,7 +57,7 @@ static u8 factory_usb_revoked;
 #define KEY_DUT_DISABLED_FLAG 0xaa
 int syscfg_read(int id, void *out, int size) { return 0; }
 struct { int goto_poweroff_flag; } app_var;
-typedef struct { int run, process_state, scene, formate; } RecordStatus;
+typedef struct { int run, process_state, scene, formate, mode, orig_mode; } RecordStatus;
 RecordStatus record;
 #define RECORD_STATE_STOP 0
 #define RECORD_STATE_START 1
@@ -68,6 +68,13 @@ RecordStatus record;
 int mono_config, marks, record_starts;
 #define TCFG_T2620_MEETING_MONO_DEBUG_MIC mono_config
 u32 record_session_generation;
+enum { RDX_RECORD_MEETING, RDX_RECORD_INSPIRATION, RDX_RECORD_CALL, RDX_RECORD_FACTORY };
+enum { RDX_RECORD_KEY_IDLE, RDX_RECORD_KEY_START_PENDING, RDX_RECORD_KEY_ACTIVE };
+#define RECORD_MODE_OFFLINE 0
+static struct { int state,kind,fixed,route; u32 record_generation; } record_key_context;
+static int g_stream_only_session_active;
+static void rdx_record_online_session_clear(void) {}
+
 u32 product_binding, record_binding_generation=1;
 int record_binding_revoke_pending, dut_record_stopping;
 #define record_status record
@@ -1198,6 +1205,9 @@ def check_key_scan(temp):
     types = re.search(r'enum key_action \{.*?\};', header, re.S)[0]
     for name in ('key_event', 'key_driver_para', 'key_driver_ops'):
         types += re.search(r'struct ' + name + r' \{.*?\};', header, re.S)[0]
+    for name in ('rdx_hogp_key_action.h', 'rdx_hogp_input.h'):
+        types += re.sub(r'^#include[^\n]*', '',
+                        (BASE / name).read_text(encoding='utf-8'), flags=re.M)
     adapter = (ROOT / 'SDK/apps/earphone/message/adapter/key.c').read_text(encoding='utf-8')
     # Keep the real shared click/hold state, reset and translation together.
     adapter = adapter[adapter.index('struct key_hold {'):adapter.index('static int combination_key_translate')]

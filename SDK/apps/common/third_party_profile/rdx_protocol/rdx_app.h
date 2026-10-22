@@ -120,6 +120,11 @@ typedef struct{
 void rdx_app_key_click(u8 key_value, u8 action);
 /* Returns enum rdx_hogp_input_route; business admission is owned by RDX. */
 u8 rdx_app_hogp_input_route(void);
+/* 在 app_core 按实体按压周期分发业务，并按归属取消。 */
+u8 rdx_app_local_key_mode(void);
+void rdx_app_local_key_gesture(const struct key_event *key,
+                               const rdx_hogp_input_cycle_t *cycle);
+u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *cycle);
 int rdx_app_key_msg_handler(int *msg);
 
 #if (TCFG_USER_TWS_ENABLE && TCFG_APP_BT_EN) 

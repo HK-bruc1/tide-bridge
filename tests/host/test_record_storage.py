@@ -381,13 +381,14 @@ static RecordStatus record_status;
 static int g_record_session_token_valid, g_stream_only_session_active;
 static int stream_resume_timer, g_stream_resume_token_valid;
 static int record_start_tone_pending, cancelled_timer, pause_timer;
+static int rdx_record_local_route_is_fixed(void) { return 0; }
 void rdx_record_stream_only_start_cancel(void) {}
 void rdx_record_start_tone_cancel(void) { record_start_tone_pending=0; }
 void sys_timeout_del(int timer) { cancelled_timer=timer; }
 void rdx_record_online_session_clear(void) { g_record_session_token_valid=0; }
 void rdx_record_pause_timeout_stop(void) { pause_timer=0; }
 void rdx_record_pause_timeout_start(void) { pause_timer=1; }
-static int hold_record_disconnect_pending;
+static int key_record_disconnect_pending;
 static int rdx_app_init_flag=1, worker, transfer, sync_busy, loading, scan, format, ota;
 typedef struct { int file_send_busy; } ReqFileInfo;
 typedef struct { int send_pending, bulk_sending; } BLE_SendData;
@@ -504,6 +505,7 @@ typedef unsigned int u32;
 #define RECORD_MODE_ONLINE 1
 typedef struct { int mode, orig_mode, stream_discont; } RecordStatus;
 static RecordStatus status;
+static struct { int fixed, route; } record_key_context;
 static int record_initialized_generation, record_session_generation=1;
 static int current, ready, only, sent, saved, allowed=1;
 static u16 conn=0xffff;

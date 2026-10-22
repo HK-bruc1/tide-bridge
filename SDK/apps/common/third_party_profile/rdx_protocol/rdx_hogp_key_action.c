@@ -20,6 +20,7 @@
 * Include files
 ******************************************************************************/
 #include "app_config.h"
+#include "system/includes.h"
 #include "rdx_app_config.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_keyboard.h"
@@ -124,6 +125,29 @@ u32 rdx_hogp_key_action_generation(void)
     return map_generation;
 }
 
+u32 rdx_hogp_key_action_snapshot_locked(u8 key_id, rdx_hogp_key_action_keyboard_t *action)
+{
+    memset(action, 0, sizeof(*action));
+    if (s_rdx_hogp_key_action_active &&
+        key_id < s_rdx_hogp_key_action_active_keymap.key_count &&
+        key_id < RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) {
+        *action = s_rdx_hogp_key_action_active_keymap.keys[key_id];
+    }
+    return map_generation;
+}
+
+u8 rdx_hogp_key_action_plain_usage(const rdx_hogp_key_action_keyboard_t *action)
+{
+    u8 usage = 0;
+    if (!action || action->modifiers) return 0;
+    for (u8 i = 0; i < sizeof(action->usages); ++i) {
+        if (!action->usages[i]) continue;
+        if (usage) return 0;
+        usage = action->usages[i];
+    }
+    return usage;
+}
+
 u8 rdx_hogp_key_action_is_plain_key(u8 key_id, u8 usage)
 {
     const rdx_hogp_key_action_keyboard_t *action;
@@ -167,8 +191,10 @@ void rdx_hogp_key_action_cancel(void)
 
 static void rdx_hogp_key_action_clear_active_keymap(void)
 {
+    local_irq_disable();
     memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
     s_rdx_hogp_key_action_active = 0;
+    local_irq_enable();
 }
 
 #if !(RDX_HOGP_KEY_ACTION_TEST_ENABLE && TCFG_RDX_HOGP_ENABLE)
@@ -186,12 +212,14 @@ static void rdx_hogp_key_action_load_test_keymap(void)
 {
     rdx_hogp_key_action_clear_active_keymap();
 
+    local_irq_disable();
     memcpy(s_rdx_hogp_key_action_active_keymap.keys,
            s_rdx_hogp_test_keymap,
            sizeof(s_rdx_hogp_test_keymap));
     s_rdx_hogp_key_action_active_keymap.version = RDX_HOGP_KEY_ACTION_KEYMAP_VERSION;
     s_rdx_hogp_key_action_active_keymap.key_count = RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT;
     s_rdx_hogp_key_action_active = 1;
+    local_irq_enable();
 }
 #endif
 
@@ -239,7 +267,7 @@ void rdx_hogp_key_action_init(void)
 
 void rdx_hogp_key_action_reset(void)
 {
-    rdx_hogp_input_invalidate();
+    rdx_hogp_input_cancel();
     rdx_hogp_key_action_cancel();
 }
 
@@ -268,7 +296,11 @@ int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
     /* Do not let a key-up from the previous map race the replacement. */
     rdx_hogp_input_invalidate();
     rdx_hogp_key_action_cancel();
+    /* 扫描可以复制配键，但不能读到尚未替换完整的条目。
+     * VM 提交顺序不变；此锁只保护 RAM 复制。 */
+    local_irq_disable();
     ++map_generation;
+    if (!map_generation) ++map_generation;
     memset(&s_rdx_hogp_key_action_active_keymap, 0, sizeof(s_rdx_hogp_key_action_active_keymap));
     s_rdx_hogp_key_action_active_keymap.version = keymap->version;
     s_rdx_hogp_key_action_active_keymap.key_count = keymap->key_count;
@@ -276,30 +308,28 @@ int rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap)
            keymap->keys,
            keymap->key_count * sizeof(keymap->keys[0]));
     s_rdx_hogp_key_action_active = 1;
+    local_irq_enable();
     return 0;
 }
 
 int rdx_hogp_key_action_press(u8 key_id, u32 input_epoch)
 {
+    rdx_hogp_key_action_keyboard_t action;
+    if (key_id >= RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) return -1;
+    local_irq_disable();
+    rdx_hogp_key_action_snapshot_locked(key_id, &action);
+    local_irq_enable();
+    return rdx_hogp_key_action_press_snapshot(key_id, input_epoch, &action);
+}
+
+int rdx_hogp_key_action_press_snapshot(u8 key_id, u32 input_epoch,
+                                     const rdx_hogp_key_action_keyboard_t *action)
+{
     rdx_hogp_keyboard_report_t report = {0};
-    rdx_hogp_key_action_keyboard_t *action;
     int ret;
 
     if (!token_valid || release_pending || held_key != 0xff) return -1;
-
-    if (key_id >= RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) {
-        return -1;
-    }
-
-    if (!s_rdx_hogp_key_action_active) {
-        return -1;
-    }
-
-    if (key_id >= s_rdx_hogp_key_action_active_keymap.key_count) {
-        return -1;
-    }
-
-    action = &s_rdx_hogp_key_action_active_keymap.keys[key_id];
+    if (!action || key_id >= RDX_HOGP_KEY_ACTION_PHYSICAL_KEY_COUNT) return -1;
 
     /* A disabled physical key is consumed by the HOGP owner but must not emit
      * either a key-down or a redundant all-zero release report. */

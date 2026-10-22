@@ -1981,15 +1981,6 @@ static void rdx_ble_server_rdx_connected_handle(void)
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
 
 #if (RDX_BJ_VERSION == BJ_BOARD_VERSION_02) || (RDX_MULTI_FUNC_INTERFACE == RDX_SUPPORT_EMMC) || (RDX_BJ_VERSION == BJ_BOARD_VERSION_03)
-    RecordStatus* rp = rdx_record_get_status();
-    if(rp->mode != RECORD_MODE_ONLINE){
-        rp->mode = RECORD_MODE_ONLINE;
-        if(rp->run == RECORD_STATE_STOP){
-            rp->orig_mode = RECORD_MODE_ONLINE;
-        }else{
-            y_printf("offline recording now, do not change original record mode \r");
-        }
-    }
     rdx_record_stream_resume_delayed();
 #endif
 }
@@ -2935,13 +2926,12 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     g_rdx_ble_server_info.stream_tx_ready = FALSE;
     rdx_ble_server_reset_send_fail_cnt();
     rdx_session_control_attach(link);
-    /* APP 接管 RDX 会话时，设备可能已经在进行离线录音。 */
+    /* 本地录音可向该归属链路发送状态与控制，但固定路由仍禁止
+     * 音频推流或改变录音来源，即使尚未初始化也不例外。 */
     {
         RecordStatus *record = rdx_record_get_status();
-        if (record && record->run != RECORD_STATE_STOP &&
-            rdx_record_online_session_bind_current()) {
-            r_printf("[RDX_RECORD] offline session bound to owner con=0x%04x\r",
-                     link->con_handle);
+        if (record && record->run != RECORD_STATE_STOP) {
+            rdx_record_online_session_bind_current();
         }
     }
     rdx_ble_server_rdx_connected_handle();

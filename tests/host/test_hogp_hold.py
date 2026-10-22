@@ -62,11 +62,18 @@ int offline, key5, route, ready, fail_down, fail_up, reports, attempts;
 u8 report_bytes[512][8];
 int offline_event;
 static int feedback_clicks;
+static int business_mode=1, local_events, local_cancels, cancel_fail;
+static int local_actions[512];
+static u32 local_ids[512];
+static u8 local_usages[512];
+static u32 cancelled_ids[32];
+static void (*local_callback_hook)(void);
 void rdx_app_key_click(u8 value,u8 action) { if(action==0) ++feedback_clicks; }
 int rdx_app_key_msg_handler(int *msg);
 int key5_events[32];
 int app_send_message_from(int a,int b,int *c);
 u8 rdx_app_hogp_input_route(void) { return route; }
+u8 rdx_app_local_key_mode(void) { return business_mode; }
 '''
 
 TRANSPORT = r'''
@@ -197,6 +204,33 @@ int test_pending_rdx_release_and_cancel(void) {
 '''
 
 SCAN_TESTS = r'''int rdx_app_key_msg_handler(int *msg) { ++offline; offline_event=((struct key_event *)msg)->event; return 1; }
+void rdx_app_local_key_gesture(const struct key_event *key, const rdx_hogp_input_cycle_t *cycle) {
+    if (in_irq || irq_depth) ++context_errors;
+    if (local_events < 512) {
+        local_actions[local_events]=key->event;
+        local_ids[local_events]=cycle->id;
+        local_usages[local_events]=cycle->usage;
+    }
+    ++local_events;
+    if(key->value==KEY_IO_NUM4) {
+        if(key5<32) key5_events[key5]=key->event;
+        ++key5;
+    } else {
+        ++offline; offline_event=key->event;
+    }
+    if (local_callback_hook) local_callback_hook();
+}
+u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *cycle) {
+    if (in_irq || irq_depth) ++context_errors;
+    if (local_cancels<32) cancelled_ids[local_cancels]=cycle->id;
+    ++local_cancels;
+    if (cancel_fail) return 0;
+    if(cycle->physical_key==KEY_IO_NUM4) {
+        if(key5<32) key5_events[key5]=KEY_ACTION_UP;
+        ++key5;
+    }
+    return 1;
+}
 int app_send_message_from(int a,int b,int *c) {
     if(key5<32) key5_events[key5]=((struct key_event *)c)->event;
     ++key5; return 0;
@@ -229,10 +263,14 @@ static void boot(int online) {
     input_epoch=1; scan_seq=scan_epoch=scan_baseline=0;
     overflow_count=reported_overflows=0; input_high_water=0;
     stable_key=NO_KEY; published_route=admission=0; cleanup_pending=1;
-    memset(cycle_epoch,0,sizeof(cycle_epoch)); memset(cycle_route,0,sizeof(cycle_route));
+    local_head=local_count=local_mode=local_admission=local_down=local_owner_pending=0;
+    local_cleanup_pending=1; local_epoch=1; cycle_sequence=local_baseline=local_overflows=0;
+    memset(&scan_cycle,0,sizeof(scan_cycle)); memset(&local_owner,0,sizeof(local_owner));
+    local_events=local_cancels=cancel_fail=0; business_mode=RDX_LOCAL_KEY_NORMAL;
+    local_callback_hook=NULL; memset(cancelled_ids,0,sizeof(cancelled_ids));
     memset(&published_token,0,sizeof(published_token));
     memset(&scan,0,sizeof(scan)); scan.last_key=scan.filter_value=NO_KEY;
-    filtered=scan_filtered=0; key_event_reset(); product_click_epoch=product_hold_epoch=0;
+    filtered=scan_filtered=0; key_event_reset();
     session_boot(0);
     route=online?2:1; ready=online;
     fail_up=fail_down=reports=attempts=offline=key5=0;
@@ -259,41 +297,17 @@ int test_plain_key_query_tracks_active_map(void) {
     CHECK(!rdx_hogp_key_action_is_plain_key(4,0x6c));
     return 0;
 }
-int test_feedback_uses_resolved_gestures(void) {
-    for(int mode=0;mode<2;mode++) {
-        for(int clicks=1;clicks<=3;clicks++) {
-            boot(1);
-            if(mode==0) { route=0; ready=0; tick(); settle(); }
-            feedback_clicks=0;
-            for(int i=0;i<clicks;i++) { sample(KEY_IO_NUM0); sample(NO_KEY); }
-            CHECK(feedback_clicks==0);
-            settle();
-            CHECK(feedback_clicks==(clicks==1?1:0));
-            CHECK(!offline);
-        }
-    }
-    boot(1); feedback_clicks=0;
-    for(int i=0;i<4;i++) { sample(KEY_IO_NUM0); tick(); }
-    sample(NO_KEY); settle(); CHECK(!feedback_clicks && !offline);
-    boot(1); feedback_clicks=0;
-    sample(KEY_IO_NUM0); sample(NO_KEY); reconnect(); settle();
-    CHECK(!feedback_clicks && !offline);
-    boot(0); admission=0;
-    sample(KEY_IO_NUM0); sample(NO_KEY); settle();
-    CHECK(!offline); /* Feedback must not grant offline business admission. */
-    return 0;
-}
 int test_short_long_and_fast_cycles(void) {
     boot(1); CHECK(admission);
     sample(KEY_IO_NUM0); tick(); CHECK(reports==1 && report_bytes[0][2]==4);
     for(int i=0;i<150;i++) { sample(KEY_IO_NUM0); tick(); }
-    CHECK(reports==1 && !offline);
-    sample(NO_KEY); tick(); CHECK(reports==2 && report_bytes[1][2]==0);
-    reports=0;
+    CHECK(reports==1 && local_events>0 && local_actions[0]==KEY_ACTION_LONG);
+    sample(NO_KEY); tick(); CHECK(reports==2 && report_bytes[1][2]==0 && local_cancels==1);
+    reports=offline=local_events=0;
     for(int i=0;i<3;i++) { sample(KEY_IO_NUM0); sample(NO_KEY); }
-    tick(); CHECK(reports==6 && !offline);
+    tick(); CHECK(reports==6 && offline==3);
     for(int i=0;i<6;i++) CHECK(report_bytes[i][2]==(i%2?0:4));
-    settle(); CHECK(!key5 && !offline && reports==6);
+    settle(); CHECK(!key5 && offline==3 && reports==6);
     return 0;
 }
 int test_release_retry_and_map_rollback(void) {
@@ -311,21 +325,16 @@ int test_release_retry_and_map_rollback(void) {
     CHECK(reports==5 && report_bytes[4][2]==4);
     return 0;
 }
-int test_offline_and_key5_are_preserved(void) {
-    for (int clicks=1;clicks<=3;clicks++) {
-        boot(0);
-        for (int i=0;i<clicks;i++) { sample(KEY_IO_NUM0); sample(NO_KEY); }
-        settle();
-        CHECK(offline==1 && offline_event==(clicks==1?KEY_ACTION_CLICK:
-              clicks==2?KEY_ACTION_DOUBLE_CLICK:KEY_ACTION_TRIPLE_CLICK));
-    }
+int test_local_gestures_survive_hid_reconnect(void) {
+    boot(0);
     sample(KEY_IO_NUM4); sample(NO_KEY); reconnect(); settle(); CHECK(key5==1);
     boot(0); sample(KEY_IO_NUM0); sample(NO_KEY);
-    reconnect(); settle(); CHECK(!offline); /* Discard an old offline click. */
+    reconnect(); settle(); CHECK(offline==1); /* HID 状态变化不丢弃本地单击。 */
     boot(0); sample(KEY_IO_NUM0); sample(KEY_IO_NUM0); tick();
     CHECK(get_key_hold(KEY_IO_NUM0,0));
     reconnect(); sample(KEY_IO_NUM4); sample(KEY_IO_NUM4); tick();
-    CHECK(get_key_hold(KEY_IO_NUM4,0) && !get_key_hold(KEY_IO_NUM0,0));
+    CHECK(local_cancels==1 && !local_owner.id && !local_admission);
+    sample(NO_KEY); settle(); CHECK(local_admission);
     return 0;
 }
 int test_key5_gestures_do_not_overlap(void) {
@@ -336,7 +345,7 @@ int test_key5_gestures_do_not_overlap(void) {
         CHECK(key5_events[0]==(clicks==1?KEY_ACTION_CLICK:KEY_ACTION_DOUBLE_CLICK));
     }
     boot(0);
-    for(int i=0;i<4;i++) sample(KEY_IO_NUM4);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
     sample(NO_KEY); settle();
     CHECK(key5>=2 && key5_events[0]==KEY_ACTION_LONG);
     CHECK(key5_events[key5-1]==KEY_ACTION_UP);
@@ -345,17 +354,7 @@ int test_key5_gestures_do_not_overlap(void) {
     }
     return 0;
 }
-int test_key5_hid_and_recording_gestures_coexist(void) {
-    boot(1);
-    sample(KEY_IO_NUM4); tick();
-    CHECK(reports==1 && report_bytes[0][2]==0x6c);
-    for(int i=0;i<10;i++) { sample(KEY_IO_NUM4); tick(); }
-    CHECK(reports==1 && key5>=1 && key5_events[0]==KEY_ACTION_LONG);
-    sample(NO_KEY); settle();
-    CHECK(reports==2 && report_bytes[1][2]==0);
-    CHECK(key5_events[key5-1]==KEY_ACTION_UP && !offline);
-
-    /* 禁用 HID 映射不能禁用录音手势处理路径。 */
+int test_disabled_map_keeps_physical_gestures(void) {
     boot(1);
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
     memset(&map.keys[4],0,sizeof(map.keys[4]));
@@ -366,12 +365,6 @@ int test_key5_hid_and_recording_gestures_coexist(void) {
     CHECK(!reports && key5>=2 && key5_events[0]==KEY_ACTION_LONG);
     CHECK(key5_events[key5-1]==KEY_ACTION_UP);
 
-    /* KEY5 松开上报失败时，使用与其他按键相同的释放恢复机制。 */
-    boot(1); sample(KEY_IO_NUM4); tick();
-    fail_up=1; sample(NO_KEY); tick();
-    CHECK(release_pending && reports==1);
-    fail_up=0; tick();
-    CHECK(!release_pending && reports==2 && !report_bytes[1][2]);
     return 0;
 }
 '''
@@ -439,7 +432,11 @@ int test_idle_worker_lifecycle(void) {
     sample(NO_KEY); run_app(); sample(NO_KEY); run_app();
     CHECK(offline==1 && offline_event==KEY_ACTION_CLICK && !timer_adds);
     route=RDX_HOGP_INPUT_DISCARD; rdx_hogp_input_invalidate(); run_app();
-    CHECK(!input_timer); /* 仅有 RDX 链路不等于 HID 已就绪。 */
+    CHECK(!input_timer); /* 仅 RDX 就绪不能禁止本地输入。 */
+    sample(NO_KEY); run_app();
+    int before=local_events;
+    sample(KEY_IO_NUM0); run_app(); sample(NO_KEY); run_app();
+    CHECK(local_events==before+1 && !input_timer);
     ready=1; route=RDX_HOGP_INPUT_HID; ++s_hid_epoch;
     rdx_hogp_input_wake(); run_app();
     CHECK(input_timer && timer_live);
@@ -470,6 +467,237 @@ int test_worker_notification_and_timer_failure_recovery(void) {
     CHECK(!input_timer && !release_pending && !irq_depth && !context_errors);
     return 0;
 }
+int test_down_snapshot_has_no_torn_map_and_classifies_plain_usage(void) {
+    boot(1);
+    rdx_hogp_key_action_keyboard_t action={0};
+    action.usages[5]=0x6d; CHECK(rdx_hogp_key_action_plain_usage(&action)==0x6d);
+    action.usages[0]=0x6d; CHECK(!rdx_hogp_key_action_plain_usage(&action));
+    action.usages[0]=0; action.modifiers=1; CHECK(!rdx_hogp_key_action_plain_usage(&action));
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[0].usages[0]=0x6e;
+    rdx_hogp_key_action_keymap_apply(&map);
+    /* 服务发布配键前发生的 Down 仍须锁定当前 RAM 中的实际配键。 */
+    sample(KEY_IO_NUM0);
+    rdx_hogp_input_cycle_t cycle;
+    CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0,&cycle));
+    CHECK(cycle.usage==0x6e && !cycle.hid_admitted);
+    for(int i=0;i<3;i++) { sample(KEY_IO_NUM0); tick(); }
+    CHECK(local_events && local_usages[0]==0x6e && !local_cancels);
+    sample(NO_KEY); settle(); CHECK(local_cancels==1);
+    return 0;
+}
+int test_snapshot_survives_map_change_and_hid_invalidation(void) {
+    async_boot();
+    sample(KEY_IO_NUM4); pump(6);
+    rdx_hogp_input_cycle_t before;
+    CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM4,&before) && before.usage==0x6c);
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[4].usages[0]=0x6e;
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+    pump(8);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); pump(2); }
+    CHECK(local_events && local_usages[0]==0x6c && local_ids[0]==before.id);
+    CHECK(!local_cancels && local_owner.id==before.id);
+    /* HID 令牌变化同样不能取消本次本地长按。 */
+    ready=0; route=RDX_HOGP_INPUT_DISCARD; rdx_hogp_input_invalidate(); pump(4);
+    CHECK(!local_cancels && local_owner.id==before.id);
+    sample(NO_KEY); pump(4); CHECK(local_cancels==1 && !local_owner.id);
+    settle(); sample(KEY_IO_NUM4); pump(2);
+    rdx_hogp_input_cycle_t after;
+    CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM4,&after));
+    CHECK(after.id!=before.id && after.usage==0x6e && after.map!=before.map);
+    return 0;
+}
+int test_failed_hid_down_and_up_do_not_lose_local_cleanup(void) {
+    for(int down_failure=0;down_failure<2;down_failure++) {
+        async_boot(); fail_down=down_failure;
+        for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); pump(2); }
+        CHECK(local_owner.id && local_events);
+        fail_up=1; sample(NO_KEY); pump(8);
+        CHECK(local_cancels==1 && !local_owner.id);
+        fail_up=fail_down=0; pump(8);
+        sample(NO_KEY); pump(4);
+        CHECK(!release_pending && !local_owner_pending && !context_errors);
+    }
+    return 0;
+}
+int test_hid_backlog_does_not_block_local_hold_or_release(void) {
+    async_boot(); sample(KEY_IO_NUM4); input_service(NULL);
+    CHECK(queue_count && !reports);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); input_service(NULL); }
+    CHECK(queue_count && local_owner.id && local_events && local_actions[0]==KEY_ACTION_LONG);
+    sample(NO_KEY); input_service(NULL);
+    CHECK(queue_count && local_cancels==1 && !local_owner.id && !reports);
+    pump(12); CHECK(reports==2 && !report_bytes[1][2] && !context_errors);
+    return 0;
+}
+int test_local_cancel_retries_outside_full_queues(void) {
+    boot(0); run_app();
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); run_app(); }
+    CHECK(local_owner.id);
+    rdx_hogp_input_cycle_t old=local_owner;
+    cancel_fail=1; app_post_fail=1; timer_fail=1;
+    sample(NO_KEY);
+    rdx_hogp_input_poll();
+    CHECK(local_owner_pending && local_owner.id==old.id && rdx_hogp_input_needs_poll());
+    int tries=local_cancels; rdx_hogp_input_poll(); CHECK(local_cancels>tries);
+    cancel_fail=0; rdx_hogp_input_poll();
+    CHECK(!local_owner_pending && !local_owner.id);
+    app_post_fail=timer_fail=0; settle();
+    rdx_hogp_input_gesture(&(struct key_event){.value=KEY_IO_NUM4,.event=KEY_ACTION_UP},&old);
+    tick(); CHECK(!local_owner.id);
+    return 0;
+}
+int test_local_overflow_cancels_owner_without_dropping_hid(void) {
+    async_boot();
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); pump(2); }
+    CHECK(local_owner.id && held_key==4);
+    int old_reports=reports;
+    rdx_hogp_input_cycle_t cycle=local_owner;
+    struct key_event key={.value=KEY_IO_NUM4,.event=KEY_ACTION_HOLD};
+    for(int i=0;i<LOCAL_FIFO_SIZE+1;i++) rdx_hogp_input_gesture(&key,&cycle);
+    CHECK(local_overflows==1 && !local_admission);
+    pump(6);
+    CHECK(local_cancels==1 && !local_owner.id && reports==old_reports && held_key==4);
+    sample(NO_KEY); pump(6); CHECK(held_key==0xff && reports==old_reports+1);
+    return 0;
+}
+int test_source_cancel_and_stale_held_events(void) {
+    boot(0);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    rdx_hogp_input_cycle_t old=local_owner;
+    CHECK(old.id);
+    int before=local_events;
+    struct key_event duplicate={.value=KEY_IO_NUM4,.event=KEY_ACTION_LONG};
+    rdx_hogp_input_gesture(&duplicate,&old); tick(); CHECK(local_events==before);
+    rdx_hogp_input_cancel(); tick(); CHECK(local_cancels==1 && !local_owner.id);
+    int events=local_events;
+    struct key_event key={.value=KEY_IO_NUM4,.event=KEY_ACTION_LONG};
+    rdx_hogp_input_gesture(&key,&old); tick(); CHECK(local_events==events);
+    sample(NO_KEY); settle();
+    /* LONG 排队到松开之后才处理时，也不能短暂启动录音。 */
+    boot(0);
+    for(int i=0;i<4;i++) sample(KEY_IO_NUM4);
+    sample(NO_KEY); settle(); CHECK(!local_events && !local_cancels);
+    return 0;
+}
+int test_f18_click_groups_keep_snapshots_and_key5_eight_clicks(void) {
+    boot(0);
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[0].usages[0]=0x6d; rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+    for(int i=0;i<2;++i) { sample(KEY_IO_NUM0); sample(NO_KEY); tick(); }
+    settle(); CHECK(local_events==1 && local_actions[0]==KEY_ACTION_DOUBLE_CLICK);
+    local_events=0;
+    sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(!local_events);
+    map.keys[0].usages[0]=0x68; rdx_hogp_key_action_keymap_apply(&map);
+    tick(); sample(KEY_IO_NUM0); sample(NO_KEY); tick();
+    CHECK(local_events==2 && local_actions[0]==KEY_ACTION_CLICK && local_actions[1]==KEY_ACTION_CLICK);
+    CHECK(local_usages[0]==0x6d && local_usages[1]==0x68 && local_ids[0]!=local_ids[1]);
+    settle(); CHECK(local_events==2);
+    for(int dut=0;dut<2;dut++) {
+        boot(0); business_mode=dut?RDX_LOCAL_KEY_DUT:RDX_LOCAL_KEY_NORMAL; tick(); settle();
+        for(int i=0;i<8;i++) { sample(KEY_IO_NUM4); sample(NO_KEY); tick(); }
+        CHECK(!local_events); settle();
+        CHECK(local_events==1 && local_actions[0]==KEY_ACTION_EIGHTUPLE_CLICK);
+        if(dut) {
+            sample(KEY_IO_NUM0); sample(NO_KEY); settle(); CHECK(local_events==1);
+        }
+    }
+    return 0;
+}
+int test_pending_click_survives_next_map_long_press(void) {
+    boot(0);
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[0].usages[0]=0x6d; rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+    sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(!local_events);
+    map.keys[0].usages[0]=0x6e; rdx_hogp_key_action_keymap_apply(&map); tick();
+    for(int i=0;i<3;i++) { sample(KEY_IO_NUM0); tick(); }
+    CHECK(local_events>=2 && local_actions[0]==KEY_ACTION_CLICK && local_usages[0]==0x6d);
+    CHECK(local_actions[1]==KEY_ACTION_LONG && local_usages[1]==0x6e);
+    sample(NO_KEY); settle(); CHECK(local_cancels==1);
+    return 0;
+}
+int test_no_key_never_wraps_into_a_click(void) {
+    boot(0);
+    for(int i=0;i<270;i++) { sample(KEY_IO_NUM4); sample(NO_KEY); tick(); }
+    settle(); CHECK(!local_events);
+    sample(KEY_IO_NUM4); sample(NO_KEY); settle();
+    CHECK(local_events==1 && local_actions[0]==KEY_ACTION_CLICK);
+    return 0;
+}
+int test_cancel_pending_rejects_new_press_until_release(void) {
+    boot(0);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    cancel_fail=1; sample(NO_KEY); tick();
+    CHECK(local_owner_pending && !local_admission);
+    sample(KEY_IO_NUM4); tick();
+    cancel_fail=0; tick();
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    CHECK(!local_owner.id && !local_admission);
+    sample(NO_KEY); settle(); CHECK(local_admission);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    CHECK(local_owner.id);
+    return 0;
+}
+int test_hid_fifo_overflow_keeps_local_owner_until_real_release(void) {
+    async_boot();
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); pump(2); }
+    CHECK(local_owner.id && held_key==4);
+    struct input_event e={0}; e.epoch=input_epoch;
+    local_irq_disable();
+    for(int i=0;i<INPUT_FIFO_SIZE+1;i++) enqueue_locked(&e);
+    local_irq_enable();
+    CHECK(overflow_count && local_owner.id && local_admission);
+    pump(6); CHECK(!local_cancels && local_owner.id);
+    sample(NO_KEY); pump(6); CHECK(local_cancels==1 && !local_owner.id);
+    return 0;
+}
+static void scan_new_hold_during_business(void) {
+    local_callback_hook=NULL;
+    in_irq=1;
+    sample(NO_KEY);
+    for(int i=0;i<4;i++) sample(KEY_IO_NUM4);
+    in_irq=0;
+}
+int test_scan_irq_cannot_overwrite_unreleased_owner(void) {
+    boot(0);
+    local_callback_hook=scan_new_hold_during_business;
+    sample(KEY_IO_NUM4); sample(KEY_IO_NUM4); tick();
+    CHECK(local_events>=2 && local_actions[0]==KEY_ACTION_LONG && local_actions[1]==KEY_ACTION_LONG);
+    CHECK(local_ids[0]!=local_ids[1] && local_cancels==1 && cancelled_ids[0]==local_ids[0]);
+    CHECK(local_owner.id==local_ids[1]);
+    sample(NO_KEY); tick(); CHECK(local_cancels==2 && cancelled_ids[1]==local_ids[1]);
+    CHECK(!context_errors);
+    return 0;
+}
+int test_filtered_source_cancels_hold_and_quarantines_release(void) {
+    boot(0);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); tick(); }
+    CHECK(local_owner.id);
+    filtered=1; sample(KEY_IO_NUM4); tick();
+    CHECK(local_cancels==1 && !local_owner.id && !local_admission);
+    filtered=0; sample(KEY_IO_NUM4); tick(); CHECK(!local_admission);
+    sample(NO_KEY); settle(); CHECK(local_admission);
+    int before=key5;
+    sample(KEY_IO_NUM4); sample(NO_KEY); settle();
+    CHECK(key5==before+1 && key5_events[key5-1]==KEY_ACTION_CLICK);
+    return 0;
+}
+int test_cycle_sequence_wrap_never_uses_zero(void) {
+    boot(0); cycle_sequence=0xffffffffu;
+    sample(KEY_IO_NUM0);
+    rdx_hogp_input_cycle_t cycle;
+    CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0,&cycle) && cycle.id==1);
+    sample(NO_KEY); tick(); CHECK(local_events==1 && local_ids[0]==1);
+    return 0;
+}
+int test_blocked_mode_cannot_replay_old_gestures(void) {
+    boot(0); sample(KEY_IO_NUM0); sample(NO_KEY);
+    business_mode=RDX_LOCAL_KEY_BLOCKED; tick(); CHECK(!local_events);
+    business_mode=RDX_LOCAL_KEY_NORMAL; tick(); settle(); CHECK(!local_events);
+    sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(local_events==1);
+    return 0;
+}
 int test_offline_gestures_without_periodic_ticks(void) {
     for(int clicks=1;clicks<=3;clicks++) {
         boot(0); run_app(); rdx_hogp_input_poll(); run_app();
@@ -477,8 +705,7 @@ int test_offline_gestures_without_periodic_ticks(void) {
             sample(KEY_IO_NUM0); run_app(); sample(NO_KEY); run_app();
         }
         sample(NO_KEY); run_app(); sample(NO_KEY); run_app();
-        CHECK(offline==1 && offline_event==(clicks==1?KEY_ACTION_CLICK:
-              clicks==2?KEY_ACTION_DOUBLE_CLICK:KEY_ACTION_TRIPLE_CLICK));
+        CHECK(offline==clicks && offline_event==KEY_ACTION_CLICK);
         CHECK(!input_timer && !timer_adds);
     }
     boot(0); run_app(); rdx_hogp_input_poll(); run_app();
@@ -506,16 +733,18 @@ def main():
     keyboard = source('rdx_hogp_keyboard.c')
     program = (STUBS + types + '\n' +
                header[header.index('#define RDX_HOGP_KEYBOARD_REPORT_LEN'):header.index('int rdx_hogp_keyboard_report_send(')] +
+               no_includes(source('rdx_hogp_key_action.h')) +
                no_includes(source('rdx_hogp_input.h')) +
+               'void rdx_app_local_key_gesture(const struct key_event *, const rdx_hogp_input_cycle_t *);\n'
+               'u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *);\n' +
                no_includes(source('rdx_ble_session.h')) + no_includes(source('rdx_ble_session.c')) +
                TRANSPORT + keyboard[keyboard.index('enum hogp_tx_state'):keyboard.index('int rdx_hogp_keyboard_report_send(')] +
                ''.join(function(keyboard, name) for name in (
                    'u8 rdx_hogp_token_capture(', 'static int hogp_report_submit(',
                    'static void hogp_tx_execute(', 'int rdx_hogp_report_send_for_input(',
                    'int rdx_hogp_report_send_for_token(')) +
-               no_includes(source('rdx_hogp_key_action.h')) + no_includes(source('rdx_hogp_key_action.c')) +
-               no_includes(source('rdx_hogp_input.c')) +
-               'static u32 product_click_epoch, product_hold_epoch;\n' + adapter_state +
+               no_includes(source('rdx_hogp_key_action.c')) +
+               no_includes(source('rdx_hogp_input.c')) + adapter_state +
                function(adapter, 'void key_event_handler(') + SESSION_TESTS + SCAN_TESTS +
                function(driver, 'static void key_driver_scan(') + ASYNC_TESTS)
     with tempfile.TemporaryDirectory(prefix='hogp-hold-') as temp:
@@ -523,9 +752,9 @@ def main():
         path.write_text(program, encoding='utf-8')
         tests = re.findall(r'int (test_\w+)\(void\)', SCAN_TESTS + SESSION_TESTS + ASYNC_TESTS)
         run_c_checks(path, tests, native=True)
-    print('HOGP actual C scan/gesture/FIFO/session/async ATT behavior passed.')
-    from key5_record_checks import main as check_key5_record
-    check_key5_record()
+    print(f'HOGP actual C scan/gesture/FIFO/session/async ATT: {len(tests)} scenarios passed.')
+    from key_record_dispatch_checks import main as check_local_keys
+    check_local_keys()
     from led_key_feedback_checks import main as check_key_led
     check_key_led()
 

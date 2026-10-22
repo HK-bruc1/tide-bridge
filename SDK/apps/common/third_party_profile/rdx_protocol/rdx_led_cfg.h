@@ -146,8 +146,7 @@ typedef enum {
     RDX_LED_EFFECT_DUT_LED_TEST,
     RDX_LED_EFFECT_FINALPACK_DONE,
     RDX_LED_EFFECT_RECORD_SOLID,    /* 按住录音：白色常亮 */
-    RDX_LED_EFFECT_KEY1_BLUE,
-    RDX_LED_EFFECT_KEY2_WHITE,
+    RDX_LED_EFFECT_KEY_CUSTOM_WHITE,
     RDX_LED_EFFECT_MAX,
     RDX_LED_EFFECT_SMART = 0xFF,     /* 场景由 set_scene() 内部逻辑处理，不查表 */
 } rdx_led_effect_e;
@@ -170,8 +169,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
     /* 播放、暂停与录音标记共用黄色两秒提示参数，业务场景保持独立。 */
     [RDX_LED_SCENE_PLAYBACK_PLAY]    = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
     [RDX_LED_SCENE_PLAYBACK_PAUSE]   = RDX_LED_EFFECT_RECORD_MARK_YELLOW,
-    [RDX_LED_SCENE_KEY1_FEEDBACK]    = RDX_LED_EFFECT_KEY1_BLUE,
-    [RDX_LED_SCENE_KEY2_FEEDBACK]    = RDX_LED_EFFECT_KEY2_WHITE,
+    [RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK] = RDX_LED_EFFECT_KEY_CUSTOM_WHITE,
     [RDX_LED_SCENE_RECORD_STOP]      = RDX_LED_EFFECT_SMART,   /* restore_system_state() */
     [RDX_LED_SCENE_OTA_START]        = RDX_LED_EFFECT_OTA_YELLOW_SOLID,
     [RDX_LED_SCENE_OTA_STOP]         = RDX_LED_EFFECT_BLE_ADV_BLINK,
@@ -192,14 +190,7 @@ static const u8 rdx_led_scene_to_effect[RDX_LED_SCENE_MAX] = {
 /* 所有产品级LED颜色、时序、亮度都在此定义。
    rdx_led_ctrl.c中的引擎不硬编码任何这些值。 */
 static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
-    [RDX_LED_EFFECT_KEY1_BLUE] = {
-        .mode = RDX_LED_MODE_SOLID_TIMEOUT,
-        .r = 0, .g = 0, .b = 255,
-        .brightness = 200,
-        .on_ms = RDX_LED_SINGLE_INDICATION_MS,
-        .timeout_ms = RDX_LED_SINGLE_INDICATION_MS,
-    },
-    [RDX_LED_EFFECT_KEY2_WHITE] = {
+    [RDX_LED_EFFECT_KEY_CUSTOM_WHITE] = {
         .mode = RDX_LED_MODE_SOLID_TIMEOUT,
         .r = 181, .g = 82, .b = 255,  /* 沿用设备校准后的白色 */
         .brightness = 255,

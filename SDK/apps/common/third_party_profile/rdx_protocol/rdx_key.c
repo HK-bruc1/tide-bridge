@@ -434,156 +434,32 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
     APP_MSG_NULL
 };
 
-// ============================================================
-// IO NUM 映射表 — 5 个物理 IO 键 (KEY_IO_NUM0~4)
-// 格式与业务按键表对齐: 每个 KEY_ACTION 位置一行 + 中文注释
-// 短按抬起后经多击判定生成 CLICK/DOUBLE_CLICK；
-// 持续按下生成 LONG/HOLD，长按抬起生成 UP
-// ============================================================
-
-/* RDX 在线就绪时，KEY5 长按开始在线录音流，抬起停止。 */
-u8 key_table_record_hold[KEY_ACTION_MAX] = {
-    APP_MSG_NULL,              // CLICK
-    APP_MSG_RECORD_HOLD_START, // LONG
-    APP_MSG_NULL,              // HOLD
-    APP_MSG_RECORD_HOLD_STOP,  // UP
-    APP_MSG_NULL,              // DOUBLE_CLICK
-    APP_MSG_NULL,              // TRIPLE_CLICK
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
+/* 无修饰键的单一键盘 Usage 共用一张业务表，与 GPIO 无关。 */
+static const u8 key_table_usage[7][KEY_ACTION_MAX] = {
+    [0x68 - 0x68] = {
+        [KEY_ACTION_CLICK] = APP_MSG_REC_PREV,
+        [KEY_ACTION_LONG] = APP_MSG_REC_FR,
+        [KEY_ACTION_HOLD] = APP_MSG_REC_FR,
+    },
+    [0x69 - 0x68] = {
+        [KEY_ACTION_CLICK] = APP_MSG_REC_NEXT,
+        [KEY_ACTION_LONG] = APP_MSG_REC_FF,
+        [KEY_ACTION_HOLD] = APP_MSG_REC_FF,
+    },
+    [0x6a - 0x68] = {[KEY_ACTION_CLICK] = APP_MSG_LOCAL_VOL_DOWN},
+    [0x6b - 0x68] = {[KEY_ACTION_CLICK] = APP_MSG_LOCAL_VOL_UP},
+    [0x6c - 0x68] = {[KEY_ACTION_CLICK] = APP_MSG_REC_PLAY_TOGGLE},
+    [0x6d - 0x68] = {[KEY_ACTION_DOUBLE_CLICK] = APP_MSG_RECORD_LOCAL_TOGGLE},
+    [0x6e - 0x68] = {[KEY_ACTION_LONG] = APP_MSG_RECORD_LOCAL_HOLD_START},
 };
 
-// KEY_IO_NUM0: 单击上一条录音文件，长按快退；双击不分配动作
-u8 key_table_io_num0_normal[KEY_ACTION_MAX] = {
-    APP_MSG_REC_PREV,          //短按
-    APP_MSG_REC_FR,            //长按 (LONG: 快退)
-    APP_MSG_REC_FR,            //持续按住：每次 HOLD 快退一步
-    APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
-
-// KEY_IO_NUM1: 单击下一条录音文件，长按快进；双击不分配动作
-u8 key_table_io_num1_normal[KEY_ACTION_MAX] = {
-    APP_MSG_REC_NEXT,          //短按
-    APP_MSG_REC_FF,            //长按 (LONG: 快进)
-    APP_MSG_REC_FF,            //持续按住：每次 HOLD 快进一步
-    APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
-
-// KEY_IO_NUM2: 单击本地音量减，每次两级
-u8 key_table_io_num2_normal[KEY_ACTION_MAX] = {
-    APP_MSG_LOCAL_VOL_DOWN,    //短按
-    APP_MSG_NULL,              //长按
-    APP_MSG_NULL,              //hold
-    APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
-
-// KEY_IO_NUM3: 单击本地音量加，每次两级
-u8 key_table_io_num3_normal[KEY_ACTION_MAX] = {
-    APP_MSG_LOCAL_VOL_UP,      //短按
-    APP_MSG_NULL,              //长按
-    APP_MSG_NULL,              //hold
-    APP_MSG_NULL,              //长按抬起
-    APP_MSG_NULL,              //双击
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
-
-// KEY_IO_NUM4: 离线单击播放/暂停，双击切换录音，长按录音并在松开时结束
-u8 key_table_io_num4_normal[KEY_ACTION_MAX] = {
-    APP_MSG_REC_PLAY_TOGGLE,   //短按 (离线播放/暂停切换)
-    APP_MSG_RECORD_LOCAL_HOLD_START, //长按开始本地录音
-    APP_MSG_NULL,              //hold
-    APP_MSG_RECORD_LOCAL_HOLD_STOP, //只结束本次长按启动的录音
-    APP_MSG_RECORD_LOCAL_TOGGLE, //双击开始/结束录音
-    APP_MSG_NULL,              //三击
-    APP_MSG_NULL,
-    APP_MSG_NULL,              //五击
-    APP_MSG_NULL,              //六击
-    APP_MSG_NULL,
-    APP_MSG_DUT,
-    APP_MSG_NULL,              //index = 11
-    APP_MSG_NULL,              //长按3s
-    APP_MSG_NULL,              //长按5s
-    APP_MSG_NULL,              //长按8s
-    APP_MSG_NULL,              //长按10s
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-    APP_MSG_NULL,
-};
+u8 rdx_key_usage_message(u8 usage, u8 action)
+{
+    if (usage < 0x68 || usage > 0x6e || action >= KEY_ACTION_MAX) {
+        return APP_MSG_NULL;
+    }
+    return key_table_usage[usage - 0x68][action];
+}
 
 /* KEY5 在 DUT 场景下双击开关粉红噪音、八击退出，普通业务动作保持禁用。 */
 static u8 key_table_io_num4_dut[KEY_ACTION_MAX] = {
@@ -609,28 +485,9 @@ static u8 key_table_io_num4_dut[KEY_ACTION_MAX] = {
     APP_MSG_NULL,
 };
 
-static u8 *g_num_normal_tables[] = {
-	key_table_io_num0_normal,
-	key_table_io_num1_normal,
-	key_table_io_num2_normal,
-	key_table_io_num3_normal,
-	key_table_io_num4_normal,
-};
-
 u8 *rdx_key_get_io_num_table(int num_idx, int scene)
 {
-	if (num_idx < 0 || num_idx > 4) {
-		return NULL;
-	}
-	// scene: 0=IDLE, 1=NORMAL, 2=RECORDING, 3=WIFI, 4=DUT, 5=OTA
-	switch (scene) {
-	case 4:  // DUT — KEY5 双击煲机、八击退出
-		return num_idx == 4 ? key_table_io_num4_dut : NULL;
-	case 5:  // OTA — 物理按键不应干扰升级
-		return NULL;
-	default:
-		return g_num_normal_tables[num_idx];
-	}
+    return num_idx == 4 && scene == 4 ? key_table_io_num4_dut : NULL;
 }
 
 // DEBUG: print which IO NUM key triggered

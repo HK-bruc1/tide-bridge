@@ -247,7 +247,7 @@ Assert-Contract 'RECORD_STOP_RETRY_IS_BOUNDED_AND_IDEMPOTENT' (
     $Record -match '(?s)bool rdx_record_process_is_busy_check\(void\)\s*\{.*?if \(g_app_stop_pending\).*?return TRUE;' -and
     (Test-TokensInOrder $RecordCommand @('rdx_record_app_stop_request(token)',
         'if (g_app_stop_pending)', 'command rejected: STOP pending', 'if(r_info->cmd == (RECORD_STATE_START + 0x30))')) -and
-    $App -match 'run == RECORD_STATE_START && rdx_record_process_is_busy_check\(\)'
+    $App -match '(?s)run != RECORD_STATE_START.*?rdx_record_process_is_busy_check\(\)'
 ) 'coalesce retries, observe already-stopped state without closing twice, retry queue pressure and fence new starts'
 
 Assert-Contract 'RECORD_STOP_RETAINS_POWER_AND_STORAGE_BUSY_FENCE' (

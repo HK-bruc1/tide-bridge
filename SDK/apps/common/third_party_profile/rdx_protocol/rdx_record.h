@@ -60,6 +60,20 @@ extern "C" {
 #define RECORD_MODE_OFFLINE                             (0u)
 #define RECORD_MODE_ONLINE                              (1u)
 
+enum rdx_record_kind {
+    RDX_RECORD_MEETING,
+    RDX_RECORD_INSPIRATION,
+    RDX_RECORD_CALL,
+    RDX_RECORD_FACTORY,
+};
+
+enum rdx_record_key_state {
+    RDX_RECORD_KEY_IDLE,
+    RDX_RECORD_KEY_START_PENDING,
+    RDX_RECORD_KEY_ACTIVE,
+    RDX_RECORD_KEY_STOPPING,
+};
+
 #define RECORD_MIC_DB_VALUE_MIN                         (0)
 #define RECORD_MIC_DB_VALUE_MAX                         (19)
 
@@ -165,14 +179,24 @@ void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
 u8 rdx_record_online_session_token_capture(rdx_ble_async_token_t *token);
 u8 rdx_record_online_session_token_is_current(
     const rdx_ble_async_token_t *token);
-/* Bind the current live RDX link as the online record session, mirroring
- * what rdx_record_cmd_handle_from_rdx() does for an App-issued record
- * command.  Non-APP start paths (e.g. DUT factory tests) call this before
- * starting so the recorder takes the online branch (online stream +
- * local save + record state indications).  Returns 0 when no live RDX
- * runtime-active link exists, leaving the caller in offline behavior. */
+/* 将当前有效的 RDX 链路绑定为在线录音会话，与
+ * rdx_record_cmd_handle_from_rdx() 处理 APP 录音命令时一致。
+ * 非 APP 开始入口（如 DUT 工厂测试）须在开始前调用，
+ * 使录音走在线分支：推流、本地保存和录音状态通知。
+ * 固定本地路由的按键会话只绑定控制与状态，
+ * 不得改变录音来源或音频路由。若没有运行态有效的 RDX 链路，
+ * 则返回 0，调用方继续按离线方式运行。 */
 u8 rdx_record_online_session_bind_current(void);
 u8 rdx_record_transport_is_detached(void);
+/* 仅由 app_core 操作的旁路上下文，不改变面向库的 RecordStatus ABI。 */
+u8 rdx_record_kind_get(void);
+u8 rdx_record_key_state_get(void);
+u8 rdx_record_key_start_prepare(u8 kind, u8 route,
+                               const rdx_ble_async_token_t *token);
+void rdx_record_key_start_abort(void);
+u32 rdx_record_key_request_generation(void);
+u8 rdx_record_key_request_is_current(u32 generation);
+u8 rdx_record_stream_only_token_capture(rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);

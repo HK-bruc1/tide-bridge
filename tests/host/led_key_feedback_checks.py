@@ -152,7 +152,7 @@ int test_protocol_restore_has_no_idle_timer(void) {
     }
     /* 硬件恢复与真正的灯效请求分开，协议任务不执行动态 SPI 灯效。 */
     task="protocol_recv_task";
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     CHECK(request_count==1 && !g_led_update_timer && !rgb.b);
     drain_requests();
     CHECK(rgb.b && timer_count()==1);
@@ -190,22 +190,22 @@ int test_dynamic_and_solid_scheduling(void) {
     return 0;
 }
 int test_stale_callbacks_and_reinit(void) {
-    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     Timer old=timers[g_led_update_timer];
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
     u32 generation=g_led_timer_generation, id=g_led_update_timer;
     old.cb(old.priv);
     CHECK(g_led_update_timer==id && g_led_timer_generation==generation && timer_count()==1);
-    CHECK(g_current_scene==RDX_LED_SCENE_KEY2_FEEDBACK);
+    CHECK(g_current_scene==RDX_LED_SCENE_RECORD_MARK);
     old=timers[id];
     rdx_led_ctrl_deinit();
     task="protocol_recv_task"; CHECK(!rdx_led_ctrl_init(&config));
     task="app_core"; old.cb(old.priv);
     CHECK(!timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     id=g_led_update_timer;
     CHECK(!rdx_led_ctrl_init(&config) && g_led_update_timer==id);
-    task="protocol_recv_task"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
+    task="protocol_recv_task"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
     task="app_core"; rdx_led_ctrl_deinit(); CHECK(!rdx_led_ctrl_init(&config));
     drain_requests(); CHECK(!timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
     return 0;
@@ -225,7 +225,7 @@ int test_deferred_scene_order_and_shutdown(void) {
     reset(); record.run=RECORD_STATE_START; task="protocol_recv_task";
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
     task="app_core"; rdx_led_ctrl_show_battery();
-    drain_requests(); CHECK(g_current_scene==RDX_LED_SCENE_RECORD_START);
+    drain_requests(); CHECK(g_current_scene==RDX_LED_SCENE_BATTERY_QUERY);
     /* 队列失败后的单次超时可能比后发消息晚到，不能反向覆盖结束状态。 */
     reset(); ota=1; post_fail=1; task="protocol_recv_task";
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
@@ -236,19 +236,19 @@ int test_deferred_scene_order_and_shutdown(void) {
     app_var.goto_poweroff_flag=1; drain_requests();
     CHECK(g_current_scene==RDX_LED_SCENE_OFF && !timer_count());
     reset(); g_led_request_serial=g_led_applied_request=0xfffffe;
-    task="protocol_recv_task"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
-    task="app_core"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
-    drain_requests(); CHECK(g_current_scene==RDX_LED_SCENE_KEY2_FEEDBACK);
+    task="protocol_recv_task"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
+    task="app_core"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
+    drain_requests(); CHECK(g_current_scene==RDX_LED_SCENE_RECORD_MARK);
     task="protocol_recv_task"; rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     drain_requests(); CHECK(g_current_scene==RDX_LED_SCENE_OFF && !timer_count());
     return 0;
 }
 int test_real_deadlines_and_wrap(void) {
     reset(); now_ms=0xffffff00;
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     advance(1999); CHECK(rgb.b && !callbacks);
     advance(1); CHECK(!rgb.b && callbacks==1 && !timer_count());
-    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     Timer old=timers[g_led_update_timer]; timers[g_led_update_timer].active=0;
     now_ms=3500; old.cb(old.priv);
     CHECK(g_current_scene==RDX_LED_SCENE_OFF && !timer_count());
@@ -295,7 +295,7 @@ int test_binding_notification_without_tick(void) {
 }
 int test_timer_and_dispatch_failure(void) {
     reset(); timer_fail=1;
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     CHECK(errors==1 && !timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
     CHECK(!rgb.r && !rgb.g && !rgb.b);
     reset(); record.run=RECORD_STATE_START;
@@ -306,12 +306,12 @@ int test_timer_and_dispatch_failure(void) {
     rdx_led_ctrl_set_charge_state_by_battery(80);
     CHECK(!timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
     reset(); post_fail=1; task="protocol_recv_task";
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     CHECK(timer_count()==1 && !request_count && !rgb.b);
     advance(1); CHECK(rgb.b && timer_count()==1 && !wrong_owner);
     advance(2000); CHECK(!timer_count());
     reset(); post_fail=timer_fail=1; task="protocol_recv_task";
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     CHECK(errors==1 && !timer_count() && !request_count && !rgb.b && !spi_wrong_owner);
     CHECK(rdx_led_ctrl_needs_service());
     task="app_core"; post_fail=timer_fail=0; rdx_led_ctrl_service();
@@ -325,16 +325,16 @@ int test_timer_and_dispatch_failure(void) {
     task="app_core"; rdx_led_ctrl_service();
     CHECK(!rdx_led_ctrl_needs_service() && !timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
     reset(); post_fail=timer_fail=1; task="protocol_recv_task";
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
     task="app_core"; timer_fail=0; rdx_led_ctrl_service();
     CHECK(!rdx_led_ctrl_needs_service() && !timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
     /* 已接受的新场景使恢复槽中的旧请求失效。 */
     reset(); post_fail=timer_fail=1; task="protocol_recv_task";
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
-    task="app_core"; timer_fail=0; rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
+    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
+    task="app_core"; timer_fail=0; rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
     rdx_led_ctrl_service();
-    CHECK(!rdx_led_ctrl_needs_service() && g_current_scene==RDX_LED_SCENE_KEY2_FEEDBACK);
+    CHECK(!rdx_led_ctrl_needs_service() && g_current_scene==RDX_LED_SCENE_RECORD_MARK);
     reset(); bound=g_led_bound_status=1; link=0; battery=5;
     post_fail=timer_fail=1; task="protocol_recv_task";
     bound=0; rdx_led_ctrl_bound_changed(); rdx_led_ctrl_update_low_battery();
@@ -347,30 +347,22 @@ int test_timer_and_dispatch_failure(void) {
     timer_fail=0; rdx_led_ctrl_update_low_battery(); CHECK(g_low_battery_timer);
     return 0;
 }
-int test_key_feedback_color_timeout(void) {
-    for(int key=0;key<2;++key) {
-        reset();
-        rdx_led_ctrl_set_scene(key ? RDX_LED_SCENE_KEY2_FEEDBACK : RDX_LED_SCENE_KEY1_FEEDBACK);
-        CHECK(g_active_effect->timeout_ms==2000);
-        CHECK(rgb.r==(key?181:0) && rgb.g==(key?82:0) && rgb.b==(key?255:200));
-        for(int i=0;i<99;++i) tick();
-        CHECK(_rdx_led_is_key_feedback_scene(g_current_scene));
-        rdx_led_ctrl_show_battery();
-        CHECK(_rdx_led_is_key_feedback_scene(g_current_scene) && g_effect_elapsed_ms==1980);
-        tick();
-        CHECK(g_current_scene==RDX_LED_SCENE_OFF && !rgb.r && !rgb.g && !rgb.b);
+int test_feedback_color_and_deadline(void) {
+    const int scenes[]={RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK,RDX_LED_SCENE_RECORD_MARK,
+        RDX_LED_SCENE_PLAYBACK_PLAY,RDX_LED_SCENE_PLAYBACK_PAUSE};
+    for(int i=0;i<4;++i) {
+        reset(); rdx_led_ctrl_set_scene(scenes[i]);
+        CHECK(rgb.r==(i?255:181) && rgb.g==(i?160:82) && rgb.b==(i?0:255));
+        advance(1999); rdx_led_ctrl_show_battery();
+        CHECK(g_current_scene==scenes[i]);
+        advance(1);
+        CHECK(g_current_scene==RDX_LED_SCENE_OFF && !rgb.r && !rgb.g && !rgb.b && !timer_count());
     }
-    reset(); rdx_led_ctrl_show_battery();
-    CHECK(g_current_scene==RDX_LED_SCENE_BATTERY_QUERY);
-    rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
-    CHECK(g_current_scene==RDX_LED_SCENE_KEY1_FEEDBACK && !rgb.g && rgb.b);
     return 0;
 }
 int test_key_feedback_protected_scenes(void) {
-    for(int key=0;key<2;++key) for(int guard=0;guard<12;++guard) {
+    for(int guard=2;guard<12;++guard) {
         reset();
-        if(guard==0) record.run=RECORD_STATE_START;
-        if(guard==1) record.run=RECORD_STATE_RESUME;
         if(guard==2) wifi.onoff=TRANSFER_BY_WIFI_ON;
         if(guard==3) ota=1;
         if(guard==4) dut=1;
@@ -383,48 +375,92 @@ int test_key_feedback_protected_scenes(void) {
         if(guard==11) g_current_scene=RDX_LED_SCENE_LOW_BATTERY;
         rdx_led_scene_e before=g_current_scene;
         g_effect_elapsed_ms=100;
-        rdx_led_ctrl_set_scene(key ? RDX_LED_SCENE_KEY2_FEEDBACK : RDX_LED_SCENE_KEY1_FEEDBACK);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
         CHECK(g_current_scene==before && g_effect_elapsed_ms==100 && !wakes);
     }
     return 0;
 }
 int test_key_feedback_live_restore(void) {
     for(int next=0;next<6;++next) {
-        reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
+        reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
         if(next==0) { record.run=RECORD_STATE_START; hold=1; }
         if(next==1) wifi.onoff=TRANSFER_BY_WIFI_ON;
         if(next==2) ota=1;
         if(next==3) dut=1;
         if(next==4) { charge=RDX_CHARGE_IN; usb=1; }
         if(next==5) transition=1;
-        tick();
+        if(next==0) { advance(2000); } else { tick(); }
         int expected[]={RDX_LED_SCENE_RECORD_START,RDX_LED_SCENE_WIFI_START,
             RDX_LED_SCENE_OTA_START,RDX_LED_SCENE_DUT_ENTER,
             RDX_LED_SCENE_CHARGE_PLUG_IN,RDX_LED_SCENE_USB_SWITCH_WAIT};
         CHECK(g_current_scene==expected[next]);
     }
-    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
+    reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
     link=0;
     for(int i=0;i<100;++i) tick();
     CHECK(g_current_scene==RDX_LED_SCENE_BLE_ADV_START);
     return 0;
 }
-int test_single_indication_duration(void) {
-    for(int scene=0;scene<3;++scene) {
-        reset();
-        if(scene==0) {
-            record.run=RECORD_STATE_START;
-            rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
-        } else {
-            battery=scene==1?80:5;
-            rdx_led_ctrl_show_battery();
+int test_battery_and_recording_kind_restore(void) {
+    for(int low=0;low<2;++low) {
+        reset(); battery=low?5:80; rdx_led_ctrl_show_battery();
+        advance(1999); CHECK(g_current_scene==RDX_LED_SCENE_BATTERY_QUERY);
+        advance(1); CHECK(g_current_scene==RDX_LED_SCENE_OFF);
+    }
+    for(int inspiration=0;inspiration<2;++inspiration) {
+        reset(); record.run=RECORD_STATE_START; hold=inspiration;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        for(int color=0;color<2;++color) {
+            rdx_led_ctrl_set_scene(color?RDX_LED_SCENE_RECORD_MARK:RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
+            CHECK(_rdx_led_is_key_overlay_scene(g_current_scene));
+            advance(2000);
+            CHECK(g_current_scene==RDX_LED_SCENE_RECORD_START);
+            CHECK(g_active_effect->mode==(inspiration?RDX_LED_MODE_SOLID:RDX_LED_MODE_BREATH));
         }
-        rdx_led_scene_e before=g_current_scene;
-        CHECK(g_active_effect->timeout_ms==2000);
-        for(int i=0;i<99;++i) tick();
-        CHECK(g_current_scene==before && g_effect_elapsed_ms==1980);
-        tick();
-        CHECK(g_current_scene==(scene==0 ? RDX_LED_SCENE_RECORD_START : RDX_LED_SCENE_OFF));
+        rdx_led_ctrl_show_battery(); CHECK(g_current_scene==RDX_LED_SCENE_BATTERY_QUERY);
+        advance(2000); CHECK(g_current_scene==RDX_LED_SCENE_RECORD_START);
+    }
+    return 0;
+}
+int test_record_mark_deadline_and_restoration(void) {
+    for(int deferred=0;deferred<2;++deferred) for(int charging=0;charging<2;++charging) {
+        reset(); record.run=RECORD_STATE_START;
+        if(charging) { usb=1; charge=RDX_CHARGE_IN; }
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        advance(100);
+        if(deferred) task="protocol_recv_task";
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
+        if(deferred) drain_requests();
+        CHECK(g_current_scene==RDX_LED_SCENE_RECORD_MARK);
+        advance(200);
+        CHECK(g_current_scene==RDX_LED_SCENE_RECORD_MARK && rgb.r==255 && rgb.g==160 && !rgb.b);
+        rdx_led_ctrl_show_battery();
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_START);
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_DISCONNECTED);
+        rdx_led_ctrl_restore_system_state();
+        advance(1799);
+        CHECK(g_current_scene==RDX_LED_SCENE_RECORD_MARK);
+        advance(1);
+        CHECK(g_current_scene==RDX_LED_SCENE_RECORD_START);
+        CHECK(g_active_effect->mode==RDX_LED_MODE_BREATH && timer_count()==1);
+    }
+    /* 录音已停止时不锁住旧标记；关机及存储切换也必须能够抢占。 */
+    for(int next=0;next<3;++next) {
+        reset(); record.run=RECORD_STATE_START;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_MARK);
+        advance(200);
+        if(next==0) {
+            record.run=RECORD_STATE_STOP;
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+        } else if(next==1) {
+            app_var.goto_poweroff_flag=1;
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        } else {
+            transition=1;
+            rdx_led_ctrl_restore_system_state();
+        }
+        CHECK(g_current_scene==(next==2 ? RDX_LED_SCENE_USB_SWITCH_WAIT : RDX_LED_SCENE_OFF));
+        if(next<2) CHECK(!timer_count() && !rgb.r && !rgb.g && !rgb.b);
     }
     return 0;
 }
@@ -460,7 +496,7 @@ int test_binding_change_and_restore(void) {
         bound=0; tick();
         CHECK(g_current_scene==RDX_LED_SCENE_OFF);
     }
-    int prompts[]={RDX_LED_SCENE_KEY1_FEEDBACK,RDX_LED_SCENE_KEY2_FEEDBACK,
+    int prompts[]={RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK,RDX_LED_SCENE_RECORD_MARK,
                    RDX_LED_SCENE_BATTERY_QUERY,RDX_LED_SCENE_BLE_CONNECTED,
                    RDX_LED_SCENE_BIND_SUCCESS};
     for(int p=0;p<5;++p) {

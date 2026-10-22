@@ -282,8 +282,14 @@ native_stubs = r'''
 #define log_info(...) ((void)0)
 #define APP_MSG_POWER_OFF 7
 #define USER_CTRL_POWER_OFF 8
+#define THIRD_PARTY_PROTOCOLS_SEL 1
+#define RDX_EN 1
+#define APP_MSG_RECORD_OFF 9
+void rdx_dut_test_cancel(void) {}
+void rdx_dut_finalpack_tone_stop(void) {}
 enum poweroff_reason { TEST_NORMAL = 0 };
-static int g_bt_detach_timer, softoff_count;
+static int g_bt_detach_timer, softoff_count, key_cancels;
+void rdx_hogp_input_cancel(void) { ++key_cancels; }
 void wait_exit_btstack_flag(void *p) {}
 void sys_auto_shut_down_disable(void) {}
 void bt_stop_a2dp_slience_detect(void *p) {}
@@ -295,15 +301,15 @@ void power_set_soft_poweroff(void) { ++softoff_count; }
 '''
 native_tests = r'''
 int test_native_normal_off(void) {
-    reset(); softoff_count=0; started=1; rdx_dip_switch_note_business_mode();
+    reset(); softoff_count=key_cancels=0; started=1; rdx_dip_switch_note_business_mode();
     sys_enter_soft_poweroff(POWEROFF_NORMAL);
-    CHECK(app_var.goto_poweroff_flag && !rdx_dip_switch_shutdown_pending());
+    CHECK(app_var.goto_poweroff_flag && !rdx_dip_switch_shutdown_pending() && key_cancels==1);
     app_idle_enter_softoff();
     CHECK(softoff_count==1 && !reset_count);
     return 0;
 }
 int test_native_dip_restart(void) {
-    reset(); softoff_count=0; started=1; rdx_dip_switch_note_business_mode();
+    reset(); softoff_count=key_cancels=0; started=1; rdx_dip_switch_note_business_mode();
     on=0; rdx_dip_switch_guard(0); now+=100; rdx_dip_switch_guard(0);
     sys_enter_soft_poweroff(POWEROFF_NORMAL);
     CHECK(rdx_dip_switch_shutdown_pending());
@@ -334,7 +340,7 @@ int rdx_uxfile_storage_status(void) { return error; }
 int rdx_app_business_started(void) { return business; }
 int rdx_dut_test_keys_active(void) { return active; }
 void rdx_dut_service_wake(void) { ++dut_wakes; }
-void rdx_hogp_input_invalidate(void) { ++invalidates; }
+void rdx_hogp_input_cancel(void) { ++invalidates; }
 void rdx_uxfile_pc_returned(void) { refresh=1; }
 void rdx_dip_switch_wake(void) { ++wakes; }
 void rdx_playback_refresh_playlist(void) { ++restores; }

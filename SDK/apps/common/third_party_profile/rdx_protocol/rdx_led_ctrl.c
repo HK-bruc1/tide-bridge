@@ -110,6 +110,8 @@ static bool _rdx_led_is_transfer_active(void);
 static bool _rdx_led_can_show_transfer_effect(void);
 static bool _rdx_led_refresh_transfer_scene(void);
 static bool _rdx_led_success_should_yield(void);
+static bool _rdx_led_is_key_overlay_scene(rdx_led_scene_e scene);
+static bool _rdx_led_key_feedback_should_yield(void);
 static void _rdx_led_schedule_update(void);
 
 static u32 _rdx_led_next_request(void)
@@ -245,7 +247,7 @@ void rdx_led_ctrl_show_battery(void)
  * 独立的周期性低电提醒保持原有策略。 */
 static bool _rdx_led_can_start_battery_query(void)
 {
-    if (!_rdx_led_can_show_battery() || _rdx_led_success_should_yield() ||
+    if (!_rdx_led_can_show_battery() || _rdx_led_key_feedback_should_yield() ||
         rdx_storage_lifecycle_transition_led()) {
         return false;
     }
@@ -254,6 +256,7 @@ static bool _rdx_led_can_start_battery_query(void)
     case RDX_LED_SCENE_BLE_ADV_START:
     case RDX_LED_SCENE_BLE_DISCONNECTED:
     case RDX_LED_SCENE_BLE_FAST_ADV:
+    case RDX_LED_SCENE_RECORD_START:
         return true;
     default:
         return g_active_effect && g_active_effect->mode == RDX_LED_MODE_OFF;
@@ -375,6 +378,10 @@ static void _rdx_led_schedule_update(void)
     if (!delay) {
         return;
     }
+    if (g_current_scene == RDX_LED_SCENE_RECORD_MARK) {
+        g_printf("RDX LED wait: scene=%u delay_ms=%u elapsed_ms=%u\r\n",
+                 (unsigned)g_current_scene, (unsigned)delay, (unsigned)elapsed);
+    }
     g_led_update_timer = sys_timeout_add_2_task((void *)++g_led_timer_generation,
             rdx_led_ctrl_update_timer_cb, delay, "app_core");
     if (!g_led_update_timer) {
@@ -444,10 +451,11 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
     g_led_applied_request = g_led_current_request;
     _rdx_led_cancel_update();
     g_active_effect = &rdx_led_effect_cfg[effect];
-    g_printf("RDX LED effect: id=%u mode=%u rgb=%u,%u,%u cycle=%u\r\n",
+    g_printf("RDX LED effect: id=%u mode=%u rgb=%u,%u,%u cycle=%u on_ms=%u timeout_ms=%u\r\n",
              (unsigned)effect, (unsigned)g_active_effect->mode,
              (unsigned)g_active_effect->r, (unsigned)g_active_effect->g,
-             (unsigned)g_active_effect->b, (unsigned)g_active_effect->cycle_ms);
+             (unsigned)g_active_effect->b, (unsigned)g_active_effect->cycle_ms,
+             (unsigned)g_active_effect->on_ms, (unsigned)g_active_effect->timeout_ms);
     g_effect_elapsed_ms = 0;
     g_phase_elapsed_ms = 0;
     g_effect_start_ms = g_last_update_ms = sys_timer_get_ms();
@@ -544,8 +552,21 @@ static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
 
 static bool _rdx_led_is_key_feedback_scene(rdx_led_scene_e scene)
 {
-    return scene == RDX_LED_SCENE_KEY1_FEEDBACK ||
-           scene == RDX_LED_SCENE_KEY2_FEEDBACK;
+    return scene == RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK;
+}
+
+static bool _rdx_led_is_key_overlay_scene(rdx_led_scene_e scene)
+{
+    return _rdx_led_is_key_feedback_scene(scene) || scene == RDX_LED_SCENE_RECORD_MARK;
+}
+
+static bool _rdx_led_key_feedback_should_yield(void)
+{
+    return app_var.goto_poweroff_flag || get_vbat_need_shutdown() ||
+           rdx_app_get_dut_status() || get_ota_status() || _rdx_led_is_transfer_active() ||
+           rdx_app_get_charge_state() != RDX_CHARGE_OUT ||
+           rdx_storage_lifecycle_transition_led() ||
+           g_current_scene == RDX_LED_SCENE_LOW_BATTERY;
 }
 
 /* 按键反馈只复用临时成功提示的仲裁与恢复规则，不表示 PC 业务成功。 */
@@ -554,8 +575,7 @@ static bool _rdx_led_is_success_scene(rdx_led_scene_e scene)
     return scene == RDX_LED_SCENE_BLE_CONNECTED ||
            scene == RDX_LED_SCENE_BIND_SUCCESS ||
            scene == RDX_LED_SCENE_PLAYBACK_PLAY ||
-           scene == RDX_LED_SCENE_PLAYBACK_PAUSE ||
-           _rdx_led_is_key_feedback_scene(scene);
+           scene == RDX_LED_SCENE_PLAYBACK_PAUSE;
 }
 
 static bool _rdx_led_success_should_yield(void)
@@ -776,6 +796,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     if (scene >= RDX_LED_SCENE_MAX) {
         return;
     }
+    rdx_led_scene_e requested_scene = scene;
     if (_rdx_led_defer_request((u8)scene)) {
         return;
     }
@@ -790,7 +811,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
                 (desired == RDX_LED_SCENE_DUT_ENTER &&
                  g_current_scene == RDX_LED_SCENE_DUT_LED_TEST) ||
                 (desired == RDX_LED_SCENE_RECORD_START &&
-                 g_current_scene == RDX_LED_SCENE_RECORD_MARK &&
+                 _rdx_led_is_key_overlay_scene(g_current_scene) &&
                  g_effect_elapsed_ms < g_active_effect->timeout_ms)) {
                 return;
             }
@@ -799,6 +820,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
                 g_active_effect->timeout_ms &&
                 g_effect_elapsed_ms < g_active_effect->timeout_ms &&
                 (_rdx_led_is_success_scene(g_current_scene) ||
+                 _rdx_led_is_key_overlay_scene(g_current_scene) ||
                  g_current_scene == RDX_LED_SCENE_BATTERY_QUERY ||
                  g_current_scene == RDX_LED_SCENE_LOW_BATTERY)) {
                 return;
@@ -808,15 +830,19 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
     }
     /* 被保护状态拒绝的按键提示直接丢弃，不排队、不唤醒灯效供电，
      * 也不重启录音、传输或充电灯效的现有相位。 */
-    if (_rdx_led_is_key_feedback_scene(scene) &&
-        (app_var.goto_poweroff_flag || get_vbat_need_shutdown() ||
-         _rdx_led_success_should_yield() ||
-         rdx_storage_lifecycle_transition_led())) {
+    if (_rdx_led_is_key_feedback_scene(scene) && _rdx_led_key_feedback_should_yield()) {
         return;
     }
     /* 在场景仲裁或唤醒灯效供电前，先检查原始查询请求是否允许显示。 */
     if (scene == RDX_LED_SCENE_BATTERY_QUERY &&
         !_rdx_led_can_start_battery_query()) {
+        return;
+    }
+    if (scene == RDX_LED_SCENE_RECORD_START &&
+        _rdx_led_is_key_overlay_scene(g_current_scene) && g_active_effect &&
+        g_effect_elapsed_ms < g_active_effect->timeout_ms &&
+        !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
+        !rdx_storage_lifecycle_transition_led()) {
         return;
     }
     /* Packaging completion stays visible until the physical shutdown begins. */
@@ -863,7 +889,7 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
             /* 保留正在显示的标记提示和呼吸相位，避免 BLE 事件重启灯效。 */
             if (g_active_effect &&
                 (g_current_scene == RDX_LED_SCENE_RECORD_START ||
-                 (g_current_scene == RDX_LED_SCENE_RECORD_MARK &&
+                 (_rdx_led_is_key_overlay_scene(g_current_scene) &&
                   g_effect_elapsed_ms < g_active_effect->timeout_ms))) {
                 return;
             }
@@ -919,7 +945,10 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
         return;
     }
 
-    g_printf("RDX LED Scene: %d->%d\r\n", g_current_scene, scene);
+    g_printf("RDX LED Scene: %d->%d request=%u prev_ms=%u prev_timeout_ms=%u\r\n",
+             g_current_scene, scene, (unsigned)requested_scene,
+             (unsigned)(sys_timer_get_ms() - g_effect_start_ms),
+             g_active_effect ? (unsigned)g_active_effect->timeout_ms : 0u);
     g_current_scene = scene;
 
     switch (scene) {
@@ -1060,9 +1089,10 @@ void rdx_led_ctrl_update(void)
     }
     /* 业务状态未通过灯效事件更新时，重新仲裁正在显示的提示。 */
     if (!transition &&
-        (_rdx_led_is_success_scene(g_current_scene) ||
-         g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) &&
-        _rdx_led_success_should_yield()) {
+        ((_rdx_led_is_success_scene(g_current_scene) && _rdx_led_success_should_yield()) ||
+         ((_rdx_led_is_key_feedback_scene(g_current_scene) ||
+           g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) &&
+          _rdx_led_key_feedback_should_yield()))) {
         _rdx_led_restore_system_state();
         return;
     }
@@ -1105,11 +1135,14 @@ void rdx_led_ctrl_update(void)
        通过set_scene()保持g_current_scene同步。 */
     if (g_active_effect->timeout_ms > 0
         && g_effect_elapsed_ms >= g_active_effect->timeout_ms) {
+        g_printf("RDX LED timeout: scene=%u elapsed_ms=%u timeout_ms=%u\r\n",
+                 (unsigned)g_current_scene, (unsigned)g_effect_elapsed_ms,
+                 (unsigned)g_active_effect->timeout_ms);
         if (g_current_scene == RDX_LED_SCENE_LOW_BATTERY ||
             g_current_scene == RDX_LED_SCENE_BATTERY_QUERY) {
             g_current_scene = RDX_LED_SCENE_OFF;
             _rdx_led_restore_system_state();
-        } else if (g_current_scene == RDX_LED_SCENE_RECORD_MARK ||
+        } else if (_rdx_led_is_key_overlay_scene(g_current_scene) ||
                    _rdx_led_is_success_scene(g_current_scene)) {
             _rdx_led_restore_system_state();
         } else {

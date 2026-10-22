@@ -26,7 +26,7 @@ static volatile int s_business_blocked_previous;
 
 void rdx_storage_lifecycle_pc_returned(void)
 {
-    rdx_hogp_input_invalidate();
+    rdx_hogp_input_cancel();
     s_pc_refresh_pending = 1;
     rdx_uxfile_pc_returned();
     rdx_dip_switch_wake();

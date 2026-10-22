@@ -48,7 +48,12 @@ void rdx_hogp_key_action_deinit(void);
 int  rdx_hogp_key_action_keymap_apply(const rdx_hogp_key_action_keymap_t *keymap);
 /* 仅限 app_core 调用；key_id 从 0 开始。检查配键是否仅含指定键值且无修饰键。 */
 u8 rdx_hogp_key_action_is_plain_key(u8 key_id, u8 usage);
+/* 调用方须持有短时扫描中断锁；仅复制 RAM，不执行 ATT 或 VM 操作。 */
+u32 rdx_hogp_key_action_snapshot_locked(u8 key_id, rdx_hogp_key_action_keyboard_t *action);
+u8 rdx_hogp_key_action_plain_usage(const rdx_hogp_key_action_keyboard_t *action);
 int  rdx_hogp_key_action_press(u8 key_id, u32 input_epoch);
+int  rdx_hogp_key_action_press_snapshot(u8 key_id, u32 input_epoch,
+                                      const rdx_hogp_key_action_keyboard_t *action);
 void rdx_hogp_key_action_release(u8 key_id);
 void rdx_hogp_key_action_cancel(void);
 void rdx_hogp_key_action_service(void);

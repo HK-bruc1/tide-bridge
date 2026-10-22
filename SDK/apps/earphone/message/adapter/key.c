@@ -10,9 +10,6 @@
 #include "app_config.h"
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
 #include "rdx_hogp_input.h"
-#include "rdx_app.h"
-static u32 product_click_epoch;
-static u32 product_hold_epoch;
 #endif
 #include "bt_tws.h"
 #if (defined TCFG_AUDIO_WIDE_AREA_TAP_ENABLE) && TCFG_AUDIO_WIDE_AREA_TAP_ENABLE
@@ -31,9 +28,15 @@ static struct key_hold key_hold_hdl[1] = {
 
 static u8 click_cnt;
 static u8 notify_value = NO_KEY;
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+static rdx_hogp_input_cycle_t product_click_cycle, product_hold_cycle;
+#endif
 
 void key_event_reset(void)
 {
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    product_click_cycle.id = product_hold_cycle.id = 0;
+#endif
     click_cnt = 0;
     notify_value = NO_KEY;
     for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); ++i) {
@@ -145,12 +148,18 @@ static int multi_clicks_translate(struct key_event *key)
         if (key->value != notify_value) {
             click_cnt = 1;
             notify_value = key->value;
-        } else {
+        } else if (click_cnt < 9) {
+            /* 不支持的连续点击按上限饱和计数，避免回绕后误判为单击。 */
             click_cnt++;
         }
         return 1;
     }
     if (key->event == KEY_ACTION_NO_KEY) {
+        if (!click_cnt || click_cnt > 8) {
+            click_cnt = 0;
+            notify_value = NO_KEY;
+            return 1;
+        }
         if (click_cnt == 1) {
             key->event = KEY_ACTION_CLICK;
 	#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
@@ -305,42 +314,55 @@ void key_event_handler(struct key_event *key)
     /*printf("key_event: %d\n", key->event);*/
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
-    u32 product_epoch = 0;
-    u8 source_value = key->event == KEY_ACTION_NO_KEY ? notify_value : key->value;
+    rdx_hogp_input_cycle_t cycle = {0};
+    u8 raw_action = key->event;
+    u8 source_value = raw_action == KEY_ACTION_NO_KEY ? notify_value : key->value;
     u8 product = key->type == KEY_DRIVER_TYPE_IO &&
-                 source_value >= KEY_IO_NUM0 && source_value <= KEY_IO_NUM3;
-    /* Only invalidate product accumulation. KEY5 retains its original state.
-     * NO_KEY belongs to the pending accumulation, not the current snapshot. */
-    if (notify_value >= KEY_IO_NUM0 && notify_value <= KEY_IO_NUM3 &&
-        !rdx_hogp_input_feedback_epoch_valid(product_click_epoch)) {
+                 source_value >= KEY_IO_NUM0 && source_value <= KEY_IO_NUM4;
+    if (notify_value >= KEY_IO_NUM0 && notify_value <= KEY_IO_NUM4 &&
+        !rdx_hogp_input_cycle_valid(&product_click_cycle)) {
         click_cnt = 0;
         notify_value = NO_KEY;
+        product_click_cycle.id = 0;
     }
-    /* Never translate an empty accumulation after a route change. */
-    if (key->event == KEY_ACTION_NO_KEY && notify_value == NO_KEY) return;
-    if (!rdx_hogp_input_feedback_epoch_valid(product_hold_epoch)) {
-        for (int i = 0; i < ARRAY_SIZE(key_hold_hdl); ++i) {
-            if (key_hold_hdl[i].value >= KEY_IO_NUM0 && key_hold_hdl[i].value <= KEY_IO_NUM3) {
-                key_hold_hdl[i].value = NO_KEY;
-                key_hold_hdl[i].action = 0;
-                key_hold_hdl[i].start_time = 0;
-            }
+    if (raw_action == KEY_ACTION_NO_KEY && notify_value == NO_KEY) return;
+    if (product_hold_cycle.id && !rdx_hogp_input_cycle_valid(&product_hold_cycle)) {
+        struct key_hold *old = get_key_hold(product_hold_cycle.physical_key, 0);
+        if (old) {
+            old->value = NO_KEY;
+            old->action = 0;
+            old->start_time = 0;
         }
+        product_hold_cycle.id = 0;
     }
     if (product) {
-        product_epoch = key->event == KEY_ACTION_NO_KEY ? product_click_epoch :
-                        rdx_hogp_input_feedback_epoch(source_value);
-        if (!rdx_hogp_input_feedback_epoch_valid(product_epoch)) {
-            struct key_hold *old = get_key_hold(source_value, 0);
-            if (old) {
-                old->value = NO_KEY;
-                old->action = 0;
-                old->start_time = 0;
-            }
+        if (raw_action == KEY_ACTION_NO_KEY) {
+            cycle = product_click_cycle;
+        } else if (!rdx_hogp_input_cycle_get(source_value, &cycle)) {
             return;
         }
-        product_hold_epoch = product_epoch;
-        if (key->event == KEY_ACTION_CLICK) product_click_epoch = product_epoch;
+        if (!rdx_hogp_input_cycle_valid(&cycle)) return;
+        /* 发布新配键或切换实体键时，均结束旧连击组，
+         * 即使下一次按压最终形成长按而非单击也一样。 */
+        if (raw_action != KEY_ACTION_NO_KEY && click_cnt && product_click_cycle.id &&
+            (product_click_cycle.physical_key != cycle.physical_key ||
+             product_click_cycle.map != cycle.map)) {
+            struct key_event pending = *key;
+            pending.event = KEY_ACTION_NO_KEY;
+            multi_clicks_translate(&pending);
+            if (pending.event != KEY_ACTION_NO_KEY)
+                rdx_hogp_input_gesture(&pending, &product_click_cycle);
+        }
+        if (raw_action == KEY_ACTION_CLICK) {
+            if (source_value != KEY_IO_NUM4 && cycle.usage != 0x6d) {
+                /* 无双击动作时，短按松开即可立即确定为单击。 */
+                rdx_hogp_input_gesture(key, &cycle);
+                return;
+            }
+            if (!click_cnt) product_click_cycle = cycle;
+        } else if (raw_action == KEY_ACTION_LONG) {
+            product_hold_cycle = cycle;
+        }
     }
 #endif
     if (multi_clicks_translate(key)) {
@@ -355,15 +377,9 @@ void key_event_handler(struct key_event *key)
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
     if (product) {
-        if (rdx_hogp_input_epoch_valid(product_epoch)) {
-            if (rdx_hogp_input_gesture_epoch(key->value) == product_epoch) {
-                rdx_hogp_input_gesture(key, product_epoch);
-            }
-        } else {
-            /* HID/unready links still use the SDK single/double-click result.
-             * Only local feedback is allowed; never replay offline actions. */
-            rdx_app_key_click(key->value, key->event);
-        }
+        /* 可选的按住秒数转换不能替代用于收尾的 Up 事件。 */
+        if (raw_action == KEY_ACTION_UP) key->event = KEY_ACTION_UP;
+        rdx_hogp_input_gesture(key, &cycle);
         return;
     }
     // y_printf("==== %s --> key->event = %d, key->value = %d \r", __FUNCTION__, key->event, key->value);

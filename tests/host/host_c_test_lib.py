@@ -4,6 +4,7 @@ Hardware and binary libraries remain mocked by each caller. native=True is
 required for harnesses using host libc allocation and pointer-sized structures.
 """
 import ctypes
+import ctypes.util
 import re
 import subprocess
 from pathlib import Path
@@ -11,6 +12,24 @@ from pathlib import Path
 from llvmlite import binding as llvm
 
 ROOT = Path(__file__).resolve().parents[2]
+
+_HOST_LIBS = []
+for _name in ('msvcrt', 'ucrtbase', 'c', 'm'):
+    try:
+        _HOST_LIBS.append(ctypes.CDLL(ctypes.util.find_library(_name) or _name))
+    except OSError:
+        pass
+
+
+def _reject_unresolved_calls(module):
+    # 缺少模拟函数会导致调用地址 0，从而使 Python 进程崩溃。
+    missing = [fn.name for fn in module.functions
+               if fn.is_declaration and not fn.name.startswith('llvm.')
+               and not llvm.address_of_symbol(fn.name)
+               and not any(getattr(lib, fn.name, None) for lib in _HOST_LIBS)]
+    if missing:
+        raise AssertionError('undefined functions in generated C (add a stub or include '
+                             'the helper): ' + ', '.join(sorted(missing)))
 
 
 def run_c_checks(path, functions, native=False):
@@ -32,10 +51,14 @@ def run_c_checks(path, functions, native=False):
     module.triple = llvm.get_default_triple()
     module.data_layout = str(target.target_data)
     module.verify()
+    _reject_unresolved_calls(module)
     engine = llvm.create_mcjit_compiler(module, target)
     engine.finalize_object()
     for function in functions:
-        result = ctypes.CFUNCTYPE(ctypes.c_int)(engine.get_function_address(function))()
+        address = engine.get_function_address(function)
+        if not address:
+            raise AssertionError(f'test function missing from generated C: {function}')
+        result = ctypes.CFUNCTYPE(ctypes.c_int)(address)()
         if result:
             # Temporary harness directories disappear on failure; retain the C input.
             failure = ROOT / 'cache/host-test-failures' / path.parent.name / path.name

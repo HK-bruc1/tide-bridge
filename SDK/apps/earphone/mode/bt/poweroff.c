@@ -279,6 +279,7 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
     app_var.goto_poweroff_flag = 1;
     /* 拨码 OFF 由拨码模块独立锁存；普通关机不得冒充拨码关机。 */
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_hogp_input_cancel();
     app_send_message(APP_MSG_RECORD_OFF, 0); /* 尽力通知，不等待保存屏障 */
     rdx_dut_test_cancel();
     rdx_dut_finalpack_tone_stop();

@@ -26,8 +26,6 @@ $Pc = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\pc\pc.c'
 $UsbTask = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\usb_task.c'
 $DevManager = Read-RepoFile $RepoRoot 'SDK\apps\common\dev_manager\dev_manager.c'
 $RdxApp = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_app.c'
-$RdxKey = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.c'
-$RdxKeyH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_key.h'
 $RdxRecord = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_record.c'
 $RdxPlayback = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_playback.c'
 $RdxLedCtrl = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_led_ctrl.c'
@@ -46,8 +44,8 @@ $PatchedRdxArchiveHash = if (Test-Path -LiteralPath $PatchedRdxArchivePath) {
 } else {
     ''
 }
-$AppMsg = Read-RepoFile $RepoRoot 'SDK\apps\earphone\include\app_msg.h'
 $StorageLifecycle = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_lifecycle.c'
+$KeyCancelVm = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_vm.c'
 $Dip = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_dip_switch.c'
 $AppDefault = Read-RepoFile $RepoRoot 'SDK\apps\earphone\mode\common\app_default_msg_handler.c'
 $SdkUsedList = Read-RepoFile $RepoRoot 'SDK\apps\earphone\sdk_used_list.c'
@@ -219,73 +217,25 @@ $localPlaybackDependenciesOk = $Config -match '(?m)^\s*#define\s+TCFG_RDX_LOCAL_
 Assert-Contract 'RDX_LOCAL_PLAYBACK_DEPENDENCIES' $localPlaybackDependenciesOk `
     'the local playback switch must own both stereo and raw/CBR Opus decoder dependencies'
 
-$holdRecordOk = $AppMsg -match '(?s)APP_MSG_REQUEST_POWEROFF,.*?APP_MSG_RECORD_HOLD_START,.*?APP_MSG_RECORD_HOLD_STOP,' -and
-                $RdxApp -match '(?s)case APP_MSG_RECORD_HOLD_START:.*?hold_record_pressed = 1.*?case APP_MSG_RECORD_HOLD_STOP:.*?hold_record_pressed = 0' -and
-                $RdxApp -match '(?s)rdx_app_hold_record_pump.*?rdx_app_device_record_set\(\s*hold_record_scene,\s*RECORD_STATE_STOP,\s*1\).*?rdx_app_device_record_set\(\s*hold_record_scene,\s*RECORD_STATE_START,\s*1\)' -and
-                $RdxApp -match '(?s)rdx_app_hold_record_wait_until_ready.*?REC_PROCESS_STATE_BUSY.*?rdx_record_process_is_busy_check.*?rdx_app_hold_record_retry_schedule' -and
-                $RdxApp -match '(?s)static int rdx_app_device_record_set.*?rdx_ble_server_get_conn_handle.*?void rdx_app_device_record_handle.*?rdx_app_device_record_set\(scene, run, 0\)'
-Assert-Contract 'RDX_HOLD_RECORD_TRIGGER_CAPABILITY' $holdRecordOk `
-    'hold start/stop messages must remain reusable and share the existing online/offline recording implementation'
-
-$holdRecordTableOk = $RdxKeyH -match 'extern\s+u8\s+key_table_record_hold\s*\[KEY_ACTION_MAX\]' -and
-                     $RdxKey -match '(?s)u8\s+key_table_record_hold\s*\[KEY_ACTION_MAX\]\s*=\s*\{\s*APP_MSG_NULL,.*?APP_MSG_RECORD_HOLD_START,.*?APP_MSG_NULL,.*?APP_MSG_RECORD_HOLD_STOP,'
-Assert-Contract 'RDX_HOLD_RECORD_ACTION_TABLE' $holdRecordTableOk `
-    'press-to-record must use a reusable action table with LONG start and UP stop mappings'
-
-$recordPlayToggleRoute = Get-SourceSlice $RdxApp `
-    'case APP_MSG_REC_PLAY_TOGGLE:' `
-    'case APP_MSG_TWS_START_PAIR:'
-$recordPlayToggleOk = $RdxKey -match '(?s)u8\s+key_table_io_num4_normal\s*\[KEY_ACTION_MAX\]\s*=\s*\{\s*APP_MSG_REC_PLAY_TOGGLE,' -and
-                      (Test-TokensInOrder $recordPlayToggleRoute @(
-                          'RECORD_STATE_START',
-                          'RECORD_STATE_RESUME',
-                          'rdx_record_add_mark(RDX_MARK_SOURCE_KEY)',
-                          'rdx_playback_toggle()'
-                      ))
-Assert-Contract 'RDX_RECORD_PLAY_KEY_STATE_DISPATCH' $recordPlayToggleOk `
-    'the offline record/play key must add a device mark while recording and otherwise retain playback toggle behavior'
-
-$ioKeyRouting = Get-SourceSlice $RdxApp `
-    'static u8 rdx_app_rdx_key_route_ready(void)' `
+# C 行为测试桩覆盖按键值分发、周期归属、固定路由及 STOP 重试。
+# 此处仅保留这些测试桩未执行的调用入口衔接检查。
+$legacyProductKeys = Get-SourceSlice $RdxApp `
+    'if (key->value >= KEY_IO_NUM0 && key->value <= KEY_IO_NUM4)' `
     '// ---- KEY_POWER'
-$ioKeyRoutingOk = (Test-TokensInOrder $ioKeyRouting @(
-                      'if (num_idx == 4)',
-                      'rdx_app_key5_remap(value, index, scene)',
-                      'rdx_hogp_keyboard_is_ready()',
-                      'rdx_ble_server_has_active_link()',
-                      'rdx_app_local_player_key_remap(value, num_idx, index, scene)'
-                  )) -and
-                  $ioKeyRouting -match '(?s)rdx_app_rdx_key_route_ready.*?rdx_ble_session_rdx_token_capture\(&token,\s*1\)' -and
-                  $ioKeyRouting -match '(?s)rdx_app_key5_remap.*?KEY_ACTION_UP\s*&&\s*key5_online_hold_routed.*?key_table_record_hold\[index\].*?rdx_app_rdx_key_route_ready\(\).*?KEY_ACTION_LONG.*?key_table_record_hold\[index\]' -and
-                  $ioKeyRouting -match '(?s)rdx_ble_server_has_active_link\(\).*?APP_MSG_NULL.*?rdx_key_get_io_num_table\(4,\s*scene\)'
-Assert-Contract 'RDX_IO_KEY_BLE_CAPABILITY_ROUTING' $ioKeyRoutingOk `
-    'KEY1-4 must prefer HID, KEY5 must prefer RDX hold recording, and local tables require zero BLE links'
-
-$holdRecordStorageOk = $RdxApp -match '(?s)!ret && stream_only && run == RECORD_STATE_START.*?rdx_record_stream_only_start_arm\(&rdx_token\)' -and
-                       $RdxApp -match 'rdx_app_device_record_set\(scene, run, 0\)' -and
-                       $RdxRecord -match '(?s)rdx_record_stream_only_start_consume\(token\);.*?rdx_record_online_session_bind\(token\);' -and
-                       $RdxRecord -match '(?s)if\(rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_operate_file_init\(\);.*?else\s*\{.*?rdx_uxfile_dat_1_gen\(rp->scene\);' -and
-                       $RdxRecord -match '(?s)//local save\.\s*if\(!rdx_record_stream_only_session_is_active\(\)\)\{\s*if \(rdx_record_storage_push\(d, len\)\) return -1;' -and
-                       $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
-                       $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;'
-Assert-Contract 'RDX_HOLD_RECORDING_IS_STREAM_ONLY' $holdRecordStorageOk `
-    'only hold-triggered online recording may report empty identity and skip local persistence'
-
-$holdRelease = Get-SourceSlice $RdxRecord 'u8 rdx_record_stream_only_release(void)' 'extern void rdx_app_record_binding_reset(void);'
-$holdPump = Get-SourceSlice $RdxApp 'static void rdx_app_hold_record_pump(void)' '/* HOGP key action execution'
-Assert-Contract 'RDX_HOLD_RELEASE_CANCELS_PENDING_START' (
-    $holdRelease -match '(?s)g_record_cmd_delay_timer.*?rdx_record_token_equal.*?sys_timeout_del.*?rdx_record_pending_cmd_clear' -and
-    $holdRelease -match '(?s)record_start_tone_pending.*?rdx_record_start_tone_cancel\(\)' -and
-    $holdRelease -match '(?s)os_taskq_post_msg.*?RDX_RECORD_HOLD_FENCE.*?return 0;.*?g_hold_release_done == g_hold_release_ticket'
-) 'release must cancel delayed/tone starts and stop active audio locally, without an App reply'
-Assert-Contract 'RDX_HOLD_RELEASE_RETAINS_STOP_INTENT' (
-    $holdPump -match '(?s)!rdx_record_stream_only_release\(\).*?rdx_app_hold_record_retry_schedule\(\);.*?return;' -and
-    $holdPump -match '(?s)stop request rejected.*?rdx_app_hold_record_retry_schedule\(\);.*?return;.*?hold_record_stop_queued = 1;' -and
-    $RdxRecord -match '(?s)token && g_stream_only_hold_released.*?rdx_record_token_equal.*?RECORD_STATE_STOP.*?released hold rejects late command' -and
-    $RdxApp -match '(?s)request->status.run == RECORD_STATE_STOP.*?rdx_record_stream_only_release_complete' -and
-    $RdxRecord -match '(?s)msg\[1\] == RDX_RECORD_HOLD_FENCE.*?translation_ear_recoder_close_all\(\).*?rdx_uxfile_finish_record\(\).*?g_hold_release_done = \(u32\)msg\[2\]' -and
+Assert-Contract 'RDX_LEGACY_IO_USAGE_DISPATCH' (
+    $legacyProductKeys -match 'rdx_app_usage_key_remap' -and
+    $legacyProductKeys -notmatch 'rdx_hogp_keyboard_is_ready|rdx_ble_server_has_active_link|rdx_app_key5_remap'
+) 'legacy product-key entry must use the same usage dispatch without a BLE-presence veto'
+Assert-Contract 'RDX_LOCAL_SYSTEM_CANCEL_CALLERS' (
+    $KeyCancelVm -match '(?s)rdx_hogp_input_cancel\(\);\s*rdx_uxfile_sd_format\(rdx_vm_unbound_cb\)' -and
+    $KeyCancelVm -match '(?s)rdx_hogp_input_cancel\(\);\s*rdx_uxfile_sd_format\(rdx_vm_choose_to_unbound_cb\)' -and
+    $StorageLifecycle -match '(?s)void rdx_storage_lifecycle_pc_returned\(void\)\s*\{\s*rdx_hogp_input_cancel\(\)'
+) 'format and PC return cancel both input paths; factory-reset and native-poweroff callers run in C harnesses'
+Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
+    $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
+    $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;' -and
     $RdxApp -match '\(u32\)priv != record_state_upload_generation'
-) 'retain ownership through local shutdown and notification failures; fence late commands by owner token'
+) 'stream-only STOP/disconnect must not fall back to storage; stale upload timers cannot restart a request'
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
@@ -297,7 +247,7 @@ $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_pro
                            $RdxRecord -match '(?s)r_info->cmd == \(RECORD_STATE_START \+ 0x30\).*?uxfile_busy.*?g_record_cmd_delay_timer = sys_timeout_add' -and
                            $RdxRecord -match '(?s)r_info->cmd == \(RECORD_STATE_STOP \+ 0x30\).*?g_record_cmd_delay_timer.*?pending start cancelled by stop' -and
                            $RdxRecord -match '(?s)#if !TCFG_SD_ALWAY_ONLINE_ENABLE\s*int err = dev_manager_add\("sd0"\);.*?#endif' -and
-                           $RdxApp -match '(?s)run == RECORD_STATE_START && !stream_only.*?rdx_uxfile_sync_is_in_progress.*?local start rejected: UXFILE is busy'
+                           $RdxApp -match '(?s)route == RECORD_MODE_ONLINE.*?else if \(rdx_uxfile_sync_is_in_progress\(\) \|\| rdx_uxfile_is_scan_active\(\) \|\|.*?rdx_uxfile_is_formatting\(\)\) return -1;'
 Assert-Contract 'RDX_UXFILE_STARTUP_RECOVERY' $uxfileStartupRecoveryOk `
     'the hash-pinned library must serialize recording against the worker-owned management index recovery'
 
@@ -510,7 +460,7 @@ $ledSceneEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_scene(' 'rdx
 $ledChargeEntry = Get-SourceSlice $RdxLedCtrl 'void rdx_led_ctrl_set_charge_state_by_battery(' 'void rdx_led_ctrl_restore_system_state('
 Assert-Contract 'ON_CHARGE_LED_BUSINESS_PRIORITY' (
     $usbLedPolicy -match '(?s)#if TCFG_T2620_CHARGE_COEXIST_ENABLE && TCFG_DIP_SWITCH_POWER_ENABLE.*?get_power_on_status\(\) && rdx_app_business_started\(\).*?get_charge_online_flag\(\).*?RDX_CHARGE_OUT.*?!app_var.goto_poweroff_flag && !get_vbat_need_shutdown\(\)' -and
-    (Test-TokensInOrder $usbLedPolicy @('RECORD_STATE_START', 'RDX_LED_SCENE_RECORD_MARK', 'RDX_LED_SCENE_RECORD_START', 'RDX_LED_SCENE_DUT_ENTER', 'RDX_LED_SCENE_OTA_START', 'RDX_LED_SCENE_WIFI_START', 'RDX_LED_SCENE_CHARGE_FULL')) -and
+    (Test-TokensInOrder $usbLedPolicy @('RECORD_STATE_START', 'RDX_LED_SCENE_RECORD_START', 'RDX_LED_SCENE_DUT_ENTER', 'RDX_LED_SCENE_OTA_START', 'RDX_LED_SCENE_WIFI_START', 'RDX_LED_SCENE_CHARGE_FULL')) -and
     $ledSceneEntry -match '(?s)if \(on_usb_charge\).*?_rdx_led_resolve_on_usb_charge\(scene\).*?scene == g_current_scene && g_active_effect && !new_mark.*?return;' -and
     $ledChargeEntry -match '(?s)if \(_rdx_led_on_usb_charge\(\) \|\| rdx_app_get_dut_status\(\)\).*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_CHARGE_PLUG_IN\);.*?return;.*?_rdx_led_set_charge_effect_by_battery'
 ) 'Only normal ON USB charging arbitrates business above charge/FULL; charge updates share scene entry and preserve effect phase'
@@ -519,7 +469,9 @@ Assert-Contract 'DUT_CHARGE_EVENTS_PRESERVE_TEST_INDICATION' (
     $RdxLedCtrl -match '(?s)void rdx_led_ctrl_restore_system_state\(void\).*?rdx_app_get_dut_status\(\) &&\s+g_current_scene == RDX_LED_SCENE_DUT_LED_TEST &&.*?!rdx_storage_lifecycle_transition_led\(\)\) \{\s+return;'
 ) 'Charge notifications preserve the current BLE/CDC factory test, including its off phase; shutdown and storage transition retain priority'
 Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
-    $usbLedPolicy -match 'g_effect_elapsed_ms < g_active_effect->timeout_ms' -and
+    $usbLedPolicy -match 'static bool _rdx_led_key_feedback_should_yield\(void\)' -and
+    $RdxLedCtrl -match 'if \(_rdx_led_is_key_feedback_scene\(scene\) && _rdx_led_key_feedback_should_yield\(\)\)' -and
+    $usbLedPolicy -match 'requested == RDX_LED_SCENE_RECORD_MARK' -and
     $RdxLedCtrl -match '(?s)void rdx_led_ctrl_update\(void\).*?_rdx_led_on_usb_charge\(\).*?_rdx_led_resolve_on_usb_charge\(RDX_LED_SCENE_OFF\) != g_current_scene.*?rdx_led_ctrl_set_scene\(RDX_LED_SCENE_OFF\)' -and
     $ledSceneEntry -match '!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY'
 ) 'The existing LED tick reconciles silent OTA exits and expired marks without restarting unchanged effects or retaining a stale warning lock'
@@ -593,11 +545,11 @@ Assert-Contract 'RECORD_BINDING_FAIL_CLOSED_VM' (
 ) 'Ordinary recording must require a validated persistent product binding, with a cached fail-closed runtime gate independent of BLE pairing'
 
 $BindingCommand = Get-SourceSlice $RdxApp 'static void rdx_app_record_cmd_on_app_core(' 'typedef struct {'
-$BindingDevice = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)' 'void rdx_app_device_record_handle('
+$BindingDevice = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)' 'void rdx_app_device_record_handle('
 Assert-Contract 'RECORD_BINDING_ENTRY_AND_ASYNC_GATES' (
     (Test-TokensInOrder $BindingCommand @('rdx_ble_session_rdx_token_resolve', 'info.cmd != (RECORD_STATE_STOP + 0x30)', 'rdx_record_binding_token_is_current(request->binding_token)', 'rdx_playback_stop()', 'rdx_record_cmd_handle_from_rdx')) -and
-    $BindingDevice -match '(?s)run == RECORD_STATE_START &&\s*\(!rdx_record_binding_allowed\(\)' -and
-    $RdxApp -match 'hold_record_pressed && !rdx_record_binding_allowed\(\)' -and
+    $BindingDevice -match 'run != RECORD_STATE_START \|\| !rdx_record_binding_allowed\(\)' -and
+    $RdxApp -match 'key_record_pressed && !rdx_record_binding_allowed\(\)' -and
     $RdxApp -match '(?s)case APP_MSG_RECORD_SWITCH:.*?!rdx_record_binding_allowed\(\).*?key_press_record_ready_flag = 0;' -and
     $RdxRecord -match 'rdx_record_binding_token_is_current\(pending_binding_token\)' -and
     $RdxRecord -match 'rdx_record_session_token_is_current\(tone_binding_token\)' -and

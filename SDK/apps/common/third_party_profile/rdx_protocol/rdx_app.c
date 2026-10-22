@@ -34,6 +34,7 @@
 #include "system/includes.h"
 #include "earphone.h"
 #include "app_main.h"
+#include "app_default_msg_handler.h"
 #include "3th_profile_api.h"
 #include "btstack/avctp_user.h"
 #include "btstack/btstack_task.h"
@@ -181,8 +182,8 @@ static u8 ble_readchar_info[BLE_READCHAR_INFO_SIZE + 1];
 
 static u16 record_state_upload_timer = 0;
 static u32 record_state_upload_generation;
-static u8 hold_record_stop_queued;
-static u8 hold_record_disconnect_pending;
+static u8 key_record_stop_queued;
+static u8 key_record_disconnect_pending;
 static rdx_ble_async_token_t record_state_upload_token;
 static u8 record_state_upload_token_valid = 0;
 static RdxWifiInfo wifiInfo;
@@ -194,17 +195,18 @@ static bool poweron_ready_flag = 0;
 
 static u16 mode_switch_keep_timer = 0;
 static u8 key_press_record_ready_flag = 0;
-static u8 hold_record_pressed = 0;
-static u8 hold_record_session_active = 0;
-static u8 hold_record_busy_wait_armed = 0;
-static u8 hold_record_scene = RECORD_SCENE_CHAT;
-static u16 hold_record_retry_timer = 0;
-static u8 key5_online_hold_routed = 0;
-static u8 key5_local_hold_routed;
-static u8 hold_record_local;
-static u32 hold_record_local_generation;
-static u16 key5_offline_stop_timer;
-static u32 key5_offline_stop_generation;
+static u8 key_record_pressed = 0;
+static u8 key_record_session_active = 0;
+static u8 key_record_scene = RECORD_SCENE_CHAT;
+static u16 key_record_retry_timer = 0;
+static u8 key_record_kind = RDX_RECORD_MEETING;
+static u8 key_record_local;
+static u32 key_record_local_generation;
+static u32 key_record_request_generation;
+static rdx_hogp_input_cycle_t key_record_owner;
+static u8 key_record_owner_valid;
+/* 仅在 app_core 同步处理期间借用此指针，禁止留存。 */
+static const rdx_hogp_input_cycle_t *local_key_dispatch_cycle;
 
 static bool app_is_idle = FALSE;
 
@@ -346,6 +348,7 @@ typedef struct {
     rdx_ble_async_token_t token;
     u8 factor;
     u8 stream_only;
+    u32 request_generation;
 } rdx_app_record_trigger_request_t;
 
 static void rdx_app_record_trigger_on_app_core(
@@ -365,7 +368,7 @@ static void rdx_app_record_trigger_on_app_core(
         return;
     }
     if (request->stream_only && request->status.run == RECORD_STATE_START &&
-        rdx_record_stream_only_is_releasing()) {
+        !rdx_record_key_request_is_current(request->request_generation)) {
         free(request);
         return;
     }
@@ -397,6 +400,7 @@ static int rdx_app_record_trigger_post(
     request->token = *token;
     request->factor = factor;
     request->stream_only = stream_only;
+    request->request_generation = rdx_record_key_request_generation();
     msg[0] = (int)rdx_app_record_trigger_on_app_core;
     msg[1] = 1;
     msg[2] = (int)request;
@@ -529,7 +533,7 @@ u8 rdx_app_rdx_rebind_is_idle(void)
     BLE_SendData *send_data = rdx_protocol_get_ble_send_data();
     BleBulkSendData *bulk_data = rdx_protocol_get_bulk_send_data();
 
-    if (hold_record_disconnect_pending ||
+    if (key_record_disconnect_pending ||
         rdx_app_storage_activity_is_busy("RDX_BLE_SESSION", 1, 1)) {
         return 0;
     }
@@ -796,228 +800,231 @@ void rdx_app_volume_indicate(s8 volume)
     if(g_protocol_ops) g_protocol_ops->volume_indicate(rdx_sync_valume);
 }
 
-static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only);
-static void rdx_app_hold_record_pump(void);
+static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind);
+static void rdx_app_key_record_pump(void);
 
-static void rdx_app_hold_record_retry_cb(void *priv)
+static void rdx_app_key_record_retry_cb(void *priv)
 {
     int msg[2];
 
     (void)priv;
-    hold_record_retry_timer = 0;
-    msg[0] = (int)rdx_app_hold_record_pump;
+    key_record_retry_timer = 0;
+    msg[0] = (int)rdx_app_key_record_pump;
     msg[1] = 0;
     if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
-        hold_record_retry_timer = sys_timeout_add(
-            NULL, rdx_app_hold_record_retry_cb,
+        key_record_retry_timer = sys_timeout_add(
+            NULL, rdx_app_key_record_retry_cb,
             RDX_HOLD_RECORD_RETRY_MS);
     }
 }
 
-static void rdx_app_hold_record_retry_schedule(void)
+static void rdx_app_key_record_retry_schedule(void)
 {
-    if (hold_record_retry_timer == 0) {
-        hold_record_retry_timer = sys_timeout_add(
-            NULL, rdx_app_hold_record_retry_cb,
+    if (key_record_retry_timer == 0) {
+        key_record_retry_timer = sys_timeout_add(
+            NULL, rdx_app_key_record_retry_cb,
             RDX_HOLD_RECORD_RETRY_MS);
-        if (hold_record_retry_timer == 0) {
+        if (key_record_retry_timer == 0) {
             r_printf("[RDX_HOLD_RECORD] retry timer start failed\r");
         }
     }
 }
 
-static void rdx_app_hold_record_retry_cancel(void)
+static void rdx_app_key_record_retry_cancel(void)
 {
-    if (hold_record_retry_timer) {
-        sys_timeout_del(hold_record_retry_timer);
-        hold_record_retry_timer = 0;
+    if (key_record_retry_timer) {
+        sys_timeout_del(key_record_retry_timer);
+        key_record_retry_timer = 0;
     }
-    hold_record_busy_wait_armed = 0;
 }
 
-static void rdx_app_hold_record_reset(void)
+static void rdx_app_key_record_reset(void)
 {
-    hold_record_stop_queued = 0;
-    hold_record_disconnect_pending = 0;
-    rdx_app_hold_record_retry_cancel();
-    hold_record_pressed = 0;
-    hold_record_session_active = 0;
-    hold_record_scene = RECORD_SCENE_CHAT;
-    key5_online_hold_routed = 0;
-    key5_local_hold_routed = 0;
-    hold_record_local = 0;
-    hold_record_local_generation = 0;
+    key_record_stop_queued = 0;
+    key_record_disconnect_pending = 0;
+    rdx_app_key_record_retry_cancel();
+    key_record_pressed = 0;
+    key_record_session_active = 0;
+    key_record_scene = RECORD_SCENE_CHAT;
+    key_record_kind = RDX_RECORD_MEETING;
+    key_record_local = 0;
+    key_record_local_generation = 0;
+    key_record_request_generation = 0;
+    key_record_owner_valid = 0;
+}
+
+u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *cycle)
+{
+    if (!cycle || !key_record_owner_valid ||
+        cycle->physical_key != key_record_owner.physical_key ||
+        cycle->id != key_record_owner.id ||
+        cycle->epoch != key_record_owner.epoch) {
+        return 1;
+    }
+    /* 此处不能重置：必须保留 STOP、断连收尾票据及重试归属。 */
+    key_record_pressed = 0;
+    rdx_app_key_record_pump();
+    if (key_record_session_active || key_record_stop_queued ||
+        key_record_disconnect_pending) {
+        return 0;
+    }
+    key_record_owner_valid = 0;
+
+    key_press_record_ready_flag = 0;
+    return 1;
 }
 
 void rdx_app_record_binding_reset(void)
 {
     key_press_record_ready_flag = 0;
-    rdx_app_hold_record_reset();
+    rdx_app_key_record_reset();
     rdx_app_record_state_upload_timer_stop();
 }
 
 /* 断连回调仅提交收尾请求，由 app_core 关闭纯推流录音并重试队列拥塞。 */
 void rdx_app_record_transport_lost(void)
 {
-    if (hold_record_local ||
-        (!hold_record_session_active && !hold_record_pressed &&
+    if (key_record_local ||
+        (!key_record_session_active && !key_record_pressed &&
          !rdx_record_stream_only_session_is_active())) {
         return;
     }
-    rdx_app_hold_record_retry_cancel();
-    hold_record_disconnect_pending = 1;
-    hold_record_pressed = 0;
-    rdx_app_hold_record_retry_cb(NULL);
+    rdx_app_key_record_retry_cancel();
+    key_record_disconnect_pending = 1;
+    key_record_pressed = 0;
+    rdx_app_key_record_retry_cb(NULL);
 }
 
-static u8 rdx_app_hold_record_wait_until_ready(RecordStatus *rp)
-{
-    if (rp->process_state != REC_PROCESS_STATE_BUSY) {
-        hold_record_busy_wait_armed = 0;
-        return 0;
-    }
-
-    if (!hold_record_busy_wait_armed) {
-        /* Arm the recording module's existing stuck-busy watchdog once. */
-        rdx_record_process_is_busy_check();
-        hold_record_busy_wait_armed = 1;
-    }
-    rdx_app_hold_record_retry_schedule();
-    return 1;
-}
 
 /* 根据录音会话归属识别按住录音，松键停止重试期间仍保留常亮灯效。 */
 u8 rdx_app_record_is_hold_active(void)
 {
     RecordStatus *rp = rdx_record_get_status();
-    if (!rp || (rp->run != RECORD_STATE_START && rp->run != RECORD_STATE_RESUME)) {
-        return 0;
-    }
-    if (rdx_record_stream_only_session_is_active()) {
-        return 1;
-    }
-    return hold_record_local && hold_record_session_active &&
-           hold_record_local_generation == rdx_record_generation_get();
+    return rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) &&
+           rdx_record_kind_get() == RDX_RECORD_INSPIRATION;
 }
 
-static void rdx_app_hold_record_pump(void)
+/* 按键开始录音的产品状态门禁：按住式与在线会议共用。 */
+static u8 rdx_app_key_record_product_blocked(void)
+{
+    return !rdx_app_init_flag || poweroff_ready_flag || rdx_dut_mode ||
+           get_ota_status() || mode_switch_keep_timer ||
+           app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check();
+}
+
+static void rdx_app_key_record_pump(void)
 {
     RecordStatus *rp = rdx_record_get_status();
     int ret;
 
-    if (hold_record_disconnect_pending) {
+    if (key_record_disconnect_pending) {
         if (!rdx_record_stream_only_release()) {
-            rdx_app_hold_record_retry_schedule();
+            rdx_app_key_record_retry_schedule();
             return;
         }
         rdx_record_stream_only_release_complete();
-        /* 保留本次按键的松键归属，避免断连后松键误入离线按键逻辑。 */
-        u8 routed = key5_online_hold_routed;
-        rdx_app_hold_record_reset();
-        key5_online_hold_routed = routed;
+        rdx_app_key_record_reset();
         key_press_record_ready_flag = 0;
         g_printf("[RDX_HOLD_RECORD] transport lost: cleanup complete\r");
         return;
     }
-    if (hold_record_pressed && !rdx_record_binding_allowed()) {
-        rdx_app_hold_record_reset();
+    if (key_record_pressed && !rdx_record_binding_allowed()) {
+        rdx_app_key_record_reset();
         return;
     }
-    if (!hold_record_pressed) {
-        if (!hold_record_session_active) {
-            rdx_app_hold_record_retry_cancel();
+    if (!key_record_local && key_record_session_active && !key_record_stop_queued &&
+        !rdx_record_stream_only_is_releasing() &&
+        !rdx_record_key_request_is_current(key_record_request_generation)) {
+        /* APP STOP 或新 START 已使本次请求退役；即使归属相同，旧实体键的 Up
+         * 也不能关闭替代它的新录音。 */
+        key_record_pressed = 0;
+        key_record_session_active = 0;
+        rdx_app_key_record_retry_cancel();
+        return;
+    }
+    if (!key_record_pressed) {
+        if (!key_record_session_active) {
+            rdx_app_key_record_retry_cancel();
             return;
         }
-        if (hold_record_local) {
+        if (key_record_local) {
             /* A later App/DUT recording must never inherit this key release.
              * The recorder owns STOP retry, prompt cancellation and file close,
              * even if a BLE link appeared while the local key was held. */
-            if (hold_record_local_generation == rdx_record_generation_get() &&
+            if (key_record_local_generation == rdx_record_generation_get() &&
                 !rdx_record_audio_fault_stop()) {
-                rdx_app_hold_record_retry_schedule();
+                rdx_app_key_record_retry_schedule();
                 return;
             }
-            hold_record_session_active = 0;
-            hold_record_local_generation = 0;
-            rdx_app_hold_record_retry_cancel();
+            key_record_session_active = 0;
+            key_record_local_generation = 0;
+            rdx_app_key_record_retry_cancel();
             return;
         }
-        if (hold_record_stop_queued) {
+        if (key_record_stop_queued) {
             if (rdx_record_stream_only_is_releasing()) {
-                rdx_app_hold_record_retry_schedule();
+                rdx_app_key_record_retry_schedule();
                 return;
             }
-            hold_record_stop_queued = 0;
-            hold_record_session_active = 0;
-            rdx_app_hold_record_retry_cancel();
+            key_record_stop_queued = 0;
+            key_record_session_active = 0;
+            rdx_app_key_record_retry_cancel();
             return;
         }
         if (!rdx_record_stream_only_release()) {
-            rdx_app_hold_record_retry_schedule();
+            rdx_app_key_record_retry_schedule();
             return;
         }
 
         ret = rdx_app_device_record_set(
-            hold_record_scene, RECORD_STATE_STOP, 1);
+            key_record_scene, RECORD_STATE_STOP, RECORD_MODE_ONLINE, key_record_kind);
         if (ret != 0) {
             r_printf("[RDX_HOLD_RECORD] stop request rejected\r");
-            rdx_app_hold_record_retry_schedule();
+            rdx_app_key_record_retry_schedule();
             return;
         }
-        hold_record_stop_queued = 1;
-        rdx_app_hold_record_retry_schedule();
+        key_record_stop_queued = 1;
+        rdx_app_key_record_retry_schedule();
         return;
     }
 
-    if (hold_record_session_active) {
+    if (key_record_session_active) {
         return;
     }
-    if (hold_record_local && rdx_ble_server_has_active_link()) {
-        hold_record_pressed = 0;
-        rdx_app_hold_record_retry_cancel();
-        return;
-    }
-    if (!rdx_app_init_flag || poweroff_ready_flag || rdx_dut_mode ||
-        get_ota_status() || mode_switch_keep_timer ||
-        app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
-        hold_record_pressed = 0;
+    if (rdx_app_key_record_product_blocked()) {
+        key_record_pressed = 0;
         r_printf("[RDX_HOLD_RECORD] start rejected by product state\r");
         return;
     }
     if (rp->run != RECORD_STATE_STOP) {
-        hold_record_pressed = 0;
+        key_record_pressed = 0;
         r_printf("[RDX_HOLD_RECORD] start rejected: another recording is active\r");
         return;
     }
-    if (rdx_app_hold_record_wait_until_ready(rp)) {
+    /* 忙碌或开始待处理时直接拒绝，不在之后补执行排队的长按。 */
+    if (rdx_record_process_is_busy_check()) {
+        key_record_pressed = 0;
         return;
     }
-
-    hold_record_scene = rp->scene;
-    if (hold_record_scene != RECORD_SCENE_CALL) {
-        hold_record_scene = RECORD_SCENE_CHAT;
-    }
-    if (hold_record_local) {
-        ret = rdx_app_device_record_set(
-            hold_record_scene, RECORD_STATE_START, 0);
-    } else {
-        ret = rdx_app_device_record_set(
-            hold_record_scene, RECORD_STATE_START, 1);
-    }
+    key_record_scene = RECORD_SCENE_CHAT;
+    ret = rdx_app_device_record_set(key_record_scene, RECORD_STATE_START,
+                                  key_record_local ? RECORD_MODE_OFFLINE : RECORD_MODE_ONLINE,
+                                  key_record_kind);
     if (ret != 0) {
-        hold_record_pressed = 0;
+        key_record_pressed = 0;
         r_printf("[RDX_HOLD_RECORD] start request rejected\r");
         return;
     }
-    hold_record_session_active = 1;
-    if (hold_record_local) {
-        hold_record_local_generation = rdx_record_generation_get();
+    key_record_session_active = 1;
+    key_record_request_generation = rdx_record_key_request_generation();
+    if (key_record_local) {
+        key_record_local_generation = rdx_record_generation_get();
     }
-    g_printf("[RDX_HOLD_RECORD] start request, scene=%d\r", hold_record_scene);
+    g_printf("[RDX_HOLD_RECORD] start request, scene=%d\r", key_record_scene);
 }
 
-/* HOGP key action execution lives in rdx_hogp_key_action.c.  Online/offline
- * routing is capability based: only HID ready consumes product key events. */
+/* HOGP 按键动作由 rdx_hogp_key_action.c 执行。
+ * 实体按压周期的本地分发独立于 HID 就绪状态和上报路由。 */
 
 /**************************************************************************
  * function: rdx_app_earphone_key_remap
@@ -1032,173 +1039,79 @@ static u8 rdx_app_rdx_key_route_ready(void)
 {
     rdx_ble_async_token_t token;
 
-    return rdx_ble_session_rdx_token_capture(&token, 1);
+    return rdx_ble_session_rdx_token_capture(&token, 1) &&
+           rdx_ble_server_is_stream_tx_ready();
 }
 
-static u8 rdx_app_key5_offline_stop_allowed(void)
+static void rdx_app_meeting_record_toggle(void)
 {
     RecordStatus *rp = rdx_record_get_status();
-
-    return rdx_app_business_started() && !poweroff_ready_flag &&
-           !app_var.goto_poweroff_flag && !rdx_dut_mode &&
-           !rdx_dut_test_keys_active() && !get_ota_status() &&
-           !mode_switch_keep_timer && !app_in_mode(APP_MODE_PC) &&
-           !rdx_uxfile_sd_format_status_check() &&
-           !rdx_storage_lifecycle_business_blocked() &&
-           rp->orig_mode == RECORD_MODE_OFFLINE &&
-           (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME ||
-            rp->run == RECORD_STATE_PAUSE);
-}
-
-/* 仅在 app_core 执行；旧双击及重试不能结束后来新建的录音。 */
-static void rdx_app_key5_offline_stop_pump(void *priv)
-{
-    u32 generation = (u32)priv;
-
-    if (!key5_offline_stop_timer || generation != key5_offline_stop_generation) {
+    u8 state = rdx_record_key_state_get();
+    if (key_record_kind == RDX_RECORD_MEETING && state == RDX_RECORD_KEY_IDLE &&
+        rp->run == RECORD_STATE_STOP && !key_record_stop_queued &&
+        !key_record_disconnect_pending) {
+        rdx_app_key_record_reset();
+    }
+    if (key_record_pressed || key_record_session_active || key_record_stop_queued ||
+        key_record_disconnect_pending) {
+        if (key_record_kind == RDX_RECORD_MEETING) {
+            key_record_pressed = 0;
+            rdx_app_key_record_pump();
+        }
         return;
     }
-    if (generation == rdx_record_generation_get() &&
-        rdx_app_key5_offline_stop_allowed()) {
-        /* 复用录音模块的停止栅栏、保存及当前会话回执，不等待 APP 应答。
-         * 未受理时保留重试；受理后由录音模块负责队列拥塞及完成确认。 */
-        if (!rdx_record_audio_fault_stop()) {
+    if (state == RDX_RECORD_KEY_STOPPING ||
+        (rp->run != RECORD_STATE_STOP && rdx_record_kind_get() != RDX_RECORD_MEETING)) return;
+    key_record_kind = RDX_RECORD_MEETING;
+    key_record_owner_valid = 0;
+    if (rp->run != RECORD_STATE_STOP || state == RDX_RECORD_KEY_START_PENDING) {
+        /* 包含 APP 发起的会议及 PAUSE 状态；此操作只允许停止。 */
+        key_record_local = !rdx_record_stream_only_session_is_active();
+        key_record_local_generation = rdx_record_generation_get();
+        key_record_session_active = 1;
+        key_record_pressed = 0;
+    } else if (rdx_app_rdx_key_route_ready()) {
+        /* 在线会议与 APP 开启一致：推流并落盘，不建立按住式会话状态。
+         * 之后双击结束走上面的本地权威停止，RDX 断开按离线继续落盘。 */
+        if (rdx_app_key_record_product_blocked() ||
+            rp->run != RECORD_STATE_STOP) {
             return;
         }
-        if (hold_record_local && hold_record_local_generation == generation) {
-            /* 停止责任已移交录音模块；保留松键路由，但不再重复提交停止。 */
-            hold_record_pressed = 0;
-            hold_record_session_active = 0;
-            hold_record_local_generation = 0;
-            rdx_app_hold_record_retry_cancel();
-        }
-        g_printf("[KEY5] offline stop accepted, generation=%u\r", generation);
+        rdx_app_device_record_set(RECORD_SCENE_CHAT, RECORD_STATE_START,
+                                  RECORD_MODE_ONLINE, RDX_RECORD_MEETING);
+        return;
+    } else {
+        key_record_local = 1;
+        key_record_pressed = 1;
     }
-    sys_timer_del(key5_offline_stop_timer);
-    key5_offline_stop_timer = 0;
+    rdx_app_key_record_pump();
 }
 
-static void rdx_app_key5_offline_stop_tick(void *priv)
+static void rdx_app_usage_key_remap(int *value, u8 physical_key, u8 usage,
+                                   u8 action, int scene)
 {
-    int msg[3] = {(int)rdx_app_key5_offline_stop_pump, 1, (int)priv};
-
-    /* 周期定时器保留重试来源，app_core 队列满时不丢失停止请求。 */
-    os_taskq_post_type("app_core", Q_CALLBACK, 3, msg);
+    *value = APP_MSG_NULL;
+    if (physical_key == KEY_IO_NUM4 &&
+        (scene == 4 || action == KEY_ACTION_EIGHTUPLE_CLICK)) {
+        u8 *table = rdx_key_get_io_num_table(4, 4);
+        *value = table ? table[action] : APP_MSG_NULL;
+        return;
+    }
+    if (scene != 4 && scene != 5) *value = rdx_key_usage_message(usage, action);
 }
 
-static void rdx_app_key5_offline_stop_request(void)
-{
-    u32 generation = rdx_record_generation_get();
-
-    if (key5_offline_stop_timer && key5_offline_stop_generation != generation) {
-        sys_timer_del(key5_offline_stop_timer);
-        key5_offline_stop_timer = 0;
-    }
-    if (!key5_offline_stop_timer) {
-        key5_offline_stop_generation = generation;
-        key5_offline_stop_timer = sys_timer_add(
-            (void *)generation, rdx_app_key5_offline_stop_tick,
-            RDX_HOLD_RECORD_RETRY_MS);
-        if (!key5_offline_stop_timer) {
-            r_printf("[KEY5] offline stop rejected: retry timer unavailable\r");
-            return;
-        }
-    }
-    rdx_app_key5_offline_stop_pump((void *)generation);
-}
-
-static void rdx_app_key5_remap(int *value, int index, int scene)
-{
-    u8 *key_table;
-
-    if (index == KEY_ACTION_UP && key5_local_hold_routed) {
-        key5_local_hold_routed = 0;
-        *value = APP_MSG_RECORD_LOCAL_HOLD_STOP;
-        return;
-    }
-    /* Balance an online START even if the BLE state changes while held. */
-    if (index == KEY_ACTION_UP && key5_online_hold_routed) {
-        key5_online_hold_routed = 0;
-        *value = key_table_record_hold[index];
-        return;
-    }
-
-    /* DUT controls are local even with a BLE link. Factory key/speaker
-     * isolation is enforced before this remapper is called. */
-    if (scene == 4) {
-        key_table = rdx_key_get_io_num_table(4, scene);
-        *value = key_table ? key_table[index] : APP_MSG_NULL;
-        return;
-    }
-
-    /* 接入 APP 不撤销已有离线录音的停止入口；此处已在 app_core，
-     * 直接受理仅停止请求，避免排队的切换消息在录音结束后反向启动。 */
-    if (index == KEY_ACTION_DOUBLE_CLICK && rdx_ble_server_has_active_link() &&
-        rdx_app_key5_offline_stop_allowed()) {
-        rdx_app_key5_offline_stop_request();
-        *value = APP_MSG_NULL;
-        return;
-    }
-
-    if (rdx_app_rdx_key_route_ready()) {
-        if (index == KEY_ACTION_LONG) {
-            /* 仅单独 F17 允许 KEY5 触发在线录音；即使按住期间修改配键，
-             * 已触发录音的松开事件仍由上方分支处理，保证停止流程配对。 */
-            if (!rdx_hogp_key_action_is_plain_key(4, 0x6c)) {
-                *value = APP_MSG_NULL;
-                return;
-            }
-            key5_online_hold_routed = 1;
-        } else if (index == KEY_ACTION_UP) {
-            key_press_record_ready_flag = 0;
-        }
-        *value = key_table_record_hold[index];
-        return;
-    }
-
-    /* Local behavior is allowed only when both BLE wrappers are idle. */
-    if (rdx_ble_server_has_active_link()) {
-        if (index == KEY_ACTION_UP) {
-            key_press_record_ready_flag = 0;
-        }
-        *value = APP_MSG_NULL;
-        return;
-    }
-
-    key_table = rdx_key_get_io_num_table(4, scene);
-    if (key_table) {
-        *value = key_table[index];
-        if (*value == APP_MSG_RECORD_LOCAL_HOLD_START) {
-            key5_local_hold_routed = 1;
-        }
-    }
-}
-
-/* 在 app_core 按当前配键分流；业务按键提示与电量查询只能选择一种。 */
 static void rdx_app_key_click_cb(void *priv)
 {
-    u8 key_value = (u32)priv;
-
-    if (!rdx_app_business_started() ||
-        rdx_dut_test_keys_active() || app_var.goto_poweroff_flag ||
-        app_in_mode(APP_MODE_PC) || rdx_uxfile_sd_format_status_check()) {
+    if (rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL) return;
+#if TCFG_RDX_HOGP_ENABLE
+    u8 usage = local_key_dispatch_cycle ? local_key_dispatch_cycle->usage : 0;
+    if (usage >= 0x6f && usage <= 0x73 && rdx_hogp_keyboard_is_ready() &&
+        local_key_dispatch_cycle->hid_admitted) {
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY_CUSTOM_FEEDBACK);
         return;
     }
-#if TCFG_RDX_HOGP_ENABLE
-    if (rdx_hogp_keyboard_is_ready()) {
-        if (key_value == KEY_IO_NUM0 &&
-            rdx_hogp_key_action_is_plain_key(0, 0x68)) {
-            rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY1_FEEDBACK);
-            return;
-        }
-        if (key_value == KEY_IO_NUM1 &&
-            rdx_hogp_key_action_is_plain_key(1, 0x69)) {
-            rdx_led_ctrl_set_scene(RDX_LED_SCENE_KEY2_FEEDBACK);
-            return;
-        }
-    }
 #endif
-    /* 提示被高优先级灯态拒绝也不回退查电量；其他配键保留原行为。 */
+    /* 业务灯效被拒绝时，不回退为电量提示。 */
     rdx_led_ctrl_show_battery();
 }
 
@@ -1211,6 +1124,21 @@ u8 rdx_app_hogp_input_route(void)
     if (rdx_hogp_keyboard_is_ready()) return RDX_HOGP_INPUT_HID;
 #endif
     return rdx_ble_server_has_active_link() ? RDX_HOGP_INPUT_DISCARD : RDX_HOGP_INPUT_OFFLINE;
+}
+
+u8 rdx_app_local_key_mode(void)
+{
+    if (!rdx_app_business_started() || poweroff_ready_flag ||
+        app_var.goto_poweroff_flag || app_in_mode(APP_MODE_PC) ||
+        rdx_uxfile_sd_format_status_check() || get_ota_status() ||
+        mode_switch_keep_timer) {
+        return RDX_LOCAL_KEY_BLOCKED;
+    }
+    /* 本地老化测试保留 KEY5 控制，其余按键由 DUT 消费端过滤。 */
+    if (rdx_dut_mode) {
+        return RDX_LOCAL_KEY_DUT;
+    }
+    return rdx_dut_test_keys_active() ? RDX_LOCAL_KEY_BLOCKED : RDX_LOCAL_KEY_NORMAL;
 }
 
 void rdx_app_key_click(u8 key_value, u8 action)
@@ -1228,6 +1156,7 @@ void rdx_app_key_click(u8 key_value, u8 action)
 static bool rdx_app_local_player_message_blocked(int message)
 {
     switch (message) {
+    case APP_MSG_REC_PLAY_TOGGLE:
     case APP_MSG_REC_PREV:
     case APP_MSG_REC_NEXT:
     case APP_MSG_REC_FR:
@@ -1236,38 +1165,24 @@ static bool rdx_app_local_player_message_blocked(int message)
     case APP_MSG_VOL_DOWN:
     case APP_MSG_LOCAL_VOL_UP:
     case APP_MSG_LOCAL_VOL_DOWN:
-        if (!rdx_ble_server_has_active_link()) {
+        {
             RecordStatus *rp = rdx_record_get_status();
-            return rp->run != RECORD_STATE_STOP || rdx_record_process_is_busy_check();
+            return rp->run != RECORD_STATE_STOP ||
+                   rdx_record_process_is_busy_check() ||
+                   rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE ||
+                   rdx_storage_lifecycle_business_blocked() || tone_player_runing();
         }
-        break;
     default:
         break;
     }
     return false;
 }
 
-static void rdx_app_local_player_key_remap(int *value, int num_idx, int index, int scene)
-{
-    RecordStatus *rp = rdx_record_get_status();
-
-    /* KEY1-4 must not change playback or volume while recording or saving. */
-    *value = APP_MSG_NULL;
-    if (rp->run != RECORD_STATE_STOP || rdx_record_process_is_busy_check()) {
-        return;
-    }
-    u8 *table = rdx_key_get_io_num_table(num_idx, scene);
-    if (table) {
-        *value = table[index];
-    }
-}
 
 static void rdx_app_local_volume_change(int message)
 {
-    /* 排队后重新确认离线状态，避免连接建立后继续调节本地音量。 */
-    if (rdx_ble_server_has_active_link() ||
-        rdx_app_local_player_message_blocked(message) ||
-        tone_player_runing()) {
+    /* 本地音量独立于 BLE 能力，但不抢录音、保存和提示音资源。 */
+    if (rdx_app_local_player_message_blocked(message) || tone_player_runing()) {
         return;
     }
     /* 使用本地两级步进及框架限幅，不经过蓝牙绝对音量同步表。 */
@@ -1327,32 +1242,14 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        /* KEY5 同时通过 rdx_hogp_input.c 上报 HID 按下和松开事件。
-         * RDX 就绪且 KEY5 配键为单独 F17 时允许在线长按录音；无 BLE ACL 连接时，
-         * 本地按键表支持双击切换录音和长按录音。
-         * 已有离线录音连接 APP 后，仍允许双击仅停止，不受配键限制。 */
-        if (num_idx == 4) {
-            rdx_app_key5_remap(value, index, scene);
-            return;
+        u8 usage = 0;
+        for (u8 candidate = 0x68; candidate <= 0x73; ++candidate) {
+            if (rdx_hogp_key_action_is_plain_key(num_idx, candidate)) {
+                usage = candidate;
+                break;
+            }
         }
-
-        /* KEY1-KEY4 use HID while ready. Unsupported actions are consumed. */
-#if TCFG_RDX_HOGP_ENABLE
-        if (rdx_hogp_keyboard_is_ready()) {
-            /* Physical HID cycles use the debounced input FIFO. */
-            *value = APP_MSG_NULL;
-            return;
-        }
-#endif
-
-        /* Any BLE ACL excludes local offline behavior, including links that
-         * have not completed RDX/HID capability setup yet. */
-        if (rdx_ble_server_has_active_link()) {
-            *value = APP_MSG_NULL;
-            return;
-        }
-
-        rdx_app_local_player_key_remap(value, num_idx, index, scene);
+        rdx_app_usage_key_remap(value, key->value, usage, index, scene);
         return;
     }
 
@@ -1897,7 +1794,7 @@ void rdx_app_normal_poweroff_cb(void* priv)
     // rdx_protocol_task_free();
     rdx_record_task_free();
     if (rdx_factory_audio_shutdown()) {
-        /* File worker may still own SD: reset without running power-down. */
+        /* 文件工作任务可能仍占用 SD：直接复位，不执行下电流程。 */
         cpu_reset();
         return;
     }
@@ -1942,7 +1839,7 @@ void rdx_app_normal_poweroff(void)
     /*----------------------------------------------------------------*/
     r_printf("------> %s \n", __func__);
 
-    rdx_app_hold_record_reset();
+    rdx_app_key_record_reset();
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     rdx_playback_invalidate_playlist(PB_PLAYLIST_STORAGE_UNAVAILABLE);
 #endif
@@ -2022,6 +1919,11 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
     u8 token_valid = record_state_upload_token_valid;
 
     if ((u32)priv != record_state_upload_generation) {
+        return;
+    }
+    if (key_record_session_active && !key_record_local) {
+        key_record_pressed = 0;
+        rdx_app_key_record_retry_cb(NULL);
         return;
     }
     rdx_app_record_state_upload_timer_stop();
@@ -2113,132 +2015,71 @@ void rdx_app_record_state_upload_timer_start(void)
     }
 }
 
-static int rdx_app_device_record_set(u8 scene, u8 run, u8 stream_only)
+static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
 {
-    if (run == RECORD_STATE_START &&
-        (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked())) {
-        rdx_record_format_download_conflict("RECORD_KEY");
+    RecordStatus *rp = rdx_record_get_status();
+    rdx_ble_async_token_t token = {0};
+    /* 只有灵感录音（F19）是按住式纯推流、不落盘。会议录音在线时沿用
+     * APP 开启路径：推流与落盘同步，RDX 断开后转离线继续落盘。 */
+    u8 stream_only = kind == RDX_RECORD_INSPIRATION;
+    /* 灵感录音和按键本地会议在受理点固定路由，其余沿用原 APP 路径。 */
+    u8 fixed_route = stream_only ||
+                     (kind == RDX_RECORD_MEETING && route == RECORD_MODE_OFFLINE);
+    int ret;
+    if (run == RECORD_STATE_STOP) {
+        if (!stream_only) return rdx_record_audio_fault_stop() ? 0 : -1;
+        if (route == RECORD_MODE_OFFLINE) return rdx_record_audio_fault_stop() ? 0 : -1;
+        if (!rdx_record_stream_only_token_capture(&token)) {
+            rdx_record_stream_only_release_complete();
+            return 0;
+        }
+        set_rp = *rp;
+        set_rp.run = RECORD_STATE_STOP;
+        set_rp.scene = scene;
+        return rdx_app_record_trigger_post(&set_rp, 0, &token, 1);
+    }
+    if (run != RECORD_STATE_START || !rdx_record_binding_allowed() ||
+        rdx_storage_lifecycle_business_blocked() || get_ota_status() ||
+        rdx_record_process_is_busy_check() || record_state_upload_timer) return -1;
+    if (route == RECORD_MODE_ONLINE) {
+        if (!rdx_ble_session_rdx_token_capture(&token, 1) ||
+            !rdx_ble_server_is_stream_tx_ready()) return -1;
+    } else if (rdx_uxfile_sync_is_in_progress() || rdx_uxfile_is_scan_active() ||
+               rdx_uxfile_is_formatting()) return -1;
+    if (scene != RECORD_SCENE_CHAT && scene != RECORD_SCENE_CALL) return -1;
+    if (fixed_route) {
+        if (!rdx_record_key_start_prepare(kind, route,
+                                          route == RECORD_MODE_ONLINE ? &token : NULL)) return -1;
+    } else if (rp->run != RECORD_STATE_STOP ||
+               rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE) {
         return -1;
     }
-    if (run == RECORD_STATE_START && rdx_record_process_is_busy_check()) {
-        return -1;
-    }
-    u8 formate = 0;
-    u16 con_hdl = rdx_ble_server_get_conn_handle();
-    RecordStatus* rp = rdx_record_get_status();
-    rdx_ble_async_token_t rdx_token = {0};
-    u8 rdx_token_valid = 0;
-
-    if (run != RECORD_STATE_START && run != RECORD_STATE_STOP) {
-        return -1;
-    }
-    if (run == RECORD_STATE_START && !stream_only &&
-        (rdx_uxfile_sync_is_in_progress() ||
-         rdx_uxfile_is_scan_active() ||
-         rdx_uxfile_is_formatting())) {
-        r_printf("[RDX_RECORD] local start rejected: UXFILE is busy\r");
-        return -1;
-    }
-    if(scene == RECORD_SCENE_CHAT){
-        formate = rdx_record_format_for_session(scene, stream_only &&
-                                               con_hdl != 0xffff && con_hdl != 0);
-    }else if(scene == RECORD_SCENE_CALL){
-        formate = RECORD_FORMATE_OPUS_16K_STERO;
-    }else{
-        return -1;
-    }
-
-    if(0xffff != con_hdl && 0 != con_hdl){
-        rdx_token_valid = rdx_ble_session_rdx_token_capture(&rdx_token, 1);
-        if (!rdx_token_valid) {
-            r_printf("[RDX_RECORD] ignore online trigger without RDX owner\r");
-            return -1;
-        }
-        if(get_ota_status()){
-            return -1;
-        }
-
-        memset(&set_rp, 0, sizeof(RecordStatus));
-        if(run == RECORD_STATE_START){
-            if (rp->run != RECORD_STATE_STOP) {
-                return -1;
-            }
-            set_rp.run = RECORD_STATE_START;
-            set_rp.formate = formate;
-            set_rp.scene = scene;
-            set_rp.mode = rp->mode;
-            g_printf("====== %s --> 在线录音开启触发，并发送开启消息, scene: %d \r", __func__, scene);
-
-            rdx_app_record_state_upload_timer_start();
-        }else{
-            if(rp->run != RECORD_STATE_STOP &&
-               rp->orig_mode == RECORD_MODE_OFFLINE){
-                g_printf("====== %s --> offline-originated recording, direct stop + send trigger \r", __func__);
-                rp->run = RECORD_STATE_STOP;
-                int msg_stop[2];
-                msg_stop[0] = (int)rdx_record_process;
-                msg_stop[1] = 0;
-                os_taskq_post_type("app_core", Q_CALLBACK, 2, msg_stop);
-
-                set_rp.run = RECORD_STATE_STOP;
-                set_rp.formate = formate;
-                set_rp.scene = scene;
-                set_rp.mode = rp->mode;
-            }else{
-                set_rp.run = RECORD_STATE_STOP;
-                set_rp.formate = (rp->run == RECORD_STATE_STOP) ? formate : rp->formate;
-                set_rp.scene = (rp->run == RECORD_STATE_STOP) ? scene : rp->scene;
-                set_rp.mode = rp->mode;
-                g_printf("====== %s --> 在线录音结束触发，并发送结束消息, scene = %d, formate = %d \r", __func__, set_rp.scene, set_rp.formate); 
-            }
-        }
-        //report this action to app. 
-        u8 factor = 0;
-        int ret = rdx_app_record_trigger_post(
-            &set_rp, factor, &rdx_token, stream_only);
-        if (!ret && stream_only && run == RECORD_STATE_START) {
-            /* Arm before queued triggers/replies can execute on app_core. */
-            rdx_record_stream_only_start_arm(&rdx_token);
-        }
-        if(ret) {
-            r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
-        }
-        return ret;
-    }else{
-        if(run == RECORD_STATE_START){
-            if (rp->run != RECORD_STATE_STOP) {
-                return -1;
-            }
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-            /* 离线录音会立即启动，先在 app_core 结束本地回听会话。 */
-            rdx_playback_stop();
+    rdx_playback_stop();
 #endif
-            rp->run = RECORD_STATE_START;
-            rp->formate = formate;
-            rp->scene = scene;
-            rdx_record_prepare_new_session();
-            int msg[2];
-            msg[0] = (int)rdx_record_process;
-            msg[1] = 0;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-            if (ret) {
-                rp->run = RECORD_STATE_STOP;
-            }
-            g_printf("====== %s --> 离线录音开启 \r", __func__);
-            return ret;
-        }else{
-            if (rp->run == RECORD_STATE_STOP) {
-                return 0;
-            }
-            rp->run = RECORD_STATE_STOP;
-            int msg[2];
-            msg[0] = (int)rdx_record_process;
-            msg[1] = 0;
-            int ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
-            g_printf("====== %s --> 离线录音结束 \r", __func__);
-            return ret;
-        }
+    if (route == RECORD_MODE_ONLINE) {
+        set_rp = *rp;
+        set_rp.run = RECORD_STATE_START;
+        set_rp.formate = rdx_record_format_for_session(scene, stream_only);
+        set_rp.scene = scene;
+        /* 替换定时器会取消旧的开始预置，须在替换后再登记本次预置。 */
+        rdx_app_record_state_upload_timer_start();
+        if (stream_only) rdx_record_stream_only_start_arm(&token);
+        ret = rdx_app_record_trigger_post(&set_rp, 0, &token, stream_only);
+    } else {
+        rp->run = RECORD_STATE_START;
+        rp->scene = scene;
+        rp->key_trigger = true;
+        rdx_record_prepare_new_session();
+        int msg[2] = {(int)rdx_record_process, 0};
+        ret = os_taskq_post_type("app_core", Q_CALLBACK, 2, msg);
+        if (ret) rp->run = RECORD_STATE_STOP;
     }
+    if (ret) {
+        rdx_app_record_state_upload_timer_stop();
+        if (fixed_route) rdx_record_key_start_abort();
+    }
+    return ret;
 }
 
 /**************************************************************************
@@ -2253,7 +2094,9 @@ void rdx_app_device_record_handle(u8 scene)
     u8 run = (rp->run == RECORD_STATE_STOP) ?
              RECORD_STATE_START : RECORD_STATE_STOP;
 
-    rdx_app_device_record_set(scene, run, 0);
+    rdx_app_device_record_set(scene, run,
+                              rdx_app_rdx_key_route_ready() ? RECORD_MODE_ONLINE : RECORD_MODE_OFFLINE,
+                              scene == RECORD_SCENE_CHAT ? RDX_RECORD_MEETING : RDX_RECORD_CALL);
 }
 
 #if RDX_PRODUCT_IS_CHARGE_CASE
@@ -2945,25 +2788,34 @@ int rdx_app_msg_handler(int *msg)
 
         case APP_MSG_RECORD_LOCAL_HOLD_START:
         case APP_MSG_RECORD_HOLD_START:
-            if (hold_record_session_active || hold_record_pressed) {
+            if (key_record_session_active || key_record_pressed ||
+                key_record_stop_queued || key_record_disconnect_pending) {
                 /* Finish the previous release before accepting a new hold. */
                 ret = TRUE;
                 break;
             }
-            hold_record_local = msg[0] == APP_MSG_RECORD_LOCAL_HOLD_START;
-            hold_record_pressed = 1;
-            rdx_app_hold_record_pump();
+            key_record_kind = RDX_RECORD_INSPIRATION;
+            key_record_local = !rdx_app_rdx_key_route_ready();
+            key_record_pressed = 1;
+            key_record_owner_valid = local_key_dispatch_cycle != NULL;
+            if (key_record_owner_valid) {
+                key_record_owner = *local_key_dispatch_cycle;
+            }
+            rdx_app_key_record_pump();
+            if (!key_record_pressed && !key_record_session_active) {
+                key_record_owner_valid = 0;
+            }
             ret = TRUE;
             break;
 
         case APP_MSG_RECORD_LOCAL_HOLD_STOP:
         case APP_MSG_RECORD_HOLD_STOP:
-            if (hold_record_local != (msg[0] == APP_MSG_RECORD_LOCAL_HOLD_STOP)) {
+            if (key_record_kind != RDX_RECORD_INSPIRATION) {
                 ret = TRUE;
                 break;
             }
-            hold_record_pressed = 0;
-            rdx_app_hold_record_pump();
+            key_record_pressed = 0;
+            rdx_app_key_record_pump();
             ret = TRUE;
             break;
 
@@ -3011,17 +2863,11 @@ int rdx_app_msg_handler(int *msg)
             break;
 
         case APP_MSG_RECORD_LOCAL_TOGGLE:
+            rdx_app_meeting_record_toggle();
+            ret = TRUE;
+            break;
+
         case APP_MSG_RECORD_SWITCH:
-            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE &&
-                (hold_record_session_active || hold_record_pressed)) {
-                ret = TRUE;
-                break;
-            }
-            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE &&
-                rdx_ble_server_has_active_link()) {
-                ret = TRUE;
-                break;
-            }
             if (!rdx_record_binding_allowed() &&
                 rdx_record_get_status()->run == RECORD_STATE_STOP) {
                 key_press_record_ready_flag = 0;
@@ -3051,19 +2897,6 @@ int rdx_app_msg_handler(int *msg)
 
             //record switch.
             RecordStatus* rp = rdx_record_get_status();
-            if (msg[0] == APP_MSG_RECORD_LOCAL_TOGGLE) {
-                key_press_record_ready_flag = 0;
-                if (rp->run == RECORD_STATE_STOP) {
-                    rp->key_trigger = true;
-                #if (RDX_SUPPORT_MOTOR == 1)
-                    rdx_record_motor_run();
-                #endif
-                }
-                rdx_app_device_record_handle(rp->scene == RECORD_SCENE_CHAT ?
-                                            RECORD_SCENE_CHAT : RECORD_SCENE_CALL);
-                ret = TRUE;
-                break;
-            }
             if(rp->run == RECORD_STATE_STOP){
                 rp->key_trigger = true;
                 //when offline, let user knonw that they can release the key to start recording.
@@ -3119,23 +2952,9 @@ int rdx_app_msg_handler(int *msg)
             break;
 
         case APP_MSG_REC_PLAY_TOGGLE:
-            {
-                RecordStatus *rp = rdx_record_get_status();
-
-                log_info("=== %s ---> APP_MSG_REC_PLAY_TOGGLE, record state=%d \r",
-                         __FUNCTION__, rp ? rp->run : -1);
-
-                if (rp && (rp->run == RECORD_STATE_START ||
-                           rp->run == RECORD_STATE_RESUME)) {
-#if TDX_HAS_RECMARK_ABILITY
-                    rdx_record_add_mark(RDX_MARK_SOURCE_KEY);
-#endif
-                } else {
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-                    rdx_playback_toggle();
+            rdx_playback_toggle();
 #endif
-                }
-            }
             ret = TRUE;
             break;
 
@@ -3220,6 +3039,53 @@ SHUTOFF);
     return ret;
 }
 
+void rdx_app_local_key_gesture(const struct key_event *key,
+                               const rdx_hogp_input_cycle_t *cycle)
+{
+    int message = APP_MSG_NULL;
+
+    if (!key || !cycle || key->type != KEY_DRIVER_TYPE_IO ||
+        key->value != cycle->physical_key || key->value < KEY_IO_NUM0 ||
+        key->value > KEY_IO_NUM4 || key->event >= KEY_ACTION_MAX) {
+        return;
+    }
+    if (key->event == KEY_ACTION_UP) {
+        rdx_app_local_key_cancel(cycle);
+        return;
+    }
+    u8 mode = rdx_app_local_key_mode();
+    if (!rdx_hogp_input_cycle_valid(cycle) || mode == RDX_LOCAL_KEY_BLOCKED ||
+        mode != cycle->mode || rdx_dut_key_consume(key->value, key->tmr)) {
+        return;
+    }
+    local_key_dispatch_cycle = cycle;
+    int scene = mode == RDX_LOCAL_KEY_DUT ? 4 : rdx_app_get_scene();
+    rdx_app_usage_key_remap(&message, key->value, cycle->usage, key->event, scene);
+    u8 business_feedback = 0;
+#if TDX_HAS_RECMARK_ABILITY
+    if (cycle->usage == 0x6d && key->event == KEY_ACTION_CLICK &&
+        rdx_record_kind_get() == RDX_RECORD_MEETING &&
+        rdx_record_key_state_get() == RDX_RECORD_KEY_ACTIVE &&
+        !rdx_record_process_is_busy_check()) {
+        RecordStatus *rp = rdx_record_get_status();
+        if (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) {
+            business_feedback = rdx_record_add_mark(RDX_MARK_SOURCE_KEY) == 0;
+        }
+    }
+#endif
+    /* 开始、停止和播放定位不能经通用应用队列延后到本次按压周期之外执行。 */
+    if (message != APP_MSG_NULL) {
+        int msg[3] = {MSG_FROM_APP, message, 0};
+        if (!rdx_app_msg_handler(msg + 1)) {
+            app_default_msg_handler(msg);
+        }
+    }
+    if (key->event == KEY_ACTION_CLICK && !business_feedback) {
+        rdx_app_key_click_cb((void *)(u32)key->value);
+    }
+    local_key_dispatch_cycle = NULL;
+}
+
 /**************************************************************************
  * function: rdx_app_key_msg_handler
  * description: 
@@ -3243,8 +3109,7 @@ int rdx_app_key_msg_handler(int *msg)
     
     rdx_app_earphone_key_remap(&key_msg, msg);
     /* Resolved gestures only. Playback/recording feedback owns these clicks. */
-    if (key->type == KEY_DRIVER_TYPE_IO &&
-        key_msg != APP_MSG_REC_PLAY_TOGGLE) {
+    if (key->type == KEY_DRIVER_TYPE_IO) {
         rdx_app_key_click(key->value, key->event);
     }
     // log_info("key_msg:%d\n", key_msg);
@@ -4549,7 +4414,7 @@ void rdx_app_all_init(void)
     g_printf("-----------------------------------------------------------\r");
     rdx_app_init_flag = false;
     poweron_ready_flag = false;
-    rdx_app_hold_record_reset();
+    rdx_app_key_record_reset();
 
     // 在按键事件处理之前初始化 record_status.
     rdx_record_set_default();
@@ -4724,14 +4589,14 @@ static void rdx_app_idle_handle(void* priv)
 
     poweroff_ready_flag = false;
     key_press_record_ready_flag = false;
-    rdx_app_hold_record_reset();
+    rdx_app_key_record_reset();
 
     xxp_uart_set_wifi_default_flag(false);
 
     // rdx_protocol_task_free();
     rdx_record_task_free();
     if (rdx_factory_audio_shutdown()) {
-        /* File worker may still own SD: reset without running power-down. */
+        /* 文件工作任务可能仍占用 SD：直接复位，不执行下电流程。 */
         cpu_reset();
         return;
     }

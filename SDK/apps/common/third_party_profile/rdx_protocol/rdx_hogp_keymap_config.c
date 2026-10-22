@@ -16,6 +16,7 @@
 #include "rdx_dut.h"
 #include "rdx_hogp_config.h"
 #include "rdx_hogp_key_action.h"
+#include "rdx_hogp_input.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_hogp_keymap_internal.h"
 #include "rdx_protocol.h"
@@ -42,13 +43,13 @@ typedef struct {
     rdx_ble_async_token_t rdx_token;
 } rdx_hogpkm_owned_request_t;
 
-/* KEY1～KEY5 默认对应 F13～F17（键盘用法页 0x07），不带修饰键；APP 保存的配键优先。 */
+/* KEY1..KEY5 默认依次为 F13、F14、F17、F18、F19；优先保留已保存的有效配键。 */
 static const u8 s_rdx_hogpkm_default_keymap[RDX_HOGPKM_KEYMAP_LEN] = {
     0x00, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x6a, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6d, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
 static u8 s_rdx_hogpkm_current_keymap[RDX_HOGPKM_KEYMAP_LEN];
@@ -796,6 +797,7 @@ int rdx_hogp_keymap_config_factory_reset(void)
     /* Serialized with commits on app_core. Also fence incoming requests for
      * the delayed reboot / factory packaging completion interval. */
     s_rdx_hogpkm_factory_reset = 1;
+    rdx_hogp_input_cancel();
     rdx_hogp_keymap_config_on_disconnect();
     if (memcmp(s_rdx_hogpkm_current_keymap, s_rdx_hogpkm_default_keymap,
                RDX_HOGPKM_KEYMAP_LEN) == 0) {
@@ -833,7 +835,13 @@ failed:
 void rdx_hogp_keymap_config_init(void) {}
 void rdx_hogp_keymap_config_handle_custom(const char *value) { (void)value; }
 void rdx_hogp_keymap_config_on_disconnect(void) {}
-int rdx_hogp_keymap_config_factory_reset(void) { return 0; }
+int rdx_hogp_keymap_config_factory_reset(void)
+{
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    rdx_hogp_input_cancel();
+#endif
+    return 0;
+}
 __attribute__((weak)) int rdx_hogp_keymap_product_authorized(void) { return 0; }
 
 #endif
