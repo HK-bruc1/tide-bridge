@@ -54,6 +54,15 @@ int rdx_record_storage_check_start(void)
     return 0;
 }
 
+/* Control-path admission, before any session, tone or audio state changes.
+ * Fails closed on every condition rdx_record_storage_begin() would reject. */
+int rdx_record_storage_admit(void)
+{
+    if (!rs.created || rs.active || rs.error || rdx_record_format_status() < 0)
+        return -1;
+    return rdx_record_storage_check_start();
+}
+
 static void rs_space_refresh(void)
 {
     u32 available = 0;

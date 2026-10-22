@@ -19,6 +19,7 @@ typedef int bool;
 #define NULL ((void *)0)
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 #define r_printf(...) ((void)0)
+#define log_error(...) ((void)0)
 #define g_printf(...) ((void)0)
 #define y_printf(...) ((void)0)
 #define log_info(...) ((void)0)
@@ -98,8 +99,9 @@ static void rdx_record_clear_marks(void) {}
 static void rdx_record_process(void) { ++processes; }
 static void rdx_app_emmc_poweron(int x) {}
 static int rdx_record_uxfile_is_busy(void) { return ux_busy; }
-static void rdx_record_pause_timeout_stop(void) {}
-static void rdx_record_pause_timeout_start(void) {}
+static int pause_timeout_starts, pause_timeout_stops;
+static void rdx_record_pause_timeout_stop(void) { ++pause_timeout_stops; }
+static void rdx_record_pause_timeout_start(void) { ++pause_timeout_starts; }
 static void rdx_record_max_timer_stop(void) {}
 static void rdx_record_max_timer_start(void) {}
 static void rdx_record_set_filter_cnt(int n) {}
@@ -134,7 +136,15 @@ static ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &file_info; }
 static void rdx_protocol_file_cmd_handle(int x) {}
 static void rdx_uxfile_operate_file_init(void) {}
 static void rdx_app_emmc_poweroff_check_timer_stop(void) {}
-static int rdx_record_storage_check_start(void) { return 0; }
+/* 空间准入可控：admit 为 app_core 受理门禁，check_start 为 sink 初始化纵深防御。 */
+static int admit_ret, admit_calls, space_ret;
+static int rdx_record_storage_admit(void) { ++admit_calls; return admit_ret; }
+struct tone_files { const char *no_storage; };
+static const struct tone_files tones={"no_sd"};
+static const struct tone_files *get_tone_files(void) { return &tones; }
+static int full_tones;
+static int play_tone_file(const char *name) { full_tones+=!strcmp(name,"no_sd"); return 0; }
+static int rdx_record_storage_check_start(void) { return space_ret; }
 static void rdx_uxfile_dat_1_gen(int scene) { ++files; }
 static void rdx_record_init_raw_metadata(int format) {}
 static int rdx_uxfile_get_operateFile_info(void) { return 0; }
@@ -158,6 +168,7 @@ static void reset(void) {
     timeout_callback=0; timeout_priv=0;
     g_hold_release_posted=g_hold_release_ticket=g_hold_release_done=0;
     closes=finishes=record_tone_session_active=0; is_record_task_created=1;
+    admit_ret=admit_calls=space_ret=pause_timeout_starts=pause_timeout_stops=full_tones=0;
     dut=factory=storage_busy=ux_busy=0; bound=live=stream_ready=1;
     owner=(rdx_ble_async_token_t){0,1,1}; record_initialized_generation=0; now_ms=100;
 }
@@ -410,6 +421,96 @@ int test_queued_delay_cannot_resurrect_cancelled_start(void) {
     CHECK(!rdx_record_run_init() && !files);
     return 0;
 }
+typedef struct { u32 request_generation, record_generation; u8 kind, route, state, fixed; } key_snapshot_t;
+static key_snapshot_t key_snapshot(void) {
+    key_snapshot_t k={record_key_context.request_generation,record_key_context.record_generation,
+        record_key_context.kind,record_key_context.route,record_key_context.state,record_key_context.fixed};
+    return k;
+}
+static int key_snapshot_equal(key_snapshot_t a,key_snapshot_t b) {
+    return a.request_generation==b.request_generation && a.record_generation==b.record_generation &&
+        a.kind==b.kind && a.route==b.route && a.state==b.state && a.fixed==b.fixed;
+}
+int test_full_storage_start_rejected_before_mutation(void) {
+    for(int err=0;err<2;++err) for(int with_token=0;with_token<2;++with_token) {
+        reset(); admit_ret=err?-1:-2;
+        u32 generation=record_session_generation; key_snapshot_t key=key_snapshot();
+        Record_info info={RECORD_STATE_START+0x30,'1','0'};
+        rdx_record_cmd_handle_internal(&info,with_token?&owner:NULL);
+        /* 拒绝发生在任何会话、按键上下文、提示音、录音进程变更之前。 */
+        CHECK(admit_calls==1 && record_status.run==RECORD_STATE_STOP);
+        CHECK(record_session_generation==generation && key_snapshot_equal(key,key_snapshot()));
+        CHECK(!processes && !record_start_tone_pending && !files && !g_record_session_token_valid);
+        CHECK(!g_record_cmd_delay_timer && !timeout_adds && !g_app_stop_pending);
+        CHECK(replies==with_token); /* 仅向当前 RDX 归属回一次状态。 */
+        CHECK(full_tones==!err); /* 仅触及预留时报存储不足提示音。 */
+        /* 空间恢复后同一入口正常受理。 */
+        admit_ret=0; rdx_record_cmd_handle_internal(&info,with_token?&owner:NULL);
+        CHECK(admit_calls==2 && record_status.run==RECORD_STATE_START && processes==1);
+        CHECK(record_session_generation==generation+1);
+        /* 重复 START、PAUSE、STOP 均不再查询空间。 */
+        admit_ret=-2; rdx_record_cmd_handle_internal(&info,with_token?&owner:NULL);
+        CHECK(admit_calls==2 && record_status.run==RECORD_STATE_START && processes==1);
+        info.cmd=RECORD_STATE_PAUSE+0x30; rdx_record_cmd_handle_internal(&info,with_token?&owner:NULL);
+        CHECK(admit_calls==2 && record_status.run==RECORD_STATE_PAUSE);
+        info.cmd=RECORD_STATE_STOP+0x30; rdx_record_cmd_handle_internal(&info,with_token?&owner:NULL);
+        CHECK(admit_calls==2);
+        if(with_token) drain_stop_reply();
+    }
+    return 0;
+}
+int test_busy_uxfile_defers_before_space_query(void) {
+    reset(); ux_busy=1; admit_ret=-2;
+    u32 generation=record_session_generation; key_snapshot_t key=key_snapshot();
+    cmd(RECORD_STATE_START);
+    CHECK(!admit_calls && g_record_cmd_delay_timer && g_pending_record_token_valid && !replies);
+    rdx_record_cmd_delay_cb((void *)g_record_cmd_delay_generation);
+    CHECK(!admit_calls && g_record_cmd_delay_timer); /* 仍忙：重试，不查询。 */
+    ux_busy=0; rdx_record_cmd_delay_cb((void *)g_record_cmd_delay_generation);
+    CHECK(admit_calls==1 && record_status.run==RECORD_STATE_STOP && replies==1);
+    CHECK(!g_record_cmd_delay_timer && !g_pending_record_token_valid && !processes);
+    CHECK(record_session_generation==generation && key_snapshot_equal(key,key_snapshot()));
+    return 0;
+}
+int test_full_storage_resume_keeps_pause(void) {
+    for(int err=0;err<2;++err) {
+        reset(); cmd(RECORD_STATE_START); CHECK(admit_calls==1 && record_status.run==RECORD_STATE_START);
+        now_ms=200; cmd(RECORD_STATE_PAUSE);
+        CHECK(record_status.run==RECORD_STATE_PAUSE && record_status.pause_start_ms==200);
+        int starts=pause_timeout_starts, stops=pause_timeout_stops, procs=processes;
+        u32 generation=record_session_generation; key_snapshot_t key=key_snapshot();
+        now_ms=500; admit_ret=err?-1:-2; cmd(RECORD_STATE_RESUME);
+        CHECK(admit_calls==2 && record_status.run==RECORD_STATE_PAUSE && replies==1);
+        CHECK(full_tones==!err && !record_start_tone_pending);
+        CHECK(record_status.pause_start_ms==200 && !record_status.paused_accumulated_ms);
+        CHECK(pause_timeout_starts==starts && pause_timeout_stops==stops && processes==procs);
+        CHECK(record_session_generation==generation && key_snapshot_equal(key,key_snapshot()));
+        admit_ret=0; cmd(RECORD_STATE_RESUME);
+        CHECK(admit_calls==3 && record_status.run==RECORD_STATE_RESUME && processes==procs+1);
+        CHECK(record_status.paused_accumulated_ms==300 && !record_status.pause_start_ms);
+        CHECK(record_session_generation==generation);
+        cmd(RECORD_STATE_STOP); drain_stop_reply(); CHECK(admit_calls==3);
+    }
+    return 0;
+}
+int test_stream_only_never_queries_space(void) {
+    reset(); admit_ret=-2;
+    CHECK(rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
+    cmd(RECORD_STATE_START);
+    CHECK(rdx_record_stream_only_session_is_active() && record_status.run==RECORD_STATE_START);
+    CHECK(!rdx_record_run_init() && !files);
+    cmd(RECORD_STATE_PAUSE); cmd(RECORD_STATE_RESUME);
+    CHECK(record_status.run==RECORD_STATE_RESUME && !admit_calls && !full_tones);
+    CHECK(!rdx_record_stream_only_release()); drain_release(); CHECK(!admit_calls);
+    return 0;
+}
+int test_run_init_propagates_reserve(void) {
+    reset(); cmd(RECORD_STATE_START);
+    space_ret=-2; CHECK(rdx_record_run_init()==-2 && !files);
+    space_ret=-1; CHECK(rdx_record_run_init()==-1 && !files);
+    space_ret=0; CHECK(!rdx_record_run_init() && files==1);
+    return 0;
+}
 '''
 
 
@@ -447,6 +548,7 @@ def main():
         'rdx_record_online_session_bind', 'rdx_record_online_session_is_current',
         'rdx_record_online_session_accepts', 'rdx_record_online_session_bind_current',
         'rdx_record_pending_cmd_clear', 'rdx_record_start_uses_local_storage',
+        'rdx_record_local_storage_admit',
         'rdx_record_format_for_session', 'rdx_record_prepare_new_session',
         'rdx_record_app_stop_pump', 'rdx_record_app_stop_tick', 'rdx_record_app_stop_request',
         'rdx_record_audio_fault_stop', 'rdx_record_stream_only_release',
@@ -467,7 +569,7 @@ def main():
         path = Path(temp) / 'session.c'
         path.write_text(source, encoding='utf-8')
         run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', TESTS), native=True)
-    print('Recorder sessions: pending cancellation, late-reply fence, frozen routes, pure streaming and kinds passed.')
+    print('Recorder sessions: pending cancellation, late-reply fence, frozen routes, pure streaming, kinds and storage admission passed.')
 
 
 if __name__ == '__main__':

@@ -64,6 +64,7 @@ struct tone_files {
     const char *conn;
     const char *plebind;
     const char *dut_done;
+    const char *no_storage;
 };
 
 

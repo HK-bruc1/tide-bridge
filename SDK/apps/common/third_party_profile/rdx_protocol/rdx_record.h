@@ -204,6 +204,10 @@ u8 rdx_record_stream_only_session_is_active(void);
 u8 rdx_record_stream_only_release(void);
 /* app_core: generic audio failure, retrying STOP for online/offline sessions. */
 u8 rdx_record_audio_fault_stop(void);
+/* app_core: 0 when a local-storage START/RESUME may proceed; <0 rejects. */
+int rdx_record_local_storage_admit(const char *who);
+/* sink context: a failed session init never fails the jlstream START. */
+void rdx_record_run_init_failed(int err);
 void translation_ear_recoder_storage_fault(void);
 void translation_ear_recoder_storage_full(void);
 void rdx_record_storage_recovered(void);

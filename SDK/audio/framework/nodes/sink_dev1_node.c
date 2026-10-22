@@ -22,6 +22,7 @@
 
 struct sink_dev1_hdl {
     u8 started;
+    u8 live;                    //录音会话初始化成功，允许处理数据
     struct stream_fmt fmt;		//节点参数
 };
 
@@ -29,6 +30,7 @@ struct sink_dev1_hdl {
 extern int rdx_record_run_exit(void);
 extern int rdx_record_run_init(void);
 extern int rdx_record_run_data_handle(u8 *data, u32 len);
+extern void rdx_record_run_init_failed(int err);
 
 #ifdef BIT_RATE_TEST
 static int tx_speed_cal_timer = 0;
@@ -106,8 +108,11 @@ static int sink_dev1_init(struct sink_dev1_hdl *hdl)
      * This also covers direct recorder opens and both RDX process variants. */
     int err = rdx_record_run_init();
     if (err) {
+        hdl->live = 0;
+        rdx_record_run_init_failed(err);
         return err;
     }
+    hdl->live = 1;
 
     //set gain.
     rdx_record_mic_gain_check();
@@ -165,6 +170,9 @@ static void sink_dev1_run(struct sink_dev1_hdl *hdl, void *data, int data_len)
     // putchar('V');
 
 #if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+    if (!hdl->live) {
+        return;     //会话初始化失败，等待有序 STOP
+    }
     //record data handle.
     rdx_record_run_data_handle(data, data_len);
 #endif
@@ -248,11 +256,11 @@ static int sink_dev1_ioc_start(struct sink_dev1_hdl *hdl)
     if (hdl->started) {
         return 0;
     }
-    int err = sink_dev1_init(hdl);
-    if (!err) {
-        hdl->started = 1;
-    }
-    return err;
+    /* 半启动的多线程流回滚不安全：初始化失败不向 jlstream 返回错误，
+     * 由录音模块走有序 STOP；started 置位以保证 exit 成对执行。 */
+    sink_dev1_init(hdl);
+    hdl->started = 1;
+    return 0;
 }
 
 static int sink_dev1_ioc_stop(struct sink_dev1_hdl *hdl)
@@ -260,6 +268,7 @@ static int sink_dev1_ioc_stop(struct sink_dev1_hdl *hdl)
     printf("sink_dev1_ioc_stop");
     if (hdl->started) {
         hdl->started = 0;
+        hdl->live = 0;
         return sink_dev1_exit(hdl);
     }
     return 0;

@@ -1,6 +1,7 @@
 """Run production async recorder with deterministic worker/I/O scheduling.
 Hardware latency and library behavior still require on-device acceptance.
 """
+import json
 import re
 import tempfile
 from pathlib import Path
@@ -13,6 +14,9 @@ def main():
     check_reconnect()
     check_stream()
     check_snapshot()
+    check_run_init_space()
+    check_sink_node()
+    check_storage_full_tone()
     base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     source = (base / 'rdx_record_storage.c').read_text(encoding='utf-8')
     source = re.sub(r'^#include .*\n', '', source, flags=re.M)
@@ -25,6 +29,9 @@ def main():
     assert len(starts) == 2
     for start in starts:
         assert start.index('rdx_record_storage_check_start()') < start.index('rdx_uxfile_dat_1_gen(')
+        # The sink reports the reserve (-2) separately from faults (-1).
+        assert re.search(r'int space = rdx_record_storage_check_start\(\);\s*if \(space\) return space;', start)
+        assert 'if (rdx_record_storage_check_start()) return -1;' not in start
     stubs = r'''
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -39,7 +46,7 @@ typedef int OS_SEM;
 #define OS_EXIT_CRITICAL() (--locked)
 static int locked, bad, faults, status, meta_fail, fail_write, writes, full_stops, space_error;
 static u32 space_bytes;
-static int io_users, service_busy;
+static int io_users, io_enters, service_busy;
 static u32 meta_calls, saved_len, ticks, stall_frames, seq, expected, frame_len;
 static int inside_push, inject, meta_inject;
 static int push(void);
@@ -62,7 +69,7 @@ int rdx_record_format_space(u32 *budget) {
     return space_error;
 }
 int rdx_record_format_status(void) {return status;}
-int rdx_record_format_io_enter(void) { if(service_busy) return -1; ++io_users; return 0; }
+int rdx_record_format_io_enter(void) { ++io_enters; if(service_busy) return -1; ++io_users; return 0; }
 void rdx_record_format_io_leave(void) { --io_users; }
 void rdx_record_format_storage_fault(void) {status=-1;}
 void *rdx_uxfile_get_operateFile_info(void) {return (void*)1;}
@@ -204,6 +211,8 @@ int test_storage(void) {
         CHECK(saved_len==seq*frame_len && saved_len==8000+frame_len*3);
         CHECK(!rs.error && !rs.io_failed && !bad);
         CHECK(rdx_record_storage_check_start()==-2);
+        /* Next START is refused at app_core admission with the reserve code. */
+        CHECK(rdx_record_storage_admit()==-2 && !rs.active);
         CHECK(rdx_record_storage_begin(51,7,format)<0 && !rs.active);
         space_bytes=100000; /* User deleted a file: no reboot/format needed. */
         CHECK(!rdx_record_storage_begin(52,7,format));
@@ -233,11 +242,32 @@ int test_storage(void) {
     rdx_record_storage_reset(); CHECK(!rs.error && !rs.io_failed && !rs.full);
     return 0;
 }
+/* Control-path admission: fail closed without I/O when begin() would reject,
+ * report the reserve as -2, and keep the format I/O lease balanced. */
+int test_admit(void) {
+    CHECK(!reset(1)); CHECK(!rdx_record_storage_end());
+    io_enters=0; CHECK(!rdx_record_storage_admit() && io_enters==1 && !io_users);
+    rs.active=1; io_enters=0;
+    CHECK(rdx_record_storage_admit()==-1 && !io_enters); rs.active=0;
+    rs.error=-24; CHECK(rdx_record_storage_admit()==-1 && !io_enters); rs.error=0;
+    status=-1; CHECK(rdx_record_storage_admit()==-1 && !io_enters); status=0;
+    space_bytes=8000-1; CHECK(rdx_record_storage_admit()==-2 && io_enters==1 && !io_users);
+    CHECK(!full_stops && !faults && !rs.error && !status && !rs.active);
+    space_bytes=8000; CHECK(!rdx_record_storage_admit() && !io_users);
+    space_error=1; CHECK(rdx_record_storage_admit()==-1 && !io_users); space_error=0;
+    service_busy=1; CHECK(rdx_record_storage_admit()==-1 && !io_users); service_busy=0;
+    /* Admission never opens a session; a later begin still succeeds. */
+    CHECK(!rs.active && !rdx_record_storage_begin(60,7,1) && rdx_record_storage_admit()==-1);
+    CHECK(!rdx_record_storage_end());
+    rdx_record_storage_destroy(); io_enters=0;
+    CHECK(rdx_record_storage_admit()==-1 && !io_enters && !io_users && !bad);
+    return 0;
+}
 '''
     with tempfile.TemporaryDirectory(prefix='t2620-storage-') as work:
         path = Path(work) / 'record_storage.c'
         path.write_text(stubs + source + tests, encoding='utf-8')
-        run_c_checks(path, ['test_storage'])
+        run_c_checks(path, ['test_storage', 'test_admit'])
     print('Recording async storage/lifecycle behavioral checks passed.')
 
 
@@ -713,6 +743,168 @@ int test_stop_cleanup(void) {
         path = Path(work) / 'snapshot.c'
         path.write_text(source, encoding='utf-8')
         run_c_checks(path, ['test_snapshot', 'test_stop_cleanup'], native=True)
+
+
+def _run_init_prefixes(record):
+    """Each run_init variant up to its storage gate, closed for compilation."""
+    marker = 'if (space) return space;'
+    bodies = re.findall(r'int rdx_record_run_init\(void\)\s*\{.*?\n\}', record, re.S)
+    assert len(bodies) == 2
+    prefixes = []
+    for index, body in enumerate(bodies):
+        cut = body.index(marker) + len(marker)
+        text = body[:cut]
+        masked = re.sub(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"', lambda m: ' ' * len(m[0]), text, flags=re.S)
+        depth = masked.count('{') - masked.count('}')
+        assert depth >= 2
+        text = text.replace('int rdx_record_run_init(void)', f'int run_init_{index}(void)', 1)
+        prefixes.append(text + '\n    ++reached;\n    return 0;\n' + '}' * (depth - 1) + '\n    return 0;\n}\n')
+    return prefixes
+
+
+# 两个 run_init 变体都必须把 check_start 的返回值（-2 预留/-1 故障）原样交给 sink。
+def check_run_init_space():
+    record = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c').read_text(encoding='utf-8')
+    source = r"""
+typedef unsigned char u8;
+typedef unsigned short u16;
+typedef unsigned int u32;
+#define true 1
+#define false 0
+#define TCFG_SD_ALWAY_ONLINE_ENABLE 1
+#define RECORD_MODE_OFFLINE 0
+#define RDX_APP_FILE_CMD_STOP 2
+#define y_printf(...) ((void)0)
+#define r_printf(...) ((void)0)
+#define g_printf(...) ((void)0)
+typedef struct { int file_send_busy; } ReqFileInfo;
+typedef struct { u8 mode, orig_mode, scene; void (*ui_notify)(void); } RecordStatus;
+static int allowed=1, space, checks, reached, notified, only, current;
+static u32 record_initialized_generation, record_session_generation=1;
+static u16 conn=1;
+static ReqFileInfo info;
+static void notify(void) { ++notified; }
+static RecordStatus status={0,0,0,notify};
+int rdx_record_session_allowed(void) { return allowed; }
+u16 rdx_ble_server_get_conn_handle(void) { return conn; }
+RecordStatus *rdx_record_get_status(void) { return &status; }
+ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &info; }
+void rdx_protocol_file_cmd_handle(int cmd) {}
+void rdx_record_max_timer_stop(void) {}
+void rdx_record_update_connection_mode(u16 c) {}
+int rdx_record_stream_only_session_is_active(void) { return only; }
+void rdx_uxfile_operate_file_init(void) {}
+int rdx_record_online_session_is_current(void) { return current; }
+void rdx_app_emmc_poweroff_check_timer_stop(void) {}
+void rdx_app_emmc_poweron(int force) {}
+int rdx_record_storage_check_start(void) { ++checks; return space; }
+"""
+    source += ''.join(_run_init_prefixes(record))
+    source += r"""
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_run_init_space(void) {
+    int (*init[2])(void)={run_init_0, run_init_1};
+    for (int v=0; v<2; ++v) {
+        for (int value=0; value>=-2; --value) {
+            space=value; checks=reached=0;
+            CHECK(init[v]()==value && checks==1 && reached==!value);
+        }
+        allowed=0; checks=0; CHECK(init[v]()==-1 && !checks); allowed=1;
+    }
+    /* Online stream-only sessions (variant 0) never consult local storage. */
+    only=1; space=-2; checks=0;
+    CHECK(!run_init_0() && !checks);
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-run-init-space-') as work:
+        path = Path(work) / 'run_init_space.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_run_init_space'], native=True)
+
+
+# sink_dev1：会话初始化失败不得让 jlstream START 失败，改由录音模块有序 STOP。
+def check_sink_node():
+    sink = (ROOT / 'SDK/audio/framework/nodes/sink_dev1_node.c').read_text(encoding='utf-8')
+    hdl = re.search(r'struct sink_dev1_hdl \{.*?\};', sink, re.S)[0]
+    source = r"""
+typedef unsigned char u8;
+typedef unsigned int u32;
+#define THIRD_PARTY_PROTOCOLS_SEL 1
+#define RDX_EN 1
+#define printf(...) ((void)0)
+#define AUDIO_CH_NUM(m) ((m) ? 2 : 1)
+struct stream_fmt { u8 channel_mode; u32 sample_rate, coding_type; };
+struct stream_node { void *private_data; };
+static int init_ret, inits, exits, failed, failed_err, frames, gains, order;
+int rdx_record_run_init(void) { ++inits; return init_ret; }
+int rdx_record_run_exit(void) { ++exits; return 0; }
+int rdx_record_run_data_handle(u8 *data, u32 len) { ++frames; return 0; }
+void rdx_record_run_init_failed(int err) { ++failed; failed_err=err; }
+void rdx_record_mic_gain_check(void) { ++gains; }
+"""
+    source += hdl + '\n'
+    for name in ('sink_dev1_init', 'sink_dev1_exit', 'sink_dev1_run',
+                 'sink_dev1_ioc_start', 'sink_dev1_ioc_stop', 'sink_dev1_release'):
+        source += function(sink, name)
+    source += r"""
+#define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+static void reset(int ret) { init_ret=ret; inits=exits=failed=failed_err=frames=gains=0; }
+int test_sink_node(void) {
+    struct sink_dev1_hdl hdl={0};
+    struct stream_node node={&hdl};
+    u8 data[4]={0};
+    for (int err=-1; err>=-2; --err) {
+        reset(err);
+        CHECK(sink_dev1_ioc_start(&hdl)==0 && hdl.started==1 && !hdl.live);
+        CHECK(inits==1 && failed==1 && failed_err==err && !gains);
+        /* A second START (multi-thread graph) never re-inits or re-reports. */
+        CHECK(sink_dev1_ioc_start(&hdl)==0 && inits==1 && failed==1);
+        sink_dev1_run(&hdl, data, sizeof(data));
+        sink_dev1_run(&hdl, data, sizeof(data));
+        CHECK(!frames);
+        CHECK(sink_dev1_ioc_stop(&hdl)==0 && exits==1 && !hdl.started && !hdl.live);
+        sink_dev1_release(&node);
+        CHECK(exits==1 && !frames);
+    }
+    reset(0);
+    CHECK(sink_dev1_ioc_start(&hdl)==0 && hdl.started==1 && hdl.live==1);
+    CHECK(inits==1 && !failed && gains==1);
+    sink_dev1_run(&hdl, data, sizeof(data));
+    sink_dev1_run(&hdl, data, sizeof(data));
+    CHECK(frames==2);
+    sink_dev1_release(&node);
+    CHECK(exits==1 && !hdl.started && !hdl.live);
+    sink_dev1_run(&hdl, data, sizeof(data));
+    CHECK(frames==2);
+    /* A failed restart after a live session never resurrects stale liveness. */
+    reset(-2);
+    CHECK(sink_dev1_ioc_start(&hdl)==0 && hdl.started && !hdl.live && failed==1);
+    sink_dev1_run(&hdl, data, sizeof(data));
+    CHECK(!frames && !sink_dev1_ioc_stop(&hdl) && exits==1);
+    return 0;
+}
+"""
+    with tempfile.TemporaryDirectory(prefix='t2620-sink-node-') as work:
+        path = Path(work) / 'sink_node.c'
+        path.write_text(source, encoding='utf-8')
+        run_c_checks(path, ['test_sink_node'], native=True)
+    print('Recording admission, run_init space codes and sink_dev1 orderly-failure checks passed.')
+
+
+# 触及预留时以存储不足提示音替代开始提示音；资源必须真实打包并映射。
+def check_storage_full_tone():
+    config = json.loads((ROOT / 'src/提示音.tone').read_text(encoding='utf-8'))
+    english = next(g for g in config['group'] if g['title'] == 'tone_en')
+    tone = next(f for f in english['files'] if f['outputName'] == 'no_sd')
+    assert tone['enable'] and tone['path'].endswith('not_enough_storage.mp3')
+    packed = (ROOT / 'SDK/cpu/br28/tools/download/earphone/tone_en.cfg').read_bytes()
+    assert b'no_sd.wts' in packed, 'Missing packaged storage-full tone'
+    table = (ROOT / 'SDK/apps/earphone/audio/tone_table.c').read_text(encoding='utf-8')
+    assert '.no_storage = "tone_en/no_sd.*"' in table
+    record = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c').read_text(encoding='utf-8')
+    admit = function(record, 'int rdx_record_local_storage_admit(')
+    assert 'ret == -2 && play_tone_file(get_tone_files()->no_storage)' in admit
 
 
 if __name__ == '__main__':

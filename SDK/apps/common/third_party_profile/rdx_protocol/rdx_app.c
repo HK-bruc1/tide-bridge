@@ -2047,6 +2047,10 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
     } else if (rdx_uxfile_sync_is_in_progress() || rdx_uxfile_is_scan_active() ||
                rdx_uxfile_is_formatting()) return -1;
     if (scene != RECORD_SCENE_CHAT && scene != RECORD_SCENE_CALL) return -1;
+    /* Only online F19 is stream-only; offline F19 and meetings write local
+     * files. Admit them before key context, playback or APP trigger changes. */
+    if (!(stream_only && route == RECORD_MODE_ONLINE) &&
+        rdx_record_local_storage_admit("KEY_START")) return -1;
     if (fixed_route) {
         if (!rdx_record_key_start_prepare(kind, route,
                                           route == RECORD_MODE_ONLINE ? &token : NULL)) return -1;

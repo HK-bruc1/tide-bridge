@@ -933,6 +933,11 @@ static const char *dut_accept(struct dut_request *request)
         if (dut_layout(layout, sizeof(layout)) <= 0) return "UNSUPPORTED";
     }
     if (dut_next_id == 0xffffffffu) return "STATE";
+    /* Storage-full start is rejected before ID/LAST reservation; no residual
+     * current_func or factory audio lease is left for the timeout path. */
+    if ((request->command == DUT_CMD_REC || request->command == DUT_CMD_REC_CALL) &&
+        request->value && target != active &&
+        rdx_record_local_storage_admit("DUT_START")) return "STATE";
     local_irq_disable();
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE
     if (request->source == 1 && (!request->generation ||

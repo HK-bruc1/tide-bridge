@@ -15,7 +15,11 @@ static void dut_finalpack_tone_poll(void) {}
 static unsigned int dut_finalpack_delay(unsigned int now) { return 0; }
 void rdx_dut_finalpack_tone_stop(void) {}
 int rdx_factory_audio_ready(unsigned g) { return g != 0; }
-int rdx_factory_audio_begin(unsigned g, unsigned id) { return 0; }
+int audio_begins;
+int rdx_factory_audio_begin(unsigned g, unsigned id) { ++audio_begins; return 0; }
+/* Local storage admission: 0 admits, -2 reserve exhausted, -1 not ready. */
+static int space_rc, space_calls;
+int rdx_record_local_storage_admit(const char *who) { ++space_calls; return space_rc; }
 int rdx_factory_audio_owned(void) { return 0; }
 int rdx_factory_audio_started(void) { return 1; }
 void rdx_factory_audio_stopped(unsigned id, int result) {}
@@ -246,6 +250,7 @@ static void boot(void) {
     product_binding=1; record_binding_generation=1;
     record_binding_revoke_pending=dut_record_stopping=0;
     transition_busy=transition_locks=cleanup_posts=record_binding_cleanup_error=0;
+    space_rc=space_calls=audio_begins=0;
     rdx_record_dut_authorization_revoke();
 }
 static void key_start(void) { dut_parse_test(FT_KEY_LAYOUT,"1"); dut_service(NULL); }
@@ -916,6 +921,47 @@ int test_cdc_failures_and_ids(void) {
     dut_next_id=0xffffffffu;
     rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
     CHECK(!strcmp(out,"ERR STATE\r\n") && dut_next_id==0xffffffffu);
+    return 0;
+}
+int test_storage_full_record_start_rejected(void) {
+    int codes[]={-2,-1};
+    for (int call=0; call<2; ++call) for (int c=0; c<2; ++c) {
+        boot(); space_rc=codes[c];
+        struct dut_request request={0};
+        request.command=call ? DUT_CMD_REC_CALL : DUT_CMD_REC; request.value=1;
+        const char *error=dut_accept(&request);
+        CHECK(error && !strcmp(error,"STATE") && space_calls==1);
+        CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE);
+        CHECK(!dut_last.id && !dut_last_state && !dut_next_id && !request.id);
+        CHECK(!dut_owner.command && !legacy_dispatches);
+        CHECK(!record_starts && !audio_begins && record.run==RECORD_STATE_STOP);
+        CHECK(!timeout_adds && !dut_service_timer);
+        /* Space returns: the same start is admitted normally. */
+        space_rc=0;
+        CHECK(!dut_accept(&request) && space_calls==2 && request.id==1);
+        CHECK(rdx_dut_info.current_func==(call ? DUT_FUNC_REC_CALL : DUT_FUNC_REC));
+        CHECK(record_starts==1 && dut_last_state==2);
+        /* Idempotent repeat start and stop never query space. */
+        space_rc=-2;
+        CHECK(!dut_accept(&request) && space_calls==2 && record_starts==1);
+        request.value=0; CHECK(!dut_accept(&request));
+        dispatch_dut(); CHECK(space_calls==2 && (call || dut_record_wait));
+    }
+    /* Stop of an idle function does not query space either. */
+    boot(); space_rc=-2;
+    struct dut_request stop={0}; stop.command=DUT_CMD_REC; stop.value=0;
+    dut_accept(&stop); stop.command=DUT_CMD_REC_CALL; dut_accept(&stop);
+    CHECK(!space_calls);
+    return 0;
+}
+int test_cdc_storage_full_record_start_rejected(void) {
+    char reply[258]; boot(); connected=0; space_rc=-2;
+    rdx_dut_cdc_request(1,"FT_REC_CHAT",1,reply,sizeof(reply));
+    CHECK(!strcmp(reply,"ERR STATE\r\n") && space_calls==1);
+    CHECK(!dut_last.id && !dut_next_id && rdx_dut_info.current_func==DUT_FUNC_NONE);
+    CHECK(!audio_begins && !record_starts);
+    space_rc=0; rdx_dut_cdc_request(1,"FT_REC_CHAT",1,reply,sizeof(reply));
+    CHECK(strstr(reply,"OK ID=1") && audio_begins==1 && record_starts==1);
     return 0;
 }
 

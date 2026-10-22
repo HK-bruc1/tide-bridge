@@ -638,13 +638,31 @@ Assert-Contract 'RECORD_START_FAILURE_ROLLBACK' (
 ) 'Partial opens must unwind, call recording may skip MIC, and worker failure must drain before rearm'
 
 $RecordSink = Read-RepoFile $RepoRoot 'SDK/audio/framework/nodes/sink_dev1_node.c'
+$RdxStorage = Read-RepoFile $RepoRoot 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record_storage.c'
 Assert-Contract 'RECORD_SESSION_INIT_SINGLE_OWNER' (
     ([regex]::Matches($RdxRecord, 'rdx_record_run_init\(\);').Count -eq 0) -and
     ([regex]::Matches($RecordSink, 'rdx_record_run_init\(\);').Count -eq 1) -and
-    (Test-TokensInOrder $RecordSink @('static int sink_dev1_init(', 'int err = rdx_record_run_init();', 'if (err)', 'return err;', 'rdx_record_mic_gain_check()')) -and
-    (Test-TokensInOrder $RecordSink @('if (hdl->started)', 'int err = sink_dev1_init(hdl);', 'if (!err)', 'hdl->started = 1;', 'return err;')) -and
-    $RecordSink -match '(?s)case NODE_IOC_START:\s*return sink_dev1_ioc_start\(hdl\);'
-) 'Only the sink initializes each recording session; failed initialization propagates to audio rollback'
+    (Test-TokensInOrder $RecordSink @('static int sink_dev1_init(', 'int err = rdx_record_run_init();', 'if (err)', 'hdl->live = 0;', 'rdx_record_run_init_failed(err);', 'return err;', 'hdl->live = 1;', 'rdx_record_mic_gain_check()')) -and
+    (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_start', 'if (hdl->started)', 'sink_dev1_init(hdl);', 'hdl->started = 1;', 'return 0;', 'static int sink_dev1_ioc_stop')) -and
+    $RecordSink -notmatch 'int err = sink_dev1_init\(hdl\);' -and
+    (Test-TokensInOrder $RecordSink @('static void sink_dev1_run(', 'if (!hdl->live)', 'return;', 'rdx_record_run_data_handle(data, data_len);')) -and
+    $RecordSink -match '(?s)case NODE_IOC_START:\s*return sink_dev1_ioc_start\(hdl\);' -and
+    (Test-TokensInOrder $RdxRecord @('void rdx_record_run_init_failed(int err)', 'if (!rdx_record_session_allowed())', 'return;', 'if (err == -2)', 'translation_ear_recoder_storage_full();', 'translation_ear_recoder_storage_fault();')) -and
+    ([regex]::Matches($RdxRecord, 'int space = rdx_record_storage_check_start\(\);\s*if \(space\) return space;').Count -eq 2)
+) 'Only the sink initializes each recording session; failed init never fails jlstream START, drops frames and latches an orderly STOP'
+
+$AdmitRecordCmd = Get-SourceSlice $RdxRecord 'static void rdx_record_cmd_handle_internal(' "if(r_info->cmd == '0'){" -Last
+$AdmitRecordGate = Get-SourceSlice $RdxRecord 'rdx_record_local_storage_admit("RECORD_COMMAND")' "if(r_info->cmd == '0'){"
+$AdmitKey = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)' 'void rdx_app_device_record_handle('
+$AdmitDut = Get-SourceSlice $BindingDut 'static const char *dut_accept(' 'dut_action_since = '
+Assert-Contract 'RECORD_STORAGE_ADMISSION_BEFORE_MUTATION' (
+    $RdxStorage -match '(?s)int rdx_record_storage_admit\(void\)\s*\{\s*if \(!rs\.created \|\| rs\.active \|\| rs\.error \|\| rdx_record_format_status\(\) < 0\)\s*return -1;\s*return rdx_record_storage_check_start\(\);' -and
+    (Test-TokensInOrder $RdxRecord @('int rdx_record_local_storage_admit(const char *who)', 'rdx_record_storage_admit()')) -and
+    (Test-TokensInOrder $AdmitRecordCmd @('rdx_record_process_is_busy_check()', 'rdx_record_start_uses_local_storage(token)', 'RECORD_STATE_RESUME + 0x30', 'record_status.run == RECORD_STATE_PAUSE', '!rdx_record_stream_only_session_is_active()', 'rdx_record_local_storage_admit("RECORD_COMMAND")', 'rdx_protocol_record_state_indicate();', 'return;')) -and
+    $AdmitRecordGate -notmatch 'record_session_generation|rdx_record_online_session_bind\(|rdx_record_stream_only_start_consume\(|record_key_context' -and
+    (Test-TokensInOrder $AdmitKey @('if (scene != RECORD_SCENE_CHAT', '!(stream_only && route == RECORD_MODE_ONLINE)', 'rdx_record_local_storage_admit("KEY_START")) return -1;', 'if (fixed_route)', 'rdx_record_key_start_prepare(', 'rdx_playback_stop()', 'rdx_app_record_state_upload_timer_start()', 'rdx_app_record_trigger_post(')) -and
+    (Test-TokensInOrder $AdmitDut @('if (dut_next_id == 0xffffffffu) return "STATE";', 'request->command == DUT_CMD_REC || request->command == DUT_CMD_REC_CALL', 'request->value && target != active', 'rdx_record_local_storage_admit("DUT_START")) return "STATE";', 'local_irq_disable();', 'request->id = ++dut_next_id;', 'dut_last = *request;', 'dut_last_state = 1;'))
+) 'Local-storage START/RESUME, key starts and DUT recordings must pass storage admission before any session, key, playback or DUT ID/LAST mutation'
 
 Assert-Contract 'RECORD_SESSION_LIFETIME' (
     $RdxRecord -match 'if \(\+\+record_session_generation == 0\)' -and
@@ -653,5 +671,5 @@ Assert-Contract 'RECORD_SESSION_LIFETIME' (
     $RdxRecord -match 'record_initialized_generation == record_session_generation' -and
     (Test-TokensInOrder $RecordSink @('static int sink_dev1_ioc_stop', 'if (hdl->started)', 'hdl->started = 0;', 'return sink_dev1_exit(hdl);')) -and
     $RecordSink -match 'sink_dev1_ioc_stop\(\(struct sink_dev1_hdl \*\)node->private_data\);'
-) 'Session identity survives audio restarts; only successfully started nodes exit, including release rollback'
+) 'Session identity survives audio restarts; every started node exits once, including failed-init and release paths'
 Write-Host 'T2620 product contracts passed.'

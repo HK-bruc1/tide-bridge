@@ -165,6 +165,8 @@ static int rdx_record_key_request_is_current(u32 gen) {
 static void rdx_record_key_start_abort(void) { key_state=RDX_RECORD_KEY_IDLE; }
 static int rdx_record_stream_only_token_capture(rdx_ble_async_token_t *t) { return ready; }
 static void rdx_app_record_state_upload_timer_stop(void) {}
+static int storage_full, storage_admits;
+static int rdx_record_local_storage_admit(const char *who) { ++storage_admits; return storage_full?-2:0; }
 '''
 
 def check_seek_step():
@@ -214,6 +216,7 @@ static void reset(void) {
     playback=playback_stops=marks=mark_fail=tone_running=0;
     battery_queries=hid_ready=feedback_calls=release_calls=stream_active=releasing=0;
     trigger_deferred=trigger_stop_pending=retirement_pending=0;
+    storage_full=storage_admits=0;
     app_var.goto_poweroff_flag=0; local_epoch=1;
 }
 static rdx_hogp_input_cycle_t cycle(u8 key,u8 usage,u32 id) {
@@ -408,6 +411,53 @@ int test_mark_feedback_and_player_admission(void) {
         }
         key_state=RDX_RECORD_KEY_IDLE; blocked=1; CHECK(rdx_app_local_player_message_blocked(messages[i]));
         blocked=0; tone_running=1; CHECK(rdx_app_local_player_message_blocked(messages[i])); tone_running=0;
+    }
+    return 0;
+}
+int test_full_storage_rejects_local_writes_only(void) {
+    /* 预留区内：离线 F19/F18 与在线 F18（推流并落盘）在改动任何状态前拒绝。 */
+    for(int case_id=0;case_id<3;++case_id) {
+        reset(); storage_full=1; playback=1; ready=case_id==2;
+        u8 usage=case_id==0?0x6e:0x6d;
+        rdx_hogp_input_cycle_t c=cycle(case_id,usage,70+case_id);
+        gesture(&c,usage==0x6e?KEY_ACTION_LONG:KEY_ACTION_DOUBLE_CLICK);
+        CHECK(storage_admits==1 && !starts && !online_starts && !playback_stops && playback);
+        CHECK(key_state==RDX_RECORD_KEY_IDLE && status.run==RECORD_STATE_STOP);
+        CHECK(!key_record_session_active && !key_record_pressed && !status.key_trigger);
+        gesture(&c,KEY_ACTION_UP); CHECK(!stops && !online_stops && !release_calls);
+    }
+    /* 在线 F19 纯推流不落盘，不受存储预留门禁约束。 */
+    reset(); storage_full=1; ready=1; rdx_hogp_input_cycle_t c=cycle(4,0x6e,80);
+    gesture(&c,KEY_ACTION_LONG);
+    CHECK(!storage_admits && online_starts==1 && key_record_session_active && !key_record_local);
+    return 0;
+}
+int test_device_record_set_admits_before_key_context(void) {
+    const int kinds[]={RDX_RECORD_MEETING,RDX_RECORD_INSPIRATION,RDX_RECORD_MEETING,RDX_RECORD_INSPIRATION};
+    const int routes[]={RECORD_MODE_OFFLINE,RECORD_MODE_OFFLINE,RECORD_MODE_ONLINE,RECORD_MODE_ONLINE};
+    for(int i=0;i<4;++i) {
+        reset(); storage_full=1; ready=1; playback=1;
+        u32 req=request_generation, gen=generation;
+        int online_f19=kinds[i]==RDX_RECORD_INSPIRATION && routes[i]==RECORD_MODE_ONLINE;
+        int ret=rdx_app_device_record_set(RECORD_SCENE_CHAT,RECORD_STATE_START,routes[i],kinds[i]);
+        CHECK(storage_admits==!online_f19);
+        if(online_f19) {
+            /* 纯推流 F19 不查询空间，照常预置并投递 APP 触发。 */
+            CHECK(!ret && online_starts==1 && playback_stops==1 && request_generation==req+1);
+            CHECK(key_state==RDX_RECORD_KEY_START_PENDING && record_kind==RDX_RECORD_INSPIRATION);
+            continue;
+        }
+        /* 拒绝发生在 key_start_prepare、回放停止与触发投递之前。 */
+        CHECK(ret==-1 && request_generation==req && generation==gen && key_state==RDX_RECORD_KEY_IDLE);
+        CHECK(!playback_stops && playback && !online_starts && !starts && !status.key_trigger);
+        CHECK(status.run==RECORD_STATE_STOP);
+        storage_full=0;
+        CHECK(!rdx_app_device_record_set(RECORD_SCENE_CHAT,RECORD_STATE_START,routes[i],kinds[i]));
+        CHECK(storage_admits==2 && playback_stops==1 && (online_starts+starts)==1);
+        /* STOP 不经过空间准入。 */
+        storage_full=1;
+        rdx_app_device_record_set(RECORD_SCENE_CHAT,RECORD_STATE_STOP,routes[i],kinds[i]);
+        CHECK(storage_admits==2);
     }
     return 0;
 }

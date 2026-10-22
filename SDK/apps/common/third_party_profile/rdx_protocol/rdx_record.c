@@ -639,6 +639,23 @@ static u8 rdx_record_start_uses_local_storage(
              rdx_record_token_equal(token, &g_stream_only_start_token));
 }
 
+/* app_core admission for every local-storage START/RESUME entry. It runs
+ * before session, tone, LED, playback or audio-graph changes: the JL graph
+ * rollback after a failed sink START is unsafe, so it is never the gate.
+ * Reserve reached replaces the start tone with the storage-full prompt;
+ * online stream-only F19 never calls this admission. */
+int rdx_record_local_storage_admit(const char *who)
+{
+    int ret = rdx_record_storage_admit();
+    if (ret) {
+        r_printf("[REC_SPACE] %s rejected at admission: %d\r", who, ret);
+    }
+    if (ret == -2 && play_tone_file(get_tone_files()->no_storage)) {
+        log_error("storage full tone failed\n");
+    }
+    return ret;
+}
+
 static u8 rdx_record_uxfile_is_busy(void)
 {
 #if defined(__UUX_FILE__)
@@ -1649,6 +1666,21 @@ static void rdx_record_cmd_handle_internal(
             rdx_record_state_indicate_if_current(token);
         }
         return;
+    }
+    /* Storage-full START keeps STOP; RESUME keeps the paused file intact. */
+    if ((r_info->cmd == (RECORD_STATE_START + 0x30) &&
+         rdx_record_start_uses_local_storage(token)) ||
+        (r_info->cmd == (RECORD_STATE_RESUME + 0x30) &&
+         record_status.run == RECORD_STATE_PAUSE &&
+         !rdx_record_stream_only_session_is_active())) {
+        if (rdx_record_local_storage_admit("RECORD_COMMAND")) {
+            /* Existing protocol exposes state, not a recording error code. */
+            if (token && rdx_record_rdx_token_is_current(token) &&
+                rdx_record_state_is_publishable()) {
+                rdx_protocol_record_state_indicate();
+            }
+            return;
+        }
     }
     //set new record format and scene.d
     // OS_ENTER_CRITICAL();
@@ -3519,7 +3551,8 @@ int rdx_record_run_init(void)
         }
 #endif
 
-        if (rdx_record_storage_check_start()) return -1;
+        int space = rdx_record_storage_check_start();
+        if (space) return space;
         if(record_initialized_generation == record_session_generation){
             y_printf("[RESUME] skip dat_1_gen: keep sn=%u name='%s' begin_time=%u paused_acc=%u marks=%u\r",
                      (unsigned)rdx_uxfile_get_operateFile_info()->sn,
@@ -3723,7 +3756,8 @@ int rdx_record_run_init(void)
         }
 #endif
 
-        if (rdx_record_storage_check_start()) return -1;
+        int space = rdx_record_storage_check_start();
+        if (space) return space;
         // rdx_uxfile_mssg_1_generate(scene);
         if (record_initialized_generation != record_session_generation) {
             rdx_uxfile_dat_1_gen(scene);
@@ -3864,6 +3898,22 @@ int rdx_record_run_exit(void)
 }
 
 #endif
+
+/* sink context. JL rollback of a half-started multi-thread graph is unsafe,
+ * so a failed session init latches the retrying app_core STOP instead of
+ * failing START. -2 is a normal reserve stop, other errors are faults. */
+void rdx_record_run_init_failed(int err)
+{
+    r_printf("[RECORD] sink init failed %d; orderly STOP\r", err);
+    if (!rdx_record_session_allowed()) {
+        return; /* Binding/DUT fences own the cleanup. */
+    }
+    if (err == -2) {
+        translation_ear_recoder_storage_full();
+    } else {
+        translation_ear_recoder_storage_fault();
+    }
+}
 
 /**************************************************************************
  * function: rdx_record_err_reboot_flag_read_from_vm

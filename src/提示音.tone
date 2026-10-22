@@ -66,10 +66,25 @@
      "sizeKey": "85faf623",
      "size": 5156,
      "enable": true
+    },
+    {
+     "name": "no_sd",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\not_enough_storage.mp3",
+     "outputName": "no_sd",
+     "format": {
+      "value": "wts",
+      "simpleRate": "8000",
+      "bitRate": 16000,
+      "vad": 0,
+      "priority": 1
+     },
+     "sizeKey": "7c964c1e",
+     "size": 2974,
+     "enable": true
     }
    ],
    "enableOutput": 1,
-   "size": 11728,
+   "size": 14752,
    "isOpen": true
   },
   {
