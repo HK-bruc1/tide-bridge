@@ -84,7 +84,7 @@
 /*注意App和硬件的适配*/
 //choose Application.
 #ifndef RDX_AI_SEL_APP
-#define RDX_AI_SEL_APP									APP_CUSTOM_TEST_EN
+#define RDX_AI_SEL_APP									APP_BEANSTALK_EN
 #endif
 //choose hardware.
 #ifndef RDX_SEL_DEVICE
@@ -664,6 +664,38 @@
 
 #undef  WIFI_AP_SSID_SUFFIX_MODE
 #define WIFI_AP_SSID_SUFFIX_MODE                WIFI_AP_SSID_SUFFIX_MAC_TAIL3
+
+#elif (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)
+
+/* 客户 BLE 名称配置：设为 0 可关闭认证码后四位后缀。 */
+#undef RDX_BLE_NAME_AUTH_SUFFIX_ENABLE
+#define RDX_BLE_NAME_AUTH_SUFFIX_ENABLE          (1)
+
+/* 保留已调好的蓝牙频偏校准值。 */
+#undef  RDX_FREQUENCY_OFFSET
+#define RDX_FREQUENCY_OFFSET                   (15)
+
+#define PRODUCT_TYPE                           "K1"
+
+//AI 翻译支持。
+#define RDX_AI_TRANSLATE_SUPPORT               (0)
+//蓝牙广播名称。
+#define BT_NAME                                "VoicePad"
+#define BLE_LOCAL_NAME                         "VoicePad"
+//厂商与产品标识。
+#define FACTORY_CODE                           "GSPKHW"
+#define FACTORY_CODE_SIZE                      strlen(FACTORY_CODE)
+#define PRODUCT_CODE                           "607"
+#define PRODUCT_CODE_SIZE                      strlen(PRODUCT_CODE)
+//无线网络名称与密码。
+#define WIFI_AP_SSID                           "VoicePad"
+#define WIFI_AP_PASSWORD                       "88888888"
+
+//固件与硬件版本。
+#define FIRMWARE_VERSION                       "1.1.3"
+#define FIRMWARE_VERSION_HEX                   0x00010103
+#define HARDWARE_VERSION                       "0.0.1"
+#define HARDWARE_VERSION_HEX                   0x00000001
 
 #endif
 

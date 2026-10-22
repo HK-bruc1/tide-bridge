@@ -58,6 +58,48 @@ $overlayOk = $Config -match '#define\s+TCFG_DIP_SWITCH_POWER_ENABLE\s+1' -and
 Assert-Contract 'PRODUCT_CONFIG_OVERLAY' $overlayOk `
     'DIP power ownership must stay in the project overlay and out of generated board files'
 
+$BeanstalkAppConfig = Get-SourceSlice $RdxAppConfig `
+    '#elif (RDX_AI_SEL_APP & APP_BEANSTALK_EN)' `
+    '#elif (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN)'
+$BeanstalkT2620Config = Get-SourceSlice $BeanstalkAppConfig `
+    '#elif (RDX_SEL_DEVICE == DEVICE_BEANSTALK_RKB_T2620)' `
+    '#endif'
+$CustomTestAppConfig = Get-SourceSlice $RdxAppConfig `
+    '#elif (RDX_AI_SEL_APP & APP_CUSTOM_TEST_EN)' `
+    '#elif (RDX_AI_SEL_APP & APP_ZENCHORD_EN)'
+$SharedT2620ProductDefines = @{
+    RDX_FREQUENCY_OFFSET = '(15)'
+    PRODUCT_TYPE = '"K1"'
+    RDX_AI_TRANSLATE_SUPPORT = '(0)'
+    FACTORY_CODE = '"GSPKHW"'
+    FACTORY_CODE_SIZE = 'strlen(FACTORY_CODE)'
+    PRODUCT_CODE = '"607"'
+    PRODUCT_CODE_SIZE = 'strlen(PRODUCT_CODE)'
+    WIFI_AP_PASSWORD = '"88888888"'
+    FIRMWARE_VERSION = '"1.1.2"'
+    FIRMWARE_VERSION_HEX = '0x00010102'
+    HARDWARE_VERSION = '"0.0.1"'
+    HARDWARE_VERSION_HEX = '0x00000001'
+}
+foreach ($profile in @(
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)' },
+    @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)' }
+)) {
+    $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
+    foreach ($macro in @('BT_NAME', 'BLE_LOCAL_NAME', 'WIFI_AP_SSID')) {
+        $ExpectedProductDefines[$macro] = $profile.DeviceName
+    }
+    $ExpectedProductDefines['RDX_BLE_NAME_AUTH_SUFFIX_ENABLE'] = $profile.NameSuffix
+    foreach ($macro in $ExpectedProductDefines.Keys) {
+        $pattern = '(?m)^[ \t]*#define[ \t]+' + [regex]::Escape($macro) + '[ \t]+([^\r\n]+)'
+        $definitions = [regex]::Matches($profile.Source, $pattern)
+        Assert-Contract "T2620_$($profile.Name)_$macro" `
+            ($definitions.Count -eq 1 -and
+             $definitions[0].Groups[1].Value.Trim() -ceq $ExpectedProductDefines[$macro]) `
+            "$($profile.Name) must define $macro exactly once as $($ExpectedProductDefines[$macro])"
+    }
+}
+
 $ampPowerOnJsonOk = $BoardJson -match '(?s)"defaultValue"\s*:\s*"IO_PORTE_05".*?"defaultValue"\s*:\s*"PORT_OUTPUT_LOW".*?"enableUuid"\s*:\s*"TCFG_IO_CFG_AT_POWER_ON"'
 $ampGeneratedPowerOnOk = $SdkConfigC -match '(?s)g_io_cfg_at_poweron\s*\[\].*?\.gpio\s*=\s*IO_PORTE_05.*?\.mode\s*=\s*PORT_OUTPUT_LOW'
 $ampGeneratedPowerOffOk = $SdkConfigC -match '(?s)g_io_cfg_at_poweroff\s*\[\].*?\.gpio\s*=\s*IO_PORTE_05.*?\.mode\s*=\s*PORT_OUTPUT_LOW'

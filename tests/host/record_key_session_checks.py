@@ -63,6 +63,7 @@ static rdx_ble_async_token_t g_stream_only_start_token, g_app_stop_token;
 static u8 g_pending_record_token_valid, g_record_session_token_valid;
 static u8 g_stream_only_start_pending, g_stream_only_session_active;
 static u8 g_stream_only_hold_released, g_stream_only_release_started, g_hold_release_posted;
+static u32 g_hold_released_ms;
 static u32 g_hold_release_ticket, g_hold_release_done, g_app_stop_ticket, g_app_stop_done;
 static int g_app_stop_pending, g_app_stop_posted, g_app_stop_close, g_app_stop_timer;
 static int record_start_tone_pending, is_record_task_created=1;
@@ -105,7 +106,8 @@ static void rdx_record_set_filter_cnt(int n) {}
 static int rdx_record_get_filter_cnt(void) { return 10; }
 static int tone_player_runing(void) { return 0; }
 static u16 rdx_ble_server_get_conn_handle(void) { return live?1:0xffff; }
-static u32 jiffies_msec(void) { return 100; }
+static u32 now_ms=100;
+static u32 jiffies_msec(void) { return now_ms; }
 static int sys_timeout_add(void *p,void (*cb)(void *),int ms) {
     if(timer_fail) return 0;
     ++timeout_adds; timeout_live=1; timeout_delay=ms;
@@ -157,7 +159,7 @@ static void reset(void) {
     g_hold_release_posted=g_hold_release_ticket=g_hold_release_done=0;
     closes=finishes=record_tone_session_active=0; is_record_task_created=1;
     dut=factory=storage_busy=ux_busy=0; bound=live=stream_ready=1;
-    owner=(rdx_ble_async_token_t){0,1,1}; record_initialized_generation=0;
+    owner=(rdx_ble_async_token_t){0,1,1}; record_initialized_generation=0; now_ms=100;
 }
 static void cmd(u8 state) {
     Record_info info={state+0x30,'1','0'};
@@ -204,11 +206,23 @@ int test_release_poll_keeps_worker_ready_and_retires_fence(void) {
         CHECK(rdx_record_stream_only_release() && posts==1);
         rdx_record_stream_only_release_complete();
         CHECK(!rdx_record_stream_only_is_releasing() && rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE);
-        CHECK(g_stream_only_hold_released && !rdx_record_process_is_busy_check());
+        /* 仅 START 尚未生效即被取消时才设迟到回复栅栏。 */
+        CHECK(g_stream_only_hold_released==pending && !rdx_record_process_is_busy_check());
         const int messages[]={APP_MSG_REC_PLAY_TOGGLE,APP_MSG_REC_PREV,APP_MSG_REC_NEXT,
             APP_MSG_REC_FR,APP_MSG_REC_FF,APP_MSG_LOCAL_VOL_UP,APP_MSG_LOCAL_VOL_DOWN};
         for(int message=0;message<7;++message) {
             CHECK(!rdx_app_local_player_message_blocked(messages[message]));
+        }
+        if(!pending) {
+            /* START 已生效：APP 对设备侧停止不回 STOP，在线会议、灵感与 APP 开录须立即可用。 */
+            for(int kind=RDX_RECORD_MEETING;kind<=RDX_RECORD_INSPIRATION;++kind) {
+                CHECK(rdx_record_key_start_prepare(kind,RECORD_MODE_ONLINE,&owner));
+                rdx_record_key_start_abort();
+            }
+            cmd(RECORD_STATE_START);
+            CHECK(record_status.run==RECORD_STATE_START && !rdx_record_stream_only_session_is_active());
+            CHECK(rdx_record_kind_get()==RDX_RECORD_MEETING);
+            continue;
         }
         /* 尚未收到 STOP 回复：本地业务与回放已可准入，仅对该协议会话保留栅栏。 */
         CHECK(!rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
@@ -241,6 +255,23 @@ int test_release_poll_keeps_worker_ready_and_retires_fence(void) {
         CHECK(rdx_record_key_state_get()==RDX_RECORD_KEY_ACTIVE);
         rdx_record_set_process_state_ready();
     }
+    return 0;
+}
+int test_released_hold_fence_expires(void) {
+    reset(); CHECK(rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
+    CHECK(!rdx_record_stream_only_release()); drain_release();
+    CHECK(g_stream_only_hold_released);
+    now_ms+=RDX_RECORD_HOLD_LATE_REPLY_MS-1;
+    cmd(RECORD_STATE_START);
+    CHECK(record_status.run==RECORD_STATE_STOP && replies==1);
+    CHECK(!rdx_record_key_start_prepare(RDX_RECORD_MEETING,RECORD_MODE_ONLINE,&owner));
+    /* 窗口到期后栅栏失效，不会让整个 RDX 会话的在线开录永久被拒。 */
+    ++now_ms;
+    CHECK(rdx_record_key_start_prepare(RDX_RECORD_MEETING,RECORD_MODE_ONLINE,&owner));
+    CHECK(!g_stream_only_hold_released);
+    rdx_record_key_start_abort();
+    cmd(RECORD_STATE_START);
+    CHECK(record_status.run==RECORD_STATE_START && rdx_record_kind_get()==RDX_RECORD_MEETING);
     return 0;
 }
 int test_local_stop_fence_and_owner(void) {
@@ -394,8 +425,10 @@ def main():
         types += re.search(pattern, header, re.S)[0] + '\n'
     prefix = STUBS[:STUBS.index('static int dut,')]
     source = prefix + types + STUBS[STUBS.index('static int dut,'):]
+    source += re.search(r'#define RDX_RECORD_HOLD_LATE_REPLY_MS.*', record)[0] + '\n'
     source += re.search(r'static struct \{[^}]*\} record_key_context;', record, re.S)[0]
     source += '\nstatic u8 rdx_record_token_equal(const rdx_ble_async_token_t *,const rdx_ble_async_token_t *);\n'
+    source += 'static u8 rdx_record_hold_fence_blocks(const rdx_ble_async_token_t *);\n'
     source += 'void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *);\n'
     source += 'static void rdx_record_app_stop_request(const rdx_ble_async_token_t *);\n'
     source += 'static void rdx_record_cmd_handle_internal(Record_info *,const rdx_ble_async_token_t *);\n'
@@ -407,7 +440,8 @@ def main():
         'rdx_record_key_request_generation', 'rdx_record_key_request_is_current',
         'rdx_record_key_start_prepare', 'rdx_record_key_start_abort',
         'rdx_record_stream_only_token_capture', 'rdx_record_rdx_token_is_current',
-        'rdx_record_token_equal', 'rdx_record_stream_only_start_arm',
+        'rdx_record_token_equal', 'rdx_record_hold_fence_arm',
+        'rdx_record_hold_fence_blocks', 'rdx_record_stream_only_start_arm',
         'rdx_record_stream_only_start_cancel', 'rdx_record_stream_only_session_is_active',
         'rdx_record_stream_only_start_consume', 'rdx_record_online_session_clear',
         'rdx_record_online_session_bind', 'rdx_record_online_session_is_current',

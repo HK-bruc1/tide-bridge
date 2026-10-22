@@ -334,6 +334,8 @@ static bool is_record_task_created = false;
 static u16 stream_resume_timer = 0;
 
 #define RECORD_CMD_DELAY_MS             (2000)
+/* 已取消 START 的迟到回复及其重传窗口（APP 约 260 ms 重传一次）。 */
+#define RDX_RECORD_HOLD_LATE_REPLY_MS   (2000)
 #define RECORD_CMD_MAX_RETRY            (5)
 static u16 g_record_cmd_delay_timer = 0;
 static u32 g_record_cmd_delay_generation;
@@ -351,9 +353,11 @@ static u8 g_stream_resume_token_valid = 0;
 static rdx_ble_async_token_t g_stream_only_start_token;
 static u8 g_stream_only_start_pending = 0;
 static u8 g_stream_only_session_active = 0;
-/* 已取消的协议 START 没有请求 ID；只有匹配的 STOP 回复或
- * 传输代次变化才能解除其栅栏，新按键不能解除。 */
+/* 已取消的协议 START 没有请求 ID。仅当 START 尚未生效即被取消时设栅栏，
+ * 拦截同一会话在有界窗口内的迟到回复；匹配的 STOP 回复、传输代次变化
+ * 或窗口到期解除，新按键不能解除。APP 对设备侧停止不回 STOP，故不可常驻。 */
 static u8 g_stream_only_hold_released = 0;
+static u32 g_hold_released_ms;
 static u8 g_stream_only_release_started = 0;
 static u32 g_hold_release_ticket;
 static volatile u32 g_hold_release_done;
@@ -372,6 +376,7 @@ static u8 g_app_stop_posted;
 static u8 g_app_stop_close;
 static u8 rdx_record_token_equal(const rdx_ble_async_token_t *,
                                  const rdx_ble_async_token_t *);
+static u8 rdx_record_hold_fence_blocks(const rdx_ble_async_token_t *);
 static struct {
     u32 request_generation;
     u32 record_generation;
@@ -435,8 +440,7 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
     if (route == RECORD_MODE_ONLINE &&
         (!token || !rdx_ble_session_rdx_token_resolve(token, 1) ||
          !rdx_ble_server_is_stream_tx_ready() ||
-         (g_stream_only_hold_released &&
-          rdx_record_token_equal(token, &g_stream_only_start_token)))) {
+         rdx_record_hold_fence_blocks(token))) {
         return 0;
     }
     if (++record_key_context.request_generation == 0) {
@@ -492,10 +496,28 @@ static u8 rdx_record_token_equal(const rdx_ble_async_token_t *left,
             left->transport_epoch == right->transport_epoch) ? 1 : 0;
 }
 
+static void rdx_record_hold_fence_arm(void)
+{
+    g_stream_only_hold_released = 1;
+    g_hold_released_ms = (u32)jiffies_msec();
+}
+
+static u8 rdx_record_hold_fence_blocks(const rdx_ble_async_token_t *token)
+{
+    if (!g_stream_only_hold_released) {
+        return 0;
+    }
+    if ((u32)((u32)jiffies_msec() - g_hold_released_ms) >=
+        RDX_RECORD_HOLD_LATE_REPLY_MS) {
+        g_stream_only_hold_released = 0;
+        return 0;
+    }
+    return rdx_record_token_equal(token, &g_stream_only_start_token);
+}
+
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token)
 {
-    if (!token || (g_stream_only_hold_released &&
-                   rdx_record_token_equal(token, &g_stream_only_start_token))) {
+    if (!token || rdx_record_hold_fence_blocks(token)) {
         return;
     }
     g_stream_only_start_token = *token;
@@ -1532,8 +1554,7 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] command rejected: STOP pending\r");
         return;
     }
-    if (token && g_stream_only_hold_released &&
-        rdx_record_token_equal(token, &g_stream_only_start_token)) {
+    if (token && rdx_record_hold_fence_blocks(token)) {
         if (r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
             r_printf("[RDX_HOLD_RECORD] released hold rejects late command\r");
             if (rdx_record_state_is_publishable()) {
@@ -1922,8 +1943,9 @@ static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token)
     g_app_stop_posted = 0;
     g_app_stop_done = 0;
     g_app_stop_pending = 1;
-    if (record_key_context.fixed && record_key_context.route == RECORD_MODE_ONLINE) {
-        g_stream_only_hold_released = 1;
+    if (record_key_context.fixed && record_key_context.route == RECORD_MODE_ONLINE &&
+        g_stream_only_start_pending) {
+        rdx_record_hold_fence_arm();
     }
     record_key_context.state = RDX_RECORD_KEY_STOPPING;
     rdx_record_set_process_state_busy();
@@ -1983,7 +2005,10 @@ u8 rdx_record_stream_only_release(void)
 {
     if (!g_stream_only_release_started) {
         g_stream_only_release_started = 1;
-        g_stream_only_hold_released = 1;
+        /* START 已生效则不存在迟到回复，不设栅栏。 */
+        if (g_stream_only_start_pending) {
+            rdx_record_hold_fence_arm();
+        }
         record_key_context.state = RDX_RECORD_KEY_STOPPING;
         ++record_key_context.request_generation;
         if (!++g_hold_release_ticket) {
