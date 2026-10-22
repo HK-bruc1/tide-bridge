@@ -186,7 +186,10 @@ The HOGP feature is implemented by extending the same RDX GATT server instead of
 - `rdx_ble_server_att_read_callback()` dispatches HID reads (Protocol Mode, Report Map, HID Information, Input Report, Output Report)
 - `rdx_ble_server_att_write_callback()` handles encrypted HID dynamic writes, including Protocol Mode, Input CCC, Control Point, and Output Report
 - HID reports are sent via `app_ble_att_send_data()` on the current HID owner wrapper
-- KEY1-KEY5 HID routing uses `rdx_hogp_input.c` (debounced samples, bounded FIFO, cycle ownership and app_core recovery). KEY5 independently retains its recording gestures in `rdx_app_key5_remap()`; HID reports describe physical Down/Up, not recording success. The key adapter consumes HID gestures only for KEY1-KEY4 so KEY5 recording remains available. `rdx_hogp_key_action.c` owns held reports and release retries; `rdx_hogp_keyboard.c` validates independent HID tokens at ATT submission.
+- KEY1-KEY5 use one `rdx_hogp_input.c` entry with per-Down keymap snapshots and separate bounded HID/local queues. `key.c` sends resolved gestures to `rdx_hogp_input_gesture()`, then app_core dispatches through `rdx_app_local_key_gesture()` and the plain F13-F19 Usage table in `rdx_key.c`. Local playback/volume no longer require zero ACLs. HID backlog, reconnect and hot-map release never discard local hold cleanup; source/system cancellation retains an out-of-queue stop ticket. Physical KEY5 retains DUT multi-click control, not a separate recording route.
+- Defaults are F13/F14/F17/F18/F19, without migrating valid saved maps; F15/F16 remain configurable volume keys. F17 controls local playback, F18 toggles meeting recording/marks, and F19 owns an inspiration hold on any mapped physical key. Modified, multi-Usage and disabled mappings do not trigger these local functions. Physical KEY5 always waits for multi-click resolution; otherwise only plain F18 waits.
+- At gesture admission, RDX owner + CCC + stream readiness selects recording routing; HID readiness gates reports only. Online F18 reuses the APP meeting path: stream plus storage, disconnect continues offline storage, and another double-click while awaiting the APP reply does not cancel. F19 and offline F18 freeze their route in a private sidecar. Online F19 is stream-only and ends on Up or RDX loss; its pending cancellation, late replies and old Up events use existing STOP/worker fences without changing library ABI. Repeated STOP polling must not overwrite worker READY after its fence was queued.
+- Meeting LEDs breathe, inspiration LEDs stay solid; admitted HID F20-F24 clicks show the existing 2 s white indication and successful marks show 2 s yellow. F17 playback success keeps its existing yellow indication; other clicks without business feedback show battery. Current rules and single-key scope live in `docs/2-8.HID键值绑定本地功能设计.md`; the user has confirmed basic validation, not the full device/production acceptance matrix.
 
 Key points:
 
@@ -258,5 +261,6 @@ Audio routing is configured visually in `src/音频流程/` as `.x6flow` files a
 - `SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c` — RDX app logic and key remapping
 - `SDK/apps/earphone/board/iokey_config.c` — runtime IO key platform data builder
 - `tests/host/test_t2620_product_contract.ps1` — product configuration and storage safety contract
-- `HOGP_MVP_实施方案.md` — detailed HOGP implementation notes
-- `HOGP键盘移植最终评估.md` — HOGP architecture assessment and handle layout
+- `docs/2-8.HID键值绑定本地功能设计.md` — current Usage dispatch, recording routes, feedback and acceptance boundaries
+- `docs/2-2.HOGP_MVP_实施方案.md` — historical HOGP implementation notes, not current key routing
+- `docs/2-1.HOGP键盘移植最终评估.md` — initial HOGP architecture assessment and handle layout

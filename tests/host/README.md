@@ -24,8 +24,8 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | C behavioral harness | Production behavior exercised with mocked boundaries |
 | --- | --- |
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
-| `test_keymap_factory_reset.py` | Factory HID defaults survive reload; A/B write/readback/commit and apply failures preserve old keys; retry, revision overflow, idempotence and reset ACK/reboot ordering |
-| `test_hogp_hold.py` | Scan/adapter/FIFO, hold/fast edges, offline clicks, KEY5 HID/recording gesture coexistence and disabled mapping, hot-apply release/rollback, ATT context, stale owners, RDX release, cancellation and failed Up recovery; `key5_record_checks.py` checks local hold/double recording ownership, playback exclusion, failed starts and release retries; KEY1/F13、KEY2/F14 单击反馈分流及 `led_key_feedback_checks.py` 中真实灯效引擎的颜色、超时、优先级、绑定后静默广播与实时恢复 |
+| `test_keymap_factory_reset.py` | F13/F14/F17/F18/F19 defaults, saved-map preservation, real A/B persistence, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds |
+| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, cancellation, hot-map cleanup and KEY5 DUT; `key_record_dispatch_checks.py` owns usage routing, F18/F19 gestures, admission and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies and worker STOP/READY fences; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
@@ -177,7 +177,7 @@ cannot certify USB throughput or scheduler races; those require board tests.
 
 Factory reset board regression: save a non-default HID map with the PC App,
 send the phone App's `*APP#default#`, then reconnect after reboot and verify
-KEY1–KEY5 are F13–F17. Power-cycle again and query the map to check persistence.
+KEY1–KEY5 are F13/F14/F17/F18/F19. Power-cycle again and query the map to check persistence.
 Repeat when the map is already default and with a held HID key; verify no stuck
 key remains. The shared packaging reset must restore the same map without
 rebooting. Storage failure must return failure and must not schedule a reboot.
@@ -188,6 +188,13 @@ Keep stable protocol/configuration boundaries and failure-path behavior. Prefer
 observable outcomes over variable names, comments, exact call counts or copied
 implementation sequences. Keep source-only integration guards where mocks do not
 execute the caller; counts protecting two distinct recording variants remain.
+
+The 2026-10-22 key-binding cleanup gives each boundary one behavioral owner:
+STOP tests share the recorder fixture instead of a second set of mocks, and
+source contracts retain only unexecuted caller wiring. Duplicate KEY5/input and
+LED deadline cases are consolidated. Unchanged playback-engine and boot-volume
+scenarios are not reintroduced; usage dispatch, volume reset and LED behavior
+remain covered. No new top-level suite is added.
 
 The 2026-09-21 cleanup removes duplicate keymap hot-apply/DUT authorization checks
 covered by C harnesses, duplicate reconnect-order checks, patch-instruction text
