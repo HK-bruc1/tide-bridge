@@ -26,6 +26,19 @@ def run_recovery_checks():
         text = re.sub(r'^.*@llvm\.(?:dbg|lifetime)\.[^\n]*\n', '', text, flags=re.M)
         return text.replace('define internal ', 'define ')
 
+    # Reuse this extraction; detailed SN/VM/replay cases live in the format harness.
+    assert not re.search(r'call i32 @syscfg_write\(i16(?: zeroext)? 147\b', ir)
+    for name in ('rdx_dat_cache_persist_max_sn', 'rdx_uxfile_write_serial_number_into_vm'):
+        assert not re.search(r'\bcall\b', extract(name)), name
+    for name, target in (('rdx_storage_reserve_sn', 'rdx_record_format_reserve_sn'),
+                         ('rdx_storage_discard_short', 'rdx_record_format_discard_short')):
+        body = extract(name)
+        assert body.index('@os_mutex_pend(') < body.index('@' + target + '(') < body.index('@os_mutex_post(')
+    assert '@rdx_storage_reserve_sn(' in extract('rdx_uxfile_dat_1_gen_ready')
+    assert '@rdx_storage_discard_short(' in extract('rdx_uxfile_dat_1_save_gen_ready')
+    assert extract('rdx_storage_discard_short').count('@rdx_storage_fclose(') == 1
+    assert '@rdx_record_format_erased()' in extract('rdx_uxfile_sd_format_ready')
+
     def globals_for(names):
         return '\n'.join(re.sub(r', !dbg !\d+', '', re.search(
             r'^@' + re.escape(name) + r' = .*$', ir, re.M).group()) for name in names)
@@ -348,6 +361,12 @@ define void @log_print(i32 %level, i8* %tag, i8* %fmt, ...) { ret void }
 @test_entries = global [3 x %struct.dat_entry_t] zeroinitializer
 define i32 @os_mutex_pend(%struct.OS_SEM* %p, i32 %n) { ret i32 0 }
 define i32 @os_mutex_post(%struct.OS_SEM* %p) { ret i32 0 }
+define void @seed_name(%struct.dat_entry_t* %p) {
+ %name = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %p, i32 0, i32 1, i32 0
+ %bytes = bitcast i8* %name to [6 x i8]*
+ store [6 x i8] c"a.raw\\00", [6 x i8]* %bytes, align 1
+ ret void
+}
 define void @seed() {
  %p = getelementptr [3 x %struct.dat_entry_t], [3 x %struct.dat_entry_t]* @test_entries, i32 0, i32 0
  store %struct.dat_entry_t* %p, %struct.dat_entry_t** @g_dat_cache.0
@@ -359,6 +378,9 @@ define void @seed() {
  store i32 1, i32* %a
  store i32 268435457, i32* %b
  store i32 2147483646, i32* %c
+ call void @seed_name(%struct.dat_entry_t* %p)
+ %second = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %p, i32 1
+ call void @seed_name(%struct.dat_entry_t* %second)
  %av = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %p, i32 0, i32 8
  %bv = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %p, i32 1, i32 8
  store i8 1, i8* %av
@@ -382,7 +404,7 @@ restore:
 done:
  ret i32 %result
 }
-''' + extract('rdx_uxfile_neighbor_sn')
+''' + extract('rdx_neighbor_track') + extract('rdx_uxfile_neighbor_sn')
     playback = (directory / 'rdx_playback.c').read_text(encoding='utf-8')
     c_source = r'''
 typedef unsigned int u32;
@@ -412,11 +434,11 @@ void pb_restore_stable_state(int s) { pb.state=s; }
 #define CHECK(x) do { if (!(x)) return __LINE__; } while(0)
 int check_navigation(void) {
  seed(); pb.total_count=2; start_result=1; probes=0;
- CHECK(pb_find_latest_valid_sn()==0x10000001u);
- CHECK(pb_navigate_from(0x10000001u,-1,0,0)==0 && selected==1 && probes==1);
- CHECK(pb_navigate_from(1,1,0,0)==0 && selected==0x10000001u);
- CHECK(pb_navigate_from(1,-1,0,0)==0 && selected==0x10000001u);
+ CHECK(pb_find_latest_valid_sn()==1);
+ CHECK(pb_navigate_from(1,-1,0,0)==0 && selected==0x10000001u && probes==1);
  CHECK(pb_navigate_from(0x10000001u,1,0,0)==0 && selected==1);
+ CHECK(pb_navigate_from(0x10000001u,-1,0,0)==0 && selected==1);
+ CHECK(pb_navigate_from(1,1,0,0)==0 && selected==0x10000001u);
  CHECK(pb_navigate_from(100,-1,0,0)==0 && selected==1);
  start_result=0; probes=0;
  CHECK(pb_navigate_from(1,1,0,0)==PB_RESULT_NO_FILE && probes==2);
@@ -440,7 +462,8 @@ int check_navigation(void) {
     module.link_in(other)
     navigation = engine_for(str(module))
     check = ctypes.CFUNCTYPE(ctypes.c_int)(navigation.get_function_address('check_navigation'))
-    assert check() == 0
+    result = check()
+    assert result == 0, f'Playback navigation failed at generated C line {result}'
     neighbor = ctypes.CFUNCTYPE(ctypes.c_uint, ctypes.c_uint, ctypes.c_int)(
         navigation.get_function_address('rdx_uxfile_neighbor_sn'))
     # 录音保存后缓存失效，首次播放必须重新加载；失败后允许重试。
@@ -450,9 +473,9 @@ int check_navigation(void) {
     assert neighbor(0, -1) == 0
     assert integer(navigation, 'load_calls').value == 1
     integer(navigation, 'load_result').value = 3
-    assert neighbor(0, -1) == 0x10000001
+    assert neighbor(0, -1) == 1
     assert integer(navigation, 'load_calls').value == 2
-    assert neighbor(1, 1) == 0x10000001
+    assert neighbor(1, -1) == 0x10000001
     assert integer(navigation, 'load_calls').value == 2
     loaded.value = False
     integer(navigation, 'service').value = 1

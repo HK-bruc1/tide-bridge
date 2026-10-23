@@ -756,7 +756,7 @@ static int pb_switch_track(pb_direction_t direction)
 
 static int rdx_playback_prev_impl(void)
 {
-    // Recording SN increases with creation order: previous selects an older recording.
+    // DAT playback order survives legacy high IDs and a repaired normal sequence.
     return pb_switch_track(PB_DIRECTION_OLDER);
 }
 

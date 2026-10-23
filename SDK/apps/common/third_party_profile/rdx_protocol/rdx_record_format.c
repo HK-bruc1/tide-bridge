@@ -12,6 +12,8 @@
 #include "rdx_record_storage.h"
 #include "rdx_adv_policy.h"
 #include "rdx_peripheral_power.h"
+#include "syscfg_id.h"
+#include "device/vm.h"
 
 /* RAW and the App's DAT schema are unchanged. MTA is firmware-only metadata.
  * A durable first-frame fingerprint binds it to the RAW, including after a
@@ -26,7 +28,10 @@ extern void sd_set_power_user(u8 en);
 #define RF_TMP RF_ROOT "rfmt.tmp"
 #define RF_COMMIT RF_ROOT "rfmt.cmt"
 #define RF_DELETE RF_ROOT "rfdel.cmt"
+#define RF_DISCARD RF_ROOT "rfdrop.cmt"
 #define RF_MAGIC 0x31464d52u
+#define RF_DISCARD_MAGIC 0x31504452u
+#define RF_NORMAL_SN_MAX 0x0fffffffu
 #define RF_MAX_FILES 65535
 #define RF_OBJECT_SIZE 640
 
@@ -52,6 +57,8 @@ static volatile u32 rf_command_users;
 static volatile u8 rf_download;
 static char rf_deleted_name[12];
 static volatile u8 rf_erasing;
+static u32 rf_serial_max;
+static u8 rf_serial_ready;
 
 u32 rdx_record_format_capacity(void)
 {
@@ -113,6 +120,17 @@ void rdx_record_format_erased(void)
     rf_error = 0;
     memset(&rf_current, 0, sizeof(rf_current));
     rf_deleted_name[0] = 0;
+    rf_serial_max = 0;
+    rf_serial_ready = 0;
+    u32 zero = 0, check = 1;
+    if (syscfg_write(VM_RDX_RECORD_FILE_NUM, &zero, sizeof(zero)) != sizeof(zero) ||
+        syscfg_read(VM_RDX_RECORD_FILE_NUM, &check, sizeof(check)) != sizeof(check) || check) {
+        /* The existing boot/cache handoff propagates this failure to the
+         * explicit formatter instead of acknowledging an incomplete reset. */
+        rf_error = -1;
+        rf_boot_started = 1;
+        printf("[SN_RESERVE] explicit erase VM reset failed\n");
+    }
 }
 
 void rdx_record_format_erase_leave(int result)
@@ -504,6 +522,77 @@ static int rf_object(FILE *handle, char *buffer)
     return rf_reader_object(handle, &rf_reader, buffer);
 }
 
+/* The complete committed index, not the archive's bounded cache, establishes
+ * the normal sequence. Published recovery/legacy IDs remain unchanged. */
+static int rf_serial_boot(void)
+{
+    rf_serial_ready = 0;
+    FILE *src = fopen(RF_DAT, "r");
+    if (!src) return -1;
+    memset(&rf_reader, 0, sizeof(rf_reader));
+    rf_reader.remaining = flen(src);
+    int ok = rf_nonspace(src) == '[';
+    int c = rf_nonspace(src);
+    u32 maximum = 0, count = 0;
+    while (ok && c == '{') {
+        if (++count > RF_MAX_FILES || rf_object(src, rf_json)) { ok = 0; break; }
+        cJSON *obj = cJSON_ParseWithOpts(rf_json, NULL, 1);
+        cJSON *id = obj ? cJSON_GetObjectItemCaseSensitive(obj, "sn") : NULL;
+        if (!cJSON_IsNumber(id) || !(id->valuedouble >= 1 &&
+            id->valuedouble <= 0x7ffffffeu) ||
+            id->valuedouble != (u32)id->valuedouble) ok = 0;
+        else if (id->valuedouble <= RF_NORMAL_SN_MAX && id->valuedouble > maximum)
+            maximum = (u32)id->valuedouble;
+        cJSON_Delete(obj);
+        c = rf_nonspace(src);
+        if (c != ',') break;
+        c = rf_nonspace(src);
+        if (c != '{') ok = 0;
+        wdt_clear();
+        rf_cooperate(RF_OBJECT_SIZE);
+    }
+    if (c != ']' || rf_nonspace(src) != -1 || rf_reader.error) ok = 0;
+    if (fclose(src)) ok = 0;
+    if (!ok) return -1;
+    rf_serial_max = maximum;
+    rf_serial_ready = 1;
+    return 0;
+}
+
+/* Called under the archive's DAT mutex. Only this function may reserve a new
+ * recording SN; management IDs and polluted legacy VM values are not counters. */
+int rdx_record_format_reserve_sn(u32 *sn)
+{
+    if (!sn) return -1;
+    *sn = 0;
+    if (!rf_serial_ready || rf_error) return -1;
+    u32 saved = 0;
+    int read = syscfg_read(VM_RDX_RECORD_FILE_NUM, &saved, sizeof(saved));
+    if (read != sizeof(saved) && read != VM_INDEX_ERR && read != VM_READ_NO_INDEX) {
+        printf("[SN_RESERVE] VM read failed result=%d\n", read);
+        return -1;
+    }
+    if (read == sizeof(saved) && saved <= RF_NORMAL_SN_MAX && saved > rf_serial_max)
+        rf_serial_max = saved;
+    if (rf_serial_max >= RF_NORMAL_SN_MAX) {
+        printf("[SN_RESERVE] normal sequence exhausted\n");
+        return -1;
+    }
+    /* A failed/ambiguous write never publishes an identity or retries the same
+     * candidate in this boot. Native VM preserves successfully reserved gaps. */
+    u32 next = ++rf_serial_max;
+    u32 check = 0;
+    if (syscfg_write(VM_RDX_RECORD_FILE_NUM, &next, sizeof(next)) != sizeof(next) ||
+        syscfg_read(VM_RDX_RECORD_FILE_NUM, &check, sizeof(check)) != sizeof(check) ||
+        check != next) {
+        printf("[SN_RESERVE] VM reservation failed sn=%u\n", next);
+        return -1;
+    }
+    *sn = next;
+    printf("[SN_RESERVE] previous_vm=%u reserved=%u\n", saved, next);
+    return 0;
+}
+
 static int rf_emit(FILE *dst, cJSON *obj, u32 *count)
 {
     char *buf = rf_json;
@@ -769,6 +858,60 @@ static int rf_unlink(const char *path)
     return fdelete_by_name(path);
 }
 
+static int rf_discard_replay(void)
+{
+    rf_meta mark = {0};
+    FILE *f = fopen(RF_DISCARD, "r");
+    if (!f) return 0;
+    int valid = flen(f) == sizeof(mark) && fread(&mark, 1, sizeof(mark), f) == sizeof(mark);
+    if (fclose(f)) valid = 0;
+    if (!valid || mark.magic != RF_DISCARD_MAGIC || !mark.sn ||
+        mark.sn > 0x7ffffffeu || mark.name[sizeof(mark.name) - 1] ||
+        !rf_name_valid(mark.name) || mark.hash != rf_hash(&mark, sizeof(mark) - sizeof(mark.hash)))
+        return rf_preserve(RF_DISCARD);
+    char path[40];
+    rf_path(path, mark.name, 0);
+    if (rf_unlink(path)) return -1;
+    rf_path(path, mark.name, 1);
+    if (rf_unlink(path) || f_flush_wbuf(RF_ROOT)) return -1;
+    if (rf_unlink(RF_DISCARD) || f_flush_wbuf(RF_ROOT)) return -1;
+    return 0;
+}
+
+/* The archive has closed the short RAW but has not added it to DAT. Commit
+ * the pair's deletion before removing either member, so a reset cannot turn
+ * an intentionally discarded recording into a recovery-only MTA entry. */
+int rdx_record_format_discard_short(const uxfile_data_t *file)
+{
+    if (!file || !file->sn || !rf_name_valid(file->filename) ||
+        file->sn != rf_current.sn || strcmp(file->filename, rf_current.name)) return -1;
+    char path[40];
+    rf_path(path, file->filename, 0);
+    FILE *f = fopen(path, "r");
+    if (!f) return rf_fail();
+    int short_file = (u32)flen(f) < 4000;
+    if (fclose(f)) return rf_fail();
+    if (!short_file) return -1;
+    rf_path(path, file->filename, 1);
+    f = fopen(path, "r");
+    if (f) {
+        rf_meta meta = {0};
+        int valid = flen(f) == sizeof(meta) && fread(&meta, 1, sizeof(meta), f) == sizeof(meta);
+        if (fclose(f)) valid = 0;
+        if (!valid || meta.magic != RF_MAGIC || meta.sn != file->sn ||
+            meta.name[sizeof(meta.name) - 1] || strcmp(meta.name, file->filename) ||
+            meta.hash != rf_hash(&meta, sizeof(meta) - sizeof(meta.hash))) return rf_fail();
+    } else if (rf_current.ready) return rf_fail();
+    rf_meta mark = {0};
+    mark.magic = RF_DISCARD_MAGIC;
+    mark.sn = file->sn;
+    strcpy(mark.name, file->filename);
+    mark.hash = rf_hash(&mark, sizeof(mark) - sizeof(mark.hash));
+    if (rf_write(RF_DISCARD, &mark, sizeof(mark)) || rf_discard_replay()) return rf_fail();
+    memset(&rf_current, 0, sizeof(rf_current));
+    return 0;
+}
+
 static int rf_delete_replay(void)
 {
     rf_meta mark = {0};
@@ -971,6 +1114,7 @@ int rdx_record_format_boot(void)
         /* 过期提交记录不得在下次启动时恢复已删除条目。 */
         if (rf_preserve(RF_COMMIT) || rf_preserve(RF_TMP)) return rf_fail();
     }
+    if (rf_discard_replay()) return rf_fail();
     /* 若删除中断后遇到损坏的 DAT，先在下方重建索引，再
      * 完成删除意图；不得恢复已经删除的 RAW。 */
     int delete_pending = rf_delete_replay();
@@ -989,6 +1133,7 @@ int rdx_record_format_boot(void)
     }
     free(entries);
     if (ok && delete_pending && rf_delete_replay()) ok = 0;
+    if (ok && rf_serial_boot()) ok = 0;
     if (!ok) return rf_fail();
     rf_error = 0;
     printf("[REC_FORMAT] boot reconciled files=%u\n", total);

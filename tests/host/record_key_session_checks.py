@@ -145,7 +145,7 @@ static const struct tone_files *get_tone_files(void) { return &tones; }
 static int full_tones;
 static int play_tone_file(const char *name) { full_tones+=!strcmp(name,"no_sd"); return 0; }
 static int rdx_record_storage_check_start(void) { return space_ret; }
-static void rdx_uxfile_dat_1_gen(int scene) { ++files; }
+static int rdx_uxfile_dat_1_gen(u8 scene) { ++files; return 0; }
 static void rdx_record_init_raw_metadata(int format) {}
 static int rdx_uxfile_get_operateFile_info(void) { return 0; }
 static int rdx_record_format_begin(int file,int format) { return 0; }

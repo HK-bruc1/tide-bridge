@@ -3561,7 +3561,7 @@ int rdx_record_run_init(void)
                      (unsigned)rp->paused_accumulated_ms,
                      (unsigned)s_cur_mark_count);
         }else{
-            rdx_uxfile_dat_1_gen(rp->scene);
+            if (rdx_uxfile_dat_1_gen(rp->scene) < 0) return -1;
             rdx_record_init_raw_metadata(rp->formate);
             if (rdx_record_format_begin(rdx_uxfile_get_operateFile_info(), rp->formate)) {
                 return -1;
@@ -3760,7 +3760,7 @@ int rdx_record_run_init(void)
         if (space) return space;
         // rdx_uxfile_mssg_1_generate(scene);
         if (record_initialized_generation != record_session_generation) {
-            rdx_uxfile_dat_1_gen(scene);
+            if (rdx_uxfile_dat_1_gen(scene) < 0) return -1;
             rdx_record_init_raw_metadata(rp->formate);
             if (rdx_record_format_begin(rdx_uxfile_get_operateFile_info(), rp->formate)) {
                 return -1;

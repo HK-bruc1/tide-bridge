@@ -270,7 +270,63 @@ done:
   ret %struct.uxfile_datfile_info_t* @uxDatFileInfo
 }
 
-; 在互斥锁内遍历实际缓存，忽略失效条目并支持首尾环回。
+; Management entries are not tracks, even when their library-valid flag is set.
+define internal i1 @rdx_neighbor_track(%struct.dat_entry_t* %track) {
+entry:
+  %validp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 8
+  %validbyte = load i8, i8* %validp
+  %valid = icmp ne i8 %validbyte, 0
+  %framep = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 7
+  %frame = load i32, i32* %framep
+  %legacy = icmp eq i32 %frame, 0
+  %mono = icmp eq i32 %frame, 40
+  %stereo = icmp eq i32 %frame, 80
+  %fixed = or i1 %mono, %stereo
+  %supported = or i1 %legacy, %fixed
+  %usable = and i1 %valid, %supported
+  br i1 %usable, label %scan, label %bad
+scan:
+  %i = phi i32 [0, %entry], [%next, %advance]
+  %namep = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 1, i32 %i
+  %character = load i8, i8* %namep
+  %end = icmp eq i8 %character, 0
+  br i1 %end, label %suffix, label %advance
+advance:
+  %next = add i32 %i, 1
+  %bounded = icmp ult i32 %next, 64
+  br i1 %bounded, label %scan, label %bad
+suffix:
+  %long_enough = icmp uge i32 %i, 5
+  br i1 %long_enough, label %inspect, label %bad
+inspect:
+  %dot_index = add i32 %i, -4
+  %r_index = add i32 %i, -3
+  %a_index = add i32 %i, -2
+  %w_index = add i32 %i, -1
+  %dotp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 1, i32 %dot_index
+  %rp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 1, i32 %r_index
+  %ap = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 1, i32 %a_index
+  %wp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %track, i32 0, i32 1, i32 %w_index
+  %dot = load i8, i8* %dotp
+  %r = load i8, i8* %rp
+  %a = load i8, i8* %ap
+  %w = load i8, i8* %wp
+  %lower_r = or i8 %r, 32
+  %lower_a = or i8 %a, 32
+  %lower_w = or i8 %w, 32
+  %has_dot = icmp eq i8 %dot, 46
+  %has_r = icmp eq i8 %lower_r, 114
+  %has_a = icmp eq i8 %lower_a, 97
+  %has_w = icmp eq i8 %lower_w, 119
+  %dr = and i1 %has_dot, %has_r
+  %aw = and i1 %has_a, %has_w
+  %raw = and i1 %dr, %aw
+  ret i1 %raw
+bad:
+  ret i1 false
+}
+
+; DAT is newest-first. SN is an opaque identity, not an ordering key.
 define i32 @rdx_uxfile_neighbor_sn(i32 %anchor, i32 %direction) {
 entry:
   %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @dat_opera_mutex, i32 0)
@@ -300,39 +356,41 @@ prepare:
   br label %loop
 loop:
   %i = phi i32 [0, %prepare], [%next, %body]
-  %best = phi i32 [0, %prepare], [%best_next, %body]
-  %wrap = phi i32 [0, %prepare], [%wrap_next, %body]
+  %seen_anchor = phi i1 [false, %prepare], [%seen_next, %body]
+  %first = phi i32 [0, %prepare], [%first_next, %body]
+  %last = phi i32 [0, %prepare], [%last_next, %body]
+  %before = phi i32 [0, %prepare], [%before_next, %body]
+  %after = phi i32 [0, %prepare], [%after_next, %body]
   %end = icmp eq i32 %i, %count
   br i1 %end, label %found, label %body
 body:
   %idp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %entries, i32 %i, i32 0
   %id = load i32, i32* %idp
-  %validp = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %entries, i32 %i, i32 8
-  %validbyte = load i8, i8* %validp
-  %valid = icmp ne i8 %validbyte, 0
+  %item = getelementptr %struct.dat_entry_t, %struct.dat_entry_t* %entries, i32 %i
+  %valid = call i1 @rdx_neighbor_track(%struct.dat_entry_t* %item)
   %nonzero = icmp ne i32 %id, 0
   %active = and i1 %valid, %nonzero
-  %above = icmp ugt i32 %id, %anchor
-  %below = icmp ult i32 %id, %anchor
-  %side = select i1 %newer, i1 %above, i1 %below
-  %smaller = icmp ult i32 %id, %best
-  %larger = icmp ugt i32 %id, %best
-  %closer = select i1 %newer, i1 %smaller, i1 %larger
-  %empty = icmp eq i32 %best, 0
-  %better = or i1 %empty, %closer
-  %eligible = and i1 %active, %side
-  %pick = and i1 %eligible, %better
-  %best_next = select i1 %pick, i32 %id, i32 %best
-  %wrap_small = icmp ult i32 %id, %wrap
-  %wrap_large = icmp ugt i32 %id, %wrap
-  %wrap_closer = select i1 %newer, i1 %wrap_small, i1 %wrap_large
-  %wrap_empty = icmp eq i32 %wrap, 0
-  %wrap_better = or i1 %wrap_empty, %wrap_closer
-  %wrap_pick = and i1 %active, %wrap_better
-  %wrap_next = select i1 %wrap_pick, i32 %id, i32 %wrap
+  %first_empty = icmp eq i32 %first, 0
+  %pick_first = and i1 %active, %first_empty
+  %first_next = select i1 %pick_first, i32 %id, i32 %first
+  %last_next = select i1 %active, i32 %id, i32 %last
+  %matches = icmp eq i32 %id, %anchor
+  %is_anchor = and i1 %matches, %nonzero
+  %not_anchor = xor i1 %is_anchor, true
+  %neighbor = and i1 %active, %not_anchor
+  %not_seen = xor i1 %seen_anchor, true
+  %pick_before = and i1 %neighbor, %not_seen
+  %before_next = select i1 %pick_before, i32 %id, i32 %before
+  %after_empty = icmp eq i32 %after, 0
+  %eligible_after = and i1 %neighbor, %seen_anchor
+  %pick_after = and i1 %eligible_after, %after_empty
+  %after_next = select i1 %pick_after, i32 %id, i32 %after
+  %seen_next = or i1 %seen_anchor, %is_anchor
   %next = add i32 %i, 1
   br label %loop
 found:
+  %best = select i1 %newer, i32 %before, i32 %after
+  %wrap = select i1 %newer, i32 %last, i32 %first
   %has_best = icmp ne i32 %best, 0
   %selected = select i1 %has_best, i32 %best, i32 %wrap
   br label %done

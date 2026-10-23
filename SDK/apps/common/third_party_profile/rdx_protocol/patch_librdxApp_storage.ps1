@@ -34,6 +34,98 @@ function Update-RdxStorageIr {
         '  %81 = phi i32 [ -1, %0 ], [ 1, %11 ], [ -1, %14 ], [ -1, %5 ], [ -1, %20 ], [ -1, %76 ], [ 0, %77 ]' `
         'distinguish discarded short recording'
 
+    # The format layer owns the low-range allocation watermark, including an
+    # empty DAT and migration from a VM polluted by recovery-management IDs.
+    # Name the old numeric SSA slots before replacing its allocation CFG.
+    $pattern = '(?ms)^define i32 @rdx_uxfile_dat_1_gen\(i8 zeroext\)[^\n]*\{.*?^\}'
+    $generator = [regex]::Match($Ir, $pattern).Value
+    if (!$generator) { throw 'Missing recording identity generator' }
+    $namedGenerator = [regex]::Replace($generator, '%(\d+)\b', '%rdx_gen_$1')
+    $namedGenerator = [regex]::Replace($namedGenerator,
+        '(?m)^; <label>:(\d+):[^\n]*$', 'rdx_gen_$1:')
+    $namedGenerator = $namedGenerator.Replace(
+        '@rdx_uxfile_dat_1_gen(i8 zeroext)',
+        '@rdx_uxfile_dat_1_gen(i8 zeroext %rdx_gen_0)')
+    $namedGenerator = $namedGenerator.Replace("{`n", "{`nrdx_gen_1:`n")
+    $allocationPattern = '(?ms)^  %rdx_gen_8 = load i1, i1\* @g_dat_cache\.3, align 4\n.*?(?=^  %rdx_gen_24 = tail call i32)'
+    $oldAllocation = [regex]::Match($namedGenerator, $allocationPattern).Value
+    if (!$oldAllocation) { throw 'Missing complete recording allocation branches' }
+    $allocationLocation = [regex]::Match($oldAllocation, '@rdx_dat_cache_persist_max_sn[^\n]*(!dbg !\d+)').Groups[1].Value
+    if (!$allocationLocation) { throw 'Missing recording allocation call-site location' }
+    $allocation = @'
+  store i32 0, i32* getelementptr inbounds (%struct.uxfile_filelist_t, %struct.uxfile_filelist_t* @uxFileList, i32 0, i32 0), align 4
+  %rdx_sn_status = call i32 @rdx_storage_reserve_sn(i32* getelementptr inbounds (%struct.uxfile_filelist_t, %struct.uxfile_filelist_t* @uxFileList, i32 0, i32 0))
+  %rdx_sn = load i32, i32* getelementptr inbounds (%struct.uxfile_filelist_t, %struct.uxfile_filelist_t* @uxFileList, i32 0, i32 0), align 4
+  %rdx_sn_ok = icmp eq i32 %rdx_sn_status, 0
+  %rdx_sn_nonzero = icmp ne i32 %rdx_sn, 0
+  %rdx_sn_low = icmp ule i32 %rdx_sn, 268435455
+  %rdx_sn_valid = and i1 %rdx_sn_nonzero, %rdx_sn_low
+  %rdx_sn_reserved = and i1 %rdx_sn_ok, %rdx_sn_valid
+  br i1 %rdx_sn_reserved, label %rdx_sn_publish, label %rdx_sn_failed
+rdx_sn_failed:
+  store i32 0, i32* getelementptr inbounds (%struct.uxfile_filelist_t, %struct.uxfile_filelist_t* @uxFileList, i32 0, i32 0), align 4
+  call void @llvm.lifetime.end(i64 4, i8* nonnull %rdx_gen_7)
+  call void @llvm.lifetime.end(i64 64, i8* nonnull %rdx_gen_6)
+  ret i32 -1
+rdx_sn_publish:
+  store i32 %rdx_sn, i32* getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxOperateFileData, i32 0, i32 0), align 4
+'@
+    $allocation = [regex]::Replace($allocation, '(?m)^(  (?:%\w+ = )?call [^\n]+)$', '$1, ' + $allocationLocation)
+    $namedGenerator = Replace-ExactlyOnce $namedGenerator $oldAllocation ($allocation + "`n") 'single recording SN allocator'
+    $Ir = Replace-ExactlyOnce $Ir $generator $namedGenerator 'replace legacy recording allocation'
+
+    # Cache insertion also called the old unchecked VM writer. Retire it so
+    # only a successful format-layer reservation can advance VM147.
+    $pattern = '(?ms)^define internal fastcc void @rdx_dat_cache_persist_max_sn\([^\n]*\{.*?^\}'
+    $persist = [regex]::Match($Ir, $pattern).Value
+    if (!$persist) { throw 'Missing legacy SN watermark writer' }
+    $Ir = Replace-ExactlyOnce $Ir $persist "define internal fastcc void @rdx_dat_cache_persist_max_sn(i32 %unused) unnamed_addr {`n  ret void`n}" 'retire unchecked SN watermark writes'
+    # Old deletion/auto-delete paths reset this public writer to zero. Only
+    # the format layer may reset the watermark after a successful explicit erase.
+    $pattern = '(?ms)^define void @rdx_uxfile_write_serial_number_into_vm\([^\n]*\{.*?^\}'
+    $serialWriter = [regex]::Match($Ir, $pattern).Value
+    if (!$serialWriter) { throw 'Missing legacy public SN watermark writer' }
+    $Ir = Replace-ExactlyOnce $Ir $serialWriter "define void @rdx_uxfile_write_serial_number_into_vm(i32 %unused) {`n  ret void`n}" 'retire deletion-driven SN watermark resets'
+    if ($Ir -match '(?m)^\s*(?:%\w+ = )?(?:tail )?call i32 @syscfg_write\(i16 zeroext 147,') {
+        throw 'Unexpected library-side recording SN watermark write remains'
+    }
+
+    # The helper consumes the already opened RAW handle, then lets the format
+    # layer durably remove RAW and MTA together. Never close that handle twice.
+    $pattern = '(?ms)^define i32 @rdx_uxfile_dat_1_save_gen\([^\n]*\{.*?^\}'
+    $save = [regex]::Match($Ir, $pattern).Value
+    if (!$save) { throw 'Missing recording save implementation' }
+    $shortDelete = [regex]::Match($save, '(?m)^  %12 = tail call i32 @rdx_storage_fdelete\(%struct\.FILE\* nonnull %6\)[^\n]*$').Value
+    $shortClose = [regex]::Match($save, '(?m)^  %15 = tail call i32 @rdx_storage_fclose\(%struct\.FILE\* nonnull %6\)[^\n]*$').Value
+    if (!$shortDelete -or !$shortClose) { throw 'Missing short-recording handle ownership branches' }
+    $shortLocation = [regex]::Match($shortDelete, '!dbg !\d+').Value
+    if (!$shortLocation) { throw 'Missing short-recording discard call-site location' }
+    $safeSave = Replace-ExactlyOnce $save $shortDelete ('  %12 = call i32 @rdx_storage_discard_short(%struct.FILE* %6), ' + $shortLocation) 'transactional short recording discard'
+    $safeSave = Replace-ExactlyOnce $safeSave $shortClose '  %15 = add i32 0, 0' 'short discard helper owns RAW handle'
+    $Ir = Replace-ExactlyOnce $Ir $save $safeSave 'safe short recording save path'
+
+    # The legacy RAW writer has its own generator fallback. A rejected SN
+    # reservation must not proceed to any file open/write through that path.
+    $pattern = '(?ms)^define i32 @rdx_uxfile_raw_write\([^\n]*\{.*?^\}'
+    $raw = [regex]::Match($Ir, $pattern).Value
+    if (!$raw) { throw 'Missing RAW writer allocation fallback' }
+    $fallback = [regex]::Match($raw, '(?m)^(  %23 = tail call i32 @rdx_uxfile_dat_1_gen\(i8 zeroext %2\)[^\n]*)\n  br label %24[^\n]*$')
+    if (!$fallback.Success) { throw 'Missing unchecked RAW generation branch' }
+    $fallbackLocation = [regex]::Match($fallback.Value, '!dbg !\d+').Value
+    if (!$fallbackLocation) { throw 'Missing RAW generation fallback call-site location' }
+    $checkedFallback = $fallback.Groups[1].Value + @'
+
+  %rdx_generated = icmp eq i32 %23, 0
+  br i1 %rdx_generated, label %24, label %rdx_generate_failed
+rdx_generate_failed:
+  %rdx_generate_error = call i32 @rdx_storage_save_result(i32 -1)
+  ret i32 %rdx_generate_error
+'@
+    $checkedFallback = $checkedFallback.Replace('  %rdx_generate_error = call i32 @rdx_storage_save_result(i32 -1)',
+        ('  %rdx_generate_error = call i32 @rdx_storage_save_result(i32 -1), ' + $fallbackLocation))
+    $safeRaw = Replace-ExactlyOnce $raw $fallback.Value $checkedFallback 'fail closed after RAW generation rejection'
+    $Ir = Replace-ExactlyOnce $Ir $raw $safeRaw 'checked RAW writer allocation fallback'
+
     # Keep a save/scan failure sticky even when the old caller only logs it.
     # This catches open failures as well as the wrapped write/close failures.
     $Ir = Replace-ExactlyOnce $Ir `
@@ -81,5 +173,6 @@ function Update-RdxStorageIr {
     }
 
     $helpers = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'rdx_storage_patch.ll')).Replace("`r`n", "`n")
-    return $Ir + "`n" + $helpers
+    $snHelpers = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'rdx_sn_patch.ll')).Replace("`r`n", "`n")
+    return $Ir + "`n" + $helpers + "`n" + $snHelpers
 }

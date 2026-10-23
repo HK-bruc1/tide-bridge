@@ -746,17 +746,17 @@ int test_stop_cleanup(void) {
 
 
 def _run_init_prefixes(record):
-    """Each run_init variant up to its storage gate, closed for compilation."""
-    marker = 'if (space) return space;'
+    """Compile both real variants through admission and identity creation."""
     bodies = re.findall(r'int rdx_record_run_init\(void\)\s*\{.*?\n\}', record, re.S)
     assert len(bodies) == 2
     prefixes = []
     for index, body in enumerate(bodies):
-        cut = body.index(marker) + len(marker)
+        cut = (body.index('\n    if(rp->run != RECORD_STATE_RESUME)') if index == 0
+               else body.index('\n        /* V24:'))
         text = body[:cut]
         masked = re.sub(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"', lambda m: ' ' * len(m[0]), text, flags=re.S)
         depth = masked.count('{') - masked.count('}')
-        assert depth >= 2
+        assert depth >= 1
         text = text.replace('int rdx_record_run_init(void)', f'int run_init_{index}(void)', 1)
         prefixes.append(text + '\n    ++reached;\n    return 0;\n' + '}' * (depth - 1) + '\n    return 0;\n}\n')
     return prefixes
@@ -778,8 +778,9 @@ typedef unsigned int u32;
 #define r_printf(...) ((void)0)
 #define g_printf(...) ((void)0)
 typedef struct { int file_send_busy; } ReqFileInfo;
-typedef struct { u8 mode, orig_mode, scene; void (*ui_notify)(void); } RecordStatus;
+typedef struct { u8 mode, orig_mode, scene; void (*ui_notify)(void); u8 formate; } RecordStatus;
 static int allowed=1, space, checks, reached, notified, only, current;
+static int gen_result, gen_calls, meta_calls, begin_calls;
 static u32 record_initialized_generation, record_session_generation=1;
 static u16 conn=1;
 static ReqFileInfo info;
@@ -798,6 +799,10 @@ int rdx_record_online_session_is_current(void) { return current; }
 void rdx_app_emmc_poweroff_check_timer_stop(void) {}
 void rdx_app_emmc_poweron(int force) {}
 int rdx_record_storage_check_start(void) { ++checks; return space; }
+int rdx_uxfile_dat_1_gen(u8 scene) { ++gen_calls; return gen_result; }
+void rdx_record_init_raw_metadata(u8 format) { ++meta_calls; }
+void *rdx_uxfile_get_operateFile_info(void) { return (void *)1; }
+int rdx_record_format_begin(void *file,u8 format) { ++begin_calls; return 0; }
 """
     source += ''.join(_run_init_prefixes(record))
     source += r"""
@@ -810,6 +815,14 @@ int test_run_init_space(void) {
             CHECK(init[v]()==value && checks==1 && reached==!value);
         }
         allowed=0; checks=0; CHECK(init[v]()==-1 && !checks); allowed=1;
+        space=0; gen_result=-1; gen_calls=meta_calls=begin_calls=reached=0;
+        CHECK(init[v]()==-1 && gen_calls==1 && !meta_calls && !begin_calls && !reached);
+        gen_result=0; gen_calls=meta_calls=begin_calls=reached=0;
+        CHECK(!init[v]() && gen_calls==1 && meta_calls==1 && begin_calls==1 && reached==1);
+        record_initialized_generation=record_session_generation;
+        gen_calls=meta_calls=begin_calls=0;
+        CHECK(!init[v]() && !gen_calls && !meta_calls && !begin_calls);
+        record_initialized_generation=0;
     }
     /* Online stream-only sessions (variant 0) never consult local storage. */
     only=1; space=-2; checks=0;

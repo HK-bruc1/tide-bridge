@@ -44,15 +44,37 @@ typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,
 #define RECORD_FORMATE_OPUS_16K_MONO 1
 #define RECORD_FORMATE_OPUS_16K_STERO 2
 #define RDX_RECORD_DELETE_REJECTED (-2)
+#define VM_RDX_RECORD_FILE_NUM 147
 typedef struct { u32 sn; char filename[64]; u8 record_scene; u32 start_time, frame_size; } uxfile_data_t;
 typedef struct { char name[80]; u8 data[65536]; u32 size, pos; int present, opened; } mock_file;
 static mock_file files[640];
 static int fail_delete;
+static const char *fail_delete_path;
 static int fail_write, fail_flush, fail_close, fail_truncate, fail_read, fail_seek, handles;
+static int fail_flush_call, flush_calls;
 static u32 read_bytes;
 static const char *fail_path;
 static int writes;
 static int fail_alloc;
+static u32 vm_sn;
+static int vm_present, vm_write_fail, vm_writes;
+static int vm_read_fail, vm_readback_fail;
+int syscfg_read(unsigned short id, void *data, unsigned short size) {
+    if(id!=147 || size!=sizeof(vm_sn)) return -1;
+    if(vm_read_fail) return vm_read_fail==1 ? VM_READ_DATA_ERR : vm_read_fail==2 ? size-1 : 0;
+    if(!vm_present) return VM_INDEX_ERR;
+    if(vm_readback_fail && vm_writes) {
+        if(vm_readback_fail==1) return VM_READ_DATA_ERR;
+        u32 different=vm_sn+1; memcpy(data,&different,sizeof(different)); return sizeof(different);
+    }
+    memcpy(data,&vm_sn,sizeof(vm_sn)); return sizeof(vm_sn);
+}
+int syscfg_write(unsigned short id, void *data, unsigned short size) {
+    if(id!=147 || size!=sizeof(vm_sn)) return -1;
+    ++vm_writes;
+    if(vm_write_fail) return vm_write_fail==1 ? -1 : size-1;
+    memcpy(&vm_sn,data,sizeof(vm_sn)); vm_present=1; return sizeof(vm_sn);
+}
 static void *format_malloc(size_t n) { return fail_alloc ? NULL : malloc(n); }
 /* JL 的 realloc(NULL, n) 返回 NULL，首次分配必须显式 malloc。 */
 static void *format_realloc(void *p,size_t n) { return fail_alloc || !p ? NULL : realloc(p,n); }
@@ -97,8 +119,8 @@ int flen(FILE *f) { return f->size; }
 int fseek(FILE *f,u32 pos,int mode) { if(fail_seek) return -1; f->pos=pos; return 0; }
 int mock_tell(FILE *f) { return f->pos; }
 int ftruncate(FILE *f,u32 n) { if(fail_truncate || n>sizeof(f->data)) return -1; f->size=n; return 0; }
-int f_flush_wbuf(const char *p) { return fail_flush || strcmp(p,"storage/sd0/C/") ? -1 : 0; }
-int fdelete_by_name(const char *p) { if(fail_delete) return -1; FILE *f=lookup(p); if(!f) return -1; f->present=0; return 0; }
+int f_flush_wbuf(const char *p) { ++flush_calls; return fail_flush || (fail_flush_call && flush_calls==fail_flush_call) || strcmp(p,"storage/sd0/C/") ? -1 : 0; }
+int fdelete_by_name(const char *p) { if(fail_delete || (fail_delete_path && !strcmp(p,fail_delete_path))) return -1; FILE *f=lookup(p); if(!f) return -1; f->present=0; return 0; }
 struct vfscan { u32 file_number; FILE *items[640]; };
 #define FSEL_BY_NUMBER 5
 static struct vfscan scan_data;
@@ -127,11 +149,15 @@ static uxfile_data_t current;
 static u8 audio[4000];
 static int recover(void) { rf_boot_started=0; return rdx_record_format_boot(); }
 static void reset(void) {
+    rf_serial_ready=rf_serial_max=0;
     format_busy=writer_active=writer_resets=record_recovered=rf_erasing=0;
     free_kb=100000; space_unknown=unmounted=0; partition.total_size=200000;
     rf_download=0; rf_io_users=rf_command_users=0; factory_busy=0;
     power_fail=power_users=power_enters=idle_hints=0;
     snapshot_result=snapshot_calls=0;
+    vm_sn=0; vm_present=vm_write_fail=vm_writes=0;
+    vm_read_fail=vm_readback_fail=0;
+    fail_delete_path=NULL; fail_flush_call=flush_calls=0;
     fail_alloc=0;
     fail_seek=0; read_bytes=0;
     memset(files,0,sizeof(files)); memset(&rf_current,0,sizeof(rf_current));
@@ -648,8 +674,205 @@ int test_dat_mta_collision(void) {
     rf_meta meta={0};
     CHECK(rf_read_meta("abc123.raw",&meta)==0 && meta.sn==7);
     CHECK(rf_read_meta("def123.raw",&meta)==0 && meta.sn==8);
+    u32 next=0; CHECK(rdx_record_format_reserve_sn(&next)==0 && next==9);
     CHECK(handles==0);
     return 0;
+}
+static int seed_named(u32 sn, const char *name) {
+    current.sn=sn; strcpy(current.filename,name);
+    if(rdx_record_format_begin(&current,1) || rdx_record_format_frame(&current,1,audio,40)) return -1;
+    char path[40]; rf_path(path,name,0);
+    return rf_write(path,audio,sizeof(audio));
+}
+static u32 named_sn(cJSON *root, const char *name) {
+    for(int i=0;i<cJSON_GetArraySize(root);++i) {
+        cJSON *obj=cJSON_GetArrayItem(root,i);
+        cJSON *n=cJSON_GetObjectItem(obj,"name");
+        if(cJSON_IsString(n) && !strcmp(n->valuestring,name)) return num(obj,"sn");
+    }
+    return 0;
+}
+int test_sn_reservation_migration(void) {
+    reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+    CHECK(seed_named(316899292u,"20436e.raw")==0);
+    current.sn=23; strcpy(current.filename,"e37fdb.raw");
+    CHECK(rdx_record_format_begin(&current,1)==0);
+    CHECK(rdx_record_format_frame(&current,1,audio,40)==0);
+    const char *dat="[{\"sn\":316899292,\"name\":\"20436e.raw\",\"frame_size\":40,\"opus\":1084752896},"
+                    "{\"sn\":44,\"name\":\"4f24b8.raw\",\"frame_size\":40,\"opus\":1084752896}]";
+    CHECK(rf_write(RF_DAT,(void *)dat,strlen(dat))==0);
+    vm_present=1; vm_sn=316899293u;
+    CHECK(recover()==0 && handles==0);
+    cJSON *root=read_dat(); CHECK(root && cJSON_GetArraySize(root)==3);
+    CHECK(named_sn(root,"20436e.raw")==316899292u);
+    CHECK(named_sn(root,"4f24b8.raw")==44);
+    u32 orphan=named_sn(root,"e37fdb.mta");
+    CHECK(orphan==316899291u); cJSON_Delete(root);
+    u32 sn=0; CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==45);
+    CHECK(vm_present && vm_sn==45 && vm_writes==1);
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==46 && vm_sn==46);
+    CHECK(recover()==0);
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==47);
+    root=read_dat(); CHECK(named_sn(root,"20436e.raw")==316899292u);
+    CHECK(named_sn(root,"e37fdb.mta")==orphan); cJSON_Delete(root);
+    CHECK(rdx_record_format_delete(45,"20436e.raw")==RDX_RECORD_DELETE_REJECTED);
+    CHECK(rdx_record_format_delete(316899292u,"20436e.raw")==0);
+    CHECK(!lookup(RF_ROOT "20436e.raw") && lookup(RF_ROOT "4f24b8.raw"));
+    CHECK(rdx_record_format_delete(orphan,"e37fdb.mta")==0 && handles==0);
+    return 0;
+}
+int test_sn_reservation_full_index_and_empty(void) {
+    reset(); CHECK(rf_write(RF_DAT,"[]",2)==0);
+    CHECK(recover()==0);
+    u32 sn=999; CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==1 && vm_sn==1);
+    CHECK(recover()==0);
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==2);
+    reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+    vm_present=1; vm_sn=70; CHECK(recover()==0);
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==71 && vm_sn==71);
+    reset();
+    char dat[30000]; u32 length=0;
+    length+=sprintf(dat+length,"[");
+    for(int i=0;i<301;++i) {
+        length+=sprintf(dat+length,"%s{\"sn\":%u,\"name\":\"%06x.raw\"}",
+                        i ? "," : "",i==300 ? 900u : (u32)i+1,i+1);
+    }
+    length+=sprintf(dat+length,"]");
+    CHECK(rf_write(RF_DAT,dat,length)==0 && recover()==0);
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==901 && vm_sn==901);
+    CHECK(handles==0); return 0;
+}
+int test_sn_reservation_failures_and_limit(void) {
+    for(int failure=1;failure<=2;++failure) {
+        reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+        vm_present=1; vm_sn=44; CHECK(recover()==0);
+        vm_write_fail=failure; u32 sn=99;
+        CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && vm_sn==44);
+        vm_write_fail=0; CHECK(recover()==0);
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==45 && vm_sn==45);
+        /* Reservation itself is durable, even if no RAW is ever created. */
+        CHECK(recover()==0);
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==46);
+    }
+    for(int failure=1;failure<=3;++failure) {
+        reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+        vm_present=1; vm_sn=44; CHECK(recover()==0);
+        vm_read_fail=failure; u32 sn=99;
+        CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && !vm_writes);
+        vm_read_fail=0;
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==45);
+    }
+    for(int failure=1;failure<=2;++failure) {
+        reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+        vm_present=1; vm_sn=44; CHECK(recover()==0);
+        vm_readback_fail=failure; u32 sn=99;
+        CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && vm_sn==45);
+        vm_readback_fail=0;
+        CHECK(recover()==0);
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==46);
+    }
+    reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
+    vm_present=1; vm_sn=44; CHECK(recover()==0);
+    vm_write_fail=1; u32 skipped=99;
+    CHECK(rdx_record_format_reserve_sn(&skipped)<0 && !skipped);
+    vm_write_fail=0;
+    CHECK(rdx_record_format_reserve_sn(&skipped)==0 && skipped==46);
+    reset(); vm_present=1; vm_sn=0x0ffffffeu;
+    CHECK(recover()==0); u32 sn=0;
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==0x0fffffffu);
+    int before=vm_writes; sn=99;
+    CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && vm_writes==before);
+    CHECK(recover()==0); sn=99;
+    CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && vm_sn==0x0fffffffu);
+    CHECK(handles==0); return 0;
+}
+static int seed_short(u32 bytes) {
+    vm_present=1; vm_sn=6;
+    if(recover() || rdx_record_format_reserve_sn(&current.sn) || seed_mono()) return -1;
+    lookup(RF_ROOT "abc123.raw")->size=bytes;
+    return 0;
+}
+int test_short_discard_admission(void) {
+    reset(); CHECK(seed_short(3600)==0);
+    CHECK(rdx_record_format_discard_short(&current)==0);
+    CHECK(!lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+    CHECK(!lookup(RF_DISCARD) && handles==0);
+    CHECK(recover()==0);
+    cJSON *root=read_dat(); CHECK(root && !cJSON_GetArraySize(root)); cJSON_Delete(root);
+    u32 sn=0; CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==8);
+    reset(); CHECK(seed_short(4000)==0);
+    CHECK(rdx_record_format_discard_short(&current)<0);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    reset(); CHECK(seed_short(0x80000000u)==0);
+    CHECK(rdx_record_format_discard_short(&current)<0);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    CHECK(!lookup(RF_DISCARD) && !handles);
+    for(int wrong=0;wrong<3;++wrong) {
+        reset(); CHECK(seed_short(3600)==0);
+        uxfile_data_t other=current;
+        if(wrong==0) ++other.sn;
+        if(wrong==1) strcpy(other.filename,"def123.raw");
+        if(wrong==2) lookup(RF_ROOT "abc123.mta")->data[0]^=1;
+        CHECK(rdx_record_format_discard_short(&other)<0);
+        CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+        CHECK(!lookup(RF_DISCARD) && handles==0);
+    }
+    return 0;
+}
+int test_short_discard_replay(void) {
+    for(int stage=0;stage<4;++stage) {
+        reset(); CHECK(seed_short(3600)==0);
+        if(stage==0) fail_delete_path=RF_ROOT "abc123.raw";
+        if(stage==1) fail_delete_path=RF_ROOT "abc123.mta";
+        if(stage==2) fail_delete_path=RF_DISCARD;
+        if(stage==3) fail_flush_call=flush_calls+2;
+        CHECK(rdx_record_format_discard_short(&current)<0 && handles==0);
+        CHECK(lookup(RF_DISCARD));
+        u32 sn=99; CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn);
+        fail_delete_path=NULL; fail_flush_call=0;
+        CHECK(recover()==0 && handles==0);
+        CHECK(!lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+        CHECK(!lookup(RF_DISCARD));
+        cJSON *root=read_dat(); CHECK(root && !cJSON_GetArraySize(root)); cJSON_Delete(root);
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==8);
+    }
+    /* An uncommitted/torn intent must never authorize data deletion. */
+    reset(); CHECK(seed_short(3600)==0);
+    fail_write=1; fail_path=RF_DISCARD;
+    CHECK(rdx_record_format_discard_short(&current)<0 && handles==0);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    fail_write=0; fail_path=NULL;
+    CHECK(recover()==0);
+    CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    cJSON *root=read_dat(); CHECK(root && named_sn(root,"abc123.raw")==7); cJSON_Delete(root);
+    return 0;
+}
+int test_sn_explicit_format_reset(void) {
+    reset(); vm_present=1; vm_sn=70; CHECK(recover()==0);
+    CHECK(rdx_record_format_erase_enter()==0);
+    rdx_record_format_erased(); CHECK(!rf_error && vm_sn==0);
+    CHECK(rdx_record_format_boot()==0);
+    rdx_record_format_erase_leave(0);
+    u32 sn=0; CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==1);
+    for(int failure=1;failure<=4;++failure) {
+        reset(); vm_present=1; vm_sn=70; CHECK(recover()==0);
+        CHECK(rdx_record_format_erase_enter()==0);
+        if(failure<=2) vm_write_fail=failure;
+        else vm_readback_fail=failure-2;
+        rdx_record_format_erased();
+        CHECK(rf_error<0 && rf_boot_started && rdx_record_format_boot()<0);
+        sn=99; CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn);
+        rdx_record_format_erase_leave(-1);
+        CHECK(rdx_record_format_service_status()<0 && !record_recovered);
+        vm_write_fail=vm_readback_fail=0;
+        CHECK(rdx_record_format_erase_enter()==0);
+        rdx_record_format_erased(); CHECK(vm_sn==0 && !rf_error);
+        CHECK(rdx_record_format_boot()==0);
+        rdx_record_format_erase_leave(0);
+        CHECK(rdx_record_format_service_status()==0);
+        CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==1);
+    }
+    CHECK(handles==0); return 0;
 }
 '''
 
@@ -692,14 +915,19 @@ unsigned long strtoul(const char *,char **,int);
 double fabs(double);
 """
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
-    path.write_text(libc + header + json_source + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
+    vm_header = (ROOT / 'SDK/interface/utils/device/vm.h').read_text(encoding='utf-8')
+    vm_enum = re.search(r'typedef enum _vm_err\s*\{.*?\}\s*VM_ERR;', vm_header, re.S)[0]
+    path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_space_reserve', 'test_explicit_format_recovery',
                         'test_download_admission', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
-                        'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision'], native=True)
+                        'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',
+                        'test_sn_reservation_migration', 'test_sn_reservation_full_index_and_empty',
+                        'test_sn_reservation_failures_and_limit', 'test_short_discard_admission',
+                        'test_short_discard_replay', 'test_sn_explicit_format_reset'], native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 

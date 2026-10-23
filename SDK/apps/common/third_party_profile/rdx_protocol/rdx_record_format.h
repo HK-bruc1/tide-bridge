@@ -34,6 +34,11 @@ void rdx_record_format_service_ready(int result);
 /* 参数或身份拒绝与存储失败分开，拒绝请求不应关闭健康的文件服务。 */
 #define RDX_RECORD_DELETE_REJECTED (-2)
 int rdx_record_format_delete(u32 sn, const char *name);
+/* Archive DAT mutex held. Reserve/persist a normal SN before publishing it;
+ * recovery and legacy high IDs stay readable but never advance this counter. */
+int rdx_record_format_reserve_sn(u32 *sn);
+/* Closed, current-session RAW only; durable paired RAW/MTA discard. */
+int rdx_record_format_discard_short(const uxfile_data_t *file);
 uxfile_datfile_info_t *rdx_record_format_list(uxfile_datfile_info_t *info);
 /* Sticky storage failure, also used by the asynchronous recording writer. */
 void rdx_record_format_storage_fault(void);

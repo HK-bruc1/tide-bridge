@@ -76,20 +76,20 @@ $SharedT2620ProductDefines = @{
     PRODUCT_CODE = '"607"'
     PRODUCT_CODE_SIZE = 'strlen(PRODUCT_CODE)'
     WIFI_AP_PASSWORD = '"88888888"'
-    FIRMWARE_VERSION = '"1.1.2"'
-    FIRMWARE_VERSION_HEX = '0x00010102'
     HARDWARE_VERSION = '"0.0.1"'
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)' },
-    @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)' }
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.3"'; VersionHex = '0x00010103' },
+    @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
     foreach ($macro in @('BT_NAME', 'BLE_LOCAL_NAME', 'WIFI_AP_SSID')) {
         $ExpectedProductDefines[$macro] = $profile.DeviceName
     }
     $ExpectedProductDefines['RDX_BLE_NAME_AUTH_SUFFIX_ENABLE'] = $profile.NameSuffix
+    $ExpectedProductDefines['FIRMWARE_VERSION'] = $profile.Version
+    $ExpectedProductDefines['FIRMWARE_VERSION_HEX'] = $profile.VersionHex
     foreach ($macro in $ExpectedProductDefines.Keys) {
         $pattern = '(?m)^[ \t]*#define[ \t]+' + [regex]::Escape($macro) + '[ \t]+([^\r\n]+)'
         $definitions = [regex]::Matches($profile.Source, $pattern)
@@ -281,7 +281,7 @@ Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'E4C33DF568A7667777282DEB37A143770AF17619FB720077CB2C9C5231A8BF2B' -and
+                           $PatchedRdxArchiveHash -eq 'D40FCC24289D482544CAC29F6E699539A4A760028930C7D4D0C15395F569A209' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
