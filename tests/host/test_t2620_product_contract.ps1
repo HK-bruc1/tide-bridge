@@ -281,7 +281,7 @@ Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'D40FCC24289D482544CAC29F6E699539A4A760028930C7D4D0C15395F569A209' -and
+                           $PatchedRdxArchiveHash -eq '244E2738B03E0C1BAA9D1B018E7C78497C9331C3CDD286C7106884E121578D1A' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and

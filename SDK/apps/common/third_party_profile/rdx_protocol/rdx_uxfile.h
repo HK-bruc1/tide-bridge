@@ -151,11 +151,11 @@ u32 rdx_uxfile_get_wifi_pack_size(void);
 void rdx_uxfile_read_buffer_free(void);
 int rdx_uxfile_flush_cache(void);  // 【对齐CC】返回 int，空闲时保存 dirty 缓存到文件
 
-/* Hash-pinned storage patch ABI. Errors remain latched until reboot.
- * finish_record: 0 saved/no open file, 1 discarded by short-file policy, <0 error.
- * Fence: app_core sole owner, once per boot, after external producers stop.
- * Library timers stop at request; successful completion freezes its worker.
- * poll: 0 complete, -1 failed, -2 pending/wrong ticket. Never a busy snapshot.
+/* 由固定哈希校验的存储补丁 ABI，故障保持锁存直至重启。
+ * finish_record：0 已保存或无打开文件，1 已丢弃空录音或短录音，负值表示错误。
+ * 收尾屏障仅由 app_core 在外部生产者停止后发起，每次启动只执行一次。
+ * 请求时停止库内定时器；成功完成后冻结库内工作任务。
+ * poll：0 已完成，-1 失败，-2 等待中或票据不匹配；不是瞬时忙状态快照。
  */
 int rdx_uxfile_finish_record(void);
 int rdx_uxfile_storage_status(void);

@@ -195,8 +195,19 @@ int test_storage(void) {
     CHECK(!reset(1));
     CHECK(rdx_record_storage_push(input,79)<0);
     CHECK(rdx_record_storage_end()<0 && !writes && status<0);
-    CHECK(!reset(1));
-    CHECK(!rdx_record_storage_end() && !writes && !status && !bad);
+    /* 首批帧过滤期间停止，包括无数据的暂停/恢复，必须正常排空，
+     * 且不影响下一次存储会话准入。 */
+    for (u8 format=1;format<=2;++format) {
+        CHECK(!reset(format));
+        for (u32 generation=43;generation<=45;++generation) {
+            CHECK(!rdx_record_storage_end() && !writes && !meta_calls && !status && !bad);
+            CHECK(!rs.accepted && !rs.persisted && !rdx_record_storage_active());
+            CHECK(!rdx_record_storage_admit());
+            CHECK(!rdx_record_storage_begin(generation,7,format));
+        }
+        CHECK(!push() && !rdx_record_storage_end());
+        CHECK(saved_len==frame_len && !status && !bad);
+    }
     /* Low space is a normal stop, not a sticky storage fault. Both formats
      * drain every accepted byte, including the non-block-aligned tail. */
     for (u8 format=1;format<=2;++format) {
@@ -538,13 +549,14 @@ static RecordStatus status;
 static struct { int fixed, route; } record_key_context;
 static int record_initialized_generation, record_session_generation=1;
 static int current, ready, only, sent, saved, allowed=1;
+static u8 filter_count=10;
 static u16 conn=0xffff;
 RecordStatus *rdx_record_get_status(void) { return &status; }
 int rdx_record_online_session_is_current(void) { return current; }
 int rdx_record_session_allowed(void) { return allowed; }
 u16 rdx_ble_server_get_conn_handle(void) { return conn; }
-u8 rdx_record_get_filter_cnt(void) { return 10; }
-void rdx_record_set_filter_cnt(u8 c) {}
+u8 rdx_record_get_filter_cnt(void) { return filter_count; }
+void rdx_record_set_filter_cnt(u8 c) { filter_count=c; }
 void rdx_record_set_process_state_ready(void) {}
 int rdx_ble_server_is_stream_tx_ready(void) { return ready; }
 int rdx_record_stream_only_session_is_active(void) { return only; }
@@ -555,6 +567,21 @@ int rdx_record_storage_push(u8 *d, u32 len) { ++saved; return 0; }
     source += function(record, 'rdx_record_run_data_handle')
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+int test_initial_frame_filter(void) {
+    u8 data=0;
+    for(int online=0;online<=1;++online) {
+        conn=online ? 1 : 0xffff; current=ready=online; only=0;
+        status.orig_mode=online ? RECORD_MODE_ONLINE : RECORD_MODE_OFFLINE;
+        for(int frames=0;frames<=10;++frames) {
+            sent=saved=0; filter_count=0;
+            for(int i=0;i<frames;++i) CHECK(rdx_record_run_data_handle(&data,1)==1);
+            CHECK(filter_count==frames && !sent && !saved);
+        }
+        CHECK(!rdx_record_run_data_handle(&data,1) && saved==1 && sent==online);
+    }
+    conn=0xffff; current=ready=sent=saved=0; filter_count=10;
+    return 0;
+}
 int test_stream(void) {
     u8 data=0;
     rdx_record_update_connection_mode(conn);
@@ -597,7 +624,7 @@ int test_stream(void) {
     with tempfile.TemporaryDirectory(prefix='t2620-record-stream-') as work:
         path = Path(work) / 'stream.c'
         path.write_text(source, encoding='utf-8')
-        run_c_checks(path, ['test_stream'], native=True)
+        run_c_checks(path, ['test_initial_frame_filter', 'test_stream'], native=True)
 
 
 def check_snapshot():

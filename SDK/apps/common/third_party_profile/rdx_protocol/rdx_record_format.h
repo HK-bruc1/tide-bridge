@@ -44,6 +44,9 @@ uxfile_datfile_info_t *rdx_record_format_list(uxfile_datfile_info_t *info);
 void rdx_record_format_storage_fault(void);
 /* Called after new-file generation, never on resume. */
 int rdx_record_format_begin(const uxfile_data_t *file, u8 format);
+/* 存储任务排空后调用：1 已取消身份匹配且从未写入的会话，0 需正常保存，
+ * -1 存储任务仍活动或已有故障。不会删除文件或清除 IO 故障。 */
+int rdx_record_format_cancel_empty(const uxfile_data_t *file);
 /* Pin the first encoded frame before any RAW bytes are written. */
 int rdx_record_format_frame(const uxfile_data_t *file, u8 format,
                             const u8 *data, u32 len);

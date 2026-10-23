@@ -373,6 +373,21 @@ int rdx_record_format_begin(const uxfile_data_t *file, u8 format)
     return 0;
 }
 
+int rdx_record_format_cancel_empty(const uxfile_data_t *file)
+{
+    if (rf_error || rdx_record_storage_active()) return -1;
+    if (!file || !rf_current.sn || rf_current.magic != RF_MAGIC ||
+        file->sn != rf_current.sn || strcmp(file->filename, rf_current.name) ||
+        file->start_time != rf_current.start || file->record_scene != rf_current.scene ||
+        file->frame_size != rf_frame_bytes(rf_current.format) || rf_current.ready) return 0;
+    /* frame() 在首次写入元数据或 RAW 前置位 ready。存储任务排空后，
+     * ready 未置位说明当前会话从未写入这两类文件，包括无有效帧的暂停/恢复。
+     * 此处不执行文件 IO，不能仅凭 RAW 缺失就丢弃已有数据的会话。 */
+    printf("[REC_FORMAT] cancel empty sn=%u name=%s\n", file->sn, file->filename);
+    memset(&rf_current, 0, sizeof(rf_current));
+    return 1;
+}
+
 int rdx_record_format_frame(const uxfile_data_t *file, u8 format,
                             const u8 *data, u32 len)
 {

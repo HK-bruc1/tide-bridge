@@ -792,6 +792,55 @@ static int seed_short(u32 bytes) {
     lookup(RF_ROOT "abc123.raw")->size=bytes;
     return 0;
 }
+int test_empty_cancel(void) {
+    for(u8 format=1;format<=2;++format) {
+        reset(); vm_present=1; vm_sn=6;
+        CHECK(recover()==0 && rdx_record_format_reserve_sn(&current.sn)==0);
+        CHECK(current.sn==7);
+        current.frame_size=format==1 ? 40 : 80;
+        CHECK(rdx_record_format_begin(&current,format)==0);
+        int before=writes, flushed=flush_calls;
+        CHECK(rdx_record_format_cancel_empty(&current)==1);
+        CHECK(!rf_current.sn && !rf_error && !handles);
+        CHECK(writes==before && flush_calls==flushed && vm_sn==7);
+        CHECK(!lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+        CHECK(!lookup(RF_DISCARD));
+        CHECK(rdx_record_format_cancel_empty(&current)==0);
+        CHECK(recover()==0);
+        cJSON *root=read_dat(); CHECK(root && !cJSON_GetArraySize(root)); cJSON_Delete(root);
+        CHECK(rdx_record_format_reserve_sn(&current.sn)==0 && current.sn==8);
+        CHECK(rdx_record_format_begin(&current,format)==0);
+        CHECK(rdx_record_format_frame(&current,format,audio,current.frame_size)==0);
+        /* 只要已处理过一个可存储帧，RAW 缺失就不能按空会话取消；
+         * 暂停前已有数据、恢复段为零帧的会话同样不能取消。 */
+        CHECK(rdx_record_format_cancel_empty(&current)==0 && rf_current.ready);
+        CHECK(!lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+        CHECK(rf_write(RF_ROOT "abc123.raw",audio,4000)==0);
+        CHECK(rdx_record_format_cancel_empty(&current)==0);
+        CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+    }
+    for(int wrong=0;wrong<5;++wrong) {
+        reset(); CHECK(rdx_record_format_begin(&current,1)==0);
+        uxfile_data_t other=current;
+        if(wrong==0) ++other.sn;
+        if(wrong==1) strcpy(other.filename,"def123.raw");
+        if(wrong==2) ++other.start_time;
+        if(wrong==3) ++other.record_scene;
+        if(wrong==4) other.frame_size=80;
+        CHECK(rdx_record_format_cancel_empty(&other)==0 && rf_current.sn==7);
+        CHECK(rdx_record_format_cancel_empty(NULL)==0 && rf_current.sn==7);
+        CHECK(rdx_record_format_cancel_empty(&current)==1);
+    }
+    reset(); CHECK(rdx_record_format_begin(&current,1)==0);
+    writer_active=1;
+    CHECK(rdx_record_format_cancel_empty(&current)<0 && rf_current.sn==7);
+    writer_active=0; rdx_record_format_storage_fault();
+    CHECK(rdx_record_format_cancel_empty(&current)<0 && rf_error<0 && rf_current.sn==7);
+    reset(); CHECK(rdx_record_format_begin(&current,1)==0); fail_write=1;
+    CHECK(rdx_record_format_frame(&current,1,audio,40)<0);
+    CHECK(rdx_record_format_cancel_empty(&current)<0 && rf_error<0 && rf_current.ready);
+    CHECK(!handles); return 0;
+}
 int test_short_discard_admission(void) {
     reset(); CHECK(seed_short(3600)==0);
     CHECK(rdx_record_format_discard_short(&current)==0);
@@ -926,7 +975,7 @@ double fabs(double);
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',
                         'test_sn_reservation_migration', 'test_sn_reservation_full_index_and_empty',
-                        'test_sn_reservation_failures_and_limit', 'test_short_discard_admission',
+                        'test_sn_reservation_failures_and_limit', 'test_empty_cancel', 'test_short_discard_admission',
                         'test_short_discard_replay', 'test_sn_explicit_format_reset'], native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 

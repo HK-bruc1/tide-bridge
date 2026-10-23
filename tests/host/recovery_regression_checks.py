@@ -65,6 +65,74 @@ def run_recovery_checks():
     def integer(engine, name):
         return ctypes.c_int.from_address(engine.get_global_value_address(name))
 
+    # 执行归档库的实际收尾函数：已初始化但从未写入的会话不能进入 RAW 缺失的
+    # 保存失败路径，也不能导致后续录音准入被错误锁定。
+    finish_engine = engine_for(types_for(['uxfile_data_t']) + '\n' +
+        globals_for(['uxOperateFileData', 'rdx_storage_io_error']) + '\n' +
+        ''.join(extract(name) + '\n' for name in (
+            'rdx_uxfile_finish_record', 'rdx_uxfile_storage_status',
+            'rdx_storage_checked_result', 'rdx_storage_save_result')) + '''
+@empty_result = global i32 1
+@save_result = global i32 -1
+@save_calls = global i32 0
+@cancel_calls = global i32 0
+@clears = global i32 0
+define void @init_record() {
+ store i8 97, i8* getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxOperateFileData, i32 0, i32 1, i32 0)
+ ret void
+}
+define i32 @rdx_record_format_cancel_empty(%struct.uxfile_data_t* %file) {
+ %n = load i32, i32* @cancel_calls
+ %next = add i32 %n, 1
+ store i32 %next, i32* @cancel_calls
+ %result = load i32, i32* @empty_result
+ ret i32 %result
+}
+define void @rdx_uxfile_operate_file_init() {
+ store i8 0, i8* getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxOperateFileData, i32 0, i32 1, i32 0)
+ %n = load i32, i32* @clears
+ %next = add i32 %n, 1
+ store i32 %next, i32* @clears
+ ret void
+}
+define i32 @rdx_uxfile_dat_1_save_gen() {
+ %n = load i32, i32* @save_calls
+ %next = add i32 %n, 1
+ store i32 %next, i32* @save_calls
+ %result = load i32, i32* @save_result
+ ret i32 %result
+}
+''')
+    finish = ctypes.CFUNCTYPE(ctypes.c_int)(
+        finish_engine.get_function_address('rdx_uxfile_finish_record'))
+    storage_status = ctypes.CFUNCTYPE(ctypes.c_int)(
+        finish_engine.get_function_address('rdx_uxfile_storage_status'))
+    init_record = ctypes.CFUNCTYPE(None)(finish_engine.get_function_address('init_record'))
+    # 连续停止零数据录音及调用方重复收尾都不应产生故障。
+    for _ in range(3):
+        init_record()
+        assert finish() == 1, 'zero-data cancellation must not fail saving an absent RAW'
+        assert finish() == 0 and storage_status() == 0
+        assert integer(finish_engine, 'save_calls').value == 0
+    assert integer(finish_engine, 'clears').value == 3
+    # 已有数据或身份未知的会话仍须保存；RAW 缺失仍须锁存故障。
+    integer(finish_engine, 'empty_result').value = 0
+    for result in (0, 1, -1):
+        init_record()
+        integer(finish_engine, 'save_result').value = result
+        assert finish() == result
+    assert integer(finish_engine, 'save_calls').value == 3 and storage_status() == -1
+    # 后续空会话取消不能清除库内先前锁存的真实故障。
+    integer(finish_engine, 'empty_result').value = 1
+    before = integer(finish_engine, 'cancel_calls').value
+    init_record()
+    assert finish() == -1 and storage_status() == -1
+    assert integer(finish_engine, 'cancel_calls').value == before
+    integer(finish_engine, 'rdx_storage_io_error').value = 0
+    integer(finish_engine, 'empty_result').value = -1
+    assert finish() == -1 and storage_status() == -1
+    assert integer(finish_engine, 'save_calls').value == 3
+
     facts = engine_for(types_for(['uxfile_data_t']) + '\n' + globals_for([
         'uxReadFileData', 'g_dat_cache.4', 'rdx_storage_io_error',
         'delete_queue_head', 'delete_queue_tail', 'delete_in_progress']) + '\n' +

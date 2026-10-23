@@ -8,6 +8,8 @@
 @rdx_storage_quiet = internal global i32 0, align 4
 @rdx_storage_refresh = internal global i32 0, align 4
 
+declare i32 @rdx_record_format_cancel_empty(%struct.uxfile_data_t*)
+
 define i32 @rdx_uxfile_storage_status() {
   %result = call i32 @rdx_storage_checked_result(i32 0)
   ret i32 %result
@@ -16,7 +18,24 @@ define i32 @rdx_uxfile_storage_status() {
 define i32 @rdx_uxfile_finish_record() {
   %name = load i8, i8* getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxOperateFileData, i32 0, i32 1, i32 0), align 1
   %empty = icmp eq i8 %name, 0
-  br i1 %empty, label %nothing, label %save
+  br i1 %empty, label %nothing, label %check
+check:
+  %prior = call i32 @rdx_uxfile_storage_status()
+  %healthy = icmp eq i32 %prior, 0
+  br i1 %healthy, label %cancel_check, label %nothing
+cancel_check:
+  %cancelled = call i32 @rdx_record_format_cancel_empty(%struct.uxfile_data_t* @uxOperateFileData)
+  %normal_save = icmp eq i32 %cancelled, 0
+  br i1 %normal_save, label %save, label %cancel_result
+cancel_result:
+  %discarded = icmp sgt i32 %cancelled, 0
+  br i1 %discarded, label %clear, label %cancel_done
+clear:
+  call void @rdx_uxfile_operate_file_init()
+  br label %cancel_done
+cancel_done:
+  %cancel_status = call i32 @rdx_storage_save_result(i32 %cancelled)
+  ret i32 %cancel_status
 save:
   %result = call i32 @rdx_uxfile_dat_1_save_gen()
   %checked = call i32 @rdx_storage_save_result(i32 %result)
