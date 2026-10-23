@@ -59,7 +59,16 @@ struct { int dut_mode, current_func, motor_timer, motor_run, key_dut_disabled; }
 static u8 factory_usb_revoked;
 #define VM_RDX_KEY_DUT_DISABLED 1
 #define KEY_DUT_DISABLED_FLAG 0xaa
-int syscfg_read(int id, void *out, int size) { return 0; }
+int key_vm_written, key_vm_write_fail, key_vm_read_fail, key_vm_mismatch;
+u8 key_vm;
+int syscfg_write(int id, const void *in, int size) {
+    if (key_vm_write_fail) return 0;
+    key_vm=*(const u8 *)in; key_vm_written=1; return 1;
+}
+int syscfg_read(int id, void *out, int size) {
+    if (!key_vm_written || key_vm_read_fail) return 0;
+    *(u8 *)out=key_vm ^ !!key_vm_mismatch; return 1;
+}
 struct { int goto_poweroff_flag; } app_var;
 typedef struct { int run, process_state, scene, formate, mode, orig_mode; } RecordStatus;
 RecordStatus record;
@@ -212,6 +221,7 @@ static void rdx_dut_cmd_async_handle(u8 type, u8 value) {
     if (type==DUT_CMD_POWEROFF) ++poweroffs;
     if (type==DUT_CMD_FORMAT && value) rdx_dut_info.current_func=DUT_FUNC_FORMAT;
     if (type==DUT_CMD_FINALPACK_END) g_finalpack_end_pending=1;
+    if (type==DUT_CMD_KEY_DUT_ENABLE) rdx_dut_key_dut_enable();
     if (type==DUT_CMD_REC && !value) dut_record_stop();
     if (value && rdx_dut_info.current_func==DUT_FUNC_NONE) {
         if (type==DUT_CMD_REC) rdx_dut_rec_start();
@@ -231,6 +241,8 @@ static void boot(void) {
     finalpack_commits=finalpack_result=0;
     memset(&dut_last,0,sizeof(dut_last)); memset(&dut_owner,0,sizeof(dut_owner));
     rdx_dut_info.motor_timer=rdx_dut_info.motor_run=0;
+    rdx_dut_info.key_dut_disabled=0;
+    key_vm_written=key_vm_write_fail=key_vm_read_fail=key_vm_mismatch=0; key_vm=0xff;
     motor_power=timer_deleted=wifi_power=show_count=0;
     dut_waiting=dut_stopping=dut_record_wait=dut_record_posted=0;
     dut_record_failed=poweroffs=legacy_dispatches=0;
@@ -867,6 +879,47 @@ int test_cdc_packaging_admission_and_disconnect(void) {
     CHECK(!strcmp(out,"ERR BUSY\r\n"));
     return 0;
 }
+int test_cdc_key_dut_enable(void) {
+    char out[256]; boot(); connected=0;
+    rdx_dut_info.key_dut_disabled=1; key_vm=0xaa; key_vm_written=1;
+    rdx_dut_cdc_request(1,"FT_KEY_DUT_ENABLE",0,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR ARG\r\n") && !dut_last.id && key_vm==0xaa);
+    rdx_dut_cdc_request(1,"FT_KEY_DUT_ENABLE",1,out,sizeof(out));
+    CHECK(!strcmp(out,"OK ID=1;STATE=DONE\r\n"));
+    CHECK(!rdx_dut_info.key_dut_disabled && key_vm==0xff);
+    CHECK(dut_last.command==DUT_CMD_KEY_DUT_ENABLE && dut_last.source==1);
+    rdx_dut_cdc_status(out,sizeof(out),0);
+    CHECK(strstr(out,"LAST_CMD=ft_key_dut_enable;LAST_STATE=DONE;LAST_ERR=NONE"));
+    rdx_dut_cdc_request(1,"FT_DUT",0,out,sizeof(out));
+    CHECK(!rdx_dut_info.dut_mode && key_vm==0xff);
+    rdx_dut_cdc_request(1,"FT_KEY_DUT_ENABLE",1,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR STATE\r\n") && dut_last.id==2);
+    return 0;
+}
+int test_cdc_key_dut_enable_fences_and_vm_failures(void) {
+    char out[256];
+    for (int fault=0;fault<3;++fault) {
+        boot(); rdx_dut_info.key_dut_disabled=1; key_vm=0xaa; key_vm_written=1;
+        key_vm_write_fail=fault==0; key_vm_read_fail=fault==1; key_vm_mismatch=fault==2;
+        rdx_dut_cdc_request(1,"FT_KEY_DUT_ENABLE",1,out,sizeof(out));
+        CHECK(dut_last_state==3 && !strcmp(dut_last_error,"IO"));
+        CHECK(rdx_dut_info.key_dut_disabled);
+    }
+    for (int fence=0;fence<5;++fence) {
+        boot(); rdx_dut_info.key_dut_disabled=1; key_vm=0xaa; key_vm_written=1;
+        if (fence==0) usb_generation=2;
+        if (fence==1) g_finalpack_end_pending=1;
+        if (fence==2) rdx_dut_info.current_func=DUT_FUNC_KEY;
+        if (fence==3) blocked=1;
+        if (fence==4) app_var.goto_poweroff_flag=1;
+        rdx_dut_cdc_request(1,"FT_KEY_DUT_ENABLE",1,out,sizeof(out));
+        CHECK(!dut_last.id && key_vm==0xaa && rdx_dut_info.key_dut_disabled);
+        CHECK(strstr(out,"ERR ")==out);
+    }
+    boot(); rdx_dut_cdc_request(1,"FT_KEY_DUT_DISABLED",1,out,sizeof(out));
+    CHECK(!strcmp(out,"ERR UNSUPPORTED\r\n") && !dut_last.id);
+    return 0;
+}
 int test_cdc_generation_and_source_cleanup(void) {
     char out[256]; boot();
     rdx_dut_cdc_request(0,"FT_KEY_LAYOUT",1,out,sizeof(out));
@@ -1336,7 +1389,8 @@ def main():
     legacy = ''.join(function(source, name) for name in (
         'rdx_dut_init', 'rdx_dut_msg_handle', 'rdx_dut_format_cb',
         'rdx_dut_close_current_func', 'rdx_dut_oled_stop', 'rdx_dut_motor_stop',
-        'rdx_dut_rec_stop', 'rdx_dut_rec_call_stop', 'rdx_dut_wifi_stop'))
+        'rdx_dut_rec_stop', 'rdx_dut_rec_call_stop', 'rdx_dut_wifi_stop',
+        'rdx_dut_key_dut_store', 'rdx_dut_key_dut_enable'))
     record_source = (BASE / 'rdx_record.c').read_text(encoding='utf-8')
     legacy += ''.join(function(record_source, name) for name in (
         'rdx_record_format_for_session', 'rdx_record_prepare_new_session'))

@@ -1025,16 +1025,18 @@ void rdx_dut_cdc_request(u32 generation, const char *name, u8 value, char *out, 
     else if (!strcmp(name, "FT_KEY_LAYOUT")) request.command = DUT_CMD_KEY_LAYOUT;
     else if (!strcmp(name, "FT_KEY")) request.command = DUT_CMD_KEY_STOP;
     else if (!strcmp(name, "FT_FINALPACK_END")) request.command = DUT_CMD_FINALPACK_END;
+    else if (!strcmp(name, "FT_KEY_DUT_ENABLE")) request.command = DUT_CMD_KEY_DUT_ENABLE;
     else {
         const char *error = "CMD";
         static const char *unsupported[] = {"FT_MOTOR", "FT_VIBRATE",
             "FT_REC_CALL", "FT_WIFI", "FT_FORMAT", "FT_POWEROFF",
-            "FT_KEY_DUT_ENABLE", "FT_KEY_DUT_DISABLED"};
+            "FT_KEY_DUT_DISABLED"};
         for (int i = 0; i < ARRAY_SIZE(unsupported); ++i)
             if (!strcmp(name, unsupported[i])) error = "UNSUPPORTED";
         snprintf(out, capacity, "ERR %s\r\n", error); return;
     }
-    if (((request.command == DUT_CMD_KEY_LAYOUT || request.command == DUT_CMD_FINALPACK_END) && value != 1) ||
+    if (((request.command == DUT_CMD_KEY_LAYOUT || request.command == DUT_CMD_FINALPACK_END ||
+          request.command == DUT_CMD_KEY_DUT_ENABLE) && value != 1) ||
         (request.command == DUT_CMD_KEY_STOP && value != 0)) {
         snprintf(out, capacity, "ERR ARG\r\n"); return;
     }

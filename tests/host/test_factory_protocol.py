@@ -165,6 +165,10 @@ int test_custom_framing(void) {
     CHECK(!strcmp(wire,"OK ACTION=FT_KEY_LAYOUT;VALUE=1;GEN=1\r\n"));
     boot(); CHECK(!input("*APP#custom#ft_finalpack_end#\r\n"));
     CHECK(!strcmp(wire,"OK ACTION=FT_FINALPACK_END;VALUE=1;GEN=1\r\n"));
+    boot(); CHECK(!input("*APP#custom#ft_key_dut_enable#\r\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_KEY_DUT_ENABLE;VALUE=1;GEN=1\r\n"));
+    boot(); CHECK(!input("*APP#custom#ft_key_dut_enable#1#\r\n"));
+    CHECK(!strcmp(wire,"OK ACTION=FT_KEY_DUT_ENABLE;VALUE=1;GEN=1\r\n"));
     boot(); CHECK(!input("*app#CUSTOM#ft_rec_chat#1#\r\n*APP#custom#ft_rec_chat#0#\r\n"));
     CHECK(!strcmp(wire,"OK ACTION=FT_REC_CHAT;VALUE=1;GEN=1\r\nOK ACTION=FT_REC_CHAT;VALUE=0;GEN=1\r\n"));
     const char *bad[]={"*APP#custom#ft_dut#", "*APP#custom#ft_dut#1",

@@ -1,7 +1,7 @@
 @echo off & setlocal EnableDelayedExpansion & title T2620 CDC Test & chcp 65001 >nul & (py -3 -c "import sys" >nul 2>nul && set "PY=py -3") || (python -c "import sys" >nul 2>nul && set "PY=python") || (echo [X] 未找到 Python 3，请先安装 Python 并勾选 Add Python to PATH。 & echo. & pause & exit /b 1) & !PY! -X utf8 -x "%~f0" %* & echo. & pause & exit /b
 """T2620 CDC 产测工具（单文件版）。
 
-本文件包含普通产测、包装、内存测速及真实录音下载，只需分发这一个文件。
+本文件包含普通产测、包装、按键 DUT 入口启用、内存测速及真实录音下载，只需分发这一个文件。
 文件业务仅需 Python 3 和 pyserial；接收器、校验及 Opus 封装均内置。
 安装 Python 3（勾选 Add Python to PATH）
 后双击即可；菜单按需自动联网安装 pyserial，完整产测另需 imageio-ffmpeg。
@@ -12,7 +12,7 @@
     python -X utf8 -x CDC-test.bat --port COM6 --mode controls
     python -X utf8 -x CDC-test.bat --file-cli --help
 高级 --file-cli 入口需预先安装 pyserial，不自动安装依赖。
-支持 --mode foundation/controls/packaging/full/file-bench/file-cancel/file-download、--expect-addr、--expect-fw、
+支持 --mode foundation/controls/packaging/key-dut-enable/full/file-bench/file-cancel/file-download、--expect-addr、--expect-fw、
 --key-timeout、--report。tests/board/ 仅保留 TEST=1 的 factory_cdc_bytes.py。
 """
 import argparse
@@ -131,7 +131,7 @@ class Station:
             raise StationError('UNKNOWN', '通信中断/超时，结果未知；不重发，请检查设备并重建会话') from error
 
     def foundation(self, expected_addr=None, expected_fw=None):
-        total = 3 if self.report.get('scope') == 'packaging' else 7 if self.report.get('scope') == 'full' else 5
+        total = 3 if self.report.get('scope') in ('packaging', 'key-dut-enable') else 7 if self.report.get('scope') == 'full' else 5
         print(f'\n[1/{total}] 基础信息', flush=True)
         if self.query('PING') != 'OK PONG':
             raise StationError('FAIL', 'PING 失败，检查 CDC=1 / TEST=0 固件')
@@ -170,7 +170,7 @@ class Station:
         return result
 
     def action(self, name, value, active, dut, timeout=60):
-        parameter = '' if name == 'ft_key_layout' and value == 1 else f'{value}#'
+        parameter = '' if name in ('ft_key_layout', 'ft_key_dut_enable') and value == 1 else f'{value}#'
         command = f'*APP#custom#{name}#{parameter}'
         reply = fields(self.query(command), ('ID', 'STATE'))
         action_id = number(reply['ID'], nonzero=True)
@@ -295,6 +295,25 @@ class Station:
             raise StationError('UNKNOWN', '包装完成后通信检查失败')
         self.note('包装后通信正常；拨码 OFF 待人工执行')
         print('设备保持包装结束状态，请拨码 OFF 关机；本轮不自动退出 DUT。', flush=True)
+
+    def key_dut_enable(self):
+        current = self.status()
+        if current['DUT'] != '0' or current['ACTIVE'] != 'NONE' or current['LAST_STATE'] in ('RUNNING', 'FAILED'):
+            raise StationError('BLOCKED', '请先拨码 OFF/ON 回到空闲正常模式；包装锁定期间不能启用入口')
+        self.last_id = number(current['LAST_ID'])
+        print('\n[2/3] 启用按键进入 DUT（返工）\n仅清除按键 DUT 禁用标志；不清空文件、不恢复参数、不解绑。')
+        print('请停止 BLE 工站及其他产测操作。此项不会自动包装或重新禁用入口。', flush=True)
+        if not self.observe('已核对设备信息，确认启用按键进入 DUT'):
+            raise StationError('BLOCKED', '操作员未开始启用测试')
+        self.action('ft_dut', 1, 'NONE', '1')
+        self.action('ft_key_dut_enable', 1, 'NONE', '1')
+        self.note('按键 DUT 入口已启用，设备已确认 VM 写入及回读校验')
+
+        print('\n[3/3] 退出 DUT 并检查通信', flush=True)
+        self.action('ft_dut', 0, 'NONE', '0')
+        if self.query('PING') != 'OK PONG':
+            raise StationError('UNKNOWN', '退出 DUT 后通信检查失败')
+        self.note('已退出 DUT，通信正常；按键入口保持启用，实体按键及重启持久化未验证')
 
 
 HEADER = struct.Struct('<4sBBHIII')
@@ -880,8 +899,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='T2620 CDC 终端测试（不等同整机产测验收）')
     parser.add_argument('--list-ports', action='store_true', help='列举串口，不打开设备')
     parser.add_argument('--port', help='例如 COM6')
-    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'full', 'file-bench', 'file-cancel', 'file-download'), default='full',
-                        help='foundation=基础；controls=控制；packaging=包装；full=完整普通测试；file-bench=开发链路测速；file-cancel=开发取消测试')
+    parser.add_argument('--mode', choices=('foundation', 'controls', 'packaging', 'key-dut-enable', 'full', 'file-bench', 'file-cancel', 'file-download'), default='full',
+                        help='foundation=基础；controls=控制；packaging=包装；key-dut-enable=仅启用按键 DUT 入口，不做八击验证；full=完整普通测试；file-bench=开发链路测速；file-cancel=开发取消测试')
     parser.add_argument('--bench-block', type=int, choices=(1024, 2048, 4096, 8192), default=4096)
     parser.add_argument('--bench-repeat', type=int, default=1, help='开发测速轮数，1~100')
     parser.add_argument('--bench-receive-mode', choices=('inline', 'deferred'), default='inline',
@@ -946,10 +965,13 @@ def main(argv=None):
                     prepare(station, path.parent / (path.stem + '-audio'))
                 if args.mode == 'packaging':
                     station.packaging()
+                elif args.mode == 'key-dut-enable':
+                    station.key_dut_enable()
                 elif args.mode != 'foundation':
                     station.controls(args.key_timeout)
                 message = ('包装提交及红灯检查通过，请拨码 OFF；不代表普通测试或完整产测通过'
-                           if args.mode == 'packaging' else '普通测试通过，含实时流与文件下载回放；包装需单独执行'
+                           if args.mode == 'packaging' else '按键 DUT 入口已启用，已退出 DUT；实体按键及重启持久化未验证，出货前需重新包装'
+                           if args.mode == 'key-dut-enable' else '普通测试通过，含实时流与文件下载回放；包装需单独执行'
                            if args.mode == 'full' else '本轮控制测试通过；未覆盖录音、文件下载及最终包装')
                 report.update(outcome='PASS', message=message)
             finally:
@@ -1361,21 +1383,21 @@ def launcher(argv=None):
             mode = argv[index + 1] if index + 1 < len(argv) else mode
     else:
         print('T2620 CDC 产测\n请拨码 ON、插好 USB 数据线，并关闭占用串口的其他工具。\n')
-        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 文件传输测试（真实录音 / 内存测试）')
+        print('1. 普通测试（基本信息、灯、喇叭、五键、录音及文件下载）\n2. 包装测试（清空存储、恢复参数、解绑、禁用按键进入产测）\n3. CDC 文件传输测试（真实录音 / 内存测试）\n4. 启用按键进入 DUT（返工，仅清除禁用标志）')
         while True:
             choice = input('选择测试，回车选 1，q 退出：').strip().lower()
             if choice == 'q':
                 return 0
-            if choice in ('', '1', '2', '3'):
-                mode = {'2': 'packaging', '3': 'file-bench'}.get(choice, 'full')
+            if choice in ('', '1', '2', '3', '4'):
+                mode = {'2': 'packaging', '3': 'file-bench', '4': 'key-dut-enable'}.get(choice, 'full')
                 if choice == '3':
                     selected = file_test_menu()
                     if selected is None:
-                        print('\n1. 普通测试\n2. 包装测试\n3. CDC 文件传输测试')
+                        print('\n1. 普通测试\n2. 包装测试\n3. CDC 文件传输测试\n4. 启用按键进入 DUT（返工）')
                         continue
                     mode, extra = selected
                 break
-            print('请输入 1、2 或 3。')
+            print('请输入 1、2、3 或 4。')
     try:
         import serial.tools.list_ports
         if mode == 'full':

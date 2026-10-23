@@ -182,7 +182,8 @@ static const char *factory_custom_command(char *name)
     if (!strcmp(name, "FT_KEY_LAYOUT")) {
         if (value[0]) return "ERR ARG\r\n";
         enabled = 1;
-    } else if (!value[0] && !strcmp(name, "FT_FINALPACK_END")) {
+    } else if (!value[0] && (!strcmp(name, "FT_FINALPACK_END") ||
+                             !strcmp(name, "FT_KEY_DUT_ENABLE"))) {
         enabled = 1;
     } else if ((value[0] == '0' || value[0] == '1') && value[1] == '#' && !value[2]) {
         enabled = value[0] - '0';

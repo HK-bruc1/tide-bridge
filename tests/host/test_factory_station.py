@@ -73,6 +73,43 @@ class StationTests(unittest.TestCase):
             self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'file-cancel']), 0)
         self.assertEqual(module.main.call_args.args[0][-2:], ['--cancel-after', '1048576'])
 
+    def test_key_dut_enable_menu_routing(self):
+        serial = types.ModuleType('serial')
+        serial.tools = types.ModuleType('serial.tools')
+        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial.tools.list_ports.comports = lambda: [types.SimpleNamespace(device='COM6', description='CDC')]
+        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
+        with mock.patch.dict('sys.modules', modules), \
+                mock.patch('builtins.input', side_effect=['4', '6']), \
+                mock.patch.object(_cdc, 'main', return_value=0) as entry:
+            self.assertEqual(_cdc.launcher([]), 0)
+        entry.assert_called_once_with(['--port', 'COM6', '--mode', 'key-dut-enable'])
+
+    def test_key_dut_enable_cli_report_scope(self):
+        serial = types.ModuleType('serial')
+        serial.tools = types.ModuleType('serial.tools')
+        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial.SerialException = OSError
+        serial.Serial = mock.MagicMock()
+        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict('sys.modules', modules), \
+                mock.patch.object(_cdc, 'Station') as factory, mock.patch.object(_cdc, 'prepare') as audio:
+            station = factory.return_value
+            station.audio = None
+            path = Path(directory) / 'enable.json'
+            self.assertEqual(_cdc.main(['--port', 'COM6', '--mode', 'key-dut-enable',
+                                        '--key-timeout', '60', '--report', str(path)]), 0)
+            station.foundation.assert_called_once_with(None, None)
+            station.key_dut_enable.assert_called_once_with()
+            station.controls.assert_not_called()
+            station.packaging.assert_not_called()
+            audio.assert_not_called()
+            report = json.loads(path.read_text(encoding='utf-8'))
+            self.assertEqual((report['scope'], report['outcome']), ('key-dut-enable', 'PASS'))
+            self.assertFalse(report['overall_factory_pass'])
+            self.assertIn('实体按键及重启持久化未验证', report['message'])
+            self.assertNotIn('已启用并验证', report['message'])
+
     def test_recording_mode_uses_shared_receiver(self):
         module = types.SimpleNamespace(main=mock.Mock(return_value=0))
         with mock.patch.object(_cdc, 'file_transfer_main', module.main), \
@@ -205,6 +242,98 @@ class StationTests(unittest.TestCase):
         self.assertEqual([w for w in s.port.writes if w.startswith(b'*APP#custom#')],
                          [b'*APP#custom#ft_dut#1#\r\n', b'*APP#custom#ft_finalpack_end#1#\r\n'])
         self.assertFalse(s.port.replies)
+
+    def enable_replies(self):
+        replies = [status(0, 'NONE', 'NONE', dut='0')]
+        for n, command, dut in ((1, 'ft_dut', '1'), (2, 'ft_key_dut_enable', '1'), (3, 'ft_dut', '0')):
+            replies += [f'OK ID={n};STATE=DONE\r\n'.encode(), status(n, command, dut=dut)]
+        return replies
+
+    def test_key_dut_enable_sequence_without_physical_entry(self):
+        ask = mock.Mock(return_value='y')
+        sleep = mock.Mock(side_effect=AssertionError('must not wait for physical entry'))
+        s = self.station(self.enable_replies() + [b'OK PONG\r\n'], ask=ask, sleep=sleep)
+        console = io.StringIO()
+        with contextlib.redirect_stdout(console):
+            s.key_dut_enable()
+        self.assertEqual(s.port.writes, [b'GET_STATUS\r\n', b'*APP#custom#ft_dut#1#\r\n',
+                         b'GET_STATUS\r\n', b'*APP#custom#ft_key_dut_enable#\r\n',
+                         b'GET_STATUS\r\n', b'*APP#custom#ft_dut#0#\r\n',
+                         b'GET_STATUS\r\n', b'PING\r\n'])
+        ask.assert_called_once()
+        sleep.assert_not_called()
+        self.assertIn('[2/3]', console.getvalue())
+        self.assertIn('[3/3]', console.getvalue())
+        self.assertNotIn('八击', console.getvalue())
+        self.assertFalse(any(step.get('trigger') for step in s.report['steps']))
+        self.assertFalse(s.port.replies)
+
+    def test_key_dut_enable_waits_for_vm_completion_before_exit(self):
+        replies = self.enable_replies()[:3] + [b'OK ID=2;STATE=RUNNING\r\n',
+                  status(2, 'ft_key_dut_enable', 'RUNNING'), status(2, 'ft_key_dut_enable')]
+        replies += self.enable_replies()[5:] + [b'OK PONG\r\n']
+        sleep = mock.Mock()
+        s = self.station(replies, ask=lambda _: 'y', sleep=sleep)
+        s.key_dut_enable()
+        sleep.assert_called_once_with(0.5)
+        self.assertEqual(s.port.writes[3:8], [b'*APP#custom#ft_key_dut_enable#\r\n',
+                         b'GET_STATUS\r\n', b'GET_STATUS\r\n',
+                         b'*APP#custom#ft_dut#0#\r\n', b'GET_STATUS\r\n'])
+        self.assertFalse(s.port.replies)
+
+    def test_key_dut_enable_decline_busy_and_old_firmware(self):
+        for initial, expected, confirm in ((status(0, 'NONE', 'NONE', dut='0'), 'BLOCKED', 'n'),
+                (status(2, 'ft_finalpack_end', active='FINALPACK'), 'BLOCKED', None),
+                (status(2, 'ft_dut', 'RUNNING', dut='0'), 'BLOCKED', None),
+                (b'ERR UNSUPPORTED\r\n', 'BLOCKED', None)):
+            with self.subTest(initial=initial):
+                ask = mock.Mock(return_value=confirm)
+                s = self.station([initial], ask=ask)
+                with self.assertRaises(StationError) as caught:
+                    s.key_dut_enable()
+                self.assertEqual(caught.exception.outcome, expected)
+                self.assertEqual(s.port.writes, [b'GET_STATUS\r\n'])
+                if confirm is None:
+                    ask.assert_not_called()
+
+    def test_key_dut_enable_unknown_never_retries_or_adds_cleanup(self):
+        prefix = self.enable_replies()[:3]
+        for replies, actions in (
+                (prefix + [b''], 2),
+                (prefix + [b'OK ID=1;STATE=DONE\r\n'], 2),
+                (prefix + [b'OK ID=2;STATE=DONE\r\n', status(1, 'ft_dut')], 2),
+                (prefix + [b'OK ID=2;STATE=DONE\r\n', status(2, 'ft_led_cycle', active='OLED')], 2),
+                (self.enable_replies()[:5] + [b''], 3),
+                (self.enable_replies()[:-1] + [status(4, 'ft_dut', dut='0')], 3),
+                (self.enable_replies() + [b''], 3),
+                (self.enable_replies() + [b'ERR STATE\r\n'], 3)):
+            with self.subTest(replies=replies):
+                s = self.station(replies, ask=lambda _: 'y')
+                with self.assertRaises(StationError) as caught:
+                    s.key_dut_enable()
+                self.assertEqual(caught.exception.outcome, 'UNKNOWN')
+                self.assertEqual(len([w for w in s.port.writes if w.startswith(b'*APP#custom#')]), actions)
+                self.assertFalse(s.port.replies)
+        s = self.station(prefix + [b'OK ID=2;STATE=RUNNING\r\n',
+                         status(2, 'ft_key_dut_enable', 'RUNNING')],
+                         ask=lambda _: 'y', clock=mock.Mock(side_effect=[0, 0, 61]))
+        with self.assertRaises(StationError) as caught:
+            s.key_dut_enable()
+        self.assertEqual(caught.exception.outcome, 'UNKNOWN')
+        self.assertEqual([w for w in s.port.writes if w.startswith(b'*APP#custom#')],
+                         [b'*APP#custom#ft_dut#1#\r\n', b'*APP#custom#ft_key_dut_enable#\r\n'])
+
+    def test_key_dut_enable_rejection_or_vm_failure_stops(self):
+        prefix = self.enable_replies()[:3]
+        for replies, outcome in (([b'ERR UNSUPPORTED\r\n'], 'BLOCKED'),
+                ([b'OK ID=2;STATE=RUNNING\r\n',
+                  status(2, 'ft_key_dut_enable', 'FAILED').replace(b'LAST_ERR=NONE', b'LAST_ERR=IO')], 'FAIL')):
+            s = self.station(prefix + replies, ask=lambda _: 'y')
+            with self.assertRaises(StationError) as caught:
+                s.key_dut_enable()
+            self.assertEqual(caught.exception.outcome, outcome)
+            self.assertEqual([w for w in s.port.writes if w.startswith(b'*APP#custom#')],
+                             [b'*APP#custom#ft_dut#1#\r\n', b'*APP#custom#ft_key_dut_enable#\r\n'])
 
 
 def check_station():
