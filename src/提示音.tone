@@ -27,29 +27,21 @@
      "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\device_connected.mp3",
      "outputName": "conn",
      "format": {
-      "value": "wts",
-      "simpleRate": "8000",
-      "bitRate": 16000,
-      "vad": 0,
-      "priority": 1
+      "value": "原格式"
      },
-     "sizeKey": "b954d912",
-     "size": 2358,
+     "sizeKey": "b2a8f131",
+     "size": 22080,
      "enable": true
     },
     {
      "name": "plebind",
-     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\please_bind_device.mp3",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\open_genspark_connect_voicepad.mp3",
      "outputName": "plebind",
      "format": {
-      "value": "wts",
-      "simpleRate": "8000",
-      "bitRate": 16000,
-      "vad": 0,
-      "priority": 1
+      "value": "原格式"
      },
-     "sizeKey": "245dfd27",
-     "size": 3146,
+     "sizeKey": "1406ea54",
+     "size": 69120,
      "enable": true
     },
     {
@@ -69,22 +61,18 @@
     },
     {
      "name": "no_sd",
-     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\not_enough_storage.mp3",
+     "path": "%PROJECT_PATH%\\SDK\\cpu\\br28\\tools\\download\\earphone\\tone\\storage_low.mp3",
      "outputName": "no_sd",
      "format": {
-      "value": "wts",
-      "simpleRate": "8000",
-      "bitRate": 16000,
-      "vad": 0,
-      "priority": 1
+      "value": "原格式"
      },
-     "sizeKey": "7c964c1e",
-     "size": 2974,
-     "enable": true
+     "size": 32160,
+     "enable": true,
+     "sizeKey": "bbdf1c15"
     }
    ],
    "enableOutput": 1,
-   "size": 14752,
+   "size": 129616,
    "isOpen": true
   },
   {

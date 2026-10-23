@@ -14,7 +14,7 @@
 #define TCFG_TONE_ZH_ENABLE                       0               
 #define TCFG_TONE_AAC_ENABLE                      0                // AAC
 #define TCFG_TONE_F2A_ENABLE                      0                // F2A
-#define TCFG_TONE_MP3_ENABLE                      0                // MP3
+#define TCFG_TONE_MP3_ENABLE                      1                // MP3
 #define TCFG_TONE_MSBC_ENABLE                     0                // MSBC
 #define TCFG_TONE_MTY_ENABLE                      0                // MTY
 #define TCFG_TONE_SBC_ENABLE                      0                // SBC
