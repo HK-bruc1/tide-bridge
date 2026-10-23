@@ -30,6 +30,7 @@ $Behavior = @(
     'test_lowpower_lrc.py',
     'test_protocol_recv.py',
     'test_amp_output.py',
+    'test_record_tone.py',
     'test_hogp_hold.py'
     'test_keymap_factory_reset.py'
 )

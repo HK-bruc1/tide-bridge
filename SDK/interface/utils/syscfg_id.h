@@ -273,6 +273,7 @@ int syscfg_tools_init(void);
 #define     VM_RDX_HOGP_KEYMAP_COMMIT_B 164
 #define     VM_RDX_HOGP_SUBSCRIPTION_A  165
 #define     VM_RDX_HOGP_SUBSCRIPTION_B  166
+#define     VM_RDX_RECORD_TONE     167
 //---------------------------------------------------------------------------------//
 
 #define     CFG_ONLINE_EQ_DRC_DATA_ID   254//在线调试保存参数的id

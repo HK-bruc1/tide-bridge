@@ -376,24 +376,12 @@ static int dut_send(const rdx_ble_async_token_t *token,
 {
     char text[64];
     int length = snprintf(text, sizeof(text), "*DEV#custom#%s#%s#", name, value);
-    int offset = 0;
-    rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 1);
-    if (!dut_token_ready(token) || !link || length <= 0 || length >= sizeof(text)) {
+    if (!dut_token_ready(token) || length <= 0 || length >= sizeof(text)) {
         return -1;
     }
-    /* Session mtu_size is the ATT payload (MTU - 3). Text fragments use the
-     * same characteristic and FIFO; no event is submitted before the tail. */
-    int payload = link->mtu_size;
-    if (payload < 20) {
+    if (rdx_ble_server_send_text_for_token(text, length, token)) {
+        DUT_LOG("Test response failed: %s\n", name);
         return -1;
-    }
-    while (offset < length) {
-        int count = MIN(payload, length - offset);
-        if (rdx_ble_server_send_for_token((u8 *)text + offset, count, token)) {
-            DUT_LOG("Test response failed: %s offset=%d\n", name, offset);
-            return -1;
-        }
-        offset += count;
     }
     return 0;
 }

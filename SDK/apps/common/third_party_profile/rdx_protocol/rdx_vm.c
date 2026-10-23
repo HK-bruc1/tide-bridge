@@ -43,6 +43,7 @@
 #include "rdx_util.h"
 #include "rdx_hogp_subscription_store.h"
 #include "rdx_hogp_keymap_config.h"
+#include "rdx_record_tone.h"
 #include "rdx_led_ctrl.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
@@ -177,6 +178,7 @@ void rdx_vm_init(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
+    rdx_record_tone_init();
     if (!bound_transition_ready) {
         if (os_mutex_create(&bound_transition_mutex)) {
             return; /* Static zero authorization remains fail-closed. */
@@ -826,6 +828,9 @@ int rdx_vm_reset_defaults_no_poweroff(void)
     if(get_ota_status()){
         return -1;
     }
+    if (rdx_record_tone_config_busy()) {
+        return -1;
+    }
     if(rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME){
         y_printf("\r =====%s --> command reject, now is recording or on ota \r", __func__);
         return -1;
@@ -846,6 +851,11 @@ int rdx_vm_reset_defaults_no_poweroff(void)
     /* Persist HID defaults before deleting bonds or scheduling a restart. */
     if (rdx_hogp_keymap_config_factory_reset()) {
         y_printf("[RDX_VM] factory reset aborted: HID keymap reset failed\n");
+        return -1;
+    }
+
+    if (rdx_record_tone_factory_reset()) {
+        y_printf("[RDX_VM] factory reset aborted: recording tone reset failed\n");
         return -1;
     }
 

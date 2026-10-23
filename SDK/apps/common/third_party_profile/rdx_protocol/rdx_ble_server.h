@@ -124,6 +124,9 @@ int rdx_ble_server_ota_send(u8 *data, u32 len);
  * ATT enqueue instead of recapturing whichever RDX link is current. */
 int rdx_ble_server_send_for_token(u8 *data, u32 len,
                                   const rdx_ble_async_token_t *token);
+/* One ASCII frame split at the link ATT payload; fails if any part is refused. */
+int rdx_ble_server_send_text_for_token(const char *text, u32 len,
+                                       const rdx_ble_async_token_t *token);
 int rdx_ble_server_ota_send_for_token(u8 *data, u32 len,
                                       const rdx_ble_async_token_t *token);
 u8 rdx_ble_server_rdx_lifecycle_barrier_match(const char *value);

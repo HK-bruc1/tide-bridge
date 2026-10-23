@@ -95,10 +95,10 @@ Run that command from the repository root. The VS Code test task
 `test: host software` in `SDK/.vscode/tasks.json` calls the same script and is
 the default test task.
 
-The host test runner runs four source contracts and seventeen C/LLVM behavioral harnesses
+The host test runner runs four source contracts and eighteen C/LLVM behavioral harnesses
 as independent processes. It continues after module failures and returns a nonzero
 exit code if any module fails. Use `-Suite contracts` or `-Suite behavior` for a
-focused run; the default runs all 21 modules. The source contracts cover:
+focused run; the default runs all 22 modules. The source contracts cover:
 
 - `test_t2620_product_contract.ps1` - T2620 configuration, USB/storage ownership, and power-off cleanup.
 - `test_hogp_profile_contract.ps1` - HOGP external bytes, layout, security boundary, and peer-scoped bonded CCC.
@@ -114,6 +114,14 @@ after on-device sign-off; their conclusions live in the docs and git history.
 The factory USB behavioral harness also requires Python with llvmlite and
 the JL compiler at C:/JL/pi32/bin/clang.exe, alongside PowerShell 5.1.
 See `tests/host/README.md` for coverage and on-device validation limits.
+
+`test_record_tone.py` covers the device-wide normal recording-tone setting's
+`rectone` GET/SET, VM durability and token-bound request/ACK handling. Shared
+APP/F18/F19, online/offline and CHAT/CALL start/stop snapshots remain in
+`record_key_session_checks.py` under `test_hogp_hold.py`; factory/DUT and warning
+tones are unchanged. APP integration and device acceptance remain pending; see
+`docs/10-6.录音提示音APP控制方案.md` (device design) and
+`docs/10-7.录音提示音APP对接说明.md` (APP integration).
 
 `test_ble_entry.py` 覆盖第二 ACL 的 120 秒入口、广播关闭确认、生命周期代次与故障隔离。
 测试固定已审阅的 `btstack.a` / `btctrler.a` ABI；升级库时必须重新审阅，不能只替换哈希。

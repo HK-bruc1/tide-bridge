@@ -279,3 +279,5 @@ int rdx_record_dut_stop_poll(u32 ticket);
 
 /* 涵盖已接纳的启动请求、提示音和清理过程，不仅检查运行状态。 */
 u8 rdx_record_adv_busy(void);
+/* app_core only: complete recording/tone idle boundary for persistent SET. */
+u8 rdx_record_tone_config_busy(void);

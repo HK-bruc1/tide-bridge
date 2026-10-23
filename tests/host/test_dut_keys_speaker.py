@@ -1403,10 +1403,12 @@ def main():
     authorization += ''.join(function(record_source, name) for name in (
         'rdx_record_audio_start_enter', 'rdx_record_audio_start_exit',
         'rdx_record_binding_revoke'))
+    text_send = function((BASE / 'rdx_ble_server.c').read_text(encoding='utf-8'),
+                         'rdx_ble_server_send_text_for_token')
     tests = re.findall(r'int (test_\w+)\(void\)', TESTS)
     with tempfile.TemporaryDirectory(prefix='t2620_dut_') as temp:
         path = Path(temp) / 'dut.c'
-        path.write_text(audio + enums + '\n' + defines + STUBS + authorization + core + legacy + TESTS, encoding='utf-8')
+        path.write_text(audio + enums + '\n' + defines + STUBS + text_send + authorization + core + legacy + TESTS, encoding='utf-8')
         run_c_checks(path, tests, native=True)
         off = Path(temp) / 'dut_cdc_off.c'
         off.write_text(path.read_text(encoding='utf-8').replace(

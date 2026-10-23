@@ -4150,6 +4150,27 @@ int rdx_ble_server_send_for_token(u8 *data, u32 len,
     return rdx_ble_server_send_internal(data, len, token);
 }
 
+/* Session mtu_size is the ATT payload (MTU - 3). Fragments share one
+ * characteristic FIFO; the peer reassembles up to the trailing '#'. */
+int rdx_ble_server_send_text_for_token(const char *text, u32 len,
+                                       const rdx_ble_async_token_t *token)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_rdx_token_resolve(token, 1);
+    u32 offset = 0;
+
+    if (!text || !len || !link || link->mtu_size < 20) {
+        return -1;
+    }
+    while (offset < len) {
+        u32 count = len - offset < link->mtu_size ? len - offset : link->mtu_size;
+        if (rdx_ble_server_send_for_token((u8 *)text + offset, count, token)) {
+            return -1;
+        }
+        offset += count;
+    }
+    return 0;
+}
+
 /**************************************************************************
  * function: rdx_ble_server_ota_send
  * description: 

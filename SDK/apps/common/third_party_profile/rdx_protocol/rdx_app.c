@@ -83,6 +83,7 @@
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
 #include "rdx_vm.h"
+#include "rdx_record_tone.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -2343,6 +2344,10 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     if (rdx_ble_session_rdx_runtime_state_get() !=
         RDX_BLE_RUNTIME_ACTIVE) {
         r_printf("[RDX_BLE_SESSION] stale custom command dropped: %s\r", cmd);
+        return;
+    }
+    if (strcmp(cmd, RDX_RECORD_TONE_CUSTOM_CMD) == 0) {
+        rdx_record_tone_handle_custom(value);
         return;
     }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);

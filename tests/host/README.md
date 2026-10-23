@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and seventeen behavioral suites
-as **21 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and eighteen behavioral suites
+as **22 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -25,7 +25,8 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | --- | --- |
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | F13/F14/F17/F18/F19 defaults, saved-map preservation, real A/B persistence, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds |
-| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, cancellation, hot-map cleanup and KEY5 DUT; `key_record_dispatch_checks.py` owns usage routing, F18/F19 gestures, admission and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies and worker STOP/READY fences; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
+| `test_record_tone.py` | Real `rectone` GET/SET parser and VM/default/reset behavior, same-value durability, busy rejection, queue/IO/send failures and original-token request/ACK isolation; recorder start/stop behavior belongs to the existing session harness |
+| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, cancellation, hot-map cleanup and KEY5 DUT; `key_record_dispatch_checks.py` owns usage routing, F18/F19 gestures, admission and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |

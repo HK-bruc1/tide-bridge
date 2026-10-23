@@ -171,6 +171,9 @@ static void app_audio_set_volume(int state, s16 volume, int fade) {
 }
 static void app_audio_set_volume_def_state(u8 state) { app_var.volume_def_state=state; }
 static int rdx_hogp_keymap_config_factory_reset(void) { ++keymap_calls; return keymap_result; }
+static int tone_reset_result, tone_resets, tone_busy;
+static int rdx_record_tone_config_busy(void) { return tone_busy; }
+static int rdx_record_tone_factory_reset(void) { ++tone_resets; return tone_reset_result; }
 static void rdx_vm_ble_pairing_state_reset(void) { ++pairs; }
 static int syscfg_read_string(int id, void *data, int length, int mode) { return 0; }
 static void rdx_ble_server_reset_local_name(void) {}
@@ -188,11 +191,13 @@ static void seed(void) {
     maximum=12; write_result=sizeof(s16);
     record.run=upload.file_send_busy=0;
     writes=keymap_calls=keymap_result=ota=pairs=resets=bad_audio_state=0;
+    tone_reset_result=tone_resets=tone_busy=0;
 }
 int check_volume_reset(void) {
     seed(); CHECK(!rdx_vm_reset_defaults_no_poweroff());
     CHECK(writes==1 && vm_music==12 && app_var.music_volume==12 && !app_var.volume_def_state);
     CHECK(keymap_calls==1 && pairs==1 && !resets && !bad_audio_state);
+    CHECK(tone_resets==1);
     seed(); maximum=16; rdx_vm_sys_reset_to_defaults();
     CHECK(resets==1 && vm_music==16 && app_var.music_volume==16);
     return 0;
@@ -216,6 +221,10 @@ int check_volume_reset_failures(void) {
     CHECK(!writes && !keymap_calls && !resets);
     seed(); keymap_result=-1; rdx_vm_sys_reset_to_defaults();
     CHECK(keymap_calls==1 && !pairs && !resets);
+    seed(); tone_busy=1; rdx_vm_sys_reset_to_defaults();
+    CHECK(!writes && !keymap_calls && !tone_resets && !pairs && !resets);
+    seed(); tone_reset_result=-1; rdx_vm_sys_reset_to_defaults();
+    CHECK(tone_resets==1 && !pairs && !resets);
     return 0;
 }
 '''
