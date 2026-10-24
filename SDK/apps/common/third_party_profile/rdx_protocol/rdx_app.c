@@ -32,6 +32,7 @@
 #include "app_config.h"
 #include "app_msg.h"
 #include "system/includes.h"
+#include "generic/jiffies.h"
 #include "earphone.h"
 #include "app_main.h"
 #include "app_default_msg_handler.h"
@@ -863,6 +864,10 @@ u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *cycle)
         return 1;
     }
     /* 此处不能重置：必须保留 STOP、断连收尾票据及重试归属。 */
+    if (key_record_pressed) {
+        g_printf("[F19_CANCEL] key=%u cycle=%u at_ms=%u\r",
+                 cycle->physical_key - KEY_IO_NUM0 + 1, cycle->id, jiffies_to_msecs(jiffies));
+    }
     key_record_pressed = 0;
     rdx_app_key_record_pump();
     if (key_record_session_active || key_record_stop_queued ||
@@ -958,7 +963,8 @@ static void rdx_app_key_record_pump(void)
                 return;
             }
             key_record_session_active = 0;
-            key_record_local_generation = 0;
+            /* Preserve the retired identity until worker/tone cleanup is idle;
+             * physical DUT may still need to wait for this exact generation. */
             rdx_app_key_record_retry_cancel();
             return;
         }
@@ -972,7 +978,10 @@ static void rdx_app_key_record_pump(void)
             rdx_app_key_record_retry_cancel();
             return;
         }
-        if (!rdx_record_stream_only_release()) {
+        ret = rdx_record_stream_only_release();
+        /* Release advances the owned request generation before worker cleanup. */
+        key_record_request_generation = rdx_record_key_request_generation();
+        if (!ret) {
             rdx_app_key_record_retry_schedule();
             return;
         }
@@ -2997,6 +3006,13 @@ int rdx_app_msg_handler(int *msg)
                     g_printf("\n====== %s --> Key DUT disabled, blocked! \r", __func__);
                     break;
                 }
+                if (!rdx_dut_is_in_mode() &&
+                    (rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
+                     rdx_record_tone_config_busy() ||
+                     (local_key_dispatch_cycle &&
+                      !rdx_hogp_input_dut_pending(local_key_dispatch_cycle)))) {
+                    break;
+                }
 
                 ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
                 if(get_ota_status()){
@@ -3013,6 +3029,9 @@ int rdx_app_msg_handler(int *msg)
                     r_printf("====== %s --> file uploading... \r", __func__);
                     rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
                 }
+                /* Scan-side cancellation may occur during the checks above. */
+                if (!rdx_dut_is_in_mode() && local_key_dispatch_cycle &&
+                    !rdx_hogp_input_dut_pending(local_key_dispatch_cycle)) break;
                 rdx_dut_key_mode_handle();
             }
             break;
@@ -3046,6 +3065,51 @@ SHUTOFF);
             break;
     }
     return ret;
+}
+
+void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle)
+{
+    if (!cycle || !rdx_hogp_input_cycle_valid(cycle) ||
+        cycle->mode != RDX_LOCAL_KEY_NORMAL ||
+        rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
+        cycle->physical_key < KEY_IO_NUM0 || cycle->physical_key > KEY_IO_NUM4 ||
+        rdx_hogp_key_action_plain_usage(&cycle->keymap) != 0x6e ||
+        rdx_dut_key_consume(cycle->physical_key, cycle->down_ms)) return;
+
+    g_printf("[F19_DOWN] key=%u cycle=%u down_ms=%u wait_ms=%u\r",
+             cycle->physical_key - KEY_IO_NUM0 + 1, cycle->id,
+             cycle->down_ms, (u32)(jiffies_to_msecs(jiffies) - cycle->down_ms));
+    local_key_dispatch_cycle = cycle;
+    int message = APP_MSG_RECORD_LOCAL_HOLD_START;
+    rdx_app_msg_handler(&message);
+    local_key_dispatch_cycle = NULL;
+}
+
+int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *owner)
+{
+    if (rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
+        rdx_dut_is_key_dut_disabled() ||
+        rdx_storage_lifecycle_business_blocked()) return -1;
+
+    u8 owned = owner && owner->id && owner->physical_key == KEY_IO_NUM4 &&
+        owner->usage == 0x6e && owner->id == key_record_owner.id &&
+        owner->epoch == key_record_owner.epoch &&
+        key_record_owner.physical_key == KEY_IO_NUM4 &&
+        key_record_kind == RDX_RECORD_INSPIRATION;
+    if (key_record_owner_valid) {
+        if (!owned) return -1;
+        if (!rdx_app_local_key_cancel(owner)) return 0;
+    }
+    /* Never stop a newer APP/F18/CALL/factory session to force physical DUT. */
+    if (rdx_record_get_status()->run != RECORD_STATE_STOP) return -1;
+    if (rdx_record_tone_config_busy()) {
+        if (owned && (key_record_local ?
+            key_record_local_generation == rdx_record_generation_get() :
+            key_record_request_generation == rdx_record_key_request_generation()))
+            return 0;
+        return -1;
+    }
+    return 1;
 }
 
 void rdx_app_local_key_gesture(const struct key_event *key,

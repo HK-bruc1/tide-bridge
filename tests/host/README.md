@@ -26,7 +26,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | F13/F14/F17/F18/F19 defaults, saved-map preservation, real A/B persistence, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds |
 | `test_record_tone.py` | Real `rectone` GET/SET parser and VM/default/reset behavior, same-value durability, busy rejection, queue/IO/send failures and original-token request/ACK isolation; recorder start/stop behavior belongs to the existing session harness |
-| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, cancellation, hot-map cleanup and KEY5 DUT; `key_record_dispatch_checks.py` owns usage routing, F18/F19 gestures, admission and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
+| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, plain-F19 stable-Down startup on any mapped key, cancellation, hot-map cleanup and retained KEY5 DUT intent; `key_record_dispatch_checks.py` owns usage routing, F18/F19 admission, stop-before-DUT and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
@@ -81,6 +81,16 @@ work and does not force wakeups. USB transport lifecycle remains separate.
 These scheduling checks do not prove on-device current or latency; see the
 [disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
 and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
+
+F19 stable-Down device regression (2026-10-24): configure any KEY1-KEY5 to
+plain F19 and check startup without waiting for LONG, release during APP/tone
+startup, normal stop, hot remap and RDX loss. Recheck F13/F14 click/seek,
+F18 toggle/mark and ordinary HID hold/release. If physical DUT entry is enabled,
+KEY5 eight-click must finish its owned F19 cleanup before entering; disabled
+entry stays disabled. Preceding short F19 requests/recordings are accepted.
+Use `[F19_DOWN]` (stable `down_ms`, app_core `wait_ms`) and `[F19_CANCEL]`
+alongside existing recorder logs. READY/submit is not APP receipt; physical
+press-to-UI latency and audio quality still need real device/APP evidence.
 
 DUT 调度检查覆盖未连接、BLE 已连接、USB 在线和 DUT 模式内无待办停表；
 执行实际初始化、物理键/命令入口、事件合并及处理中再次通知、消息与定时器失败恢复、

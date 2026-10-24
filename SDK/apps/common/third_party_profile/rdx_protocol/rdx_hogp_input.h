@@ -17,7 +17,7 @@ enum rdx_local_key_mode {
 
 /* 产品私有事件封装，不改变 SDK key_event 或 VM ABI。 */
 typedef struct {
-    u32 id, epoch, map;
+    u32 id, epoch, map, down_ms;
     rdx_hogp_key_action_keyboard_t keymap;
     u8 physical_key, usage, mode, hid_admitted;
 } rdx_hogp_input_cycle_t;
@@ -56,5 +56,6 @@ void rdx_hogp_input_cancel(void);
 void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered);
 u8 rdx_hogp_input_cycle_get(u8 value, rdx_hogp_input_cycle_t *cycle);
 u8 rdx_hogp_input_cycle_valid(const rdx_hogp_input_cycle_t *cycle);
+u8 rdx_hogp_input_dut_pending(const rdx_hogp_input_cycle_t *cycle);
 void rdx_hogp_input_gesture(const struct key_event *key, const rdx_hogp_input_cycle_t *cycle);
 #endif

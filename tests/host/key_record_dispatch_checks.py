@@ -56,6 +56,23 @@ static int rdx_app_init_flag=1, poweroff_ready_flag, rdx_dut_mode, mode_switch_k
 static int ready, bound=1, blocked, queue_fail, stop_fail, stops, playback, playback_stops, starts;
 static int online_starts, online_stops, ota, formatting;
 static int marks;
+static int dut_disabled;
+static int dut_entries;
+static int dut_ticket_pending=1, dut_admission_race;
+typedef struct { int file_send_busy; } ReqFileInfo;
+static ReqFileInfo upload_info;
+#define RDX_APP_FILE_CMD_STOP 1
+static int rdx_dut_is_in_mode(void) { return rdx_dut_mode; }
+static ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) {
+    if(dut_admission_race==1) dut_ticket_pending=0;
+    return &upload_info;
+}
+static void rdx_protocol_file_cmd_handle(int command) {
+    upload_info.file_send_busy=0;
+    if(dut_admission_race==2) dut_ticket_pending=0;
+}
+static void rdx_dut_key_mode_handle(void) { ++dut_entries; rdx_dut_mode=!rdx_dut_mode; }
+static int rdx_dut_is_key_dut_disabled(void) { return dut_disabled; }
 #define KEY_IO_NUM0 65
 #define KEY_IO_NUM1 66
 #define KEY_IO_NUM4 69
@@ -104,6 +121,7 @@ static int rdx_record_audio_fault_stop(void) {
 static int rdx_record_stream_only_release(void) {
     ++release_calls;
     if(trigger_deferred) retirement_pending=1;
+    if(!releasing) ++request_generation;
     releasing=1; key_state=RDX_RECORD_KEY_STOPPING; status.run=RECORD_STATE_STOP;
     return release_done;
 }
@@ -127,6 +145,10 @@ static int local_volume, volume_step, tone_running;
 #define APP_AUDIO_CURRENT_STATE 0
 #define APP_AUDIO_STATE_MUSIC 1
 static int tone_player_runing(void) { return tone_running; }
+static int rdx_record_tone_config_busy(void) {
+    return status.run!=RECORD_STATE_STOP || status.process_state==REC_PROCESS_STATE_BUSY ||
+        tone_running || releasing || key_state!=RDX_RECORD_KEY_IDLE || retirement_pending;
+}
 static int app_audio_get_volume(int state) { return local_volume; }
 static void app_audio_volume_up(u8 step) {
     volume_step=step; local_volume+=step;
@@ -218,6 +240,8 @@ static void reset(void) {
     trigger_deferred=trigger_stop_pending=retirement_pending=0;
     storage_full=storage_admits=0;
     app_var.goto_poweroff_flag=0; local_epoch=1;
+    dut_disabled=dut_entries=0;
+    dut_ticket_pending=1; dut_admission_race=0; upload_info.file_send_busy=0;
 }
 static rdx_hogp_input_cycle_t cycle(u8 key,u8 usage,u32 id) {
     rdx_hogp_input_cycle_t c={0};
@@ -230,6 +254,7 @@ static void gesture(rdx_hogp_input_cycle_t *c,u8 action) {
     struct key_event k={0}; k.type=KEY_DRIVER_TYPE_IO; k.value=c->physical_key; k.event=action;
     rdx_app_local_key_gesture(&k,c);
 }
+static void down(rdx_hogp_input_cycle_t *c) { rdx_app_local_key_down(c); }
 static void finish_stop(void) {
     status.run=RECORD_STATE_STOP; status.process_state=0; key_state=RDX_RECORD_KEY_IDLE;
     rdx_app_key_record_pump();
@@ -261,7 +286,7 @@ int test_inspiration_routes_and_owner(void) {
         hid_ready=links==1 || links==4;
         int online=ready && stream_ready;
         rdx_hogp_input_cycle_t c=cycle(key,0x6e,10);
-        gesture(&c,KEY_ACTION_LONG);
+        down(&c);
         CHECK(key_record_session_active && key_record_owner_valid);
         CHECK(key_record_local==!online && record_kind==RDX_RECORD_INSPIRATION);
         CHECK(online_starts==online && starts==!online && playback_stops==1);
@@ -289,7 +314,7 @@ int test_meeting_pending_pause_and_mutual_exclusion(void) {
         gesture(&meeting,KEY_ACTION_UP); CHECK(!stops && !online_stops);
         /* 在线会议由 APP 回复后引擎受理；桩函数不模拟该回复，这里显式推进状态。 */
         if(online) { status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE; }
-        gesture(&inspiration,KEY_ACTION_LONG); CHECK(!key_record_owner_valid);
+        down(&inspiration); CHECK(!key_record_owner_valid);
         if(online) {
             /* 引擎已受理的在线会议，再双击只做本地权威停止。 */
             gesture(&meeting,KEY_ACTION_DOUBLE_CLICK);
@@ -306,12 +331,12 @@ int test_meeting_pending_pause_and_mutual_exclusion(void) {
         /* APP 发起的 CHAT 录音即使处于 PAUSE 仍是会议，F19 不能替换它。 */
         reset(); ready=1; status.run=RECORD_STATE_PAUSE;
         record_kind=RDX_RECORD_MEETING; key_state=RDX_RECORD_KEY_ACTIVE;
-        gesture(&inspiration,KEY_ACTION_LONG); CHECK(!starts && !online_starts);
+        down(&inspiration); CHECK(!starts && !online_starts);
         gesture(&meeting,KEY_ACTION_DOUBLE_CLICK); CHECK(stops==1 && !starts && !online_starts);
         finish_stop();
         for(int kind=RDX_RECORD_CALL;kind<=RDX_RECORD_FACTORY;++kind) {
             reset(); record_kind=kind; key_state=RDX_RECORD_KEY_ACTIVE; status.run=RECORD_STATE_START;
-            gesture(&meeting,KEY_ACTION_DOUBLE_CLICK); gesture(&inspiration,KEY_ACTION_LONG);
+            gesture(&meeting,KEY_ACTION_DOUBLE_CLICK); down(&inspiration);
             CHECK(!stops && !starts && !online_starts && !online_stops);
         }
     }
@@ -319,21 +344,21 @@ int test_meeting_pending_pause_and_mutual_exclusion(void) {
 }
 int test_stop_retry_generation_and_transport_loss(void) {
     reset(); rdx_hogp_input_cycle_t c=cycle(1,0x6e,30);
-    gesture(&c,KEY_ACTION_LONG); stop_fail=1;
+    down(&c); stop_fail=1;
     gesture(&c,KEY_ACTION_UP); CHECK(key_record_session_active && key_record_retry_timer);
-    gesture(&c,KEY_ACTION_LONG); CHECK(starts==1);
+    down(&c); CHECK(starts==1);
     stop_fail=0; CHECK(rdx_app_local_key_cancel(&c) && stops==1);
-    reset(); c=cycle(2,0x6e,31); gesture(&c,KEY_ACTION_LONG);
+    reset(); c=cycle(2,0x6e,31); down(&c);
     ++generation; status.run=RECORD_STATE_START;
     gesture(&c,KEY_ACTION_UP); CHECK(!stops); /* 旧 Up 不能停止后续 APP 或 DUT 发起的录音。 */
-    reset(); ready=1; c=cycle(2,0x6e,33); gesture(&c,KEY_ACTION_LONG);
+    reset(); ready=1; c=cycle(2,0x6e,33); down(&c);
     ++request_generation; key_state=RDX_RECORD_KEY_ACTIVE; status.run=RECORD_STATE_START;
     gesture(&c,KEY_ACTION_UP);
     CHECK(!release_calls && !online_stops && status.run==RECORD_STATE_START);
     /* 灵感录音是按住式纯推流，断连立即收尾；在线会议沿用 APP 路径，断连转离线继续落盘。 */
     {
         reset(); ready=1; c=cycle(0,0x6e,32);
-        gesture(&c,KEY_ACTION_LONG);
+        down(&c);
         ready=0; release_done=0; rdx_app_record_transport_lost();
         CHECK(key_record_disconnect_pending && key_record_retry_timer==0);
         rdx_app_key_record_pump(); CHECK(key_record_retry_timer && !starts);
@@ -350,7 +375,7 @@ int test_online_release_restores_business_without_reboot(void) {
     for(int next=0;next<4;++next) {
         reset(); ready=1; release_done=0; trigger_deferred=1;
         rdx_hogp_input_cycle_t c=cycle(4,0x6e,60);
-        gesture(&c,KEY_ACTION_LONG);
+        down(&c);
         CHECK(online_starts==1 && key_record_session_active && !key_record_local);
         status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE; stream_active=1;
         gesture(&c,KEY_ACTION_UP);
@@ -375,13 +400,13 @@ int test_online_release_restores_business_without_reboot(void) {
         gesture(&volume,KEY_ACTION_CLICK); CHECK(local_volume==10);
         /* 同一归属在线重开还须等匹配 APP STOP 的独立退役确认；本地回放无需等待。 */
         rdx_hogp_input_cycle_t pending=cycle(4,0x6e,67);
-        gesture(&pending,KEY_ACTION_LONG);
+        down(&pending);
         CHECK(online_starts==1 && !key_record_session_active && !key_record_pressed);
         retirement_pending=0; /* 模拟 APP STOP 经录音工作任务确认，真实栅栏由会话测试桩覆盖。 */
         if(next<2) {
             ready=next==0;
             rdx_hogp_input_cycle_t inspiration=cycle(4,0x6e,65);
-            gesture(&inspiration,KEY_ACTION_LONG);
+            down(&inspiration);
             CHECK(key_record_session_active && key_record_local==!ready);
             CHECK(ready ? online_starts==2 : starts==1);
         } else {
@@ -420,7 +445,7 @@ int test_full_storage_rejects_local_writes_only(void) {
         reset(); storage_full=1; playback=1; ready=case_id==2;
         u8 usage=case_id==0?0x6e:0x6d;
         rdx_hogp_input_cycle_t c=cycle(case_id,usage,70+case_id);
-        gesture(&c,usage==0x6e?KEY_ACTION_LONG:KEY_ACTION_DOUBLE_CLICK);
+        if(usage==0x6e) down(&c); else gesture(&c,KEY_ACTION_DOUBLE_CLICK);
         CHECK(storage_admits==1 && !starts && !online_starts && !playback_stops && playback);
         CHECK(key_state==RDX_RECORD_KEY_IDLE && status.run==RECORD_STATE_STOP);
         CHECK(!key_record_session_active && !key_record_pressed && !status.key_trigger);
@@ -428,7 +453,7 @@ int test_full_storage_rejects_local_writes_only(void) {
     }
     /* 在线 F19 纯推流不落盘，不受存储预留门禁约束。 */
     reset(); storage_full=1; ready=1; rdx_hogp_input_cycle_t c=cycle(4,0x6e,80);
-    gesture(&c,KEY_ACTION_LONG);
+    down(&c);
     CHECK(!storage_admits && online_starts==1 && key_record_session_active && !key_record_local);
     return 0;
 }
@@ -466,7 +491,7 @@ int test_protection_and_physical_dut(void) {
         &app_var.goto_poweroff_flag,&mode_switch_keep_timer,&factory_keys};
     for(int i=0;i<7;++i) {
         *flags[i]=1; rdx_hogp_input_cycle_t c=cycle(4,0x6e,50);
-        gesture(&c,KEY_ACTION_LONG); CHECK(!starts && !online_starts);
+        down(&c); CHECK(!starts && !online_starts);
         *flags[i]=0;
     }
     for(int usage=0;usage<=0x73;++usage) {
@@ -478,8 +503,100 @@ int test_protection_and_physical_dut(void) {
     rdx_dut_mode=1; rdx_hogp_input_cycle_t c=cycle(4,0x68,51);
     gesture(&c,KEY_ACTION_DOUBLE_CLICK); CHECK(dut_burnins);
     reset(); c=cycle(0,0x6e,52); status.process_state=REC_PROCESS_STATE_BUSY;
-    gesture(&c,KEY_ACTION_LONG); CHECK(!starts && !key_record_pressed);
+    down(&c); CHECK(!starts && !key_record_pressed);
     status.process_state=0; rdx_app_key_record_pump(); CHECK(!starts);
+    return 0;
+}
+int test_rejected_f19_down_never_retries_on_long_or_hold(void) {
+    for(int key=0;key<5;key++) {
+        reset(); status.process_state=REC_PROCESS_STATE_BUSY;
+        rdx_hogp_input_cycle_t c=cycle(key,0x6e,100+key);
+        down(&c); CHECK(!starts && !online_starts && !key_record_owner_valid);
+        status.process_state=0;
+        gesture(&c,KEY_ACTION_LONG); gesture(&c,KEY_ACTION_HOLD);
+        CHECK(!starts && !online_starts && !key_record_pressed);
+    }
+    return 0;
+}
+int test_dut_waits_for_owned_worker_tone_and_retirement(void) {
+    for(int online=0;online<2;online++) {
+        reset(); ready=online;
+        trigger_deferred=online;
+        rdx_hogp_input_cycle_t c=cycle(4,0x6e,110);
+        down(&c); CHECK(key_record_owner_valid);
+        u32 admitted_request=request_generation;
+        stop_fail=!online; release_done=!online;
+        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        if(online) CHECK(request_generation==admitted_request+1 &&
+            key_record_request_generation==request_generation);
+        stop_fail=0; release_done=1;
+        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        if(online) {
+            CHECK(trigger_stop_pending && retirement_pending);
+            rdx_record_stream_only_release_complete();
+            rdx_app_key_record_pump();
+        }
+        key_state=RDX_RECORD_KEY_IDLE; tone_running=1;
+        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
+        tone_running=0;
+        if(online) {
+            CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+            retirement_pending=0;
+        }
+        CHECK(rdx_app_local_key_dut_ready(&c)==1);
+        gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(dut_entries==1 && rdx_dut_mode);
+        c.mode=RDX_LOCAL_KEY_DUT; down(&c); CHECK(online?online_starts==1:starts==1);
+    }
+    return 0;
+}
+int test_dut_never_stops_other_owners_or_bypasses_gates(void) {
+    for(int kind=RDX_RECORD_MEETING;kind<=RDX_RECORD_FACTORY;kind++) {
+        reset(); record_kind=kind; status.run=RECORD_STATE_START;
+        key_state=RDX_RECORD_KEY_ACTIVE;
+        rdx_hogp_input_cycle_t c=cycle(4,0x6e,120);
+        CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops && !release_calls);
+        gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
+    }
+    reset(); rdx_hogp_input_cycle_t other=cycle(0,0x6e,121), c=cycle(4,0x6e,122);
+    down(&other); CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops);
+    reset(); down(&c); ++generation; status.run=RECORD_STATE_START;
+    CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops);
+    for(int online=0;online<2;online++) {
+        reset(); ready=online; down(&c);
+        gesture(&c,KEY_ACTION_UP);
+        if(online) rdx_app_key_record_pump();
+        if(online) ++request_generation; else ++generation;
+        tone_running=1;
+        CHECK(rdx_app_local_key_dut_ready(&c)<0);
+        CHECK(online?release_calls==1:stops==1);
+    }
+    for(int gate=0;gate<5;gate++) {
+        reset(); down(&c);
+        if(gate==0) dut_disabled=1;
+        if(gate==1) ota=1;
+        if(gate==2) poweroff_ready_flag=1;
+        if(gate==3) factory_keys=1;
+        if(gate==4) blocked=1;
+        CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops && !dut_entries);
+    }
+    reset(); dut_disabled=1; gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
+    return 0;
+}
+int test_dut_final_ticket_guard_and_existing_direct_exit_paths(void) {
+    for(int race=0;race<3;race++) {
+        reset();
+        rdx_hogp_input_cycle_t c=cycle(4,0x6e,130+race);
+        dut_ticket_pending=race!=0; dut_admission_race=race;
+        upload_info.file_send_busy=race==2;
+        gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK);
+        CHECK(!dut_entries && !rdx_dut_mode && !dut_ticket_pending);
+    }
+    reset(); dut_ticket_pending=0;
+    int message=APP_MSG_DUT;
+    rdx_app_msg_handler(&message); CHECK(dut_entries==1 && rdx_dut_mode);
+    rdx_hogp_input_cycle_t c=cycle(4,0x6e,134);
+    gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(dut_entries==2 && !rdx_dut_mode);
     return 0;
 }
 '''
@@ -504,6 +621,7 @@ def main():
         'rdx_app_key_record_retry_cancel', 'rdx_app_key_record_reset',
         'rdx_app_key_record_product_blocked',
         'rdx_app_local_key_cancel', 'rdx_app_local_key_mode', 'rdx_app_record_is_hold_active',
+        'rdx_app_local_key_dut_ready',
         'rdx_app_key_click_cb', 'rdx_app_record_transport_lost', 'rdx_app_key_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_meeting_record_toggle', 'rdx_app_usage_key_remap',
         'rdx_app_local_player_message_blocked', 'rdx_app_local_volume_change',
@@ -520,20 +638,25 @@ def main():
     begin = handler.index('        case APP_MSG_REC_PREV:')
     cases += handler[begin:handler.index('        // OLED', begin)]
     cases += 'case APP_MSG_DUT_BURNIN_TOGGLE: rdx_dut_burnin_toggle(); return 1;\n'
+    begin = handler.index('        case APP_MSG_DUT:')
+    cases += handler[begin:handler.index('    #endif', begin)]
     playback = (BASE / 'rdx_playback.c').read_text(encoding='utf-8')
     program = (STUBS + enums + headers + '\n' + tables +
                function(keys, 'rdx_key_usage_message') + function(keys, 'rdx_key_get_io_num_table') +
+               function((BASE / 'rdx_hogp_key_action.c').read_text(encoding='utf-8'),
+                        'rdx_hogp_key_action_plain_usage') +
                'static rdx_hogp_input_cycle_t key_record_owner;\nstatic u8 key_record_owner_valid;\n'
                'static const rdx_hogp_input_cycle_t *local_key_dispatch_cycle;\n'
                '#define KEY_DRIVER_TYPE_IO 0\n'
                'u8 rdx_hogp_input_cycle_valid(const rdx_hogp_input_cycle_t *c) { return c->epoch==local_epoch; }\n'
+               'u8 rdx_hogp_input_dut_pending(const rdx_hogp_input_cycle_t *c) { return dut_ticket_pending; }\n'
                'static void rdx_app_key_record_pump(void);\n'
                'static int rdx_app_device_record_set(u8,u8,u8,u8);\n' + helpers +
                function(playback, 'rdx_playback_can_start') +
                'static int rdx_app_msg_handler(int *msg) { int ret=0; '
                'if(rdx_app_local_player_message_blocked(msg[0])) return 1; switch(msg[0]) {\n' +
                cases + 'default: break; } return ret; }\n' +
-               function(app, 'rdx_app_local_key_gesture') + TESTS)
+               function(app, 'rdx_app_local_key_down') + function(app, 'rdx_app_local_key_gesture') + TESTS)
     with tempfile.TemporaryDirectory(prefix='usage-key-record-') as temp:
         path = Path(temp) / 'keys.c'
         path.write_text(program, encoding='utf-8')

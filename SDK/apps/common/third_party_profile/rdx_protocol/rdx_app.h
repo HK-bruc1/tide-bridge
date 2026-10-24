@@ -122,6 +122,9 @@ void rdx_app_key_click(u8 key_value, u8 action);
 u8 rdx_app_hogp_input_route(void);
 /* 在 app_core 按实体按压周期分发业务，并按归属取消。 */
 u8 rdx_app_local_key_mode(void);
+void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle);
+/* app_core: -1 rejects physical DUT entry, 0 waits for owned cleanup, 1 is idle. */
+int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *owner);
 void rdx_app_local_key_gesture(const struct key_event *key,
                                const rdx_hogp_input_cycle_t *cycle);
 u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *cycle);

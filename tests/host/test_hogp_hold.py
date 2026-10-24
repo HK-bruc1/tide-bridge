@@ -52,6 +52,7 @@ static int irq_depth, in_irq, context_errors;
 #define jiffies_to_msecs(x) (x)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 u32 jiffies;
+u32 sys_timer_get_ms(void) { return jiffies; }
 int jiffies_offset_to_msec(u32 a,u32 b) { return b-a; }
 static int timer_live, timer_adds, timer_dels, timer_fail;
 u16 sys_timer_add(void *p, void (*f)(void *), u32 ms) {
@@ -68,6 +69,8 @@ static u32 local_ids[512];
 static u8 local_usages[512];
 static u32 cancelled_ids[32];
 static void (*local_callback_hook)(void);
+static int dut_ready=1, dut_checks;
+static void (*dut_callback_hook)(void);
 void rdx_app_key_click(u8 value,u8 action) { if(action==0) ++feedback_clicks; }
 int rdx_app_key_msg_handler(int *msg);
 int key5_events[32];
@@ -204,6 +207,15 @@ int test_pending_rdx_release_and_cancel(void) {
 '''
 
 SCAN_TESTS = r'''int rdx_app_key_msg_handler(int *msg) { ++offline; offline_event=((struct key_event *)msg)->event; return 1; }
+void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle) {
+    struct key_event key={.type=KEY_DRIVER_TYPE_IO,.value=cycle->physical_key,.event=KEY_ACTION_MAX};
+    rdx_app_local_key_gesture(&key,cycle);
+}
+int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *owner) {
+    ++dut_checks;
+    if(dut_callback_hook) dut_callback_hook();
+    return dut_ready;
+}
 void rdx_app_local_key_gesture(const struct key_event *key, const rdx_hogp_input_cycle_t *cycle) {
     if (in_irq || irq_depth) ++context_errors;
     if (local_events < 512) {
@@ -266,6 +278,9 @@ static void boot(int online) {
     local_head=local_count=local_mode=local_admission=local_down=local_owner_pending=0;
     local_cleanup_pending=1; local_epoch=1; cycle_sequence=local_baseline=local_overflows=0;
     memset(&scan_cycle,0,sizeof(scan_cycle)); memset(&local_owner,0,sizeof(local_owner));
+    memset(&local_start,0,sizeof(local_start)); memset(&local_f19_owner,0,sizeof(local_f19_owner));
+    memset(&local_dut,0,sizeof(local_dut)); memset(&local_dut_owner,0,sizeof(local_dut_owner));
+    dut_ready=1; dut_checks=0; dut_callback_hook=NULL;
     local_events=local_cancels=cancel_fail=0; business_mode=RDX_LOCAL_KEY_NORMAL;
     local_callback_hook=NULL; memset(cancelled_ids,0,sizeof(cancelled_ids));
     memset(&published_token,0,sizeof(published_token));
@@ -486,6 +501,144 @@ int test_down_snapshot_has_no_torn_map_and_classifies_plain_usage(void) {
     sample(NO_KEY); settle(); CHECK(local_cancels==1);
     return 0;
 }
+static void map_f19(int key) {
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    memset(&map.keys[key],0,sizeof(map.keys[key])); map.keys[key].usages[0]=0x6e;
+    rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+}
+int test_f19_down_before_long_all_keys_and_hid_backpressure(void) {
+    for(int key=0;key<5;key++) for(int online=0;online<2;online++) {
+        boot(online); map_f19(key); task_name="app_core";
+        sample(KEY_IO_NUM0+key); tick();
+        CHECK(local_events==1 && local_actions[0]==KEY_ACTION_MAX && local_owner.id);
+        CHECK(local_owner.physical_key==KEY_IO_NUM0+key && local_owner.down_ms==jiffies);
+        /* Deliberately do not drain btstack: local start is independent. */
+        for(int i=0;i<10;i++) { sample(KEY_IO_NUM0+key); tick(); }
+        CHECK(local_events==1);
+        sample(NO_KEY); tick(); CHECK(local_cancels==1 && !local_owner.id);
+        CHECK(!context_errors && !irq_depth);
+    }
+    return 0;
+}
+int test_f19_fast_up_queued_down_and_source_cancel_cannot_replay(void) {
+    for(int cancel=0;cancel<2;cancel++) {
+        boot(0); map_f19(0); app_post_fail=timer_fail=1;
+        sample(KEY_IO_NUM0); CHECK(local_start.id && !local_events);
+        if(cancel) rdx_hogp_input_cancel(); else sample(NO_KEY);
+        rdx_hogp_input_poll(); CHECK(local_events==(cancel?0:1) && !local_owner.id);
+        if(!cancel) CHECK(local_actions[0]==KEY_ACTION_CLICK);
+        app_post_fail=timer_fail=0; settle(); CHECK(local_events==(cancel?0:1));
+    }
+    boot(0); map_f19(0); app_post_fail=1;
+    sample(KEY_IO_NUM0); CHECK(!local_events && local_start.id);
+    rdx_hogp_input_poll(); CHECK(local_events==1 && local_owner.id);
+    for(int i=0;i<8;i++) { sample(KEY_IO_NUM0); rdx_hogp_input_poll(); }
+    CHECK(local_events==1); sample(NO_KEY); rdx_hogp_input_poll(); CHECK(local_cancels==1);
+    return 0;
+}
+int test_f19_modified_multiple_disabled_and_dut_never_fast_start(void) {
+    for(int kind=0;kind<4;kind++) for(int key=0;key<5;key++) {
+        boot(0);
+        rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+        memset(&map.keys[key],0,sizeof(map.keys[key]));
+        map.keys[key].usages[0]=0x6e;
+        if(kind==0) map.keys[key].modifiers=1;
+        if(kind==1) map.keys[key].usages[1]=4;
+        if(kind==2) map.keys[key].usages[0]=0;
+        if(kind==3) business_mode=RDX_LOCAL_KEY_DUT;
+        rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+        sample(KEY_IO_NUM0+key); tick(); CHECK(!local_events && !local_start.id);
+    }
+    return 0;
+}
+int test_f19_hot_map_keeps_down_snapshot_and_one_attempt(void) {
+    boot(0); map_f19(2); sample(KEY_IO_NUM0+2); tick(); CHECK(local_events==1);
+    u32 id=local_owner.id;
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[2].usages[0]=0x68; rdx_hogp_key_action_keymap_apply(&map); tick();
+    for(int i=0;i<8;i++) { sample(KEY_IO_NUM0+2); tick(); }
+    CHECK(local_events==1 && local_owner.id==id);
+    sample(NO_KEY); settle(); CHECK(local_cancels==1);
+    for(int i=0;i<4;i++) { sample(KEY_IO_NUM0+2); tick(); }
+    CHECK(local_actions[1]==KEY_ACTION_LONG && local_usages[1]==0x68);
+    return 0;
+}
+int test_key5_f19_eight_click_survives_failed_cleanup_and_wakes(void) {
+    boot(0); map_f19(4); run_app(); sample(KEY_IO_NUM4); run_app(); CHECK(local_events==1);
+    cancel_fail=1; app_post_fail=timer_fail=1;
+    sample(NO_KEY); rdx_hogp_input_poll(); CHECK(local_owner_pending);
+    u32 epoch=local_epoch;
+    for(int i=1;i<8;i++) {
+        sample(KEY_IO_NUM4); rdx_hogp_input_poll();
+        sample(NO_KEY); rdx_hogp_input_poll();
+    }
+    sample(NO_KEY); sample(NO_KEY); rdx_hogp_input_poll();
+    CHECK(local_dut.cycle.id && local_epoch==epoch && local_events==1);
+    CHECK(local_owner_pending && rdx_hogp_input_needs_poll());
+    dut_ready=0; cancel_fail=0; rdx_hogp_input_poll();
+    CHECK(!local_owner.id && local_dut.cycle.id && local_events==1);
+    for(int i=0;i<5;i++) rdx_hogp_input_poll(); CHECK(local_events==1);
+    dut_ready=1; rdx_hogp_input_poll();
+    CHECK(!local_dut.cycle.id && local_events==2 &&
+        local_actions[1]==KEY_ACTION_EIGHTUPLE_CLICK);
+    rdx_hogp_input_poll(); CHECK(local_events==2);
+    return 0;
+}
+int test_key5_deferred_entry_cancelled_by_system_new_press_or_gate(void) {
+    for(int reason=0;reason<4;reason++) {
+        boot(0); map_f19(4); dut_ready=0;
+        for(int i=0;i<8;i++) { sample(KEY_IO_NUM4); tick(); sample(NO_KEY); tick(); }
+        settle(); CHECK(local_dut.cycle.id);
+        int before=local_events;
+        if(reason==0) rdx_hogp_input_cancel();
+        if(reason==1) sample(KEY_IO_NUM0);
+        if(reason==2) business_mode=RDX_LOCAL_KEY_BLOCKED;
+        if(reason==3) dut_ready=-1;
+        tick(); CHECK(!local_dut.cycle.id);
+        dut_ready=1; tick(); CHECK(local_events==before);
+    }
+    return 0;
+}
+static void cancel_dut_during_admission(void) {
+    dut_callback_hook=NULL;
+    rdx_hogp_input_cancel();
+}
+static void new_down_during_dut_admission(void) {
+    dut_callback_hook=NULL;
+    sample(KEY_IO_NUM0);
+}
+int test_key5_ticket_revalidates_after_callback_race(void) {
+    for(int cancel=0;cancel<2;cancel++) {
+        boot(0); dut_ready=0;
+        for(int i=0;i<8;i++) { sample(KEY_IO_NUM4); sample(NO_KEY); tick(); }
+        settle(); CHECK(local_dut.cycle.id && !local_events);
+        dut_callback_hook=cancel?cancel_dut_during_admission:new_down_during_dut_admission;
+        dut_ready=1; tick();
+        CHECK(!local_dut.cycle.id && !local_events);
+        tick(); CHECK(!local_events && !context_errors && !irq_depth);
+    }
+    return 0;
+}
+int test_f19_local_overflow_cannot_retry_and_hid_overflow_cannot_stop(void) {
+    for(int local=0;local<2;local++) {
+        async_boot(); map_f19(4); sample(KEY_IO_NUM4); pump(4);
+        CHECK(local_events==1 && local_owner.id);
+        rdx_hogp_input_cycle_t c=local_owner;
+        if(local) {
+            struct key_event key={.type=KEY_DRIVER_TYPE_IO,.value=KEY_IO_NUM4,.event=KEY_ACTION_HOLD};
+            for(int i=0;i<LOCAL_FIFO_SIZE+1;i++) rdx_hogp_input_gesture(&key,&c);
+        } else {
+            struct input_event e={0}; e.epoch=input_epoch;
+            for(int i=0;i<INPUT_FIFO_SIZE+1;i++) enqueue_locked(&e);
+        }
+        pump(6);
+        CHECK(local_events==1 && local_cancels==local);
+        for(int i=0;i<6;i++) { sample(KEY_IO_NUM4); pump(2); }
+        CHECK(local_events==1);
+        sample(NO_KEY); pump(6); CHECK(local_cancels==1 && !local_owner.id);
+    }
+    return 0;
+}
 int test_snapshot_survives_map_change_and_hid_invalidation(void) {
     async_boot();
     sample(KEY_IO_NUM4); pump(6);
@@ -612,8 +765,8 @@ int test_pending_click_survives_next_map_long_press(void) {
     sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(!local_events);
     map.keys[0].usages[0]=0x6e; rdx_hogp_key_action_keymap_apply(&map); tick();
     for(int i=0;i<3;i++) { sample(KEY_IO_NUM0); tick(); }
-    CHECK(local_events>=2 && local_actions[0]==KEY_ACTION_CLICK && local_usages[0]==0x6d);
-    CHECK(local_actions[1]==KEY_ACTION_LONG && local_usages[1]==0x6e);
+    CHECK(local_events==2 && local_actions[0]==KEY_ACTION_MAX && local_usages[0]==0x6e);
+    CHECK(local_actions[1]==KEY_ACTION_CLICK && local_usages[1]==0x6d);
     sample(NO_KEY); settle(); CHECK(local_cancels==1);
     return 0;
 }
@@ -737,6 +890,8 @@ def main():
                no_includes(source('rdx_hogp_input.h')) +
                'void rdx_app_local_key_gesture(const struct key_event *, const rdx_hogp_input_cycle_t *);\n'
                'u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *);\n' +
+               'void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *);\n'
+               'int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *);\n' +
                no_includes(source('rdx_ble_session.h')) + no_includes(source('rdx_ble_session.c')) +
                TRANSPORT + keyboard[keyboard.index('enum hogp_tx_state'):keyboard.index('int rdx_hogp_keyboard_report_send(')] +
                ''.join(function(keyboard, name) for name in (

@@ -450,7 +450,7 @@ static const u8 key_table_usage[7][KEY_ACTION_MAX] = {
     [0x6b - 0x68] = {[KEY_ACTION_CLICK] = APP_MSG_LOCAL_VOL_UP},
     [0x6c - 0x68] = {[KEY_ACTION_CLICK] = APP_MSG_REC_PLAY_TOGGLE},
     [0x6d - 0x68] = {[KEY_ACTION_DOUBLE_CLICK] = APP_MSG_RECORD_LOCAL_TOGGLE},
-    [0x6e - 0x68] = {[KEY_ACTION_LONG] = APP_MSG_RECORD_LOCAL_HOLD_START},
+    /* F19 starts through the product-private stable-Down path, not LONG. */
 };
 
 u8 rdx_key_usage_message(u8 usage, u8 action)
