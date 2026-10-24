@@ -18,6 +18,10 @@ typedef unsigned int u32;
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
 #define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0
 #define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
+static int clock_held, clock_allocs, clock_frees, clock_fail, clock_in_irq;
+static unsigned int clock_floor_hz;
+unsigned int clk_get_max_frequency(void) { return 320000000u; }
+unsigned int clk_get(const char *name) { return clock_held ? clock_floor_hz : 24000000u; }
 #define FACTORY_CDC_TX_MAX 258
 #define FACTORY_CDC_OK 0
 #define FACTORY_CDC_FULL -2
@@ -50,8 +54,14 @@ static void pump(void) { if(app_queued) { app_queued=0; factory_event(NULL); } }
 static char command_log[180];
 static unsigned int command_logs;
 static int log_in_irq;
-int printf(const char *format, const char *text) {
+static int clock_logs;
+int printf(const char *format, ...) {
     if (irq) log_in_irq=1;
+    /* 时钟下限诊断日志单独计数，不计入命令日志断言。 */
+    if (!strncmp(format,"[CDC_CLK]",9)) { ++clock_logs; return 0; }
+    __builtin_va_list args; __builtin_va_start(args,format);
+    const char *text=__builtin_va_arg(args,const char *);
+    __builtin_va_end(args);
     ++command_logs;
     return snprintf(command_log,sizeof(command_log),format,text);
 }
@@ -65,6 +75,12 @@ static void *rdx_vm_get_auth_info(void);
 u8 rdx_app_initialized(void) { return initialized; }
 char *rdx_ble_server_get_local_name(void) { return name; }
 int le_controller_get_mac(u8 *out) { memcpy(out,mac,6); return mac_error; }
+int clock_alloc(const char *name, unsigned int clk) {
+    ++clock_allocs; if (irq) clock_in_irq=1;
+    if (clock_fail || clock_held || strcmp(name,"factory_cdc")) return -1;
+    clock_held=1; clock_floor_hz=clk; return 0;
+}
+int clock_free(const char *name) { ++clock_frees; if (irq) clock_in_irq=1; clock_held=0; return 0; }
 void local_irq_disable(void) { ++irq; }
 void local_irq_enable(void) { --irq; }
 u32 factory_cdc_generation(void) { return generation; }
@@ -98,6 +114,8 @@ static void boot(void) {
     factory_event_posted=factory_pending=factory_initialized=0;
     timer_live=timer_adds=timer_dels=app_queued=app_posts=app_fail=0;
     cleanup_pending=audio_services=0; state_handler=NULL;
+    factory_clock_floor=0;
+    clock_held=clock_allocs=clock_frees=clock_fail=clock_in_irq=clock_logs=0; clock_floor_hz=0;
     for (int i=0;i<6;++i) mac[i]=i+1;
     rdx_factory_cdc_init();
 }
@@ -236,6 +254,30 @@ int test_idle_session_lifecycle(void) {
     CHECK(!input("PING\r\n") && !strcmp(wire,"OK PONG\r\nOK PONG\r\n"));
     return 0;
 }
+int test_clock_floor_lifecycle(void) {
+    boot(); generation=0; pump();
+    CHECK(!clock_held && !clock_allocs && !rdx_factory_cdc_needs_poll());
+    /* 会话建立即申请原生最高档下限，会话内重复服务不重复申请。 */
+    generation=2; state_handler(); pump();
+    CHECK(clock_held && clock_allocs==1 && clock_floor_hz==320000000u);
+    CHECK(!input("PING\r\n") && !strcmp(wire,"OK PONG\r\n"));
+    for (int i=0;i<10;i++) factory_service(NULL);
+    CHECK(clock_allocs==1 && !clock_frees && !rdx_factory_cdc_needs_poll());
+    /* 断开（拔线/关闭/超时）后释放，且只释放一次。 */
+    generation=0; state_handler(); pump();
+    CHECK(!clock_held && clock_frees==1);
+    factory_service(NULL); rdx_factory_cdc_poll(); CHECK(clock_frees==1);
+    /* 申请失败不误记持有；恢复后由服务或优先级 0 轮询补申请。 */
+    clock_fail=1; generation=3; state_handler(); pump();
+    CHECK(!clock_held && !factory_clock_floor && rdx_factory_cdc_needs_poll());
+    clock_fail=0; rdx_factory_cdc_poll(); CHECK(clock_held && factory_clock_floor);
+    /* 申请失败期间断开不能产生多余释放。 */
+    generation=0; state_handler(); pump(); CHECK(!clock_held && clock_frees==2);
+    clock_fail=1; generation=4; state_handler(); pump();
+    generation=0; state_handler(); pump(); CHECK(clock_frees==2 && !clock_held);
+    CHECK(!clock_in_irq && !irq && clock_logs==4);
+    return 0;
+}
 int test_notification_and_timer_failure_recovery(void) {
     boot(); generation=0; pump();
     app_fail=1; generation=2; state_handler(); CHECK(factory_pending && !app_queued);
@@ -264,8 +306,8 @@ def check_protocol():
     path = ROOT / 'cache/factory-usb-test/protocol.c'
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(STUBS + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ('test_frames', 'test_sessions', 'test_legacy_rejected', 'test_identity', 'test_command_logging', 'test_custom_framing', 'test_idle_session_lifecycle', 'test_notification_and_timer_failure_recovery'), native=True)
-    print('PASS: CDC protocol framing, overflow isolation, mailbox/TX backpressure, session/timeout, bounded identity')
+    run_c_checks(path, ('test_frames', 'test_sessions', 'test_legacy_rejected', 'test_identity', 'test_command_logging', 'test_custom_framing', 'test_idle_session_lifecycle', 'test_notification_and_timer_failure_recovery', 'test_clock_floor_lifecycle'), native=True)
+    print('PASS: CDC protocol framing, overflow isolation, mailbox/TX backpressure, session/timeout, bounded identity, session clock floor')
 
 
 if __name__ == '__main__':

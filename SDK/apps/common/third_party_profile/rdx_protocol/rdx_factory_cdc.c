@@ -8,6 +8,8 @@
 #include "rdx_factory_audio.h"
 #include "rdx_cdc_file.h"
 #include "rdx_cdc_source.h"
+#include "clock_manager/clock_manager.h"
+#include "clock.h"
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
 extern char *rdx_ble_server_get_local_name(void);
@@ -256,6 +258,28 @@ static void factory_byte(u8 byte)
     else factory_protocol.line[factory_protocol.length++] = byte;
 }
 
+/* CDC 会话必然有 USB 供电：会话期间锁定原生最高档，避免空闲降频拖慢传输；
+ * 会话结束即释放，电池态调频不受影响。仅 app_core 调用（clock_alloc 需任务上下文）。 */
+static u8 factory_clock_floor;
+static void factory_clock_floor_update(u32 generation)
+{
+    if (generation && !factory_clock_floor) {
+        u32 floor = clk_get_max_frequency();
+        /* 申请失败保持未持有，由会话期间的 10 ms 服务继续重试。 */
+        if (clock_alloc("factory_cdc", floor)) return;
+        factory_clock_floor = 1;
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
+        printf("[CDC_CLK] floor=%u sys=%u\n", floor, clk_get("sys"));
+#endif
+    } else if (!generation && factory_clock_floor) {
+        clock_free("factory_cdc");
+        factory_clock_floor = 0;
+#if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
+        printf("[CDC_CLK] released sys=%u\n", clk_get("sys"));
+#endif
+    }
+}
+
 static void factory_service(void *priv)
 {
     if (!factory_initialized) return;
@@ -265,6 +289,7 @@ static void factory_service(void *priv)
     /* At most 256 bytes and four responses per tick, including error frames. */
     unsigned int bytes = 0, responses = 0;
     u32 generation = factory_cdc_generation();
+    factory_clock_floor_update(generation);
     if (generation) {
         if (!factory_protocol.timer) {
             factory_protocol.timer = sys_timer_add(NULL, factory_service, 10);
@@ -354,7 +379,8 @@ int rdx_factory_cdc_needs_poll(void)
 #endif
     /* 只读状态，供优先级 0 恢复入口判断；不得在此执行协议或文件操作。 */
     return factory_pending || generation != factory_protocol.generation ||
-           !!generation != !!factory_protocol.timer || (!generation && cleanup);
+           !!generation != !!factory_protocol.timer || (!generation && cleanup) ||
+           !!generation != factory_clock_floor;
 }
 
 void rdx_factory_cdc_poll(void)

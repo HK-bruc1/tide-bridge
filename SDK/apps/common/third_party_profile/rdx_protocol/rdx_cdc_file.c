@@ -4,6 +4,7 @@
 #include "rdx_dut.h"
 #include "usb/device/usb_factory_cdc.h"
 #include "system/includes.h"
+#include "clock.h"
 
 #if TCFG_T2620_CDC_FILE_ENABLE
 #define CDC_FILE_MAX 0xffffffffu /* 仅受 CDF1 的 u32 长度和偏移表示范围约束。 */
@@ -277,8 +278,9 @@ void rdx_cdc_file_service(u32 generation)
         if (file_stream.sent != file_stream.length) continue;
         if (file_stream.terminal) {
 #if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
-            printf("[CDC_FILE] queued id=%u bytes=%u crc=%08x ms=%u error=%u\n", file_stream.id,
-                   file_stream.offset, file_stream.crc, (u32)(sys_timer_get_ms() - file_stream.since), file_stream.error);
+            printf("[CDC_FILE] queued id=%u bytes=%u crc=%08x ms=%u error=%u sys_clk=%u\n", file_stream.id,
+                   file_stream.offset, file_stream.crc, (u32)(sys_timer_get_ms() - file_stream.since), file_stream.error,
+                   clk_get("sys"));
 #endif
             file_stream.active = 0;
             if (file_stream.recording) rdx_cdc_source_release();
