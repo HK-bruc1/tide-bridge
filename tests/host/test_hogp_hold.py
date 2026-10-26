@@ -912,6 +912,8 @@ def main():
     check_local_keys()
     from led_key_feedback_checks import main as check_key_led
     check_key_led()
+    from connection_tone_checks import main as check_connection_tones
+    check_connection_tones()
 
 if __name__ == '__main__':
     main()

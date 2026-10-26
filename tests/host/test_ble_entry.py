@@ -172,7 +172,7 @@ void multi_att_clear_ccc_config(u16 c) {}
 void rdx_ble_server_disconnected_adv_restart_cancel(void) {}
 void rdx_peripheral_power_vdd_ble_links_changed_notify(void) {}
 u8 rdx_ble_session_active_count(void) { return links[0].connected+links[1].connected; }
-void rdx_ble_server_conn_tone_post(void) {}
+void rdx_ble_server_conn_tone_reset(void) {}
 void rdx_ble_server_phase0a_connect_adv_restart_schedule(void) { g_rdx_ble_phase0a_connect_adv_timer=1; }
 void os_time_dly(int ticks) {
     if(!in_core || irq || ++exit_delays>220) ++context_error;

@@ -46,9 +46,6 @@ $PacketHandlerBody = Get-SourceSlice $Server `
 $ConnParamBody = Get-SourceSlice $Server `
     'static u8 rdx_ble_server_request_connect_parameter_for_token(' `
     'static u8 rdx_ble_server_local_name_copy('
-$ConnToneCallbackBody = Get-SourceSlice $Server `
-    'static int rdx_ble_server_conn_tone_callback(' `
-    'static void rdx_ble_server_conn_tone_play('
 $PlebindCallbackBody = Get-SourceSlice $App `
     'static int rdx_app_poweron_bind_tone_callback(' `
     'static void rdx_app_poweron_bind_tone_check('
@@ -125,20 +122,14 @@ $PlayerFreeBody = Get-SourceSlice $TonePlayer `
     'void tone_player_free(' 'static void tone_player_callback('
 $PlayerStopBody = Get-SourceSlice $TonePlayer `
     'void tone_player_stop(' 'u16 tone_player_get_fname_uuid('
-Assert-Contract 'BLE_PROMPTS_CANCEL_ON_INTERRUPTION_AND_REVALIDATE_AT_START' `
+Assert-Contract 'BIND_PROMPT_COMPLETION_AND_START_VALIDATION' `
     ($PlayerCallbackBody -match '(?s)if\s*\(!file\).*?if\s*\(event\s*==\s*STREAM_EVENT_STOP\s*&&\s*player->complete_callback\)\s*\{\s*player->complete_callback\(player->priv\);' -and
      ($PlayerFreeBody + $PlayerStopBody) -notmatch 'complete_callback' -and
-     $ConnToneCallbackBody -match 'event\s*==\s*STREAM_EVENT_INIT' -and
-     $ConnToneCallbackBody -match 'g_rdx_ble_conn_tone_epoch' -and
-     $ConnToneCallbackBody -match '!rdx_ble_session_active_count\s*\(\s*\)' -and
-     $ConnToneCallbackBody -match 'app_var.goto_poweroff_flag' -and
-     $ConnToneCallbackBody -match 'return -1' -and
-     $ConnToneCallbackBody -notmatch 'os_taskq_post_type' -and
      $PlebindCallbackBody -match 'event\s*==\s*STREAM_EVENT_INIT' -and
      $PlebindCallbackBody -match 'app_var.goto_poweroff_flag' -and
      $PlebindCallbackBody -match 'rdx_vm_get_bound_status\s*\(\s*\)' -and
      $PlebindCallbackBody -match 'return -1') `
-    'completion semantics remain intact; queued connection tones reject stale links and boot reminders reject shutdown or completed binding'
+    'only normal completion runs completion hooks; boot reminders reject shutdown or completed binding'
 
 Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
     (($Server + $Keyboard) -notmatch '(?m)^\s*(?!//)[^/\r\n]*\batt_(?:get|set)_ccc_config\s*\(' -and

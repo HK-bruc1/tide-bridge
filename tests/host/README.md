@@ -82,6 +82,13 @@ These scheduling checks do not prove on-device current or latency; see the
 [disconnected power policy](../../docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md)
 and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
+`test_hogp_hold.py` also runs `connection_tone_checks.py`: focused checks of
+independent HID/RDX prompts, deduplication, stale sessions and failure handling.
+It uses the real BLE registry and tone logic, mocking HID readiness, OS and
+audio; HID/security and recording remain covered by their existing tests.
+Connection-tone internals are not duplicated in source contracts. Core device
+paths passed user testing; audio coexistence still needs separate validation.
+
 F19 stable-Down device regression (2026-10-24): configure any KEY1-KEY5 to
 plain F19 and check startup without waiting for LONG, release during APP/tone
 startup, normal stop, hot remap and RDX loss. Recheck F13/F14 click/seek,

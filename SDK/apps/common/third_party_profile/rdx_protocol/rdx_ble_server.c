@@ -237,7 +237,16 @@ static rdx_ble_async_token_t g_rdx_ble_send_pending_token = {
 };
 static u16 g_rdx_ble_send_pending_count = 0;
 static u8 g_rdx_ble_send_retry_pending = 0;
-static u32 g_rdx_ble_conn_tone_epoch = 0;
+typedef struct {
+    void *ble_hdl;
+    u32 slot_generation;
+    u32 runtime_epoch;
+    u32 ticket;
+    u16 con_handle;
+} rdx_ble_conn_tone_t;
+
+static rdx_ble_conn_tone_t g_rdx_ble_conn_tones[2];
+static u32 g_rdx_ble_conn_tone_ticket;
 
 typedef struct {
     rdx_ble_async_token_t token;
@@ -2251,57 +2260,133 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
         rdx_ble_server_conn_param_changed();
 }
 
-static u32 rdx_ble_server_conn_tone_epoch_advance(void)
+static void rdx_ble_server_conn_tone_reset(void)
 {
-    g_rdx_ble_conn_tone_epoch++;
-    if (!g_rdx_ble_conn_tone_epoch) {
-        g_rdx_ble_conn_tone_epoch = 1;
+    /* Keep tickets monotonic across server reinitialization and slot reuse. */
+    local_irq_disable();
+    memset(g_rdx_ble_conn_tones, 0, sizeof(g_rdx_ble_conn_tones));
+    local_irq_enable();
+}
+
+static u8 rdx_ble_server_conn_tone_ready(rdx_ble_link_state_t *link, u8 hid)
+{
+    if (!link || !link->connected || g_rdx_ble_exiting ||
+        app_var.goto_poweroff_flag) return 0;
+
+    if (hid) {
+        return rdx_ble_session_get_hid_link() == link &&
+               rdx_hogp_keyboard_is_ready();
     }
-    return g_rdx_ble_conn_tone_epoch;
+    return rdx_ble_session_get_rdx_link() == link &&
+           link->rdx_runtime_active &&
+           rdx_ble_session_rdx_runtime_state_get() == RDX_BLE_RUNTIME_ACTIVE;
+}
+
+static u8 rdx_ble_server_conn_tone_is_current(u32 ticket)
+{
+    u8 hid = ticket & 1;
+    const rdx_ble_conn_tone_t *tone = &g_rdx_ble_conn_tones[hid];
+    rdx_ble_link_state_t *link;
+    u8 valid = 0;
+
+    local_irq_disable();
+    if (ticket && tone->ticket == ticket) {
+        link = rdx_ble_session_find(tone->ble_hdl, tone->con_handle);
+        if (link && link->slot_generation == tone->slot_generation &&
+            rdx_ble_server_conn_tone_ready(link, hid)) {
+            /* RDX detach advances the shared epoch, not the HID session. */
+            valid = hid || tone->runtime_epoch ==
+                           rdx_ble_session_rdx_runtime_epoch_get();
+        }
+    }
+    local_irq_enable();
+    return valid;
 }
 
 static int rdx_ble_server_conn_tone_callback(void *priv,
                                             enum stream_event event)
 {
     /* INIT is also delivered when a queued tone finally reaches the head. */
-    if (event == STREAM_EVENT_INIT &&
-        ((u32)priv != g_rdx_ble_conn_tone_epoch ||
-         !rdx_ble_session_active_count() || app_var.goto_poweroff_flag)) {
-        return -1;
+    if (event == STREAM_EVENT_INIT) {
+        if (!rdx_ble_server_conn_tone_is_current((u32)priv)) {
+            r_printf("[RDX_BLE_TONE] drop at start service=%s ticket=%u\n",
+                     ((u32)priv & 1) ? "HID" : "RDX", (u32)priv);
+            return -1;
+        }
+        r_printf("[RDX_BLE_TONE] start service=%s ticket=%u\n",
+                 ((u32)priv & 1) ? "HID" : "RDX", (u32)priv);
     }
     return 0;
 }
 
-static void rdx_ble_server_conn_tone_play(u32 tone_epoch)
+static void rdx_ble_server_conn_tone_play(u32 ticket)
 {
     const char *tone_file;
 
-    if (tone_epoch != g_rdx_ble_conn_tone_epoch ||
-        !rdx_ble_session_active_count() || app_var.goto_poweroff_flag) {
+    if (!rdx_ble_server_conn_tone_is_current(ticket)) {
+        r_printf("[RDX_BLE_TONE] drop before queue service=%s ticket=%u\n",
+                 (ticket & 1) ? "HID" : "RDX", ticket);
         return;
     }
 
     tone_file = get_tone_files()->conn;
 
     if (tone_file) {
-        if (play_tone_file_callback(
-                tone_file, (void *)tone_epoch,
-                rdx_ble_server_conn_tone_callback)) {
-            r_printf("[RDX_BLE_LINK] connection tone play failed\n");
+        if (play_tone_file_callback(tone_file, (void *)ticket,
+                                   rdx_ble_server_conn_tone_callback)) {
+            r_printf("[RDX_BLE_TONE] play failed service=%s ticket=%u\n",
+                     (ticket & 1) ? "HID" : "RDX", ticket);
         }
+    } else {
+        r_printf("[RDX_BLE_TONE] missing resource service=%s ticket=%u\n",
+                 (ticket & 1) ? "HID" : "RDX", ticket);
     }
 }
 
-static void rdx_ble_server_conn_tone_post(void)
+static void rdx_ble_server_conn_tone_post(rdx_ble_link_state_t *link, u8 hid)
 {
-    u32 tone_epoch = rdx_ble_server_conn_tone_epoch_advance();
+    rdx_ble_conn_tone_t *tone = &g_rdx_ble_conn_tones[hid];
+    u32 runtime_epoch;
+    u32 ticket;
     int msg[3];
 
+    local_irq_disable();
+    if (!rdx_ble_server_conn_tone_ready(link, hid)) {
+        local_irq_enable();
+        return;
+    }
+    runtime_epoch = hid ? 0 : rdx_ble_session_rdx_runtime_epoch_get();
+    if (tone->ticket && tone->ble_hdl == link->ble_hdl &&
+        tone->con_handle == link->con_handle &&
+        tone->slot_generation == link->slot_generation &&
+        tone->runtime_epoch == runtime_epoch) {
+        local_irq_enable();
+        return;
+    }
+
+    /* The low bit selects a service; one service never invalidates the other. */
+    g_rdx_ble_conn_tone_ticket += 2;
+    if (!g_rdx_ble_conn_tone_ticket) g_rdx_ble_conn_tone_ticket = 2;
+    ticket = g_rdx_ble_conn_tone_ticket | hid;
+    tone->ble_hdl = link->ble_hdl;
+    tone->con_handle = link->con_handle;
+    tone->slot_generation = link->slot_generation;
+    tone->runtime_epoch = runtime_epoch;
+    tone->ticket = ticket;
+    local_irq_enable();
+
+    r_printf("[RDX_BLE_TONE] post service=%s con=0x%04x gen=%u epoch=%u ticket=%u\n",
+             hid ? "HID" : "RDX", tone->con_handle,
+             tone->slot_generation, runtime_epoch, ticket);
     msg[0] = (int)rdx_ble_server_conn_tone_play;
     msg[1] = 1;
-    msg[2] = (int)tone_epoch;
+    msg[2] = (int)ticket;
     if (os_taskq_post_type("app_core", Q_CALLBACK, 3, msg)) {
-        r_printf("[RDX_BLE_LINK] connection tone taskq post failed\n");
+        local_irq_disable();
+        if (tone->ticket == ticket) tone->ticket = 0;
+        local_irq_enable();
+        r_printf("[RDX_BLE_TONE] taskq failed service=%s ticket=%u\n",
+                 hid ? "HID" : "RDX", ticket);
     }
 }
 
@@ -2372,11 +2457,6 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     rdx_ble_server_adv_interval_change_timer_stop();
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
-    /* With two Peripheral ACL slots, announce only the aggregate 0 -> 1
-     * transition.  A second link must not replay the connection prompt. */
-    if (rdx_ble_session_active_count() == 1) {
-        rdx_ble_server_conn_tone_post();
-    }
     rdx_ble_server_dual_acl_sleep_policy_update("connect");
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
     rdx_ble_entry_topology_changed();
@@ -2427,6 +2507,21 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     rdx_ble_server_phase0b_adv_token_capture(hdl);
     rdx_ble_server_disconnected_adv_restart_schedule();
 }
+
+#if TCFG_RDX_HOGP_ENABLE
+static void rdx_ble_server_hid_encryption_change(rdx_ble_link_state_t *link,
+                                               u8 encrypted, u8 status)
+{
+    if (rdx_ble_session_link_is_hid(link)) {
+        rdx_hogp_on_encryption_change(link->con_handle, encrypted, status);
+    } else if (encrypted &&
+               rdx_hogp_peer_has_persisted_subscription(link->con_handle) &&
+               !rdx_ble_server_phase2_hid_attach(link)) {
+        rdx_hogp_on_encryption_change(link->con_handle, encrypted, status);
+    }
+    rdx_ble_server_conn_tone_post(link, 1);
+}
+#endif
 
 static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                                                   uint8_t packet_type,
@@ -2526,16 +2621,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                     rdx_ble_server_conn_param_changed();
                 }
 #if TCFG_RDX_HOGP_ENABLE
-                if (rdx_ble_session_link_is_hid(link)) {
-                    rdx_hogp_on_encryption_change(con_handle, encrypted,
-                                                  status);
-                } else if (encrypted &&
-                           rdx_hogp_peer_has_persisted_subscription(
-                               con_handle) &&
-                           !rdx_ble_server_phase2_hid_attach(link)) {
-                    rdx_hogp_on_encryption_change(con_handle, encrypted,
-                                                  status);
-                }
+                rdx_ble_server_hid_encryption_change(link, encrypted, status);
 #endif
             }
             r_printf("[RDX_BLE_SEC] encryption=%u con=0x%04x\n",
@@ -2911,6 +2997,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
         rdx_ble_server_rdx_runtime_try_rearm();
     }
     if (rdx_ble_session_link_is_rdx(link) && link->rdx_runtime_active) {
+        rdx_ble_server_conn_tone_post(link, 0);
         return 0;
     }
     had_hid_owner = rdx_ble_session_link_is_hid(link);
@@ -2943,6 +3030,7 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
     r_printf("[RDX_BLE_SESSION] runtime ACTIVE con=0x%04x hdl=%p epoch=%u\n",
               link->con_handle, link->ble_hdl,
               rdx_ble_session_rdx_runtime_epoch_get());
+    rdx_ble_server_conn_tone_post(link, 0);
     return 0;
 }
 
@@ -3050,6 +3138,17 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
     rdx_ble_server_conn_param_changed();
     return rdx_hogp_keyboard_is_connected() ? 0 :
            RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR;
+}
+
+static int rdx_ble_server_hid_write(rdx_ble_link_state_t *link, u16 handle,
+                                   u16 transaction_mode, u16 offset,
+                                   u8 *buffer, u16 buffer_size)
+{
+    int result = rdx_hogp_att_write(link->con_handle, handle,
+                                    transaction_mode, offset,
+                                    buffer, buffer_size);
+    if (!result) rdx_ble_server_conn_tone_post(link, 1);
+    return result;
 }
 #endif
 
@@ -3407,9 +3506,8 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
         if (handle == HID_INPUT_REPORT_CLIENT_CONFIGURATION_HANDLE &&
             cfg == 0x0000) {
             if (rdx_ble_session_link_is_hid(link)) {
-                return rdx_hogp_att_write(connection_handle, handle,
-                                          transaction_mode, offset,
-                                          buffer, buffer_size);
+                return rdx_ble_server_hid_write(link, handle, transaction_mode,
+                                                 offset, buffer, buffer_size);
             }
             multi_att_set_ccc_config(connection_handle, handle, 0);
             return 0;
@@ -3438,9 +3536,8 @@ static int rdx_ble_server_att_write_callback(void *hdl, hci_con_handle_t connect
             return rdx_ble_server_phase0a_hogp_control_write(
                 hdl, connection_handle, handle, offset, buffer, buffer_size);
         }
-        return rdx_hogp_att_write(connection_handle, handle,
-                                  transaction_mode, offset,
-                                  buffer, buffer_size);
+        return rdx_ble_server_hid_write(link, handle, transaction_mode,
+                                         offset, buffer, buffer_size);
     }
 #else
     (void)offset;
@@ -4530,6 +4627,7 @@ void rdx_ble_server_init(void)
             g_rdx_ble_server_info.rdx_ble_server_hdl, tmp_ble_addr);
         rdx_ble_server_wrapper_register(g_rdx_ble_secondary_hdl,
                                         tmp_ble_addr);
+        rdx_ble_server_conn_tone_reset();
         rdx_ble_session_transport_init(
             g_rdx_ble_server_info.rdx_ble_server_hdl,
             g_rdx_ble_secondary_hdl);
@@ -4585,6 +4683,7 @@ void rdx_ble_server_exit(void)
     rdx_ble_server_phase0a_connect_adv_restart_cancel();
     rdx_ble_server_rdx_send_pending_reset();
     rdx_session_control_reset();
+    rdx_ble_server_conn_tone_reset();
     rdx_ble_session_transport_deinit();
     g_rdx_ble_adv_token.slot_index = RDX_BLE_LINK_INVALID_INDEX;
 
