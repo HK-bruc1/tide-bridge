@@ -9,6 +9,8 @@
 int rdx_storage_lifecycle_service(int on, int vbus);
 int rdx_storage_lifecycle_changed(void);
 int rdx_storage_lifecycle_business_blocked(void);
+/* Only for token-authorized online F19; all file callers use business_blocked. */
+int rdx_storage_lifecycle_stream_blocked(void);
 int rdx_storage_lifecycle_transition_led(void);
 int rdx_storage_lifecycle_shutdown_deferred(void);
 void rdx_storage_lifecycle_pc_returned(void);
@@ -16,6 +18,7 @@ void rdx_storage_lifecycle_pc_returned(void);
 static inline int rdx_storage_lifecycle_service(int on, int vbus) { return 0; }
 static inline int rdx_storage_lifecycle_changed(void) { return 0; }
 static inline int rdx_storage_lifecycle_business_blocked(void) { return 0; }
+static inline int rdx_storage_lifecycle_stream_blocked(void) { return 0; }
 static inline int rdx_storage_lifecycle_transition_led(void) { return 0; }
 static inline int rdx_storage_lifecycle_shutdown_deferred(void) { return 0; }
 static inline void rdx_storage_lifecycle_pc_returned(void) {}

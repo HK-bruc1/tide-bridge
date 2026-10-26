@@ -18,6 +18,7 @@
 #include "rdx_hogp_input.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_dut.h"
+#include "rdx_cdc_source.h"
 
 #if TCFG_DIP_SWITCH_POWER_ENABLE
 static volatile int s_refresh_previous;
@@ -36,6 +37,14 @@ int rdx_storage_lifecycle_business_blocked(void)
 {
     /* 此准入条件仅用于文件操作，不限制 BLE、HID 和电源流程。 */
     return rdx_record_format_service_status() != 0 ||
+           rdx_uxfile_pc_refresh_status() != 0 ||
+           rdx_uxfile_storage_status() < 0;
+}
+
+int rdx_storage_lifecycle_stream_blocked(void)
+{
+    return rdx_record_format_stream_status() != 0 ||
+           rdx_cdc_source_stream_blocked() ||
            rdx_uxfile_pc_refresh_status() != 0 ||
            rdx_uxfile_storage_status() < 0;
 }

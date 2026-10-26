@@ -279,6 +279,26 @@ int test_download_admission(void) {
     rdx_record_format_download_release();
     return 0;
 }
+int test_stream_only_storage_query(void) {
+    reset(); rf_service=0;
+    CHECK(!rdx_record_format_stream_status());
+    CHECK(!rdx_record_format_download_acquire());
+    int enters=power_enters, hints=idle_hints;
+    CHECK(rdx_record_format_service_status() && !rdx_record_format_stream_status());
+    rf_service=1; CHECK(rdx_record_format_stream_status());
+    rf_service=-1; CHECK(rdx_record_format_stream_status()<0);
+    rf_service=0; rf_erasing=1; CHECK(rdx_record_format_stream_status());
+    rf_erasing=0; factory_busy=1; CHECK(rdx_record_format_stream_status());
+    factory_busy=0; rdx_record_format_storage_fault();
+    CHECK(rdx_record_format_stream_status()<0);
+    CHECK(rf_download && !rf_io_users && !rf_command_users);
+    CHECK(power_enters==enters && idle_hints==hints);
+    rf_error=0; CHECK(!rdx_record_format_stream_status());
+    CHECK(rdx_record_format_io_enter()!=0 && rdx_record_format_protocol_busy());
+    rdx_record_format_download_release();
+    CHECK(!rdx_record_format_service_status() && !rdx_record_format_stream_status());
+    return 0;
+}
 int test_power_admission(void) {
     reset(); rf_service=0;
     rdx_record_format_command_enter();
@@ -968,7 +988,7 @@ double fabs(double);
     vm_enum = re.search(r'typedef enum _vm_err\s*\{.*?\}\s*VM_ERR;', vm_header, re.S)[0]
     path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
     run_c_checks(path, ['test_space_reserve', 'test_explicit_format_recovery',
-                        'test_download_admission', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
+                        'test_download_admission', 'test_stream_only_storage_query', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
                         'test_format_fail_closed', 'test_format_replay',

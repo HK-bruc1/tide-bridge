@@ -288,7 +288,12 @@ def main():
     done = next(f for f in english['files'] if f['outputName'] == 'dut_off')
     assert done['enable'] and done['path'].endswith('dut_ok.mp3')
     packed = (ROOT / 'SDK/cpu/br28/tools/download/earphone/tone_en.cfg').read_bytes()
-    for name in (b'ding.wts', b'conn.wts', b'plebind.wts', b'dut_off.wts'):
+    for output in ('ding', 'conn', 'plebind', 'dut_off'):
+        tone = next(f for f in english['files'] if f['outputName'] == output)
+        resource = Path(tone['path'].replace('%PROJECT_PATH%', str(ROOT)))
+        assert tone['enable'] and resource.is_file() and resource.stat().st_size > 0
+        suffix = resource.suffix if tone['format']['value'] == '\u539f\u683c\u5f0f' else '.wts'
+        name = (output + suffix).encode('ascii') + b'\0'
         assert name in packed, f'Missing packaged tone: {name!r}'
     table = (ROOT / 'SDK/apps/earphone/audio/tone_table.c').read_text(encoding='utf-8')
     assert '.dut_done = "tone_en/dut_off.*"' in table

@@ -333,8 +333,10 @@ typedef unsigned char u8;
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
 #define r_printf(...) ((void)0)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
-static int format, refresh, error, business, active, wakes, invalidates, dut_wakes, restores;
+static int format, stream_format, source_fault, refresh, error, business, active, wakes, invalidates, dut_wakes, restores;
 int rdx_record_format_service_status(void) { return format; }
+int rdx_record_format_stream_status(void) { return stream_format; }
+int rdx_cdc_source_stream_blocked(void) { return source_fault; }
 int rdx_uxfile_pc_refresh_status(void) { return refresh; }
 int rdx_uxfile_storage_status(void) { return error; }
 int rdx_app_business_started(void) { return business; }
@@ -348,6 +350,18 @@ void rdx_ble_server_adv_enable(int en) { ++restores; }
 void rdx_led_ctrl_restore_system_state(void) { ++restores; }
 '''
 storage_tests = r'''
+int test_stream_only_storage_lifecycle(void) {
+    format=1; stream_format=source_fault=refresh=error=0;
+    int old_wakes=wakes, old_restores=restores;
+    CHECK(rdx_storage_lifecycle_business_blocked() && !rdx_storage_lifecycle_stream_blocked());
+    int *guards[]={&stream_format,&source_fault,&refresh,&error};
+    for(int i=0;i<4;++i) {
+        *guards[i]=-1; CHECK(rdx_storage_lifecycle_stream_blocked()); *guards[i]=0;
+    }
+    CHECK(format==1 && wakes==old_wakes && restores==old_restores);
+    format=0;
+    return 0;
+}
 int test_storage_event_reconciliation(void) {
     format=refresh=error=business=active=wakes=invalidates=dut_wakes=restores=0;
     s_refresh_previous=s_pc_refresh_pending=s_business_blocked_previous=0;
@@ -373,8 +387,18 @@ int test_storage_event_reconciliation(void) {
 '''
 path = path.with_name('storage_lifecycle.c')
 path.write_text(storage_stubs + storage + storage_tests, encoding='utf-8')
-run_c_checks(path, ['test_storage_event_reconciliation'])
+run_c_checks(path, ['test_stream_only_storage_lifecycle', 'test_storage_event_reconciliation'], native=True)
 print('Storage lifecycle: state-change wake, pending reconciliation and failed-refresh stop with isolation passed.')
+
+feature_off = '#define TCFG_DIP_SWITCH_POWER_ENABLE 0\n#define TCFG_T2620_CDC_FILE_ENABLE 0\n'
+for name in ('rdx_storage_lifecycle.h', 'rdx_cdc_source.h'):
+    header = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol' / name).read_text(encoding='utf-8')
+    feature_off += re.sub(r'^#include.*\n', '', header, flags=re.M)
+feature_off += ('\nint test_stream_feature_off(void) { return '
+                'rdx_storage_lifecycle_stream_blocked() || rdx_cdc_source_stream_blocked(); }\n')
+path = path.with_name('stream_feature_off.c')
+path.write_text(feature_off, encoding='utf-8')
+run_c_checks(path, ['test_stream_feature_off'])
 
 # 验证旧库 ABI 兼容入口，测试环境不提供 GPIO、SD 或定时器接口。
 app = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c').read_text(encoding='utf-8')

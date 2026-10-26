@@ -153,6 +153,13 @@ int rdx_record_format_service_status(void)
     return rf_erasing ? 1 : rf_service ? rf_service : ((rf_download || rdx_factory_audio_file_busy()) ? 1 : 0);
 }
 
+int rdx_record_format_stream_status(void)
+{
+    /* Only the CDC read lease is compatible with storage-free inspiration. */
+    return rf_erasing ? 1 : rf_service ? rf_service : rf_error ? rf_error :
+           (rdx_factory_audio_file_busy() ? 1 : 0);
+}
+
 int rdx_record_format_io_enter(void)
 {
     local_irq_disable();

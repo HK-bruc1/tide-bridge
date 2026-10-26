@@ -53,7 +53,7 @@ static int local_burnin, consume_key, dut_burnins;
 static int player_messages, last_player_message;
 static u32 local_epoch=1;
 static int rdx_app_init_flag=1, poweroff_ready_flag, rdx_dut_mode, mode_switch_keep_timer;
-static int ready, bound=1, blocked, queue_fail, stop_fail, stops, playback, playback_stops, starts;
+static int ready, bound=1, blocked, cdc_busy, queue_fail, stop_fail, stops, playback, playback_stops, starts;
 static int online_starts, online_stops, ota, formatting;
 static int marks;
 static int dut_disabled;
@@ -92,7 +92,8 @@ static int rdx_app_get_scene(void) { return rdx_dut_mode?4:1; }
 static void rdx_led_ctrl_show_battery(void) { ++battery_queries; }
 static RecordStatus *rdx_record_get_status(void) { return &status; }
 static int rdx_record_binding_allowed(void) { return bound; }
-static int rdx_storage_lifecycle_business_blocked(void) { return blocked; }
+static int rdx_storage_lifecycle_business_blocked(void) { return blocked || cdc_busy; }
+static int rdx_storage_lifecycle_stream_blocked(void) { return blocked; }
 static int rdx_record_format_download_conflict(const char *operation) { return blocked; }
 static int rdx_record_process_is_busy_check(void) { return status.process_state==REC_PROCESS_STATE_BUSY; }
 static int rdx_ble_session_rdx_token_capture(rdx_ble_async_token_t *t,int r) { return ready; }
@@ -231,7 +232,7 @@ static void reset(void) {
     status=(RecordStatus){0}; status.run=RECORD_STATE_STOP; status.scene=RECORD_SCENE_CHAT;
     generation=1; key_state=RDX_RECORD_KEY_IDLE; record_kind=RDX_RECORD_MEETING;
     rdx_app_init_flag=bound=stream_ready=release_done=1;
-    poweroff_ready_flag=rdx_dut_mode=mode_switch_keep_timer=ready=blocked=0;
+    poweroff_ready_flag=rdx_dut_mode=mode_switch_keep_timer=ready=blocked=cdc_busy=0;
     queue_fail=stop_fail=stops=starts=online_starts=online_stops=ota=formatting=0;
     timer_fail=pc_mode=factory_keys=local_burnin=consume_key=0;
     player_messages=last_player_message=0;
@@ -483,6 +484,23 @@ int test_device_record_set_admits_before_key_context(void) {
         storage_full=1;
         rdx_app_device_record_set(RECORD_SCENE_CHAT,RECORD_STATE_STOP,routes[i],kinds[i]);
         CHECK(storage_admits==2);
+    }
+    return 0;
+}
+int test_cdc_first_only_online_plain_f19(void) {
+    for(int link=0;link<4;++link) {
+        reset(); cdc_busy=1; ready=link>=1; stream_ready=link>=2;
+        hid_ready=link==3; playback=1;
+        rdx_hogp_input_cycle_t c=cycle(4,0x6e,200+link);
+        down(&c);
+        int admitted=ready && stream_ready;
+        CHECK(online_starts==admitted && !starts && !storage_admits);
+        CHECK(!!key_record_session_active==admitted && cdc_busy);
+        CHECK(playback_stops==admitted && playback==!admitted);
+        gesture(&c,KEY_ACTION_LONG); gesture(&c,KEY_ACTION_HOLD);
+        CHECK(online_starts==admitted && !starts);
+        gesture(&c,KEY_ACTION_UP);
+        CHECK(cdc_busy && (!admitted || release_calls));
     }
     return 0;
 }

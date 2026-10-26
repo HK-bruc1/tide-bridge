@@ -158,6 +158,18 @@ It does not establish physical USB timing, storage throughput or 600 KB/s.
 See [CDC file transfer](../../docs/10-4.CDC通用文件传输业务方案.md),
 sections 6.3–6.4 for board validation and section 7 for historical performance.
 
+CDC / online-F19 coverage stays in the existing suites. Usage dispatch owns
+plain-F19 routing/readiness; `record_key_session_checks.py` owns both startup
+orders, LIST/GET during pending/tone/active/pause, no-storage cleanup, ordinary
+recording exclusion, stale owners and post-acquire conflicts. One shared fixture
+covers both process variants and the worker guard: CDC deadline/error/cancel,
+STOP/READY cleanup, stale work, queue retry, timer exhaustion and release races.
+`cdc_source_checks.py` owns reader health/deadlines; archive snapshot/cache
+behavior remains in record-format/recovery tests, without a second LLVM model.
+Contracts retain caller wiring rather than repeating these behavioral checks.
+USB/BLE timing, APP audio, integrity and throughput require the
+[board checklist](../board/README.md); host success is not device acceptance.
+
 ## Keeping the suite small
 
 Full-volume regression: `test_record_storage.py` verifies the mono/stereo

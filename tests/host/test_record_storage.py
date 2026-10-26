@@ -439,6 +439,7 @@ static BLE_SendData send;
 static BleBulkSendData bulk;
 RecordStatus *rdx_record_get_status(void) { return &record_status; }
 int rdx_record_process_is_busy_check(void) { return worker; }
+int rdx_record_cdc_read_is_busy(void) { return record_status.run!=RECORD_STATE_STOP || worker; }
 ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &info; }
 BLE_SendData *rdx_protocol_get_ble_send_data(void) { return &send; }
 BleBulkSendData *rdx_protocol_get_bulk_send_data(void) { return &bulk; }
@@ -453,7 +454,7 @@ int get_ota_status(void) { return ota; }
     source += function(record, 'rdx_record_transport_is_detached')
     source += function(record, 'rdx_record_on_ble_conn_changed')
     for name in ['rdx_app_storage_activity_check', 'rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
-                 'rdx_app_cdc_file_conflict', 'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
+                 'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
         source += function(app, name)
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
@@ -504,9 +505,7 @@ int test_reconnect(void) {
     CHECK(rdx_pc_storage_is_busy()); /* MSC admission remains strict. */
     CHECK(!rdx_app_factory_file_is_busy());
     cdc_download_busy=1;
-    CHECK(rdx_app_factory_file_is_busy() && !rdx_app_cdc_file_conflict());
-    scan=1; CHECK(rdx_app_cdc_file_conflict()); scan=0;
-    transfer=1; CHECK(rdx_app_cdc_file_conflict()); transfer=0;
+    CHECK(rdx_app_factory_file_is_busy());
     cdc_download_busy=0;
     int *file_flags[]={&worker,&transfer,&sync_busy,&loading,&scan,&format,&ota,
         &info.file_send_busy,&cdc_file_busy};
@@ -937,9 +936,12 @@ def check_storage_full_tone():
     config = json.loads((ROOT / 'src/提示音.tone').read_text(encoding='utf-8'))
     english = next(g for g in config['group'] if g['title'] == 'tone_en')
     tone = next(f for f in english['files'] if f['outputName'] == 'no_sd')
-    assert tone['enable'] and tone['path'].endswith('not_enough_storage.mp3')
+    resource = Path(tone['path'].replace('%PROJECT_PATH%', str(ROOT)))
+    assert tone['enable'] and resource.is_file() and resource.stat().st_size > 0
     packed = (ROOT / 'SDK/cpu/br28/tools/download/earphone/tone_en.cfg').read_bytes()
-    assert b'no_sd.wts' in packed, 'Missing packaged storage-full tone'
+    suffix = resource.suffix if tone['format']['value'] == '\u539f\u683c\u5f0f' else '.wts'
+    packed_name = (tone['outputName'] + suffix).encode('ascii') + b'\0'
+    assert packed_name in packed, 'Missing packaged storage-full tone'
     table = (ROOT / 'SDK/apps/earphone/audio/tone_table.c').read_text(encoding='utf-8')
     assert '.no_storage = "tone_en/no_sd.*"' in table
     record = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_record.c').read_text(encoding='utf-8')

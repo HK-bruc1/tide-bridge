@@ -59,6 +59,28 @@ legacy:
 }
 '@
     $Ir = Replace-ExactlyOnce $Ir $original $replacement 'CDC protocol storage admission'
+
+    # Parsing recording controls is not storage authorization; app_core owns
+    # the token-scoped F19 exception. Keep every other shared busy call intact.
+    $parsers = [regex]::Matches($Ir, '(?ms)^define void @rdx_protocol_recieve_data_handle\(i8\*, i16 zeroext\)[^\n]*\{.*?^\}')
+    if ($parsers.Count -ne 1) { throw 'Expected one recording control parser' }
+    $parser = $parsers[0].Value
+    $anchor = '  %54 = tail call fastcc zeroext i1 @_rdx_is_storage_busy() #14, !dbg !5841'
+    if ($Ir -notmatch '@\.str\.212 = [^\n]*c"\*APP#record#\\00"' -or
+        $parser -notmatch '(?s)@strstr\([^\n]*@\.str\.212,.*?label %53,.*?%54 =.*?@_rdx_protocol_event_callback\(i32 5,') {
+        throw 'Recording command branch identity changed'
+    }
+    $parserUpdated = Replace-ExactlyOnce $parser $anchor ($anchor.Replace(
+        '@_rdx_is_storage_busy()', '@_rdx_record_control_parse_busy()')) 'recording-only parser gate'
+    $Ir = Replace-ExactlyOnce $Ir $parser $parserUpdated 'recording control delegation'
+    if ($Ir.Contains('@_rdx_record_control_parse_busy() {')) { throw 'Duplicate recording parser gate' }
+    $Ir += @'
+
+define internal fastcc zeroext i1 @_rdx_record_control_parse_busy() {
+  %format = call zeroext i1 @rdx_uxfile_sd_format_status_check()
+  ret i1 %format
+}
+'@
     $pattern = '(?m)^define void @rdx_protocol_record_file_info_indicate\(\)[^\r\n]*\{'
     $original = [regex]::Match($Ir, $pattern).Value
     if (!$original) { throw 'Missing asynchronous BLE list entry' }

@@ -80,7 +80,7 @@ $SharedT2620ProductDefines = @{
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.3"'; VersionHex = '0x00010103' },
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.4"'; VersionHex = '0x00010104' },
     @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
@@ -281,7 +281,7 @@ Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '244E2738B03E0C1BAA9D1B018E7C78497C9331C3CDD286C7106884E121578D1A' -and
+                           $PatchedRdxArchiveHash -eq 'CF87FA617E007EDBCAF57790EB5A3DCE9D31C7424DF4F08CB710BE7261F39766' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -319,9 +319,7 @@ Assert-Contract 'RDX_RECORD_START_WAITS_FOR_TONE' `
      $recordToneCallback -match 'os_taskq_post_type\("app_core"' -and
      $recordToneCallback -notmatch 'rdx_record_process\(' -and
      $recordToneValid -match 'epoch == record_start_tone_epoch' -and
-     $recordToneValid -match 'goto_poweroff_flag' -and
-     $recordToneValid -match 'rdx_app_get_poweroff_flag' -and
-     $recordToneValid -match 'rdx_record_online_session_is_current' -and
+     $recordToneValid -match 'rdx_record_start_tone_admitted\(\)' -and
      $recordToneWait -match '(?s)record_status.run != RECORD_STATE_START.*?rdx_record_start_tone_cancel' -and
      $recordUi -notmatch 'tone_.*(?:post|play)\(') `
     'both recording branches must wait for natural tone completion and reject stale, cancelled, or power-off starts'
@@ -330,7 +328,7 @@ $recordTask = Get-SourceSlice $RdxRecord 'static void rdx_record_task(' 'int rdx
 $recordStopTone = Get-SourceSlice $RdxRecord `
     'static int rdx_record_stop_tone_callback(' 'static void rdx_record_stop_tone_play('
 Assert-Contract 'RDX_RECORD_STOP_TONE_AFTER_CAPTURE_CLOSE' `
-    ((Test-TokensInOrder $recordTask @('translation_ear_recoder_close_all();', 'rdx_record_stop_tone_post(tone_epoch);')) -and
+    ((Test-TokensInOrder $recordTask @('rdx_record_worker_close();', 'rdx_record_stop_session_cleanup();', 'rdx_record_stop_tone_post(tone_epoch);')) -and
      $recordStopTone -match 'STREAM_EVENT_INIT' -and
      $recordStopTone -match 'record_start_tone_epoch' -and
      $recordStopTone -match 'record_status.run != RECORD_STATE_STOP') `
@@ -562,7 +560,7 @@ Assert-Contract 'USB_PC_RETURN_GATES_BUSINESS_AND_INDEX' (
     (Test-TokensInOrder $Pc @('dev_manager_restore("sd0")', 'rdx_storage_lifecycle_pc_returned()')) -and
     $DipSwitch -match '(?s)rdx_storage_lifecycle_business_blocked\(void\).*?rdx_uxfile_pc_refresh_status\(\) != 0' -and
     $RdxServer -notmatch 'rdx_storage_lifecycle_business_blocked\('  -and
-    $RdxRecord -match '(?s)static void rdx_record_process_impl\(void\).*?rdx_storage_lifecycle_business_blocked\(\) && record_status.run != RECORD_STATE_STOP' -and
+    ([regex]::Matches($RdxRecord, 'rdx_record_session_storage_blocked\(\) && record_status.run != RECORD_STATE_STOP').Count -eq 2) -and
     $RdxPlayback -match '(?s)bool rdx_playback_can_start\(void\).*?rdx_storage_lifecycle_business_blocked' -and
     $StoragePatch -match 'rdx_storage_boot_refresh_post' -and
     $StorageIr -match '(?s)rdx_storage_boot_reconcile.*?rdx_uxfile_sync_files_with_dat.*?store volatile i32 %state, i32\* @rdx_storage_refresh'
@@ -589,7 +587,7 @@ Assert-Contract 'RECORD_BINDING_FAIL_CLOSED_VM' (
 $BindingCommand = Get-SourceSlice $RdxApp 'static void rdx_app_record_cmd_on_app_core(' 'typedef struct {'
 $BindingDevice = Get-SourceSlice $RdxApp 'static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)' 'void rdx_app_device_record_handle('
 Assert-Contract 'RECORD_BINDING_ENTRY_AND_ASYNC_GATES' (
-    (Test-TokensInOrder $BindingCommand @('rdx_ble_session_rdx_token_resolve', 'info.cmd != (RECORD_STATE_STOP + 0x30)', 'rdx_record_binding_token_is_current(request->binding_token)', 'rdx_playback_stop()', 'rdx_record_cmd_handle_from_rdx')) -and
+    (Test-TokensInOrder $BindingCommand @('rdx_ble_session_rdx_token_resolve', 'info.cmd != (RECORD_STATE_STOP + 0x30)', 'rdx_record_binding_token_is_current(request->binding_token)', 'rdx_record_cmd_handle_from_rdx')) -and
     $BindingDevice -match 'run != RECORD_STATE_START \|\| !rdx_record_binding_allowed\(\)' -and
     $RdxApp -match 'key_record_pressed && !rdx_record_binding_allowed\(\)' -and
     $RdxApp -match '(?s)case APP_MSG_RECORD_SWITCH:.*?!rdx_record_binding_allowed\(\).*?key_press_record_ready_flag = 0;' -and
@@ -617,7 +615,7 @@ Assert-Contract 'RECORD_DUT_ENTRY_GATES' (
 $BindingFence = Get-SourceSlice $RdxRecord 'if (msg[1] == RDX_RECORD_BIND_FENCE)' 'if (msg[1] == RDX_RECORD_USB_FENCE)'
 $BindingRevoke = Get-SourceSlice $RdxRecord 'static void rdx_record_binding_revoke_on_app_core(void)' 'int rdx_record_usb_quiesce_request('
 Assert-Contract 'RECORD_UNBIND_DRAINS_BEFORE_REARM' (
-    (Test-TokensInOrder $BindingFence @('translation_ear_recoder_close_all()', 'rdx_uxfile_finish_record()', 'rdx_record_set_process_state_ready()', 'if (saved < 0)', 'record_binding_revoke_pending = 0')) -and
+    (Test-TokensInOrder $BindingFence @('int saved = rdx_record_worker_close()', 'rdx_record_format_status() < 0', 'rdx_record_stop_session_cleanup()', 'rdx_record_set_process_state_ready()', 'if (saved < 0)', 'record_binding_revoke_pending = 0')) -and
     (Test-TokensInOrder $BindingRevoke @('rdx_app_record_binding_reset()', 'sys_timeout_del(g_record_cmd_delay_timer)', '++record_start_tone_epoch', 'record_status.rerun = false', 'RDX_RECORD_BIND_FENCE')) -and
     $BindingVm -match '(?s)\+\+bound_epoch;.*?rdx_bound_info.bound_state = d;.*?rdx_record_binding_revoke\(\)'
 ) 'Unbinding must cancel producers and close/save through the recording FIFO before rearming; storage failure keeps the gate closed'

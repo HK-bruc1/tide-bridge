@@ -16,6 +16,8 @@ void rdx_record_format_erased(void);
 void rdx_record_format_erase_leave(int result);
 /* 文件工作任务负责恢复与缓存交接：1 准备中，0 就绪，-1 失败。 */
 int rdx_record_format_service_status(void);
+/* Read-only safety query excluding only CDC's read lease, not storage faults. */
+int rdx_record_format_stream_status(void);
 int rdx_record_format_io_enter(void);
 /* 包含真实 IO 与短暂解析占用；仅真实 IO 更新空闲活动并恢复 PA4。 */
 u32 rdx_record_format_io_users(void);

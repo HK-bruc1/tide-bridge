@@ -17,6 +17,7 @@ typedef int OS_SEM;
 #define MIN(first,second) ((first)<(second)?(first):(second))
 void *memcpy(void *,const void *,size_t);
 void *memset(void *,int,size_t);
+int memcmp(const void *,const void *,size_t);
 char *strcpy(char *,const char *);
 void rdx_cdc_source_service(void);
 void rdx_cdc_source_cancel(void);
@@ -34,7 +35,7 @@ u32 sys_timer_get_ms(void) { return now; }
 void rdx_factory_cdc_wake(void) { ++wakes; }
 int rdx_dut_is_in_mode(void) { return 0; }
 int rdx_factory_audio_owned(void) { return 0; }
-int rdx_app_factory_file_is_busy(void) { return lease; }
+int rdx_app_cdc_file_is_busy(void) { return lease; }
 int rdx_app_cdc_file_conflict(void) { return late_conflict; }
 int rdx_storage_lifecycle_business_blocked(void) { return blocked; }
 int rdx_dip_switch_shutdown_pending(void) { return shutdown; }
@@ -82,6 +83,16 @@ int fclose(FILE *handle) {
 TESTS = r'''
 #define CHECK(value) do { if(!(value)) return __LINE__; } while(0)
 static u8 received[10000], block[4096];
+static int check_stream_query(int expected) {
+    u8 snapshot[sizeof(source)]; memcpy(snapshot,&source,sizeof(source));
+    int old_wakes=wakes, old_releases=releases, old_lease=lease;
+    int old_handles=handles, old_reads=reads, old_closes=closes;
+    CHECK(!!rdx_cdc_source_stream_blocked()==expected);
+    CHECK(!memcmp(snapshot,&source,sizeof(source)));
+    CHECK(wakes==old_wakes && releases==old_releases && lease==old_lease);
+    CHECK(handles==old_handles && reads==old_reads && closes==old_closes);
+    return 0;
+}
 static void reset(void) {
     memset(&source,0,sizeof(source));
     now=position=0;
@@ -93,15 +104,19 @@ static void reset(void) {
 }
 int test_source_stream(void) {
     reset(); CHECK(!rdx_cdc_source_begin(7,"abc123.raw") && lease);
+    CHECK(!check_stream_query(0));
     source_work();
+    CHECK(!check_stream_query(0));
     CHECK(handles==1 && reads==2 && source.ready[0] && source.ready[1] && !source.closed);
     u32 length=0, size=0, offset=0;
     for(int attempt=0;attempt<3;++attempt) {
         CHECK(rdx_cdc_source_take(block,&length,&size)==1 && size==10000);
         memcpy(received+offset,block,length); offset+=length;
+        CHECK(!check_stream_query(0));
         source_work();
     }
     CHECK(offset==10000 && !handles && closes==1 && source.closed==1 && lease);
+    CHECK(!check_stream_query(0));
     for(u32 index=0;index<offset;++index) CHECK(received[index]==(u8)(index*19+7));
     CHECK(rdx_cdc_source_take(block,&length,&size)==0);
     rdx_cdc_source_release(); rdx_cdc_source_service();
@@ -146,6 +161,7 @@ int test_source_late_completion(void) {
     rdx_cdc_source_release(); CHECK(!lease && releases==1);
     reset(); CHECK(!rdx_cdc_source_begin(7,"abc.raw")); source_work();
     rdx_cdc_source_release(); CHECK(source.busy && lease);
+    CHECK(!check_stream_query(1));
     CHECK(rdx_cdc_source_begin(8,"def.raw")==2);
     source_work(); rdx_cdc_source_service();
     CHECK(!source.busy && releases==1 && !handles);
@@ -155,13 +171,16 @@ int test_source_faults(void) {
     u32 length,size;
     reset(); open_result=-3; CHECK(!rdx_cdc_source_begin(7,"abc.raw")); source_work();
     CHECK(rdx_cdc_source_take(block,&length,&size)==-3 && source.closed==1);
+    CHECK(!check_stream_query(1));
     rdx_cdc_source_release(); CHECK(!lease && releases==1);
     reset(); read_failure=1; CHECK(!rdx_cdc_source_begin(7,"abc.raw")); source_work();
     CHECK(rdx_cdc_source_take(block,&length,&size)==-5 && !handles && closes==1);
+    CHECK(!check_stream_query(1));
     rdx_cdc_source_release(); CHECK(!lease);
     reset(); close_failure=1; CHECK(!rdx_cdc_source_begin(7,"abc.raw")); source_work();
     rdx_cdc_source_release(); source_work(); rdx_cdc_source_service();
     CHECK(source.closed==2 && source.busy && lease && releases==0 && closes==1);
+    CHECK(!check_stream_query(1));
     CHECK(rdx_cdc_source_shutdown()<0 && closes==1);
     CHECK(rdx_cdc_source_begin(7,"abc.raw")==8);
     reset(); open_result=-2; CHECK(!rdx_cdc_source_begin(7,"abc.raw")); source_work();
@@ -172,6 +191,8 @@ int test_source_faults(void) {
     rdx_cdc_source_release(); CHECK(!lease);
     reset(); CHECK(!rdx_cdc_source_begin(7,"abc.raw"));
     source_operation(1); now=7999; rdx_cdc_source_service(); CHECK(!source.error);
+    CHECK(!check_stream_query(0));
+    now=8000; CHECK(!check_stream_query(1)); /* Query rejects even before timeout service. */
     now=8000; rdx_cdc_source_service(); CHECK(source.error==7 && source.abort && lease);
     rdx_cdc_source_release(); CHECK(source.busy);
     source_work(); rdx_cdc_source_service(); CHECK(!source.busy && !lease);
@@ -195,6 +216,19 @@ int test_source_admission(void) {
     CHECK(!rdx_cdc_source_shutdown() && !lease && !handles);
     return 0;
 }
+int test_source_query_deadlines_and_stale_error(void) {
+    reset(); source.error=7; source.closed=2;
+    CHECK(!check_stream_query(0)); /* A released reader has no quarantine ownership. */
+    for(int operation=1;operation<=3;++operation) {
+        reset(); CHECK(!rdx_cdc_source_begin(7,"abc.raw"));
+        now=0xfffff000u; source_operation(operation);
+        int deadline=operation==1?8000:3000;
+        now+=deadline-1; CHECK(!check_stream_query(0));
+        ++now; CHECK(!check_stream_query(1));
+        CHECK(!source.error && !source.abort && lease && !releases);
+    }
+    return 0;
+}
 '''
 
 
@@ -205,9 +239,6 @@ def run_source_checks():
         path = Path(directory) / 'source.c'
         path.write_text(STUBS + source + TESTS, encoding='utf-8')
         run_c_checks(path, ('test_source_stream', 'test_source_large_stream', 'test_source_late_completion',
-                           'test_source_faults', 'test_source_admission'), native=True)
+                           'test_source_faults', 'test_source_admission',
+                           'test_source_query_deadlines_and_stale_error'), native=True)
     print('PASS: actual recording worker: double buffer, late open/read, close quarantine, deadlines, shutdown')
-
-
-if __name__ == '__main__':
-    run_source_checks()

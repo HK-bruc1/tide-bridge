@@ -32,6 +32,8 @@
 #include "rdx_app_config.h"
 #include "rdx_vm.h"
 #include "rdx_hogp_input.h"
+/* Match rdx_protocol.h regardless of which header is included first. */
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -433,7 +435,9 @@ extern int rdx_led_hardware_deinit(void);
 extern void rdx_app_all_init(void);
 extern void rdx_app_all_exit(void);
 u8 rdx_pc_storage_is_busy(void);
+bool rdx_app_get_dut_status(void);
 u8 rdx_app_factory_file_is_busy(void);
+u8 rdx_app_cdc_file_is_busy(void);
 u8 rdx_app_cdc_file_conflict(void);
 u8 rdx_app_business_started(void);
 u8 rdx_app_initialized(void);

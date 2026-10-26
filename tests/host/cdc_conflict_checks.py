@@ -91,6 +91,7 @@ define void @rdx_protocol_record_file_info_indicate_admitted() {
 }
 '''
     source += extract('_rdx_is_storage_busy')
+    source += extract('_rdx_record_control_parse_busy')
     for name in ('rdx_protocol_recieve_data_handle', 'rdx_protocol_ota_handle'):
         source += extract(name)
         source += f'''
@@ -124,12 +125,19 @@ define void @{name}_admitted(i8* %data, i16 zeroext %length) {{
     assert not re.search(r'@os_taskq_post_msg\([^\n]*i32 1, i32 233\)', actual)
     busy = ctypes.CFUNCTYPE(ctypes.c_bool)(
         engine.get_function_address('_rdx_is_storage_busy'))
+    record_parse_busy = ctypes.CFUNCTYPE(ctypes.c_bool)(
+        engine.get_function_address('_rdx_record_control_parse_busy'))
     assert not busy()
+    assert not record_parse_busy()
     integer('download').value = 1
     assert busy()
+    assert not record_parse_busy(), 'CDC must delegate recording controls to app_core'
     integer('download').value = 0
     ctypes.c_bool.from_address(engine.get_global_value_address('format')).value = True
-    assert busy()
+    assert busy() and record_parse_busy()
+    integer('download').value = 1
+    assert busy() and record_parse_busy(), 'CDC must not hide the original format rejection'
+    integer('download').value = 0
     ctypes.c_bool.from_address(engine.get_global_value_address('format')).value = False
     for name in ('rdx_protocol_recieve_data_handle', 'rdx_protocol_ota_handle'):
         entry = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint16)(
@@ -150,6 +158,8 @@ define void @{name}_admitted(i8* %data, i16 zeroext %length) {{
     entry()
     assert integer('ran').value == before + 1 and integer('users').value == 0
     parser = extract('rdx_protocol_recieve_data_handle_admitted')
+    assert '@_rdx_record_control_parse_busy()' in parser
+    assert '@_rdx_is_storage_busy()' in parser
     for response in ('rdx_protocol_file_list_ack_indicate(i8 zeroext 1)',
                      'rdx_protocol_fileTransfer_stop_indicate()',
                      'rdx_protocol_recordDatFileInfo_indicateByRequestNum(i32 0, i32 1)'):

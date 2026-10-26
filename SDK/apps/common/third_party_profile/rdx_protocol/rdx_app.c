@@ -431,7 +431,8 @@ void rdx_app_set_power_ready_flag(void)
 
 static u8 rdx_app_storage_activity_check(const char *log_tag,
                                            u8 allow_paused_playback,
-                                           u8 allow_detached_recording)
+                                           u8 allow_detached_recording,
+                                           u8 allow_cdc_stream)
 {
     if (!rdx_app_init_flag) {
         return false;
@@ -439,13 +440,14 @@ static u8 rdx_app_storage_activity_check(const char *log_tag,
 
     if (rdx_factory_audio_file_busy()) return true;
     RecordStatus *record = rdx_record_get_status();
-    if (!record || (record->run != RECORD_STATE_STOP &&
-        !(allow_detached_recording && rdx_record_transport_is_detached()))) {
+    if (!record || (allow_cdc_stream ? rdx_record_cdc_read_is_busy() :
+        (record->run != RECORD_STATE_STOP &&
+         !(allow_detached_recording && rdx_record_transport_is_detached())))) {
         r_printf("[%s] busy: record state=%d\n", log_tag,
                  record ? record->run : -1);
         return true;
     }
-    if (rdx_record_process_is_busy_check()) {
+    if (!allow_cdc_stream && rdx_record_process_is_busy_check()) {
         r_printf("[%s] busy: record worker\n", log_tag);
         return true;
     }
@@ -505,7 +507,7 @@ static u8 rdx_app_storage_activity_is_busy(const char *log_tag,
     return rdx_record_format_download_conflict(log_tag) ||
            rdx_record_format_service_status() > 0 ||
            rdx_app_storage_activity_check(log_tag, allow_paused_playback,
-                                          allow_detached_recording);
+                                          allow_detached_recording, 0);
 }
 
 int rdx_app_format_is_busy(void)
@@ -517,7 +519,18 @@ int rdx_app_format_is_busy(void)
 
 u8 rdx_app_cdc_file_conflict(void)
 {
-    return rdx_app_storage_activity_check("CDC-FILE", 1, 0);
+    return app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||
+           rdx_dip_switch_shutdown_pending() || rdx_app_get_dut_status() ||
+           rdx_dut_test_keys_active() || rdx_factory_audio_owned() ||
+           rdx_storage_lifecycle_stream_blocked() ||
+           rdx_app_storage_activity_check("CDC-FILE", 1, 0, 1);
+}
+
+u8 rdx_app_cdc_file_is_busy(void)
+{
+    return rdx_record_format_download_conflict("CDC-FILE") ||
+           rdx_record_format_service_status() > 0 ||
+           rdx_app_cdc_file_conflict();
 }
 
 u8 rdx_app_factory_file_is_busy(void)
@@ -2049,7 +2062,7 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
         return rdx_app_record_trigger_post(&set_rp, 0, &token, 1);
     }
     if (run != RECORD_STATE_START || !rdx_record_binding_allowed() ||
-        rdx_storage_lifecycle_business_blocked() || get_ota_status() ||
+        get_ota_status() ||
         rdx_record_process_is_busy_check() || record_state_upload_timer) return -1;
     if (route == RECORD_MODE_ONLINE) {
         if (!rdx_ble_session_rdx_token_capture(&token, 1) ||
@@ -2057,6 +2070,9 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
     } else if (rdx_uxfile_sync_is_in_progress() || rdx_uxfile_is_scan_active() ||
                rdx_uxfile_is_formatting()) return -1;
     if (scene != RECORD_SCENE_CHAT && scene != RECORD_SCENE_CALL) return -1;
+    if ((stream_only && route == RECORD_MODE_ONLINE) ?
+        (scene != RECORD_SCENE_CHAT || rdx_storage_lifecycle_stream_blocked()) :
+        rdx_storage_lifecycle_business_blocked()) return -1;
     /* Only online F19 is stream-only; offline F19 and meetings write local
      * files. Admit them before key context, playback or APP trigger changes. */
     if (!(stream_only && route == RECORD_MODE_ONLINE) &&
@@ -3641,12 +3657,6 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
         return;
     }
 
-#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-    if (info.cmd == (RECORD_STATE_START + 0x30) ||
-        info.cmd == (RECORD_STATE_RESUME + 0x30)) {
-        rdx_playback_stop();
-    }
-#endif
     rdx_record_cmd_handle_from_rdx(&info, &request->token);
     free(request);
 }

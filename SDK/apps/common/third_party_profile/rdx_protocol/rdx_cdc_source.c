@@ -113,11 +113,23 @@ int rdx_cdc_source_busy(void)
     return source.busy;
 }
 
+int rdx_cdc_source_stream_blocked(void)
+{
+    /* Admission only: never service, wake, cancel or release a reader here. */
+    local_irq_disable();
+    int blocked = source.busy &&
+                  (source.error || source.abort || source.closed == 2 ||
+                   (source.operation && (u32)(sys_timer_get_ms() - source.since) >=
+                    (source.operation == 1 ? 8000 : 3000)));
+    local_irq_enable();
+    return blocked;
+}
+
 int rdx_cdc_source_begin(u32 sn, const char *name)
 {
     if (source.busy && source.closed == 2) return 8;
     if (source.busy || rdx_dut_is_in_mode() || rdx_factory_audio_owned() ||
-        rdx_app_factory_file_is_busy()) return 2;
+        rdx_app_cdc_file_is_busy()) return 2;
     if (rdx_dip_switch_shutdown_pending() || rdx_storage_lifecycle_business_blocked()) return 8;
     if (!source.created) {
         if (os_sem_create(&source.wake, 0)) return 8;

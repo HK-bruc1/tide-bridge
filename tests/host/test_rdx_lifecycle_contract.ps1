@@ -211,6 +211,9 @@ $RecordCommand = Get-SourceSlice $Record `
 $RecordWorker = Get-SourceSlice $Record `
     'static void rdx_record_task(void *arg)' `
     'int rdx_record_task_create(void)'
+$RecordWorkerStop = Get-SourceSlice $RecordWorker `
+    'bool play_stop_tone = msg[1] == RECORD_STATE_STOP &&' `
+    'if (app_stop_ticket)'
 
 Assert-Contract 'OFFLINE_RECORD_STOP_HAS_COMMAND_RECIPIENT' (
     (Test-TokensInOrder $RecordCommand @('!rdx_record_rdx_token_is_current(token)',
@@ -226,9 +229,11 @@ Assert-Contract 'OFFLINE_RECORD_STOP_HAS_COMMAND_RECIPIENT' (
 
 Assert-Contract 'RECORD_STOP_COMPLETION_FOLLOWS_WORKER_CLEANUP' (
     (Test-TokensInOrder $RecordWorker @('msg[1] == RDX_RECORD_APP_STOP_FENCE',
-        'msg[1] = RECORD_STATE_STOP', 'translation_ear_recoder_close_all()',
+        'msg[1] = RECORD_STATE_STOP', 'rdx_record_worker_close()',
         'if (app_stop_ticket)', 'g_app_stop_done = app_stop_ticket')) -and
-    $RecordWorker -match '(?s)translation_ear_recoder_close_all\(\);\s*/\* A paused session.*?rdx_uxfile_finish_record\(\).*?rdx_record_stop_session_cleanup\(\).*?if \(app_stop_ticket\).*?g_app_stop_done' -and
+    (Test-TokensInOrder $RecordWorkerStop @('if (msg[1] == RECORD_STATE_STOP)',
+        'int saved = rdx_record_worker_close()', 'rdx_record_stop_session_cleanup()',
+        'rdx_record_set_process_state_ready()')) -and
     $Record -match '!g_app_stop_pending && rdx_record_online_session_is_current\(\)' -and
     $StopPump -match '!g_app_stop_pending \|\| ticket != g_app_stop_ticket'
 ) 'STOP completion must wait for both audio paths, paused-file finalization and session cleanup, and reject stale callbacks'

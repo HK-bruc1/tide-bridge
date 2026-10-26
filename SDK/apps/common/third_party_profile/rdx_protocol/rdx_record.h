@@ -200,6 +200,8 @@ u8 rdx_record_stream_only_token_capture(rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
 u8 rdx_record_stream_only_session_is_active(void);
+/* Read-only CDC admission: only current, storage-free online F19 may coexist. */
+u8 rdx_record_cdc_read_is_busy(void);
 /* app_core: latch release, cancel pending start, and drain owned recording. */
 u8 rdx_record_stream_only_release(void);
 /* app_core: generic audio failure, retrying STOP for online/offline sessions. */
