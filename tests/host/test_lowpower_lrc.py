@@ -10,6 +10,7 @@ CONFIG = ROOT / 'SDK/apps/earphone/include/t2620_project_config.h'
 SDK_CONFIG = ROOT / 'SDK/apps/earphone/board/br28/sdk_config.h'
 POWER = ROOT / 'SDK/cpu/br28/power/power_config.c'
 API = ROOT / 'SDK/interface/driver/cpu/br28/asm/power/power_api.h'
+RDX_APP = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_app.c'
 SWITCH = 'TCFG_T2620_LOWPOWER_LRC_ENABLE'
 LAB_SWITCHES = ('TCFG_T2620_IDLE_PROBE_ENABLE',
                 'TCFG_T2620_IDLE_PROBE_UART_OFF', 'TCFG_T2620_IDLE_PROBE_LRC')
@@ -134,7 +135,18 @@ def check_boot_initialization():
                 run_c_checks(path, ['check_boot'])
 
 
+def check_boot_clock_settle():
+    # 启动刷新是固定行为：只在 RDX 初始化完成处无条件调用一次，且只走原生调频接口。
+    source = RDX_APP.read_text(encoding='utf-8')
+    init = re.search(r'\nvoid rdx_app_tasks_init\(void\)\n\{.*?\n\}', source, re.S)[0]
+    tail = init[init.index('rdx_dut_init();'):init.index('rdx_app_init_flag = true;')]
+    assert tail.count('clock_refurbish();') == 1 and '#if' not in tail, 'Boot settle is unconditional'
+    assert source.count('clock_refurbish();') == 1
+    assert not re.search(r'clk_set(_api)?\(\s*"sys"', tail)
+
+
 if __name__ == '__main__':
     check_configuration()
     check_boot_initialization()
+    check_boot_clock_settle()
     print('Native LRC configuration and board initialization checks passed.')

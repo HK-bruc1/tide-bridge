@@ -191,7 +191,7 @@
 #error "T2620 low-power LRC requires native low power"
 #endif
 
-/* 组合探底仅保留在独立实验分支，正常业务构建禁止混入实验开关。 */
+/* 触底探针冻结在 freeze/idle-probe-20261027 分支，正常业务构建禁止混入实验开关。 */
 #if TCFG_T2620_IDLE_PROBE_ENABLE || TCFG_T2620_IDLE_PROBE_UART_OFF || TCFG_T2620_IDLE_PROBE_LRC
 #error "T2620 idle probe is not supported in the normal-business build"
 #endif

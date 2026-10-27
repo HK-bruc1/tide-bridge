@@ -4400,6 +4400,10 @@ void rdx_app_tasks_init(void)
 
     rdx_dut_init();
 
+    /* 启动主频由库直接设定（实测 120 MHz），不经调频管理器；若开机后无业务提频，
+     * 原生观察器从不运行。启动完成后刷新一次，交给观察器按占用率回落。 */
+    clock_refurbish();
+
     rdx_app_init_flag = true;
     rdx_factory_cdc_init();
 }
