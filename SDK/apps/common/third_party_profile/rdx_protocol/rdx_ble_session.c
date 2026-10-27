@@ -437,6 +437,7 @@ u8 rdx_ble_session_release_rdx(rdx_ble_link_state_t *link, u32 expected_slot_gen
     link->rdx_runtime_active = 0;
     link->rdx_ccc_configured = 0;
     link->rdx_stream_tx_ready = 0;
+    link->rdx_compact_fragment = 0;
     s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
     s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
     memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
@@ -454,6 +455,7 @@ u8 rdx_ble_session_rdx_runtime_begin_quiesce(rdx_ble_link_state_t *link)
     link->rdx_runtime_active = 0;
     link->rdx_ccc_configured = 0;
     link->rdx_stream_tx_ready = 0;
+    link->rdx_compact_fragment = 0;
     memset(&s_rdx_config_session, 0, sizeof(s_rdx_config_session));
     rdx_ble_session_runtime_epoch_advance();
     return 1;

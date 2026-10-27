@@ -4455,14 +4455,27 @@ int rdx_ble_server_get_ble_mac(void *addr)
  * param (*)
  * return (*)
  **************************************************************************/
-/* 下载库按兼容值减 10 分片，将单次提交限制为 244 字节。 */
+/* 下载库按兼容值减 10 分片；仅对声明兼容的 APP 将单次提交限制为 244 字节。
+ * iOS SDK 按协商 MTU 校验通知长度，必须保持真实 MTU。 */
 static void rdx_ble_server_download_info_view(rdx_ble_server_info_t *view,
                                             const rdx_ble_server_info_t *actual,
-                                            u8 file_busy)
+                                            u8 file_busy, u8 compact_fragment)
 {
     *view = *actual;
-    if (file_busy && actual->ble_conn && actual->ble_mtu_size > 254) {
+    if (file_busy && compact_fragment && actual->ble_conn &&
+        actual->ble_mtu_size > 254) {
         view->ble_mtu_size = 254;
+    }
+}
+
+void rdx_ble_server_set_compact_fragment(u8 enable)
+{
+    rdx_ble_link_state_t *link = rdx_ble_session_get_rdx_link();
+
+    if (link) {
+        link->rdx_compact_fragment = enable ? 1 : 0;
+        r_printf("[RDX_BLE_LINK] compact_fragment=%d con=0x%04x\n",
+                 link->rdx_compact_fragment, link->con_handle);
     }
 }
 
@@ -4476,6 +4489,7 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     rdx_ble_rdx_transport_snapshot_t snapshot;
+    u8 compact_fragment = 0;
 
     /* librdxApp.a still imports this ABI and reads only ble_conn and
      * ble_mtu_size. Keep the adjacent legacy fields coherent as a view of
@@ -4491,6 +4505,7 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
             link && link->rdx_ccc_configured ? TRUE : FALSE;
         g_rdx_ble_server_info.stream_tx_ready =
             link && link->rdx_stream_tx_ready ? TRUE : FALSE;
+        compact_fragment = link && link->rdx_compact_fragment;
     } else {
         g_rdx_ble_server_info.ble_conn = FALSE;
         g_rdx_ble_server_info.ble_con_handle = 0;
@@ -4512,7 +4527,8 @@ rdx_ble_server_info_t * rdx_ble_server_get_info(void)
     static rdx_ble_server_info_t library_view;
     ReqFileInfo *file = rdx_protocol_get_uploadfileInfo();
     rdx_ble_server_download_info_view(&library_view, &g_rdx_ble_server_info,
-                                      file && file->file_send_busy);
+                                      file && file->file_send_busy,
+                                      compact_fragment);
     return &library_view;
 }
 /**************************************************************************

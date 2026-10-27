@@ -144,6 +144,8 @@ u16 rdx_ble_server_get_conn_handle(void);
 u16 rdx_ble_server_get_mtu(void);
 u8 rdx_ble_server_is_stream_tx_ready(void);
 void rdx_ble_server_request_stream_fast_param(void);
+/* 当前 RDX 会话是否允许下载使用 244 字节紧凑分片；会话释放或断连后复位为 0。 */
+void rdx_ble_server_set_compact_fragment(u8 enable);
 /* 兼容旧库下载结束入口；当前只检查快档，不启动慢档窗口。 */
 void rdx_ble_server_post_transfer_lowpower(void);
 /* 快档按链路事件协调；service 仅供 app_core 的失败恢复桥接调用。 */

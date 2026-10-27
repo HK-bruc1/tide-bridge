@@ -4252,6 +4252,8 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
             if(!data || len < sizeof(ProtocolOsTypeParams)) break;
             ProtocolOsTypeParams* p = (ProtocolOsTypeParams*)data;
             g_printf("[APP CMD] os_type = %d\r", p->os_type);
+            /* 仅安卓 APP 已验证紧凑分片；iOS 按协商 MTU 校验，未知系统保持真实 MTU。 */
+            rdx_ble_server_set_compact_fragment(p->os_type == APP_OS_TYPE_ANDROID);
             ops->os_type_ack_indicate();
             break;
         }

@@ -52,6 +52,8 @@ typedef struct {
     u8 rdx_runtime_active;
     u8 rdx_ccc_configured;
     u8 rdx_stream_tx_ready;
+    /* APP declared it reassembles downloads regardless of notification size. */
+    u8 rdx_compact_fragment;
 } rdx_ble_link_state_t;
 
 typedef struct {
