@@ -3,6 +3,7 @@ import re
 import tempfile
 from pathlib import Path
 from host_c_test_lib import ROOT, function, run_c_checks
+from rtc_reset_checks import run as check_rtc_reset
 
 BASE = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
 def read(name):
@@ -303,4 +304,5 @@ with tempfile.TemporaryDirectory(prefix='keymap-reset-') as tmp:
     path.write_text(code,encoding='utf-8')
     run_c_checks(path, ['check_reset','check_saved_old_defaults','check_failures','check_callback'], native=True)
 check_playback_volume_defaults()
-print('Factory defaults: keymap persistence and playback volume reset/failures passed.')
+check_rtc_reset()
+print('Factory defaults: keymap, playback volume and RTC persistence/reset checks passed.')

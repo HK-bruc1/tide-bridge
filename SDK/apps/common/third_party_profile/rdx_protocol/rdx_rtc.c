@@ -61,6 +61,7 @@ typedef struct{
 static u16 rtc_restore_timer = 0;
 static RTCParams rtc_params;
 static u8 rdx_rtc_boot_time_valid = 0;
+static u8 rdx_rtc_initialized = 0;
 
 /******************************************************************************
 * Function Declaration Section
@@ -366,7 +367,9 @@ static time_t rdx_rtc_read_vm_timestamp(void)
 {
     time_t timestamp = 0;
 
-    syscfg_read(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp));
+    if (syscfg_read(VM_RDX_RTC_INIT_VALUE, &timestamp, sizeof(timestamp)) != sizeof(timestamp)) {
+        return 0;
+    }
 
     if (!rdx_rtc_timestamp_in_valid_range(timestamp)) {
         g_printf("[RDX_RTC] vm timestamp out of valid range, ignore\r");
@@ -425,14 +428,8 @@ static int rdx_rtc_sys_time_valid(const struct sys_time *sys_time)
 
 static int rdx_rtc_read_hw_time(struct sys_time *sys_time)
 {
-    struct _rtc_trim rtc_trim = {0};
-
     memset(sys_time, 0, sizeof(*sys_time));
-
-    if (read_p11_sys_time(sys_time, &rtc_trim) && rdx_rtc_sys_time_valid(sys_time)) {
-        return 1;
-    }
-
+    /* P11 retains a snapshot across reset; it is not the live RTC clock. */
     rtc_read_time(sys_time);
     return rdx_rtc_sys_time_valid(sys_time) ? 1 : 0;
 }
@@ -709,6 +706,7 @@ void rdx_rtc_init(void)
 
     //start timer to store rtc timestamp.
     rdx_rtc_restore_timer_start();
+    rdx_rtc_initialized = 1;
 }
 
 #else
@@ -721,7 +719,17 @@ void rdx_rtc_init(void)
  **************************************************************************/
 void rdx_rtc_store_timestamp(void)
 {
-    rdx_rtc_write_vm_timestamp(rdx_rtc_get());
+    time_t timestamp = rdx_rtc_get();
+    struct sys_time current_time;
+
+    if (!rdx_rtc_timestamp_in_valid_range(timestamp)) {
+        return;
+    }
+    rdx_rtc_timestamp_to_sys_time_value(timestamp, &current_time);
+    /* A failed read must not replace a calibrated backup with the default. */
+    if (!rdx_rtc_is_init_placeholder_time(&current_time)) {
+        rdx_rtc_write_vm_timestamp(timestamp);
+    }
 }
 
 /**************************************************************************
@@ -810,6 +818,7 @@ void rdx_rtc_init(void)
     }
 
     rdx_rtc_capture_boot_time(&current_time);
+    rdx_rtc_initialized = 1;
 }
 
 /**************************************************************************
@@ -906,14 +915,18 @@ platform_uninitcall(rdx_rtc_poweroff_store);
 
 /**************************************************************************
  * function: rdx_cpu_reset
- * description: 软件路径下保存RTC到VM后执行cpu_reset；硬件路径下RTC掉电保持，无需额外保存
+ * description: Save RTC state before a controlled reset, which bypasses soft poweroff.
  * param (*)
  * return (*)
  **************************************************************************/
 void rdx_cpu_reset(void)
 {
-#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_SOFTWARE)
-    rdx_rtc_store_timestamp();
+    if (rdx_rtc_initialized) {
+        rdx_rtc_store_timestamp();
+#if (RDX_RTC_PATH_SEL == RDX_RTC_PATH_HARDWARE)
+        /* Native save stops live reads, so the VM snapshot must come first. */
+        poweroff_save_rtc_time();
 #endif
+    }
     cpu_reset();
 }

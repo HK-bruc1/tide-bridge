@@ -37,6 +37,7 @@
 #include "rdx_record.h"
 #include "rdx_dut.h"
 #include "rdx_dut_speaker.h"
+#include "rdx_rtc.h"
 #endif
 
 #if (TCFG_USER_TWS_ENABLE == 0)
@@ -238,7 +239,11 @@ static void wait_exit_btstack_flag(void *_reason)
             break;
         case POWEROFF_RESET:
             log_info("cpu_reset!!!\n");
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+            rdx_cpu_reset();
+#else
             cpu_reset();
+#endif
             break;
         case POWEROFF_POWER_KEEP:
 #if TCFG_CHARGE_ENABLE

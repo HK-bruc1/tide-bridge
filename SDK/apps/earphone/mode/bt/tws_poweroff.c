@@ -19,6 +19,9 @@
 #include "app_charge.h"
 #include "bt_slience_detect.h"
 #include "poweroff.h"
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+#include "rdx_rtc.h"
+#endif
 #if TCFG_AUDIO_ANC_ENABLE
 #include "audio_anc.h"
 #endif
@@ -212,7 +215,11 @@ static void wait_exit_btstack_flag(void *_reason)
             break;
         case POWEROFF_RESET:
             log_info("cpu_reset!!!\n");
+#if (THIRD_PARTY_PROTOCOLS_SEL & RDX_EN)
+            rdx_cpu_reset();
+#else
             cpu_reset();
+#endif
             break;
         case POWEROFF_POWER_KEEP:
 #if TCFG_CHARGE_ENABLE
