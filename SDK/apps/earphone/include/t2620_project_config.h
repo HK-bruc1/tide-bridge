@@ -203,6 +203,28 @@
 #endif
 
 /* -------------------------------------------------------------------------- */
+/* BLE 连接参数                                                               */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * 单一常驻目标 {7.5–15 ms, latency, 6 s}：interval 保持快档，空闲靠 latency 省电。
+ * 有待发数据时从机可在任一连接事件发送；手机下行最坏多等 (latency+1)×interval。
+ * 49 已实测（Android，if=12.5 ms）：连接关窗待机 1.0–1.5 → 0.6–1.3 mA，APP 响应可接受；
+ * 设为 4 恢复原快档。上限 49 保证 15 ms×50=750 ms 远小于 6 s 监督超时。
+ */
+#ifndef TCFG_T2620_CONN_SLAVE_LATENCY
+#define TCFG_T2620_CONN_SLAVE_LATENCY              49
+#endif
+#if (TCFG_T2620_CONN_SLAVE_LATENCY < 0) || (TCFG_T2620_CONN_SLAVE_LATENCY > 49)
+#error "T2620 connection slave latency must be 0..49"
+#endif
+
+/* 连接态触底探针冻结在 freeze/conn-probe-20261029 分支，正常业务构建禁止混入。 */
+#if TCFG_T2620_CONN_PROBE_ENABLE || TCFG_T2620_CONN_LATENCY_GATE_ENABLE
+#error "T2620 connection probe/latency gate is not supported in the normal-business build"
+#endif
+
+/* -------------------------------------------------------------------------- */
 /* RDX 与 HOGP 功能                                                           */
 /* -------------------------------------------------------------------------- */
 

@@ -797,8 +797,10 @@ void rdx_ble_server_adv_interval_change_timer_stop(void);
 #define ATT_RAM_BUFSIZE             (ATT_CTRL_BLOCK_SIZE + ATT_LOCAL_MTU_SIZE + ATT_SEND_CBUF_SIZE)//note:
 static u8 att_ram_buffer[ATT_RAM_BUFSIZE] __attribute__((aligned(4)));
 
-/* 暂停自动慢档，只保留既有快档请求；实际参数仍由双方协商。 */
-static const struct conn_update_param_t rdx_fast_conn_param = {6, 6, 4, 600};
+/* 常驻单一目标：快档 interval 保证业务响应，latency 降低空闲连接事件；不切换慢档。 */
+static const struct conn_update_param_t rdx_fast_conn_param = {
+    6, 12, TCFG_T2620_CONN_SLAVE_LATENCY, 600
+};
 #define RDX_CONN_PARAM_STREAM_FAST_INDEX 0u
 /* 保留旧库参数索引的合法范围，不再保留可被误用的慢档参数表。 */
 #define RDX_CONN_PARAM_LEGACY_COUNT 9u
@@ -853,10 +855,11 @@ static u8 rdx_ble_server_request_connect_parameter_for_token(
     int ret = ble_op_conn_param_request(link->con_handle,
                                        (struct conn_update_param_t *)&rdx_fast_conn_param);
     r_printf("[RDX_CONN_POLICY] request slot=%u con=0x%04x mode=FAST "
-             "attempt=%u interval=%u-%u latency=%u ret=%d\n",
+             "attempt=%u interval=%u-%u latency=%u ret=%d t=%u\n",
              rdx_ble_session_link_index(link), link->con_handle,
              attempts, rdx_fast_conn_param.interval_min,
-             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency, ret);
+             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency, ret,
+             sys_timer_get_ms());
     return ret == 0;
 }
 
@@ -946,9 +949,11 @@ static void rdx_ble_server_transfer_param_arm(rdx_conn_param_state_t *param, u32
 
 static u8 rdx_ble_server_transfer_target_matches(const rdx_ble_link_state_t *link)
 {
-    /* 手机可协商为 11.25/15 ms，不为追求精确 7.5 ms 反复请求。 */
-    return link->conn_interval >= 6 && link->conn_interval <= 12 &&
-           link->conn_latency <= 4;
+    /* 手机可在 7.5–15 ms 内任选 interval；latency 由从机提出，必须等于目标，
+     * 否则手机自行改回 latency 0（如 APP 切换连接优先级）后空闲功耗回不去。 */
+    return link->conn_interval >= rdx_fast_conn_param.interval_min &&
+           link->conn_interval <= rdx_fast_conn_param.interval_max &&
+           link->conn_latency == rdx_fast_conn_param.latency;
 }
 
 static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param,
@@ -2232,10 +2237,10 @@ static void rdx_ble_server_phase0a_link_state_capture(
     rdx_ble_session_link_set_conn_params(link, conn_interval, conn_latency,
                                          supervision_timeout);
     r_printf("[RDX_BLE_PARAM] initial wrapper=%u con=0x%04x "
-             "interval_1p25ms=%u latency=%u timeout_10ms=%u\n",
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u t=%u\n",
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
-             link->supervision_timeout);
+             link->supervision_timeout, sys_timer_get_ms());
 }
 
 static void rdx_ble_server_phase0a_link_conn_params_update(
@@ -2251,10 +2256,10 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
         hci_subevent_le_connection_update_complete_get_conn_latency(packet),
         hci_subevent_le_connection_update_complete_get_supervision_timeout(packet));
     r_printf("[RDX_BLE_PARAM] update wrapper=%u con=0x%04x "
-             "interval_1p25ms=%u latency=%u timeout_10ms=%u\n",
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u t=%u\n",
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
-             link->supervision_timeout);
+             link->supervision_timeout, sys_timer_get_ms());
     /* 迟到的参数完成事件只通知协调器，不在蓝牙回调中创建定时器。 */
     if (rdx_ble_session_link_is_rdx(link) || rdx_ble_session_link_is_hid(link))
         rdx_ble_server_conn_param_changed();

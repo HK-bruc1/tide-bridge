@@ -15,6 +15,7 @@ typedef int s32;
 #define Q_CALLBACK 1
 #define RDX_BLE_LINK_INVALID_INDEX 255
 #define RDX_BLE_LINK_MAX 2
+#define TCFG_T2620_CONN_SLAVE_LATENCY 49
 #define r_printf(...) ((void)0)
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 void *memset(void*,int,unsigned long long);
@@ -64,7 +65,7 @@ u8 rdx_ble_session_link_is_hid(rdx_ble_link_state_t *l) { return l && l->hid; }
 void rdx_ble_session_link_set_conn_param_index(rdx_ble_link_state_t *l,u8 i) { if(i) ++context_error; }
 int ble_op_conn_param_request(u16 handle,struct conn_update_param_t *p) {
     if(!in_core || irq || (handle!=links[0].con_handle && handle!=links[1].con_handle)) ++context_error;
-    if(p->interval_min!=6 || p->interval_max!=6 || p->latency!=4 || p->timeout!=600) ++context_error;
+    if(p->interval_min!=6 || p->interval_max!=12 || p->latency!=49 || p->timeout!=600) ++context_error;
     request_handles[requests]=handle; request_modes[requests]=p->interval_min;
     request_times[requests++]=now;
     if(accept_requests && !request_result) {
@@ -150,13 +151,16 @@ int check_idle_and_legacy_paths_stay_fast(void) {
     return 0;
 }
 int check_actual_fast_range(void) {
-    CHECK(rdx_fast_conn_param.interval_min==6 && rdx_fast_conn_param.interval_max==6);
-    CHECK(rdx_fast_conn_param.latency==4 && rdx_fast_conn_param.timeout==600);
+    CHECK(rdx_fast_conn_param.interval_min==6 && rdx_fast_conn_param.interval_max==12);
+    CHECK(rdx_fast_conn_param.latency==49 && rdx_fast_conn_param.timeout==600);
     for(u16 i=6;i<=12;++i) {
-        for(u16 latency=0;latency<=4;++latency) {
+        reset(); links[0].conn_interval=i; links[0].conn_latency=49;
+        CHECK(changed()); CHECK(advance(1200000));
+        CHECK(!requests && !g_rdx_transfer_params[0].timer);
+        /* 手机自行降回 latency 0/4（APP 切换连接优先级）仍须重新请求。 */
+        for(u16 latency=0;latency<=4;latency+=4) {
             reset(); links[0].conn_interval=i; links[0].conn_latency=latency;
-            CHECK(changed()); CHECK(advance(1200000));
-            CHECK(!requests && !g_rdx_transfer_params[0].timer);
+            CHECK(changed()); CHECK(requests==1);
         }
     }
     reset(); links[0].conn_interval=5; CHECK(changed()); CHECK(requests==1);
@@ -179,7 +183,7 @@ int check_rejection_and_delayed_confirmation(void) {
         active=0; ++epoch; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
         active=1; ++epoch; CHECK(changed()); CHECK(advance(20000));
         CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
-        links[0].conn_interval=9; links[0].conn_latency=4; CHECK(changed());
+        links[0].conn_interval=9; links[0].conn_latency=49; CHECK(changed());
         CHECK(advance(1200000)); CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
         links[0].conn_interval=72; links[0].conn_latency=19; CHECK(changed());
         CHECK(advance(6000)); CHECK(requests==6 && !g_rdx_transfer_params[0].timer);

@@ -136,7 +136,8 @@ Included by `app_config.h` right after `sdk_config.h`.
 - `TCFG_T2620_CHARGE_COEXIST_ENABLE` (default 1) — charging coexists with BLE/recording.
 - `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` — never auto-format SD at boot; SD NAND is always-online.
 - `TCFG_T2620_LOWPOWER_LRC_ENABLE` (default 1) — native LRC sleep clock, configured at boot.
-- Idle-probe switches (`TCFG_T2620_IDLE_PROBE_*`) are rejected at compile time on this branch.
+- `TCFG_T2620_CONN_SLAVE_LATENCY` (default 49) — standing BLE connection target `{6,12,L,600}`: fast interval, power saved by slave latency; no fast/slow switching, no local latency gate. Rationale: section 2.4 of `docs/6-2.T2620BLE连接后低功耗设计.md`.
+- Idle-probe (`TCFG_T2620_IDLE_PROBE_*`) and connection-probe/latency-gate switches (`TCFG_T2620_CONN_PROBE_ENABLE`, `TCFG_T2620_CONN_LATENCY_GATE_ENABLE`) are rejected at compile time on this branch.
 
 Storage/shutdown: `rdx_storage_lifecycle.c` owns file-service admission and PC-return reconciliation; `rdx_dip_switch.c` owns debounced OFF admission and a 3 s reset guard. See section 0 of `docs/7-0.T2620_U盘与BLE及充电共存可行性评估与实施方案.md`.
 
