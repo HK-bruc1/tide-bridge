@@ -83,7 +83,7 @@ Notable behavioral harnesses:
 
 - `test_hogp_hold.py` — HOGP hold/scan/FIFO/session, hot-apply release, recording key sessions
 - `test_keymap_factory_reset.py` — keymap persistence and factory defaults
-- `test_record_tone.py` — `rectone` GET/SET, VM durability, token-bound request/ACK
+- `test_record_tone.py` — shared `rectone`/`recsave` GET/SET, VM durability, busy gates and token-bound request/ACK; APP/F18 no-file recording is covered by `test_hogp_hold.py`
 - `test_ble_entry.py` — second-ACL 120 s entry window, advertising-close confirmation, fault isolation; pins the reviewed `btstack.a` / `btctrler.a` ABI (re-review on library upgrade, do not just replace hashes)
 - `test_cache_flush.py`, `test_record_format.py` — on-demand cache flush and record-format patch library
 - `test_lowpower_lrc.py` — LRC sleep-clock configuration, board init, probe-switch rejection, boot clock refurbish
@@ -125,6 +125,7 @@ Rules:
 - One RDX owner and one HID owner globally, on separate links or one composite `RDX_HID` link. Keyboard routing requires `Input CCC enabled && encrypted && !suspended`. Bonded CCC intent is persisted per SM peer identity.
 - `*APP#custom#rdxclose#1#` releases RDX through FIFO/worker cleanup while keeping HID and the ACL (`docs/3-5.PC_APP_rdxsession_v1_固件对接说明.md`).
 - Key routing: defaults F13/F14/F17/F18/F19; F17 local playback, F18 meeting recording/marks, F19 inspiration recording on stable Down. Recording route is chosen at gesture admission from RDX owner + CCC + stream readiness. Full rules and acceptance status: `docs/2-8.HID键值绑定本地功能设计.md`.
+- `recsave` controls APP/F18 meeting file storage (VM 168, default ON). OFF requires ready RDX, streams without a file and cancels/stops on RDX/CCC loss; rejected starts are silent. F19/CALL/factory and the F19-only CDC coexistence exception are unchanged. See `docs/10-8.会议录音落盘APP控制方案.md` and `docs/10-9.会议录音落盘APP对接说明.md`.
 
 ### Project config overlay (`t2620_project_config.h`)
 

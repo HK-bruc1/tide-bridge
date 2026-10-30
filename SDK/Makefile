@@ -469,6 +469,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_app.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_vm.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_record_tone.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_record_save.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_dut.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_factory_cdc.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_cdc_file.c \

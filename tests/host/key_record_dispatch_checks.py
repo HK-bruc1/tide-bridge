@@ -190,6 +190,12 @@ static int rdx_record_stream_only_token_capture(rdx_ble_async_token_t *t) { retu
 static void rdx_app_record_state_upload_timer_stop(void) {}
 static int storage_full, storage_admits;
 static int rdx_record_local_storage_admit(const char *who) { ++storage_admits; return storage_full?-2:0; }
+static int save_enabled=1;
+static int rdx_record_save_enabled(void) { return save_enabled; }
+static int rdx_record_nosave_session_open(void) {
+    return !save_enabled && record_kind==RDX_RECORD_MEETING &&
+        (key_state==RDX_RECORD_KEY_START_PENDING || key_state==RDX_RECORD_KEY_ACTIVE);
+}
 '''
 
 def check_seek_step():
@@ -240,6 +246,7 @@ static void reset(void) {
     battery_queries=hid_ready=feedback_calls=release_calls=stream_active=releasing=0;
     trigger_deferred=trigger_stop_pending=retirement_pending=0;
     storage_full=storage_admits=0;
+    save_enabled=1;
     app_var.goto_poweroff_flag=0; local_epoch=1;
     dut_disabled=dut_entries=0;
     dut_ticket_pending=1; dut_admission_race=0; upload_info.file_send_busy=0;
@@ -440,6 +447,56 @@ int test_mark_feedback_and_player_admission(void) {
     }
     return 0;
 }
+int test_nosave_meeting_f18_online_only(void) {
+    for(int link=0;link<3;++link) {
+        int online=link==2; /* No RDX, RDX not ready, ready receiver. */
+        reset(); save_enabled=0; ready=link!=0; stream_ready=online; playback=1;
+        rdx_hogp_input_cycle_t f18=cycle(0,0x6d,90);
+        gesture(&f18,KEY_ACTION_DOUBLE_CLICK);
+        if(!online) {
+            /* RDX 未就绪：不开始、不落盘、不打断播放、无任何会话状态。 */
+            CHECK(!starts && !online_starts && !storage_admits && playback && !playback_stops);
+            CHECK(key_state==RDX_RECORD_KEY_IDLE && !key_record_session_active && !key_record_pressed);
+            continue;
+        }
+        CHECK(online_starts==1 && !starts && !storage_admits && !key_record_local);
+        CHECK(key_record_session_active && key_state==RDX_RECORD_KEY_START_PENDING);
+        /* APP 受理后再次触发：按纯推流停止，不走本地落盘停止。 */
+        status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE; stream_active=1;
+        gesture(&f18,KEY_ACTION_DOUBLE_CLICK);
+        CHECK(release_calls>=1 && online_stops==1 && !stops);
+    }
+    /* APP 发起的不落盘会议：F18 同样必须能停止，不能被请求代次不符而静默吞掉。 */
+    reset(); save_enabled=0; ready=1; status.run=RECORD_STATE_START; stream_active=1;
+    key_state=RDX_RECORD_KEY_ACTIVE; record_kind=RDX_RECORD_MEETING; request_generation+=7;
+    rdx_hogp_input_cycle_t f18=cycle(1,0x6d,91);
+    gesture(&f18,KEY_ACTION_DOUBLE_CLICK);
+    CHECK(release_calls>=1 && online_stops==1 && !stops);
+    return 0;
+}
+int test_nosave_meeting_receiver_loss(void) {
+    for(int app=0;app<2;++app) {
+        reset(); save_enabled=0; ready=1;
+        rdx_hogp_input_cycle_t c=cycle(0,0x6d,92);
+        if(!app) gesture(&c,KEY_ACTION_DOUBLE_CLICK);
+        else {
+            stream_active=1; status.run=RECORD_STATE_PAUSE;
+            key_state=RDX_RECORD_KEY_ACTIVE; record_kind=RDX_RECORD_MEETING;
+            key_record_local=1; /* retired local key must not mask this APP session */
+        }
+        ready=stream_ready=0; release_done=0;
+        rdx_app_record_receiver_lost();
+        CHECK(key_record_disconnect_pending);
+        rdx_app_key_record_pump(); CHECK(release_calls && key_record_retry_timer);
+        release_done=1; rdx_app_key_record_pump();
+        CHECK(!key_record_disconnect_pending && !key_record_session_active && !key_record_pressed);
+        CHECK(!starts && !stops && !online_stops);
+    }
+    reset(); ready=1; stream_active=1; status.run=RECORD_STATE_START;
+    key_state=RDX_RECORD_KEY_ACTIVE;
+    rdx_app_record_receiver_lost(); CHECK(!key_record_disconnect_pending);
+    return 0;
+}
 int test_full_storage_rejects_local_writes_only(void) {
     /* 预留区内：离线 F19/F18 与在线 F18（推流并落盘）在改动任何状态前拒绝。 */
     for(int case_id=0;case_id<3;++case_id) {
@@ -623,6 +680,8 @@ int test_dut_final_ticket_guard_and_existing_direct_exit_paths(void) {
 def main():
     check_seek_step()
     app = (BASE / 'rdx_app.c').read_text(encoding='utf-8')
+    ble = (BASE / 'rdx_ble_server.c').read_text(encoding='utf-8')
+    assert 'rdx_app_record_receiver_lost();' in function(ble, 'rdx_ble_server_phase2_rdx_write')
     keys = (BASE / 'rdx_key.c').read_text(encoding='utf-8')
     header = (ROOT / 'SDK/apps/earphone/include/app_msg.h').read_text(encoding='utf-8')
     begin = header.rfind('enum', 0, header.index('APP_MSG_NULL'))
@@ -640,7 +699,8 @@ def main():
         'rdx_app_key_record_product_blocked',
         'rdx_app_local_key_cancel', 'rdx_app_local_key_mode', 'rdx_app_record_is_hold_active',
         'rdx_app_local_key_dut_ready',
-        'rdx_app_key_click_cb', 'rdx_app_record_transport_lost', 'rdx_app_key_record_pump',
+        'rdx_app_key_click_cb', 'rdx_app_record_transport_lost',
+        'rdx_app_record_receiver_lost', 'rdx_app_key_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_meeting_record_toggle', 'rdx_app_usage_key_remap',
         'rdx_app_local_player_message_blocked', 'rdx_app_local_volume_change',
         'rdx_app_device_record_set'))

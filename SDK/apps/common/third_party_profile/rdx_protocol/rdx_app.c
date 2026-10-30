@@ -85,6 +85,7 @@
 #include "rdx_uxfile.h"
 #include "rdx_vm.h"
 #include "rdx_record_tone.h"
+#include "rdx_record_save.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -900,12 +901,23 @@ void rdx_app_record_binding_reset(void)
     rdx_app_record_state_upload_timer_stop();
 }
 
+/* RDX 通知订阅被关闭：仅不落盘会议需要收尾，其余业务保持原行为。 */
+void rdx_app_record_receiver_lost(void)
+{
+    if (rdx_record_nosave_session_open()) {
+        rdx_app_record_transport_lost();
+    }
+}
+
 /* 断连回调仅提交收尾请求，由 app_core 关闭纯推流录音并重试队列拥塞。 */
 void rdx_app_record_transport_lost(void)
 {
-    if (key_record_local ||
-        (!key_record_session_active && !key_record_pressed &&
-         !rdx_record_stream_only_session_is_active())) {
+    /* APP meetings need no key ownership. A retired local-key route must not
+     * hide a later no-save APP session, including a cancelled start tone. */
+    if (!rdx_record_nosave_session_open() &&
+        (key_record_local ||
+         (!key_record_session_active && !key_record_pressed &&
+          !rdx_record_stream_only_session_is_active()))) {
         return;
     }
     rdx_app_key_record_retry_cancel();
@@ -1091,8 +1103,18 @@ static void rdx_app_meeting_record_toggle(void)
         /* 包含 APP 发起的会议及 PAUSE 状态；此操作只允许停止。 */
         key_record_local = !rdx_record_stream_only_session_is_active();
         key_record_local_generation = rdx_record_generation_get();
+        /* 不落盘会议（含 APP 发起）走纯推流停止，须带上当前请求代次。 */
+        key_record_request_generation = rdx_record_key_request_generation();
         key_record_session_active = 1;
         key_record_pressed = 0;
+    } else if (!rdx_record_save_enabled()) {
+        /* 落盘关闭：只允许 RDX 就绪时在线推流，否则直接拒绝，不产生任何
+         * 状态变化与提示音。复用按键纯推流会话，再次触发即停止。 */
+        if (!rdx_app_rdx_key_route_ready()) {
+            return;
+        }
+        key_record_local = 0;
+        key_record_pressed = 1;
     } else if (rdx_app_rdx_key_route_ready()) {
         /* 在线会议与 APP 开启一致：推流并落盘，不建立按住式会话状态。
          * 之后双击结束走上面的本地权威停止，RDX 断开按离线继续落盘。 */
@@ -2042,13 +2064,19 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
 {
     RecordStatus *rp = rdx_record_get_status();
     rdx_ble_async_token_t token = {0};
-    /* 只有灵感录音（F19）是按住式纯推流、不落盘。会议录音在线时沿用
-     * APP 开启路径：推流与落盘同步，RDX 断开后转离线继续落盘。 */
-    u8 stream_only = kind == RDX_RECORD_INSPIRATION;
+    /* 灵感录音（F19）始终是纯推流、不落盘。会议录音默认在线时推流并落盘，
+     * 仅当落盘开关关闭时与 F19 一样走纯推流。 */
+    u8 nosave_meeting = kind == RDX_RECORD_MEETING && scene == RECORD_SCENE_CHAT &&
+                        !rdx_record_save_enabled();
+    u8 stream_only = kind == RDX_RECORD_INSPIRATION || nosave_meeting;
     /* 灵感录音和按键本地会议在受理点固定路由，其余沿用原 APP 路径。 */
     u8 fixed_route = stream_only ||
                      (kind == RDX_RECORD_MEETING && route == RECORD_MODE_OFFLINE);
     int ret;
+    /* 不落盘会议没有本地兜底：离线直接拒绝，早于任何状态/提示音/存储动作。 */
+    if (run == RECORD_STATE_START && nosave_meeting && route != RECORD_MODE_ONLINE) {
+        return -1;
+    }
     if (run == RECORD_STATE_STOP) {
         if (!stream_only) return rdx_record_audio_fault_stop() ? 0 : -1;
         if (route == RECORD_MODE_OFFLINE) return rdx_record_audio_fault_stop() ? 0 : -1;
@@ -2071,10 +2099,11 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
                rdx_uxfile_is_formatting()) return -1;
     if (scene != RECORD_SCENE_CHAT && scene != RECORD_SCENE_CALL) return -1;
     if ((stream_only && route == RECORD_MODE_ONLINE) ?
-        (scene != RECORD_SCENE_CHAT || rdx_storage_lifecycle_stream_blocked()) :
+        (scene != RECORD_SCENE_CHAT ||
+         (kind == RDX_RECORD_INSPIRATION ? rdx_storage_lifecycle_stream_blocked() :
+                                          rdx_storage_lifecycle_business_blocked())) :
         rdx_storage_lifecycle_business_blocked()) return -1;
-    /* Only online F19 is stream-only; offline F19 and meetings write local
-     * files. Admit them before key context, playback or APP trigger changes. */
+    /* File-backed sessions need space admission before any start side effect. */
     if (!(stream_only && route == RECORD_MODE_ONLINE) &&
         rdx_record_local_storage_admit("KEY_START")) return -1;
     if (fixed_route) {
@@ -2121,7 +2150,13 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
 void rdx_app_device_record_handle(u8 scene)
 {
     RecordStatus *rp = rdx_record_get_status();
-    u8 run = (rp->run == RECORD_STATE_STOP) ?
+    u8 run;
+
+    if (scene == RECORD_SCENE_CHAT && !rdx_record_save_enabled()) {
+        rdx_app_meeting_record_toggle(); /* 不落盘会议统一走 F18 入口 */
+        return;
+    }
+    run = (rp->run == RECORD_STATE_STOP) ?
              RECORD_STATE_START : RECORD_STATE_STOP;
 
     rdx_app_device_record_set(scene, run,
@@ -2373,6 +2408,10 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     }
     if (strcmp(cmd, RDX_RECORD_TONE_CUSTOM_CMD) == 0) {
         rdx_record_tone_handle_custom(value);
+        return;
+    }
+    if (strcmp(cmd, RDX_RECORD_SAVE_CUSTOM_CMD) == 0) {
+        rdx_record_save_handle_custom(value);
         return;
     }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);

@@ -65,6 +65,7 @@
 #include "rdx_dip_switch.h"
 #include "rdx_storage_lifecycle.h"
 #include "rdx_playback.h"
+#include "rdx_record_save.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -389,11 +390,28 @@ static struct {
     u8 kind, route, state, fixed;
 } record_key_context;
 
+/* 纯推流（不生成文件）的业务类型：灵感录音始终如此；会议录音在落盘开关
+ * 关闭时同样走在线纯推流。开关在录音/待开始期间被忙检查冻结。 */
+static u8 rdx_record_kind_is_stream_only(u8 kind)
+{
+    return kind == RDX_RECORD_INSPIRATION ||
+           (kind == RDX_RECORD_MEETING && !rdx_record_save_enabled());
+}
+
 static u8 rdx_record_local_route_is_fixed(void)
 {
     return record_key_context.fixed &&
            record_key_context.route == RECORD_MODE_OFFLINE &&
            record_key_context.state != RDX_RECORD_KEY_IDLE;
+}
+
+u8 rdx_record_nosave_session_open(void)
+{
+    return !rdx_record_save_enabled() && record_key_context.fixed &&
+           record_key_context.kind == RDX_RECORD_MEETING &&
+           record_key_context.route == RECORD_MODE_ONLINE &&
+           (record_key_context.state == RDX_RECORD_KEY_START_PENDING ||
+            record_key_context.state == RDX_RECORD_KEY_ACTIVE);
 }
 
 u8 rdx_record_kind_get(void)
@@ -430,9 +448,12 @@ u8 rdx_record_key_request_is_current(u32 generation)
             record_key_context.state == RDX_RECORD_KEY_ACTIVE);
 }
 
-static int rdx_record_stream_business_blocked(void)
+static int rdx_record_stream_business_blocked(u8 kind)
 {
-    return rdx_storage_lifecycle_stream_blocked() ||
+    /* Only F19 has the reviewed CDC read coexistence exception. */
+    return (kind == RDX_RECORD_INSPIRATION ?
+            rdx_storage_lifecycle_stream_blocked() :
+            rdx_storage_lifecycle_business_blocked()) ||
            rdx_app_get_dut_status() || rdx_factory_audio_owned() ||
            rdx_dut_test_keys_active() || get_ota_status() ||
            app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||
@@ -443,6 +464,8 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
                                const rdx_ble_async_token_t *token)
 {
     if (kind > RDX_RECORD_INSPIRATION || route > RECORD_MODE_ONLINE ||
+        (kind == RDX_RECORD_MEETING && !rdx_record_save_enabled() &&
+         route != RECORD_MODE_ONLINE) ||
         !rdx_record_binding_allowed() ||
         rdx_app_get_dut_status() || rdx_factory_audio_owned() ||
         rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE ||
@@ -458,8 +481,8 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
          rdx_record_hold_fence_blocks(token))) {
         return 0;
     }
-    if ((kind == RDX_RECORD_INSPIRATION && route == RECORD_MODE_ONLINE) ?
-        rdx_record_stream_business_blocked() :
+    if ((rdx_record_kind_is_stream_only(kind) && route == RECORD_MODE_ONLINE) ?
+        rdx_record_stream_business_blocked(kind) :
         rdx_storage_lifecycle_business_blocked()) {
         return 0;
     }
@@ -655,7 +678,7 @@ static u8 rdx_record_start_uses_local_storage(
 {
     return !(token && g_stream_only_start_pending &&
              record_key_context.fixed &&
-             record_key_context.kind == RDX_RECORD_INSPIRATION &&
+             rdx_record_kind_is_stream_only(record_key_context.kind) &&
              record_key_context.route == RECORD_MODE_ONLINE &&
              record_key_context.state == RDX_RECORD_KEY_START_PENDING &&
              rdx_record_token_equal(token, &g_stream_only_start_token));
@@ -664,7 +687,7 @@ static u8 rdx_record_start_uses_local_storage(
 static u8 rdx_record_stream_owner_is_current(void)
 {
     return g_stream_only_session_active && record_key_context.fixed &&
-           record_key_context.kind == RDX_RECORD_INSPIRATION &&
+           rdx_record_kind_is_stream_only(record_key_context.kind) &&
            record_key_context.route == RECORD_MODE_ONLINE &&
            record_key_context.state == RDX_RECORD_KEY_ACTIVE &&
            record_status.scene == RECORD_SCENE_CHAT &&
@@ -730,7 +753,7 @@ static int rdx_record_session_storage_blocked(void)
 {
     if (g_stream_only_session_active) {
         return !rdx_record_stream_owner_is_current() ||
-               rdx_record_stream_business_blocked();
+               rdx_record_stream_business_blocked(record_key_context.kind);
     }
     return rdx_storage_lifecycle_business_blocked();
 }
@@ -746,7 +769,7 @@ static int rdx_record_command_storage_blocked(
           !rdx_record_start_uses_local_storage(token)) ||
          (rdx_record_stream_owner_is_current() &&
           rdx_record_token_equal(token, &g_record_session_token)))) {
-        return rdx_record_stream_business_blocked();
+        return rdx_record_stream_business_blocked(record_key_context.kind);
     }
     return rdx_storage_lifecycle_business_blocked();
 }
@@ -755,7 +778,7 @@ static int rdx_record_command_storage_blocked(
  * before session, tone, LED, playback or audio-graph changes: the JL graph
  * rollback after a failed sink START is unsafe, so it is never the gate.
  * Reserve reached replaces the start tone with the storage-full prompt;
- * online stream-only F19 never calls this admission. */
+ * online stream-only sessions never call this admission. */
 int rdx_record_local_storage_admit(const char *who)
 {
     int ret = rdx_record_storage_admit();
@@ -1323,7 +1346,7 @@ static int rdx_record_worker_close(void)
      * also covering a held-key request cancelled before any sink was opened. */
     u8 stream_only = g_stream_only_session_active ||
                      (record_key_context.fixed &&
-                      record_key_context.kind == RDX_RECORD_INSPIRATION &&
+                      rdx_record_kind_is_stream_only(record_key_context.kind) &&
                       record_key_context.route == RECORD_MODE_ONLINE &&
                       record_key_context.state != RDX_RECORD_KEY_IDLE);
     translation_ear_recoder_close_all();
@@ -1746,6 +1769,13 @@ static void rdx_record_cmd_handle_internal(
         u8 uxfile_busy =
             (rdx_record_start_uses_local_storage(token) &&
              rdx_record_uxfile_is_busy());
+        /* CCC may drop after the outer admission. A no-save meeting must not
+         * enter the legacy retry path and later restart with a retired policy. */
+        if (stream_not_ready && info_type == RECORD_SCENE_CHAT &&
+            record_key_context.kind == RDX_RECORD_MEETING &&
+            !rdx_record_save_enabled()) {
+            return;
+        }
         if(stream_not_ready || uxfile_busy) {
             if(g_record_cmd_delay_timer) {
                 if (token && g_pending_record_token_valid &&
@@ -1912,9 +1942,48 @@ static void rdx_record_cmd_handle_internal(
     rdx_record_process();
 }
 
+/* 会议录音“不落盘”的 APP START 准入：必须在任何状态、提示音、LED、
+ * 播放中断和存储动作之前完成。准入失败时设备状态保持不变，因此不会有提示音。 */
+static void rdx_record_cmd_handle_admit(
+    Record_info *r_info,
+    const rdx_ble_async_token_t *token)
+{
+    u8 prepared = 0;
+
+    if (r_info && r_info->cmd == (RECORD_STATE_START + 0x30) &&
+        r_info->type == (RECORD_SCENE_CHAT + 0x30) &&
+        !rdx_record_save_enabled()) {
+        u8 allowed = token && rdx_record_rdx_token_is_current(token) &&
+                     rdx_ble_server_is_stream_tx_ready();
+        if (allowed && record_status.run == RECORD_STATE_STOP &&
+            rdx_record_key_state_get() == RDX_RECORD_KEY_IDLE) {
+            /* Reuse the existing stream-only sidecar, not RecordStatus ABI. */
+            prepared = rdx_record_key_start_prepare(
+                RDX_RECORD_MEETING, RECORD_MODE_ONLINE, token);
+            allowed = prepared;
+        }
+        /* A late/pending START must not fall through to file-backed recording
+         * or the legacy delayed-start retry when its receiver is unavailable. */
+        if (!allowed || (rdx_record_start_uses_local_storage(token) &&
+                         !rdx_record_stream_owner_is_current())) {
+            r_printf("[RDX_RECORD] no-save START rejected before start\r");
+            if (token && rdx_record_rdx_token_is_current(token) &&
+                rdx_record_state_is_publishable()) {
+                rdx_protocol_record_state_indicate();
+            }
+            return;
+        }
+    }
+    rdx_record_cmd_handle_internal(r_info, token);
+    /* 准备成功但命令未真正开始（重复、忙、被存储门禁拦截等）时撤销。 */
+    if (prepared && record_status.run != RECORD_STATE_START) {
+        rdx_record_key_start_abort();
+    }
+}
+
 void rdx_record_cmd_handle(Record_info *r_info)
 {
-    rdx_record_cmd_handle_internal(r_info, NULL);
+    rdx_record_cmd_handle_admit(r_info, NULL);
 }
 
 void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
@@ -1923,7 +1992,7 @@ void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
     if (!token) {
         return;
     }
-    rdx_record_cmd_handle_internal(r_info, token);
+    rdx_record_cmd_handle_admit(r_info, token);
 }
 
 /**************************************************************************
@@ -1982,6 +2051,11 @@ void rdx_record_start(void* priv)
 {
     if (!rdx_record_binding_allowed() || rdx_storage_lifecycle_business_blocked()) {
         rdx_record_format_download_conflict("RECORD_START");
+        return;
+    }
+    /* 落盘关闭时不允许本地重启会议录音（无接收端、无提示音）。 */
+    if (!rdx_record_save_enabled() &&
+        rdx_record_get_status()->scene == RECORD_SCENE_CHAT) {
         return;
     }
     /*----------------------------------------------------------------*/
@@ -3571,7 +3645,7 @@ void rdx_record_on_ble_conn_changed(u8 connected)
     if(record_status.run != RECORD_STATE_PAUSE){
         return;
     }
-    if(connected){
+    if(connected || rdx_record_nosave_session_open()){
         rdx_record_pause_timeout_stop();
     }else{
         rdx_record_pause_timeout_start();

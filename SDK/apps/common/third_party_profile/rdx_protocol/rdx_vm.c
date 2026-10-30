@@ -44,6 +44,7 @@
 #include "rdx_hogp_subscription_store.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_record_tone.h"
+#include "rdx_record_save.h"
 #include "rdx_led_ctrl.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
@@ -179,6 +180,7 @@ void rdx_vm_init(void)
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     rdx_record_tone_init();
+    rdx_record_save_init();
     if (!bound_transition_ready) {
         if (os_mutex_create(&bound_transition_mutex)) {
             return; /* Static zero authorization remains fail-closed. */
@@ -851,6 +853,11 @@ int rdx_vm_reset_defaults_no_poweroff(void)
     /* Persist HID defaults before deleting bonds or scheduling a restart. */
     if (rdx_hogp_keymap_config_factory_reset()) {
         y_printf("[RDX_VM] factory reset aborted: HID keymap reset failed\n");
+        return -1;
+    }
+
+    if (rdx_record_save_factory_reset()) {
+        y_printf("[RDX_VM] factory reset aborted: recording save reset failed\n");
         return -1;
     }
 

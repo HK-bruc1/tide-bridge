@@ -71,7 +71,7 @@ static int rdx_record_tone_save(u8 enable)
     return 0;
 }
 
-static u8 rdx_record_tone_busy(void)
+u8 rdx_record_config_busy(void)
 {
     return tone_resetting || app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||
            get_ota_status() || rdx_dut_is_in_mode() || rdx_dut_test_keys_active() ||
@@ -159,7 +159,7 @@ static void rdx_record_tone_execute(rdx_record_tone_request_t *request)
     } else if (request->op == TONE_SET) {
         /* START admission and this complete idle/check/commit/publication run
          * on app_core. No deferred SET, audio lock or new service timer. */
-        if (rdx_record_tone_busy()) {
+        if (rdx_record_config_busy()) {
             result = "busy";
         } else if (!rdx_record_tone_token_current(&request->token)) {
             free(request);

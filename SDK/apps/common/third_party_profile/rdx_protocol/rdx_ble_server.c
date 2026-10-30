@@ -3220,6 +3220,8 @@ static int rdx_ble_server_phase2_rdx_write(
                 link->rdx_stream_tx_ready = 0;
                 g_rdx_ble_server_info.ccc_configured = FALSE;
                 g_rdx_ble_server_info.stream_tx_ready = FALSE;
+                /* 不落盘会议失去订阅即失去唯一输出，按传输丢失收尾。 */
+                rdx_app_record_receiver_lost();
                 rdx_dut_service_wake();
             }
             return 0;

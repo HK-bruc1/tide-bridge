@@ -1,4 +1,4 @@
-"""Execute the production rectone parser, VM commit and token-bound dispatcher."""
+"""Shared rectone/recsave protocol, VM and token tests; execute both real modules."""
 import re
 import ctypes
 import tempfile
@@ -27,6 +27,7 @@ int snprintf(char *, size_t, const char *, ...);
 #define THIRD_PARTY_PROTOCOLS_SEL 1
 #define RDX_EN 1
 #define VM_RDX_RECORD_TONE 167
+#define VM_RDX_RECORD_SAVE 168
 #define CUSTOM_VALUE_MAX_LENGTH 100
 #define Q_CALLBACK 1
 typedef struct { u8 slot_index; u32 slot_generation, transport_epoch; } rdx_ble_async_token_t;
@@ -55,12 +56,12 @@ static int os_taskq_post_type(const char *task,int type,int n,int *msg) {
 }
 static int syscfg_read(int id,void *p,int n) {
     ++reads;
-    if (id!=VM_RDX_RECORD_TONE || fail_read || flash_len!=n) return -1;
+    if (id!=CONFIG_VM || fail_read || flash_len!=n) return -1;
     *(u8 *)p=bad_read ? 0xff : flash; return n;
 }
 static int syscfg_write(int id,const void *p,int n) {
     ++writes;
-    if (id!=VM_RDX_RECORD_TONE || fail_write) return 0;
+    if (id!=CONFIG_VM || fail_write) return 0;
     flash=*(const u8 *)p; flash_len=n;
     if(revoke_write) { live=0; ++owner.transport_epoch; }
     return n;
@@ -89,34 +90,34 @@ static int rdx_record_tone_config_busy(void) { if(revoke_busy) live=0; return re
 TESTS = r'''
 static void pump(void) {
     void *p=queued; queued=NULL;
-    if(p) rdx_record_tone_execute(p);
+    if(p) CONFIG(execute)(p);
 }
-static void request(const char *s) { wire_len=0; wire[0]=0; rdx_record_tone_handle_custom(s); pump(); }
+static void request(const char *s) { wire_len=0; wire[0]=0; CONFIG(handle_custom)(s); pump(); }
 static void boot(int len,int value) {
     live=link.rdx_ccc_configured=1; link.mtu_size=244; owner=(rdx_ble_async_token_t){0,1,1};
     recording=dut=keys=factory=file_busy=storage=formatting=ota=poweroff=0;
-    app_var.goto_poweroff_flag=0;
+    app_var.goto_poweroff_flag=tone_resetting=0;
     fail_alloc=fail_queue=fail_send=fail_write=fail_read=bad_read=revoke_busy=revoke_write=0;
     allocations=frees=sends=writes=reads=wire_len=0; wire[0]=0; queued=NULL;
-    flash_len=len; flash=value; rdx_record_tone_init();
+    flash_len=len; flash=value; CONFIG(init)();
 }
 int test_boot_get_and_durability(void) {
     for(int mode=0;mode<4;++mode) {
         boot(mode==0?0:1,mode==1?255:mode==2?0:1);
-        CHECK(rdx_record_tone_enabled()==(mode==2?0:1));
+        CHECK(CONFIG(enabled)()==(mode==2?0:1));
         int count=reads;
         request("get,001");
-        CHECK(!strcmp(wire,mode==2?"*DEV#custom#rectone#001,ok,0#":"*DEV#custom#rectone#001,ok,1#"));
+        CHECK(!strcmp(wire,mode==2?REPLY("001,ok,0"):REPLY("001,ok,1")));
         CHECK(reads==count && !writes && allocations==frees);
         request(mode==2?"set,2,0":"set,2,1");
-        CHECK(writes==(mode<2) && tone_durable);
+        CHECK(writes==(mode<2) && CONFIG_DURABLE);
         request(mode==2?"set,3,1":"set,3,0");
         CHECK(writes==(mode<2?2:1));
-        rdx_record_tone_init(); CHECK(tone_enabled==(mode==2?1:0));
+        CONFIG(init)(); CHECK(CONFIG(enabled)()==(mode==2?1:0));
     }
-    boot(1,0); fail_read=1; rdx_record_tone_init();
-    CHECK(tone_enabled==1 && !tone_durable && !writes);
-    fail_read=0; request("set,4,1"); CHECK(writes==1 && tone_durable && flash==1);
+    boot(1,0); fail_read=1; CONFIG(init)();
+    CHECK(CONFIG(enabled)()==1 && !CONFIG_DURABLE && !writes);
+    fail_read=0; request("set,4,1"); CHECK(writes==1 && CONFIG_DURABLE && flash==1);
     return 0;
 }
 int test_parser_and_limits(void) {
@@ -126,17 +127,17 @@ int test_parser_and_limits(void) {
     for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
         int before=sends; request(bad[i]);
         if(i==3 || i==13) CHECK(sends==before); /* invalid characters in the ID */
-        else CHECK(sends==before+1 && !strcmp(wire,"*DEV#custom#rectone#001,arg,1#"));
+        else CHECK(sends==before+1 && !strcmp(wire,REPLY("001,arg,1")));
         CHECK(!writes);
     }
     const char *noid[]={"get","get,","get,0","get,00000","get,65536","get,000001", "get,+1","get,-1","get, 1","get,a"};
     for(unsigned i=0;i<sizeof(noid)/sizeof(noid[0]);++i) { int n=sends; request(noid[i]); CHECK(n==sends && !writes); }
-    request("set,65535,0"); CHECK(!strcmp(wire,"*DEV#custom#rectone#65535,ok,0#"));
-    request("get,00001"); CHECK(!strcmp(wire,"*DEV#custom#rectone#00001,ok,0#"));
+    request("set,65535,0"); CHECK(!strcmp(wire,REPLY("65535,ok,0")));
+    request("get,00001"); CHECK(!strcmp(wire,REPLY("00001,ok,0")));
     fail_write=1; request("set,65535,1");
-    CHECK(!strcmp(wire,"*DEV#custom#rectone#65535,vmerr,0#"));
+    CHECK(!strcmp(wire,REPLY("65535,vmerr,0")));
     char long_value[101]; memset(long_value,'x',100); memcpy(long_value,"set,12345,",10); long_value[100]=0;
-    request(long_value); CHECK(!strcmp(wire,"*DEV#custom#rectone#12345,arg,0#"));
+    request(long_value); CHECK(!strcmp(wire,REPLY("12345,arg,0")));
     CHECK(allocations==frees);
     return 0;
 }
@@ -144,45 +145,48 @@ int test_busy_and_factory_reset(void) {
     int *gates[]={&recording,&dut,&keys,&factory,&file_busy,&storage,&formatting,&ota,&poweroff,&app_var.goto_poweroff_flag};
     for(unsigned i=0;i<sizeof(gates)/sizeof(gates[0]);++i) {
         boot(1,1); *gates[i]=1;
-        request("get,1"); CHECK(!strcmp(wire,"*DEV#custom#rectone#1,ok,1#"));
-        request("set,2,0"); CHECK(!writes && !strcmp(wire,"*DEV#custom#rectone#2,busy,1#"));
-        *gates[i]=0; request("set,3,0"); CHECK(writes==1 && tone_enabled==0);
+        request("get,1"); CHECK(!strcmp(wire,REPLY("1,ok,1")));
+        request("set,2,0"); CHECK(!writes && !strcmp(wire,REPLY("2,busy,1")));
+        *gates[i]=0; request("set,3,0"); CHECK(writes==1 && CONFIG(enabled)()==0);
     }
-    boot(1,0); CHECK(!rdx_record_tone_factory_reset() && flash==1 && tone_enabled==1);
-    request("set,1,0"); CHECK(writes==1 && !strcmp(wire,"*DEV#custom#rectone#1,busy,1#"));
-    rdx_record_tone_init(); request("set,2,0"); CHECK(writes==2 && tone_enabled==0);
-    fail_write=1; CHECK(rdx_record_tone_factory_reset()==-1 && !tone_resetting && tone_enabled==0);
-    fail_write=0; dut=1; CHECK(!rdx_record_tone_factory_reset()); /* existing packaging entry */
+    boot(1,0); CHECK(!CONFIG(factory_reset)() && flash==1 && CONFIG(enabled)()==1);
+    CHECK(tone_resetting==CONFIG_IS_TONE);
+    if (!CONFIG_IS_TONE) tone_resetting=1; /* Both settings share the reset gate. */
+    request("set,1,0"); CHECK(writes==1 && !strcmp(wire,REPLY("1,busy,1")));
+    rdx_record_tone_init();
+    CONFIG(init)(); request("set,2,0"); CHECK(writes==2 && CONFIG(enabled)()==0);
+    fail_write=1; CHECK(CONFIG(factory_reset)()==-1 && !tone_resetting && CONFIG(enabled)()==0);
+    fail_write=0; dut=1; CHECK(!CONFIG(factory_reset)()); /* existing packaging entry */
     return 0;
 }
 int test_vm_failures_and_reconciliation(void) {
     for(int mode=0;mode<3;++mode) {
         boot(1,1); fail_write=mode==0; fail_read=mode==1; bad_read=mode==2;
-        request("set,1,0"); CHECK(tone_enabled==1 && !tone_durable && writes==1);
-        CHECK(!strcmp(wire,"*DEV#custom#rectone#1,vmerr,1#"));
-        int n=reads; request("get,2"); CHECK(reads==n && !strcmp(wire,"*DEV#custom#rectone#2,ok,1#"));
+        request("set,1,0"); CHECK(CONFIG(enabled)()==1 && !CONFIG_DURABLE && writes==1);
+        CHECK(!strcmp(wire,REPLY("1,vmerr,1")));
+        int n=reads; request("get,2"); CHECK(reads==n && !strcmp(wire,REPLY("2,ok,1")));
         fail_write=fail_read=bad_read=0;
-        request("set,3,1"); CHECK(writes==2 && flash==1 && tone_durable);
+        request("set,3,1"); CHECK(writes==2 && flash==1 && CONFIG_DURABLE);
         request("set,4,1"); CHECK(writes==2);
     }
-    boot(1,1); fail_read=1; request("set,1,0"); CHECK(flash==0 && tone_enabled==1);
-    fail_read=0; rdx_record_tone_init(); CHECK(tone_enabled==0);
+    boot(1,1); fail_read=1; request("set,1,0"); CHECK(flash==0 && CONFIG(enabled)()==1);
+    fail_read=0; CONFIG(init)(); CHECK(CONFIG(enabled)()==0);
     return 0;
 }
 int test_token_queue_and_send_failures(void) {
     for(int mode=0;mode<4;++mode) {
-        boot(1,1); rdx_record_tone_handle_custom("set,001,0"); CHECK(queued);
+        boot(1,1); CONFIG(handle_custom)("set,001,0"); CHECK(queued);
         if(mode==0) live=0;
         if(mode==1) ++owner.transport_epoch;
         if(mode==2) ++owner.slot_generation;
         if(mode==3) link.rdx_ccc_configured=0;
-        pump(); CHECK(!writes && !sends && allocations==frees && tone_enabled==1);
+        pump(); CHECK(!writes && !sends && allocations==frees && CONFIG(enabled)()==1);
     }
     boot(1,1); revoke_busy=1; request("set,1,0"); CHECK(!writes && !sends);
-    boot(1,1); revoke_write=1; request("set,1,0"); CHECK(writes==1 && !sends && tone_enabled==0);
-    live=1; request("get,2"); CHECK(!strcmp(wire,"*DEV#custom#rectone#2,ok,0#"));
-    boot(1,1); fail_send=1; request("set,1,0"); CHECK(writes==1 && tone_enabled==0 && !sends);
-    fail_send=0; request("set,2,0"); CHECK(writes==1 && !strcmp(wire,"*DEV#custom#rectone#2,ok,0#"));
+    boot(1,1); revoke_write=1; request("set,1,0"); CHECK(writes==1 && !sends && CONFIG(enabled)()==0);
+    live=1; request("get,2"); CHECK(!strcmp(wire,REPLY("2,ok,0")));
+    boot(1,1); fail_send=1; request("set,1,0"); CHECK(writes==1 && CONFIG(enabled)()==0 && !sends);
+    fail_send=0; request("set,2,0"); CHECK(writes==1 && !strcmp(wire,REPLY("2,ok,0")));
     boot(1,1); fail_queue=1; request("set,1,0"); CHECK(!writes && allocations==frees);
     fail_queue=0; fail_alloc=1; request("set,1,0"); CHECK(!writes && allocations==frees);
     fail_alloc=0; link.rdx_ccc_configured=0; request("set,1,0"); CHECK(!writes && allocations==frees);
@@ -190,7 +194,7 @@ int test_token_queue_and_send_failures(void) {
 }
 int test_default_mtu_fragments(void) {
     boot(1,1); link.mtu_size=20;
-    request("set,65535,0"); CHECK(sends==2 && !strcmp(wire,"*DEV#custom#rectone#65535,ok,0#"));
+    request("set,65535,0"); CHECK(sends==2 && !strcmp(wire,REPLY("65535,ok,0")));
     link.mtu_size=19; request("get,1"); CHECK(sends==2 && !wire_len);
     return 0;
 }
@@ -200,29 +204,42 @@ int test_default_mtu_fragments(void) {
 def main():
     crt = ctypes.CDLL('msvcrt')
     llvm.add_symbol('snprintf', ctypes.cast(crt._snprintf, ctypes.c_void_p).value)
-    module = (BASE / 'rdx_record_tone.c').read_text(encoding='utf-8')
+    tone = (BASE / 'rdx_record_tone.c').read_text(encoding='utf-8')
     ble = (BASE / 'rdx_ble_server.c').read_text(encoding='utf-8')
-    source = (STUBS + function(ble, 'rdx_ble_server_send_text_for_token') +
-              re.sub(r'^#include[^\n]*', '', module, flags=re.M) + TESTS)
     vm = (BASE / 'rdx_vm.c').read_text(encoding='utf-8')
     app = (BASE / 'rdx_app.c').read_text(encoding='utf-8')
-    assert 'rdx_record_tone_init();' in function(vm, 'rdx_vm_init')
-    assert 'rdx_record_tone_init' not in function(vm, 'rdx_vm_bound_transition_lock')
     reset = function(vm, 'rdx_vm_reset_defaults_no_poweroff')
-    assert reset.index('rdx_record_tone_factory_reset') < reset.index('rdx_vm_ble_pairing_state_reset')
-    assert 'rdx_record_tone_factory_reset' not in (BASE / 'rdx_hogp_keymap_config.c').read_text(encoding='utf-8')
     custom = function(app, 'rdx_app_custom_command_parse')
-    assert custom.index('RDX_BLE_RUNTIME_ACTIVE') < custom.index('RDX_RECORD_TONE_CUSTOM_CMD')
-    assert 'rdx_record_tone_handle_custom(value)' in custom
-    assert 'rdx_record_tone.c' in (ROOT / 'SDK/Makefile').read_text(encoding='utf-8')
+    keymap = (BASE / 'rdx_hogp_keymap_config.c').read_text(encoding='utf-8')
+    makefile = (ROOT / 'SDK/Makefile').read_text(encoding='utf-8')
     record = (BASE / 'rdx_record.c').read_text(encoding='utf-8')
     assert len(re.findall(r'if \(rdx_record_start_tone_wait\(\)\)', record)) == 2
-    assert not re.search(r'sys_(?:timer|timeout)_add|power_amp_set|audio_dac|custom_msg_indicate', module)
-    with tempfile.TemporaryDirectory(prefix='record-tone-') as tmp:
-        path = Path(tmp) / 'checks.c'
-        path.write_text(source, encoding='utf-8')
-        run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', TESTS), native=True)
-    print('Recording tone: strict protocol, VM/default/reset, full-idle admission and token-bound request/response passed.')
+    for kind in ('tone', 'save'):
+        name = f'rdx_record_{kind}'
+        module = tone if kind == 'tone' else (BASE / f'{name}.c').read_text(encoding='utf-8')
+        assert f'{name}_init();' in function(vm, 'rdx_vm_init')
+        assert f'{name}_init' not in function(vm, 'rdx_vm_bound_transition_lock')
+        assert reset.index(f'{name}_factory_reset') < reset.index('rdx_vm_ble_pairing_state_reset')
+        assert f'{name}_factory_reset' not in keymap
+        assert custom.index('RDX_BLE_RUNTIME_ACTIVE') < custom.index(f'RDX_RECORD_{kind.upper()}_CUSTOM_CMD')
+        assert f'{name}_handle_custom(value)' in custom
+        assert f'{name}.c' in makefile
+        assert not re.search(r'sys_(?:timer|timeout)_add|power_amp_set|audio_dac|custom_msg_indicate', module)
+        # Select the API under test, without rewriting the production C.
+        aliases = (
+            f'#define CONFIG(name) {name}_##name\n'
+            f'#define CONFIG_DURABLE {kind}_durable\n'
+            f'#define CONFIG_VM VM_RDX_RECORD_{kind.upper()}\n'
+            f'#define CONFIG_IS_TONE {int(kind == "tone")}\n'
+            f'#define REPLY(fields) "*DEV#custom#rec{kind}#" fields "#"\n')
+        modules = tone if kind == 'tone' else tone + module
+        source = (aliases + STUBS + function(ble, 'rdx_ble_server_send_text_for_token') +
+                  re.sub(r'^#include[^\n]*', '', modules, flags=re.M) + TESTS)
+        with tempfile.TemporaryDirectory(prefix=f'record-{kind}-') as tmp:
+            path = Path(tmp) / 'checks.c'
+            path.write_text(source, encoding='utf-8')
+            run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', TESTS), native=True)
+        print(f'Recording {kind}: strict protocol, VM/default/reset, shared busy gates and token-bound request/response passed.')
 
 
 if __name__ == '__main__':

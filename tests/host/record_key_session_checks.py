@@ -110,6 +110,7 @@ static void noop(void) {}
 static RecordStatus *rdx_record_get_status(void) { return &record_status; }
 static int rdx_app_get_dut_status(void) { return dut; }
 static int rdx_factory_audio_owned(void) { return factory; }
+static int lose_ready_on_admission;
 static int rdx_ble_server_is_stream_tx_ready(void) { return stream_ready; }
 static int rdx_ble_session_rdx_token_resolve(const rdx_ble_async_token_t *t,int ready) {
     return live && t && t->slot_index==owner.slot_index &&
@@ -122,6 +123,7 @@ static u32 rdx_vm_get_bound_token(void) { return bound; }
 static int rdx_cdc_source_stream_blocked(void);
 u8 rdx_record_stream_only_release(void);
 static int rdx_storage_lifecycle_business_blocked(void) {
+    if(lose_ready_on_admission) stream_ready=0;
     return storage_busy || cdc_busy || pc_refresh || file_fault || rf_error || rf_service;
 }
 static int rdx_storage_lifecycle_stream_blocked(void) {
@@ -295,7 +297,7 @@ static void reset(void) {
     g_hold_release_posted=g_hold_release_ticket=g_hold_release_done=0;
     closes=finishes=record_tone_session_active=0; is_record_task_created=1;
     admit_ret=admit_calls=space_ret=pause_timeout_starts=pause_timeout_stops=full_tones=0;
-    dut=factory=storage_busy=cdc_busy=ux_busy=0; bound=live=stream_ready=1;
+    dut=factory=storage_busy=cdc_busy=ux_busy=lose_ready_on_admission=0; bound=live=stream_ready=save_enabled=1;
     ota=shutdown=factory_keys=playback_stops=memory_resets=metadata=writers=storage_ends=power_wakes=retire_on_close=worker_opens=0;
     tone_setting=1;
     record_session_tone_enabled=1;
@@ -315,7 +317,7 @@ static void reset(void) {
 }
 static void cmd(u8 state) {
     Record_info info={state+0x30,'1','0'};
-    rdx_record_cmd_handle_internal(&info,&owner);
+    rdx_record_cmd_handle_from_rdx(&info,&owner);
 }
 static void drain_release(void) {
     worker_release(g_hold_release_ticket);
@@ -453,27 +455,34 @@ int test_local_stop_fence_and_owner(void) {
     }
     return 0;
 }
-int test_online_meeting_saves_but_inspiration_only_streams(void) {
+int test_online_session_storage_policy(void) {
     u8 data=0;
-    for(int kind=RDX_RECORD_MEETING;kind<=RDX_RECORD_INSPIRATION;++kind) {
-        reset(); int stream_only=kind==RDX_RECORD_INSPIRATION;
-        if(stream_only) CHECK(rdx_record_key_start_prepare(kind,RECORD_MODE_ONLINE,&owner));
+    /* Saved meeting, inspiration and no-save meeting share the lifecycle. */
+    for(int policy=0;policy<3;++policy) {
+        reset(); save_enabled=policy!=2;
+        int kind=policy==1?RDX_RECORD_INSPIRATION:RDX_RECORD_MEETING;
+        int stream_only=policy!=0;
+        if(kind==RDX_RECORD_INSPIRATION) CHECK(rdx_record_key_start_prepare(kind,RECORD_MODE_ONLINE,&owner));
+        if(stream_only) admit_ret=-2; /* Pure streaming never queries capacity. */
         cmd(RECORD_STATE_START);
         CHECK(rdx_record_stream_only_session_is_active()==stream_only);
+        CHECK(rdx_record_nosave_session_open()==(policy==2));
         CHECK(rdx_record_kind_get()==kind && rdx_record_key_state_get()==RDX_RECORD_KEY_ACTIVE);
+        u32 generation=record_session_generation;
+        cmd(RECORD_STATE_START); CHECK(record_session_generation==generation);
         CHECK(!rdx_record_run_init() && files==!stream_only);
         CHECK(record_status.orig_mode==RECORD_MODE_ONLINE);
         CHECK(!rdx_record_run_data_handle(&data,1) && audio==1 && saves==!stream_only);
         cmd(RECORD_STATE_PAUSE); CHECK(record_status.run==RECORD_STATE_PAUSE);
         CHECK(!rdx_record_key_start_prepare(kind,RECORD_MODE_ONLINE,&owner));
-        u32 generation=record_session_generation;
         cmd(RECORD_STATE_START); CHECK(record_session_generation==generation);
         cmd(RECORD_STATE_RESUME); CHECK(record_status.run==RECORD_STATE_RESUME);
         CHECK(rdx_record_kind_get()==kind && rdx_record_stream_only_session_is_active()==stream_only);
         CHECK(!rdx_record_run_init() && files==!stream_only);
-        if(stream_only) { CHECK(!rdx_record_stream_only_release()); drain_release(); }
+        if(kind==RDX_RECORD_INSPIRATION) { CHECK(!rdx_record_stream_only_release()); drain_release(); }
         else { cmd(RECORD_STATE_STOP); drain_stop_reply(); }
-        CHECK(files==!stream_only && saves==!stream_only);
+        CHECK(files==!stream_only && saves==!stream_only && !rdx_record_nosave_session_open());
+        if(stream_only) CHECK(!admit_calls && !metadata && !writers);
     }
     return 0;
 }
@@ -633,6 +642,76 @@ int test_full_storage_resume_keeps_pause(void) {
         CHECK(record_session_generation==generation);
         cmd(RECORD_STATE_STOP); drain_stop_reply(); CHECK(admit_calls==3);
     }
+    return 0;
+}
+int test_nosave_meeting_app_start_admission(void) {
+    Record_info info={RECORD_STATE_START+0x30,'1','0'};
+    reset(); save_enabled=0;
+    CHECK(!rdx_record_key_start_prepare(RDX_RECORD_MEETING,RECORD_MODE_OFFLINE,NULL));
+    CHECK(rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE && !processes);
+    /* 无法在线推流时，START 在任何状态、提示音、进程、存储动作之前被拒绝。 */
+    for(int mode=0;mode<4;++mode) {
+        reset(); save_enabled=0; tone_setting=1;
+        if(mode==0) stream_ready=0;
+        if(mode==1) live=0;
+        if(mode==2) bound=0;
+        if(mode==3) record_start_tone_pending=1;
+        u32 generation=record_session_generation; key_snapshot_t key=key_snapshot();
+        rdx_record_cmd_handle_from_rdx(&info,&owner);
+        CHECK(record_status.run==RECORD_STATE_STOP && record_session_generation==generation);
+        CHECK(key_snapshot_equal(key,key_snapshot()) && !g_stream_only_start_pending);
+        CHECK(!processes && !files && !admit_calls && !tone_plays && !g_record_cmd_delay_timer);
+        CHECK(!g_record_session_token_valid && !rdx_record_stream_only_session_is_active());
+    }
+    /* CCC drops between admission and the internal START check: no retry may
+     * survive aborting the temporary no-save sidecar. */
+    reset(); save_enabled=0; lose_ready_on_admission=1;
+    rdx_record_cmd_handle_from_rdx(&info,&owner);
+    CHECK(!stream_ready && record_status.run==RECORD_STATE_STOP);
+    CHECK(!g_record_cmd_delay_timer && !g_stream_only_start_pending &&
+          rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE && !admit_calls && !processes);
+    /* CALL remains file-backed with the switch OFF. */
+    reset(); save_enabled=0; info.type='0'+RECORD_SCENE_CALL;
+    rdx_record_cmd_handle_from_rdx(&info,&owner);
+    CHECK(!rdx_record_stream_only_session_is_active() && admit_calls==1);
+    return 0;
+}
+int test_nosave_meeting_loss_and_no_cdc_expansion(void) {
+    Record_info info={RECORD_STATE_START+0x30,'1','0'};
+    for(int stage=0;stage<4;++stage) {
+        reset(); save_enabled=0; tone_setting=1;
+        CHECK(rdx_record_key_start_prepare(RDX_RECORD_MEETING,RECORD_MODE_ONLINE,&owner));
+        CHECK(rdx_record_nosave_session_open());
+        if(stage) rdx_record_cmd_handle_from_rdx(&info,&owner);
+        if(stage==1) CHECK(rdx_record_start_tone_wait());
+        if(stage>=2) CHECK(!rdx_record_run_init());
+        if(stage==3) { cmd(RECORD_STATE_PAUSE); CHECK(!rdx_record_run_exit()); }
+        CHECK(rdx_record_cdc_read_is_busy() && rdx_cdc_source_list_begin()==2);
+        /* Receiver loss while pending/tone/active/paused never retries START
+         * or changes to file-backed recording. The worker still owns close. */
+        stream_ready=0;
+        rdx_record_on_ble_conn_changed(0);
+        CHECK(!pause_timeout_starts);
+        rdx_record_cmd_handle_from_rdx(&info,&owner);
+        CHECK(!g_record_cmd_delay_timer && !admit_calls && !tone_plays);
+        CHECK(!rdx_record_stream_only_release());
+        u32 ticket=g_hold_release_ticket;
+        worker_release(ticket);
+        CHECK(rdx_record_stream_only_release());
+        rdx_record_stream_only_release_complete();
+        CHECK(record_status.run==RECORD_STATE_STOP && !rdx_record_nosave_session_open());
+        CHECK(!files && !saves && !finishes && !metadata && !writers);
+        if(stage==1) {
+            rdx_record_start_tone_play((void *)record_start_tone_epoch);
+            CHECK(!tone_plays);
+        }
+    }
+    reset(); save_enabled=0; cdc_busy=1;
+    rdx_record_cmd_handle_from_rdx(&info,&owner);
+    CHECK(record_status.run==RECORD_STATE_STOP && !processes && !admit_calls);
+    CHECK(!rdx_record_key_start_prepare(RDX_RECORD_MEETING,RECORD_MODE_ONLINE,&owner));
+    /* F19 keeps its original online-only coexistence exception. */
+    CHECK(rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
     return 0;
 }
 int test_stream_only_never_queries_space(void) {
@@ -1094,12 +1173,15 @@ def main():
     source += 'void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *);\n'
     source += 'static void rdx_record_app_stop_request(const rdx_ble_async_token_t *);\n'
     source += 'static void rdx_record_cmd_handle_internal(Record_info *,const rdx_ble_async_token_t *);\n'
+    source += 'static int save_enabled=1;\nstatic int rdx_record_save_enabled(void) { return save_enabled; }\n'
     for name in (
         'rdx_record_binding_allowed', 'rdx_record_binding_token_capture',
         'rdx_record_binding_token_is_current',
         'rdx_record_process_state_timer_stop', 'rdx_record_process_state_set_timer_cb',
         'rdx_record_process_is_busy_check', 'rdx_record_set_process_state_busy',
         'rdx_record_set_process_state_ready',
+        'rdx_record_kind_is_stream_only',
+        'rdx_record_nosave_session_open',
         'rdx_record_local_route_is_fixed', 'rdx_record_kind_get', 'rdx_record_key_state_get',
         'rdx_record_key_request_generation', 'rdx_record_key_request_is_current',
         'rdx_record_stream_business_blocked',
@@ -1122,7 +1204,7 @@ def main():
         'rdx_record_audio_fault_stop', 'rdx_record_stream_only_release',
         'rdx_record_stream_only_release_complete', 'rdx_record_stream_only_is_releasing',
         'rdx_record_cmd_delay_cb', 'rdx_record_cmd_handle_internal',
-        'rdx_record_cmd_handle_from_rdx',
+        'rdx_record_cmd_handle_admit', 'rdx_record_cmd_handle_from_rdx',
         'rdx_record_update_connection_mode', 'rdx_record_on_ble_conn_changed',
         'rdx_record_run_init', 'rdx_record_run_data_handle',
         'rdx_record_stop_session_cleanup',

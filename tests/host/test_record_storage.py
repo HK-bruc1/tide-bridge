@@ -423,6 +423,8 @@ static int g_record_session_token_valid, g_stream_only_session_active;
 static int stream_resume_timer, g_stream_resume_token_valid;
 static int record_start_tone_pending, cancelled_timer, pause_timer;
 static int rdx_record_local_route_is_fixed(void) { return 0; }
+/* File-backed reconnect fixture; no-save meetings live in the session harness. */
+static int rdx_record_nosave_session_open(void) { return 0; }
 void rdx_record_stream_only_start_cancel(void) {}
 void rdx_record_start_tone_cancel(void) { record_start_tone_pending=0; }
 void sys_timeout_del(int timer) { cancelled_timer=timer; }
