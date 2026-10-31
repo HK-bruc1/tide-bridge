@@ -673,7 +673,8 @@ static void dut_service_run(void)
         if (dut_owner.source == 0 && dut_owner.id == dut_ble_revoked_id &&
             dut_last.command != DUT_CMD_FORMAT &&
             dut_last.command != DUT_CMD_FINALPACK_END) {
-            if (rdx_dut_rec_is_running() || rdx_dut_rec_call_is_running())
+            if (rdx_dut_info.current_func == DUT_FUNC_OLED ||
+                rdx_dut_rec_is_running() || rdx_dut_rec_call_is_running())
                 rdx_dut_close_current_func();
             else rdx_dut_test_cancel();
             dut_finish(dut_last.id, "STATE");
@@ -783,7 +784,14 @@ static void dut_service_run(void)
         /* Admission and LAST belong to app_core, never the BLE producer. */
         if (request.source == 0 &&
             !rdx_ble_session_rdx_token_resolve(&request.token, 1)) continue;
-        dut_accept(&request);
+        const char *error = dut_accept(&request);
+        if (error) {
+            DUT_LOG("Rejected cmd=%u value=%u error=%s storage=%d shutdown=%d func=%u\n",
+                    request.command, request.value, error,
+                    rdx_storage_lifecycle_business_blocked(),
+                    rdx_storage_lifecycle_shutdown_deferred(),
+                    rdx_dut_info.current_func);
+        }
         if (dut_waiting || dut_stopping || dut_record_wait) break;
     }
 }
@@ -1242,7 +1250,7 @@ static void rdx_dut_show(void)
 
 /**************************************************************************
  * function: rdx_dut_oled_start
- * description: PIN: 开始LED灯光测试（常亮白色测试灯效）
+ * description: PIN: 开始LED灯光测试（红、绿、蓝单色循环）
  **************************************************************************/
 void rdx_dut_oled_start(void)
 {
@@ -1255,7 +1263,7 @@ void rdx_dut_oled_start(void)
     
     rdx_dut_info.current_func = DUT_FUNC_OLED;
     
-    /* Factory LED test: green solid until the explicit stop command. */
+    /* Cycle pure red, green and blue until the explicit stop command. */
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_DUT_LED_TEST);
 }
 

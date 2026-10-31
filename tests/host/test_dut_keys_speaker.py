@@ -49,7 +49,8 @@ typedef int s32;
 #define KEY_IO_NUM4 14
 #define NO_KEY 255
 #define Q_CALLBACK 0
-#define DUT_LOG(...) ((void)0)
+#define DUT_LOG(...) snprintf(dut_log_line, sizeof(dut_log_line), __VA_ARGS__)
+static char dut_log_line[256];
 #define local_irq_disable() ((void)0)
 #define local_irq_enable() ((void)0)
 #define jiffies_to_msecs(x) (x)
@@ -231,6 +232,7 @@ static void rdx_dut_cmd_async_handle(u8 type, u8 value) {
         rdx_dut_info.current_func=DUT_FUNC_OLED;
 }
 static void boot(void) {
+    dut_log_line[0]=0;
     rdx_dut_info.dut_mode=1; rdx_dut_info.current_func=DUT_FUNC_NONE;
     app_var.goto_poweroff_flag=0; g_finalpack_end_pending=0;
     connected=powered=1; blocked=deferred=0; epoch=1; jiffies=100;
@@ -558,6 +560,20 @@ int test_factory_entry_before_write_ready(void) {
     CHECK(!rdx_dut_info.dut_mode);
     return 0;
 }
+int test_factory_entry_storage_failure_is_reported(void) {
+    boot(); rdx_dut_info.dut_mode=0; blocked=1;
+    CHECK(!dut_enqueue(DUT_CMD_DUT_MODE,1)); dispatch_dut();
+    CHECK(!dut_count && !rdx_dut_info.dut_mode && !legacy_dispatches);
+    CHECK(!dut_next_id && !dut_last_state && !timeout_adds);
+    CHECK(strstr(dut_log_line,"Rejected cmd=0 value=1 error=BUSY storage=1"));
+    CHECK(!dut_enqueue(DUT_CMD_SPEAKER,1)); dispatch_dut();
+    CHECK(!opens && !sends && !dut_count);
+    CHECK(strstr(dut_log_line,"Rejected cmd=13 value=1 error=BUSY storage=1"));
+    blocked=0;
+    CHECK(!dut_enqueue(DUT_CMD_DUT_MODE,1)); dispatch_dut();
+    CHECK(rdx_dut_info.dut_mode && legacy_dispatches==1 && dut_next_id==1);
+    return 0;
+}
 int test_key_to_legacy_record(void) {
     for (int call=0; call<2; ++call) {
         boot(); key_start();
@@ -799,6 +815,32 @@ int test_legacy_overflow_cleanup(void) {
     boot(); rdx_dut_info.current_func=DUT_FUNC_MOTOR; motor_power=1;
     rdx_dut_test_session_revoke(); dut_service(NULL);
     CHECK(motor_power && rdx_dut_info.current_func==DUT_FUNC_MOTOR);
+    return 0;
+}
+int test_ble_led_session_revoke_releases_owner(void) {
+    boot();
+    CHECK(!dut_enqueue(DUT_CMD_OLED,1)); dut_service(NULL);
+    CHECK(dut_owner.source==0 && dut_owner.id && rdx_dut_info.current_func==DUT_FUNC_OLED);
+    connected=0;
+    rdx_dut_test_session_revoke(); dut_service(NULL);
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE && show_count==1);
+    connected=1; ++epoch;
+    CHECK(!dut_enqueue(DUT_CMD_OLED,1)); dut_service(NULL);
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_OLED);
+    dut_ble_revoked=1; dut_ble_revoked_id=dut_owner.id-1;
+    dut_service(NULL);
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_OLED && show_count==1);
+    return 0;
+}
+int test_cdc_led_survives_unrelated_ble_revoke(void) {
+    char out[256]; boot();
+    rdx_dut_cdc_request(1,"FT_LED_CYCLE",1,out,sizeof(out));
+    CHECK(dut_owner.source==1 && rdx_dut_info.current_func==DUT_FUNC_OLED);
+    connected=0;
+    rdx_dut_test_session_revoke(); dut_service(NULL);
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_OLED && !show_count);
+    rdx_dut_cdc_request(1,"FT_LED_CYCLE",0,out,sizeof(out));
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE && show_count==1);
     return 0;
 }
 int test_ble_disconnect_preserves_format_completion(void) {

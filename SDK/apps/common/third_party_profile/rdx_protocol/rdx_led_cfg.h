@@ -8,7 +8,7 @@
 
    业务层 (10+ 文件)              配置层 (本文件)              引擎层 (rdx_led_ctrl.c)
    ┌──────────────────┐       ┌──────────────────┐        ┌──────────────────────┐
-   │ rdx_ble_server.c │       │ Scene→Effect 映射 │        │ 6 种模式处理器        │
+   │ rdx_ble_server.c │       │ Scene→Effect 映射 │        │ 8 种模式处理器        │
    │ rdx_record.c     │──┐    │ Effect 参数表     │    ┌─→ │ OFF / SOLID /         │
    │ rdx_dut.c        │  │    │ 呼吸亮度查表      │    │   │ SOLID_TIMEOUT /       │
    │ rdx_ota.c        │  └───→│ 充电灯效配置      │────┘   │ BLINK / BREATH /       │
@@ -17,6 +17,7 @@
    └──────────────────┘
 
    流程: 业务层调用 set_scene(RDX_LED_SCENE_*) → 本文件查表映射到 effect → 引擎执行
+   RGB_CYCLE 单色循环只在换色时更新；RAINBOW_BREATH 为独立的七色呼吸模式。
 
  ============================================================================
  二、公共 API（声明在 rdx_led_ctrl.h，业务代码只通过这些入口控制灯效）
@@ -37,7 +38,7 @@
 
    Engine update interval       (第95-96行)   引擎定时器周期 20ms
    Breath table size            (第107-108行) 呼吸亮度表尺寸 100 级
-   rdx_led_mode_e               (第110-118行) 6 种灯效执行模式
+   rdx_led_mode_e                            8 种灯效执行模式
    rdx_led_effect_cfg_t         (第120-129行) 效果参数结构体 (RGB/时序/亮度)
    rdx_led_effect_e             (第139-155行) 内部效果标识 (12 种, +SMART sentinel)
  ★ Scene→Effect 映射            (第157-179行) 场景→效果查表 (增加场景/效果时改)
@@ -66,7 +67,7 @@
 
    Charging: pure green breathing; fully charged: solid green.
 
-   [增加新运行模式] → 需要动引擎 (当前 6 种已覆盖所有产品需求)
+   [增加新运行模式] → 需要动引擎
       1. rdx_led_mode_e 加新模式
       2. rdx_led_ctrl.c _rdx_led_apply_effect() 加初始设置
       3. rdx_led_ctrl.c 新写 _rdx_led_engine_xxx() 处理器
@@ -109,6 +110,7 @@ typedef enum {
     RDX_LED_MODE_BREATH,
     RDX_LED_MODE_RAINBOW_BREATH,
     RDX_LED_MODE_DOUBLE_BLINK,
+    RDX_LED_MODE_RGB_CYCLE,
 } rdx_led_mode_e;
 
 /* ===== Effect parameter entry ===== */
@@ -117,7 +119,7 @@ typedef struct {
     u8  r, g, b;            /* RGB颜色 (0-255) */
     u8  brightness;         /* 亮度 (0-255) */
     u16 on_ms;              /* 脉冲宽度: BLINK单次亮灯 / DOUBLE_BLINK每次脉冲 / SOLID_TIMEOUT亮灯 */
-    u16 interval_ms;        /* 周期: BLINK间隔 / DOUBLE_BLINK总周期(脉冲1→间隙→脉冲2→灭灯) */
+    u16 interval_ms;        /* BLINK间隔 / DOUBLE_BLINK总周期 / RGB_CYCLE每色保持时间 */
     u16 cycle_ms;           /* 呼吸周期，用于BREATH / RAINBOW_BREATH */
     u32 timeout_ms;         /* 自动灭灯超时，用于BLINK / SOLID_TIMEOUT (OTA不设超时) */
 } rdx_led_effect_cfg_t;
@@ -254,9 +256,9 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .timeout_ms  = 0,
     },
     [RDX_LED_EFFECT_DUT_LED_TEST] = {
-        .mode        = RDX_LED_MODE_SOLID,
-        .r = 0, .g = 255, .b = 0,             /* green solid until LED test stop */
+        .mode        = RDX_LED_MODE_RGB_CYCLE,
         .brightness  = 200,
+        .interval_ms = 1000,
     },
     [RDX_LED_EFFECT_DUT_BLINK] = {
         .mode        = RDX_LED_MODE_BREATH,
@@ -293,6 +295,14 @@ static const rdx_led_effect_cfg_t rdx_led_effect_cfg[RDX_LED_EFFECT_MAX] = {
         .brightness  = 200,
         .timeout_ms  = RDX_LED_SINGLE_INDICATION_MS,
     },
+};
+
+/* ===== Single-channel RGB test sequence (no blending) ===== */
+#define RDX_LED_RGB_COLOR_COUNT           (3)
+static const rdx_led_rgb_t rdx_led_rgb_color_table[RDX_LED_RGB_COLOR_COUNT] = {
+    {255,   0,   0},
+    {  0, 255,   0},
+    {  0,   0, 255},
 };
 
 /* ===== Rainbow Color Table ===== */

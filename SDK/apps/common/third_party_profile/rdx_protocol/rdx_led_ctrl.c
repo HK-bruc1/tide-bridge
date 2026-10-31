@@ -46,6 +46,7 @@
 #include "asm/charge.h"
 
 extern bool rdx_app_get_dut_status(void);
+extern bool rdx_app_get_dut_oled_flag(void);
 extern u8 get_ota_status(void);
 
 /******************************************************************************
@@ -101,6 +102,7 @@ static void _rdx_led_engine_blink(const rdx_led_effect_cfg_t *cfg);
 static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg);
 static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg);
 static void _rdx_led_engine_double_blink(const rdx_led_effect_cfg_t *cfg);
+static void _rdx_led_engine_rgb_cycle(const rdx_led_effect_cfg_t *cfg);
 
 /* 内部辅助函数 */
 static void _rdx_led_apply_effect(rdx_led_effect_e effect);
@@ -366,6 +368,10 @@ static void _rdx_led_schedule_update(void)
         delay = RDX_LED_UPDATE_INTERVAL_MS;
     }
     u32 elapsed = sys_timer_get_ms() - g_effect_start_ms;
+    if (cfg->mode == RDX_LED_MODE_RGB_CYCLE && cfg->interval_ms) {
+        /* Only wake at a color boundary, not at the animation tick rate. */
+        delay = cfg->interval_ms - elapsed % cfg->interval_ms;
+    }
     if (cfg->mode == RDX_LED_MODE_SOLID_TIMEOUT && !g_led_connected_on_done) {
         delay = elapsed < cfg->on_ms ? cfg->on_ms - elapsed : 1;
     }
@@ -494,6 +500,9 @@ static void _rdx_led_apply_effect(rdx_led_effect_e effect)
         rdx_led_ctrl_set_rgb_brightness(g_active_effect->r, g_active_effect->g,
                                         g_active_effect->b, g_active_effect->brightness);
         break;
+    case RDX_LED_MODE_RGB_CYCLE:
+        _rdx_led_engine_rgb_cycle(g_active_effect);
+        break;
     }
     _rdx_led_schedule_update();
 }
@@ -538,7 +547,8 @@ static rdx_led_scene_e _rdx_led_resolve_on_usb_charge(rdx_led_scene_e requested)
         return RDX_LED_SCENE_DUT_LED_TEST;
     }
     if (rdx_app_get_dut_status()) {
-        return RDX_LED_SCENE_DUT_ENTER;
+        return rdx_app_get_dut_oled_flag() ?
+               RDX_LED_SCENE_DUT_LED_TEST : RDX_LED_SCENE_DUT_ENTER;
     }
     if (get_ota_status()) {
         return RDX_LED_SCENE_OTA_START;
@@ -597,7 +607,8 @@ static rdx_led_scene_e _rdx_led_select_system_scene(void)
     }
 
     if (rdx_app_get_dut_status()) {
-        return RDX_LED_SCENE_DUT_ENTER;
+        return rdx_app_get_dut_oled_flag() ?
+               RDX_LED_SCENE_DUT_LED_TEST : RDX_LED_SCENE_DUT_ENTER;
     }
 
     if (get_ota_status()) {
@@ -676,6 +687,17 @@ static void _rdx_led_engine_breath(const rdx_led_effect_cfg_t *cfg)
     }
     u8 brightness = rdx_led_breath_brightness_table[table_index];
     rdx_led_ctrl_set_rgb_brightness(cfg->r, cfg->g, cfg->b, brightness);
+}
+
+static void _rdx_led_engine_rgb_cycle(const rdx_led_effect_cfg_t *cfg)
+{
+    if (cfg->interval_ms == 0) {
+        rdx_led_ctrl_off();
+        return;
+    }
+    u32 index = (g_effect_elapsed_ms / cfg->interval_ms) % RDX_LED_RGB_COLOR_COUNT;
+    const rdx_led_rgb_t *color = &rdx_led_rgb_color_table[index];
+    rdx_led_ctrl_set_rgb_brightness(color->r, color->g, color->b, cfg->brightness);
 }
 
 static void _rdx_led_engine_rainbow_breath(const rdx_led_effect_cfg_t *cfg)
@@ -870,12 +892,18 @@ void rdx_led_ctrl_set_scene(rdx_led_scene_e scene)
          scene == RDX_LED_SCENE_CHARGE_PLUG_OUT)) {
         return;
     }
-    /* Until packaging commits, ordinary events retain the DUT indication. */
+    /* Ordinary events retain the active DUT owner, including LED phase.
+     * The real stop clears OLED ownership before requesting DUT_ENTER. */
     if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
         rdx_app_get_dut_status() &&
         scene != RDX_LED_SCENE_DUT_LED_TEST &&
         scene != RDX_LED_SCENE_FINALPACK_DONE) {
-        scene = RDX_LED_SCENE_DUT_ENTER;
+        scene = rdx_app_get_dut_oled_flag() ?
+                RDX_LED_SCENE_DUT_LED_TEST : RDX_LED_SCENE_DUT_ENTER;
+        if (scene == RDX_LED_SCENE_DUT_LED_TEST &&
+            scene == g_current_scene && g_active_effect) {
+            return;
+        }
     }
     /* 连接、断开及广播超时不能覆盖持续录音；关机和存储切换仍优先。 */
     if (!transition && !app_var.goto_poweroff_flag && !get_vbat_need_shutdown() &&
@@ -1128,6 +1156,9 @@ void rdx_led_ctrl_update(void)
         break;
     case RDX_LED_MODE_DOUBLE_BLINK:
         _rdx_led_engine_double_blink(g_active_effect);
+        break;
+    case RDX_LED_MODE_RGB_CYCLE:
+        _rdx_led_engine_rgb_cycle(g_active_effect);
         break;
     }
 

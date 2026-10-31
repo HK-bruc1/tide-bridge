@@ -19,6 +19,7 @@ typedef int bool;
 #define RDX_SHARED_VDD_WAKE_BUSINESS 1
 #define g_printf(...) ((void)0)
 #define r_printf(...) (++errors)
+#define DUT_LOG(...) ((void)0)
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 #define local_irq_disable() ((void)0)
 #define local_irq_enable() ((void)0)
@@ -32,6 +33,8 @@ enum { RDX_CHARGE_OUT, RDX_CHARGE_IN, RDX_CHARGE_FULL };
 #define TRANSFER_BY_WIFI_ON 1
 static struct { int goto_poweroff_flag; } app_var;
 static int low_shutdown, usb, charge, ota, dut, transition, slow, hold, wakes, errors;
+enum { DUT_FUNC_NONE, DUT_FUNC_OLED, DUT_FUNC_KEY };
+static struct { int current_func; } rdx_dut_info;
 static int link=1, battery=80, bound;
 static u8 rdx_vm_get_bound_status(void) { return bound; }
 static RecordStatus record;
@@ -40,6 +43,7 @@ static LedPt0807Rgb_t rgb;
 static RecordStatus *rdx_record_get_status(void) { return &record; }
 static RdxWifiInfo *rdx_app_get_wifi_info(void) { return &wifi; }
 static bool rdx_app_get_dut_status(void) { return dut; }
+static bool rdx_app_get_dut_oled_flag(void) { return rdx_dut_info.current_func==DUT_FUNC_OLED; }
 static u8 get_ota_status(void) { return ota; }
 static int get_vbat_need_shutdown(void) { return low_shutdown; }
 static int get_charge_online_flag(void) { return usb; }
@@ -135,6 +139,7 @@ static void reset(void) {
     bound=g_led_bound_status=0;
     record.run=RECORD_STATE_STOP; wifi.onoff=0;
     g_current_scene=RDX_LED_SCENE_OFF;
+    rdx_dut_info.current_func=DUT_FUNC_NONE;
     g_led_config=&config; g_led_initialized=1;
     _rdx_led_apply_effect(RDX_LED_EFFECT_OFF);
 }
@@ -172,8 +177,8 @@ int test_dynamic_and_solid_scheduling(void) {
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
     CHECK(!timer_count());
     int scenes[]={RDX_LED_SCENE_OTA_START,RDX_LED_SCENE_CHARGE_FULL,
-                  RDX_LED_SCENE_DUT_LED_TEST,RDX_LED_SCENE_FINALPACK_DONE};
-    for(int i=0;i<4;++i) {
+                  RDX_LED_SCENE_FINALPACK_DONE};
+    for(int i=0;i<3;++i) {
         reset(); rdx_led_ctrl_set_scene(scenes[i]);
         CHECK(!timer_count() && (rgb.r || rgb.g || rgb.b));
         advance(120000); CHECK(!callbacks && g_current_scene==scenes[i]);
@@ -187,6 +192,157 @@ int test_dynamic_and_solid_scheduling(void) {
     reset(); rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_CONNECTED);
     CHECK(timer_count()==1 && timers[g_led_update_timer].due==5000);
     advance(5000); CHECK(callbacks==1 && !timer_count());
+    return 0;
+}
+static int rgb_primary(int index) {
+    return rgb.r==(index==0?200:0) && rgb.g==(index==1?200:0) &&
+           rgb.b==(index==2?200:0);
+}
+int test_dut_rgb_cycle_and_stop(void) {
+    reset(); dut=1;
+    rdx_dut_oled_start();
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_OLED);
+    CHECK(g_active_effect->mode==RDX_LED_MODE_RGB_CYCLE);
+    for(int step=0;step<9;++step) {
+        CHECK(rgb_primary(step%3) && timer_count()==1);
+        CHECK(timers[g_led_update_timer].due-now_ms==1000);
+        CHECK(!strcmp(timers[g_led_update_timer].owner,"app_core"));
+        advance(999);
+        CHECK(rgb_primary(step%3) && callbacks==step);
+        advance(1);
+        CHECK(rgb_primary((step+1)%3) && callbacks==step+1);
+    }
+    advance(250);
+    u32 start=g_effect_start_ms, due=timers[g_led_update_timer].due;
+    rdx_dut_oled_start();
+    CHECK(g_effect_start_ms==start && timers[g_led_update_timer].due==due);
+    Timer old=timers[g_led_update_timer];
+    rdx_dut_oled_stop();
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE);
+    CHECK(g_current_scene==RDX_LED_SCENE_DUT_ENTER);
+    CHECK(g_active_effect->mode==RDX_LED_MODE_BREATH);
+    u32 id=g_led_update_timer, generation=g_led_timer_generation;
+    old.cb(old.priv);
+    CHECK(g_led_update_timer==id && g_led_timer_generation==generation);
+    advance(1000);
+    CHECK(g_current_scene==RDX_LED_SCENE_DUT_ENTER);
+    rdx_dut_oled_start();
+    CHECK(rgb_primary(0) && timers[g_led_update_timer].due-now_ms==1000);
+    CHECK(!wrong_owner && !spi_wrong_owner);
+    reset(); dut=1; rdx_dut_info.current_func=DUT_FUNC_KEY;
+    rdx_dut_oled_start();
+    CHECK(rdx_dut_info.current_func==DUT_FUNC_KEY && !timer_count());
+    CHECK(g_current_scene==RDX_LED_SCENE_OFF);
+    return 0;
+}
+int test_dut_rgb_cycle_delayed_callback_and_wrap(void) {
+    reset(); dut=1; now_ms=0xffffff00;
+    rdx_dut_oled_start();
+    advance(999); CHECK(rgb_primary(0) && !callbacks);
+    advance(1); CHECK(rgb_primary(1) && callbacks==1);
+    advance(1000); CHECK(rgb_primary(2) && callbacks==2);
+    advance(1000); CHECK(rgb_primary(0) && callbacks==3);
+    reset(); dut=1; rdx_dut_oled_start();
+    Timer old=timers[g_led_update_timer];
+    timers[g_led_update_timer].active=0;
+    now_ms=2500; old.cb(old.priv);
+    CHECK(rgb_primary(2) && timers[g_led_update_timer].due==3000);
+    advance(499); CHECK(rgb_primary(2) && !callbacks);
+    advance(1); CHECK(rgb_primary(0) && callbacks==1);
+    timer_fail=1; advance(1000);
+    CHECK(errors==1 && !timer_count() && g_current_scene==RDX_LED_SCENE_OFF);
+    CHECK(!rgb.r && !rgb.g && !rgb.b);
+    return 0;
+}
+int test_dut_rgb_cycle_charge_and_cleanup(void) {
+    for(int b=0;b<2;++b) for(int c=0;c<2;++c) {
+        reset(); dut=1; bound=g_led_bound_status=b;
+        usb=c; charge=c?RDX_CHARGE_IN:RDX_CHARGE_OUT;
+        rdx_dut_oled_start(); advance(1500);
+        CHECK(rgb_primary(1));
+        u32 start=g_effect_start_ms, due=timers[g_led_update_timer].due;
+        usb=1; charge=RDX_CHARGE_IN;
+        rdx_led_ctrl_set_charge_state_by_battery(80);
+        charge=RDX_CHARGE_FULL;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_FULL);
+        usb=0; charge=RDX_CHARGE_OUT;
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_CHARGE_PLUG_OUT);
+        rdx_led_ctrl_restore_system_state();
+        CHECK(g_current_scene==RDX_LED_SCENE_DUT_LED_TEST && rgb_primary(1));
+        CHECK(g_effect_start_ms==start && timers[g_led_update_timer].due==due);
+        advance(500); CHECK(rgb_primary(2));
+    }
+    for(int exit=0;exit<4;++exit) {
+        reset(); dut=1; rdx_dut_oled_start(); advance(1500);
+        Timer old=timers[g_led_update_timer];
+        if(exit==0) {
+            dut=0; rdx_led_ctrl_restore_system_state();
+        } else if(exit==1) {
+            app_var.goto_poweroff_flag=1;
+            rdx_led_ctrl_set_scene(RDX_LED_SCENE_OFF);
+        } else if(exit==2) {
+            transition=1; rdx_led_ctrl_restore_system_state();
+        } else {
+            rdx_led_ctrl_deinit();
+        }
+        CHECK(g_current_scene==(exit==2 ? RDX_LED_SCENE_USB_SWITCH_WAIT : RDX_LED_SCENE_OFF));
+        u32 id=g_led_update_timer, generation=g_led_timer_generation;
+        old.cb(old.priv);
+        CHECK(g_led_update_timer==id && g_led_timer_generation==generation);
+        if(exit<2) {
+            advance(3000);
+            CHECK(!timer_count() && !rgb.r && !rgb.g && !rgb.b);
+        }
+    }
+    return 0;
+}
+int test_dut_rgb_cycle_preserves_owner_on_ordinary_events(void) {
+    int scenes[]={RDX_LED_SCENE_BLE_ADV_START,RDX_LED_SCENE_BLE_FAST_ADV,
+        RDX_LED_SCENE_BLE_CONNECTED,RDX_LED_SCENE_BLE_DISCONNECTED,
+        RDX_LED_SCENE_LOW_BATTERY,RDX_LED_SCENE_BATTERY_QUERY,
+        RDX_LED_SCENE_BIND_SUCCESS};
+    for(int b=0;b<2;++b) for(int c=0;c<2;++c) {
+        reset(); dut=1; bound=g_led_bound_status=b;
+        usb=c; charge=c?RDX_CHARGE_IN:RDX_CHARGE_OUT;
+        rdx_dut_oled_start(); advance(1500);
+        u32 start=g_effect_start_ms, due=timers[g_led_update_timer].due;
+        for(int i=0;i<7;++i) {
+            rdx_led_ctrl_set_scene(scenes[i]);
+            CHECK(g_current_scene==RDX_LED_SCENE_DUT_LED_TEST && rgb_primary(1));
+            CHECK(g_effect_start_ms==start && timers[g_led_update_timer].due==due);
+        }
+        advance(500); CHECK(rgb_primary(2));
+        transition=1; rdx_led_ctrl_restore_system_state();
+        CHECK(g_current_scene==RDX_LED_SCENE_USB_SWITCH_WAIT);
+        CHECK(rdx_dut_info.current_func==DUT_FUNC_OLED);
+        transition=0; rdx_led_ctrl_restore_system_state();
+        CHECK(g_current_scene==RDX_LED_SCENE_DUT_LED_TEST && rgb_primary(0));
+        CHECK(timers[g_led_update_timer].due-now_ms==1000);
+        rdx_dut_oled_stop();
+        CHECK(g_current_scene==RDX_LED_SCENE_DUT_ENTER);
+    }
+    return 0;
+}
+int test_dut_rgb_cycle_real_exit_order(void) {
+    for(int b=0;b<2;++b) for(int c=0;c<3;++c) {
+        reset(); dut=1; bound=g_led_bound_status=b;
+        usb=c!=RDX_CHARGE_OUT; charge=c;
+        rdx_dut_oled_start(); advance(1500);
+        Timer old=timers[g_led_update_timer];
+        /* Match dut_mode_apply: clear DUT, close LED, then refresh BLE. */
+        dut=0;
+        rdx_dut_oled_stop();
+        rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
+        CHECK(rdx_dut_info.current_func==DUT_FUNC_NONE);
+        CHECK(g_current_scene==(c==RDX_CHARGE_IN ? RDX_LED_SCENE_CHARGE_PLUG_IN :
+            c==RDX_CHARGE_FULL ? RDX_LED_SCENE_CHARGE_FULL :
+            b ? RDX_LED_SCENE_OFF : RDX_LED_SCENE_BLE_ADV_START));
+        u32 id=g_led_update_timer, generation=g_led_timer_generation;
+        old.cb(old.priv);
+        CHECK(g_led_update_timer==id && g_led_timer_generation==generation);
+        advance(3000);
+        CHECK(g_active_effect->mode!=RDX_LED_MODE_RGB_CYCLE);
+    }
     return 0;
 }
 int test_stale_callbacks_and_reinit(void) {
@@ -601,13 +757,16 @@ def main():
     dip_source = (BASE / 'rdx_dip_switch.c').read_text(encoding='utf-8')
     assert 'rdx_led_ctrl_needs_service()' in function(dip_source, 'rdx_dip_switch_recovery_needed')
     assert 'rdx_led_ctrl_service();' in function(dip_source, 'rdx_dip_switch_deferred_handle')
+    dut_source = source('rdx_dut.c')
     program = (STUBS + source('rdx_led_ctrl.h') + source('rdx_led_cfg.h') +
-               led_source + function(source('rdx_app.c'), 'rdx_led_hardware_resume') + TESTS)
+               led_source + function(source('rdx_app.c'), 'rdx_led_hardware_resume') +
+               ''.join(function(dut_source, name) for name in (
+                   'rdx_dut_show', 'rdx_dut_oled_start', 'rdx_dut_oled_stop')) + TESTS)
     with tempfile.TemporaryDirectory(prefix='key-led-') as temp:
         path = Path(temp) / 'key_led.c'
         path.write_text(program, encoding='utf-8')
         run_c_checks(path, re.findall(r'int (test_\w+)\(void\)', TESTS), native=True)
-    print('LED engine: task-owned demand scheduling, real deadlines, stale callbacks, restore, failure paths, key feedback and arbitration passed.')
+    print('LED engine: DUT single-channel RGB cycle/cleanup, task-owned demand scheduling, real deadlines, stale callbacks, restore, failure paths, key feedback and arbitration passed.')
 
 
 if __name__ == '__main__':

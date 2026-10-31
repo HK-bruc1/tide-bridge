@@ -45,6 +45,7 @@ typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,
 #define RECORD_FORMATE_OPUS_16K_STERO 2
 #define RDX_RECORD_DELETE_REJECTED (-2)
 #define VM_RDX_RECORD_FILE_NUM 147
+#define VM_RDX_RECORD_ABORT 169
 typedef struct { u32 sn; char filename[64]; u8 record_scene; u32 start_time, frame_size; } uxfile_data_t;
 typedef struct { char name[80]; u8 data[65536]; u32 size, pos; int present, opened; } mock_file;
 static mock_file files[640];
@@ -59,7 +60,18 @@ static int fail_alloc;
 static u32 vm_sn;
 static int vm_present, vm_write_fail, vm_writes;
 static int vm_read_fail, vm_readback_fail;
+static u8 vm_abort[64];
+static int vm_abort_present, vm_abort_write_fail, vm_abort_read_fail, vm_abort_writes;
 int syscfg_read(unsigned short id, void *data, unsigned short size) {
+    if(id==VM_RDX_RECORD_ABORT) {
+        if(vm_abort_read_fail==1) return VM_READ_DATA_ERR;
+        if(vm_abort_read_fail==2) return 0;
+        if(vm_abort_read_fail==3) return size-1;
+        if(vm_abort_read_fail==4) return VM_NOT_INIT;
+        if(!vm_abort_present) return VM_INDEX_ERR;
+        if(size>sizeof(vm_abort)) return -1;
+        memcpy(data,vm_abort,size); return size;
+    }
     if(id!=147 || size!=sizeof(vm_sn)) return -1;
     if(vm_read_fail) return vm_read_fail==1 ? VM_READ_DATA_ERR : vm_read_fail==2 ? size-1 : 0;
     if(!vm_present) return VM_INDEX_ERR;
@@ -70,6 +82,11 @@ int syscfg_read(unsigned short id, void *data, unsigned short size) {
     memcpy(data,&vm_sn,sizeof(vm_sn)); return sizeof(vm_sn);
 }
 int syscfg_write(unsigned short id, void *data, unsigned short size) {
+    if(id==VM_RDX_RECORD_ABORT) {
+        ++vm_abort_writes;
+        if(vm_abort_write_fail || size>sizeof(vm_abort)) return -1;
+        memcpy(vm_abort,data,size); vm_abort_present=1; return size;
+    }
     if(id!=147 || size!=sizeof(vm_sn)) return -1;
     ++vm_writes;
     if(vm_write_fail) return vm_write_fail==1 ? -1 : size-1;
@@ -86,7 +103,11 @@ static void *format_realloc(void *p,size_t n) { return fail_alloc || !p ? NULL :
 #define fread mock_read
 #define fwrite mock_write
 #define ftell mock_tell
-#define printf(...) ((void)0)
+static char abort_log[256];
+#define printf(...) do { \
+    char line[256]; sprintf(line,__VA_ARGS__); \
+    if(strstr(line,"[REC_FORMAT] abort ")) strcpy(abort_log,line); \
+} while(0)
 static mock_file *lookup(const char *name) {
     for (u32 i=0; i<640; ++i) if (files[i].present && !strcmp(files[i].name,name)) return &files[i];
     return NULL;
@@ -156,6 +177,9 @@ static void reset(void) {
     power_fail=power_users=power_enters=idle_hints=0;
     snapshot_result=snapshot_calls=0;
     vm_sn=0; vm_present=vm_write_fail=vm_writes=0;
+    memset(vm_abort,0,sizeof(vm_abort));
+    vm_abort_present=vm_abort_write_fail=vm_abort_read_fail=vm_abort_writes=0;
+    abort_log[0]=0;
     vm_read_fail=vm_readback_fail=0;
     fail_delete_path=NULL; fail_flush_call=flush_calls=0;
     fail_alloc=0;
@@ -943,6 +967,25 @@ int test_sn_explicit_format_reset(void) {
     }
     CHECK(handles==0); return 0;
 }
+int test_abort_vm_diagnostics_preserve_data(void) {
+    for(int failure=1;failure<=4;++failure) {
+        reset(); CHECK(!seed_named(8,"def123.raw"));
+        CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+        vm_abort_read_fail=failure;
+        CHECK(recover()<0 && rf_error<0 && !handles);
+        CHECK(strstr(abort_log,"abort VM read id=169 result="));
+        CHECK(!vm_abort_writes && lookup(RF_ROOT "def123.raw") && lookup(RF_ROOT "def123.mta"));
+    }
+    reset(); CHECK(!seed_named(8,"def123.raw"));
+    CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+    vm_abort_present=1; memset(vm_abort,0xff,sizeof(vm_abort));
+    CHECK(recover()<0 && rf_error<0 && !handles);
+    CHECK(strstr(abort_log,"abort VM invalid id=169"));
+    CHECK(!vm_abort_writes && lookup(RF_ROOT "def123.raw") && lookup(RF_ROOT "def123.mta"));
+    memset(vm_abort,0,sizeof(vm_abort)); abort_log[0]=0;
+    CHECK(!recover() && !abort_log[0] && !vm_abort_writes && !handles);
+    return 0;
+}
 '''
 
 def main():
@@ -987,7 +1030,7 @@ double fabs(double);
     vm_header = (ROOT / 'SDK/interface/utils/device/vm.h').read_text(encoding='utf-8')
     vm_enum = re.search(r'typedef enum _vm_err\s*\{.*?\}\s*VM_ERR;', vm_header, re.S)[0]
     path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
-    run_c_checks(path, ['test_space_reserve', 'test_explicit_format_recovery',
+    tests = ['test_space_reserve', 'test_explicit_format_recovery',
                         'test_download_admission', 'test_stream_only_storage_query', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
                         'test_format_persistence', 'test_format_recovery',
@@ -996,7 +1039,12 @@ double fabs(double);
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',
                         'test_sn_reservation_migration', 'test_sn_reservation_full_index_and_empty',
                         'test_sn_reservation_failures_and_limit', 'test_empty_cancel', 'test_short_discard_admission',
-                        'test_short_discard_replay', 'test_sn_explicit_format_reset'], native=True)
+                        'test_short_discard_replay', 'test_sn_explicit_format_reset']
+    if 'static int rf_abort_load(' in source:
+        tests.append('test_abort_vm_diagnostics_preserve_data')
+    else:
+        print('Abort VM diagnostic draft preserved; not run because the feature is reverted.')
+    run_c_checks(path, tests, native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 
