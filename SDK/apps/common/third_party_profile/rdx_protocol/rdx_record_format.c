@@ -59,7 +59,6 @@ static char rf_deleted_name[12];
 static volatile u8 rf_erasing;
 static u32 rf_serial_max;
 static u8 rf_serial_ready;
-static int rf_abort_clear(void);
 
 u32 rdx_record_format_capacity(void)
 {
@@ -124,8 +123,7 @@ void rdx_record_format_erased(void)
     rf_serial_max = 0;
     rf_serial_ready = 0;
     u32 zero = 0, check = 1;
-    if (rf_abort_clear() ||
-        syscfg_write(VM_RDX_RECORD_FILE_NUM, &zero, sizeof(zero)) != sizeof(zero) ||
+    if (syscfg_write(VM_RDX_RECORD_FILE_NUM, &zero, sizeof(zero)) != sizeof(zero) ||
         syscfg_read(VM_RDX_RECORD_FILE_NUM, &check, sizeof(check)) != sizeof(check) || check) {
         /* The existing boot/cache handoff propagates this failure to the
          * explicit formatter instead of acknowledging an incomplete reset. */
@@ -158,7 +156,7 @@ int rdx_record_format_service_status(void)
 int rdx_record_format_stream_status(void)
 {
     /* Only the CDC read lease is compatible with storage-free inspiration. */
-    return rf_erasing ? 1 : rf_service ? rf_service :
+    return rf_erasing ? 1 : rf_service ? rf_service : rf_error ? rf_error :
            (rdx_factory_audio_file_busy() ? 1 : 0);
 }
 
@@ -296,34 +294,6 @@ static int rf_name_valid(const char *name)
     return n >= 3 && n <= 6 && !strcmp(name + n, ".raw");
 }
 
-/* A name outside the archive's bounded cache can still belong to an older
- * recording. Verify both file types before allowing a new writer to use it. */
-static int rf_name_on_disk(const char *name, int metadata)
-{
-    char expected[12];
-    strcpy(expected, name);
-    if (metadata) strcpy(expected + strlen(expected) - 3, "mta");
-    for (u32 i = 0; expected[i]; ++i)
-        if (expected[i] >= 'A' && expected[i] <= 'Z') expected[i] += 'a' - 'A';
-    struct vfscan *scan = fscan(RF_ROOT, metadata ? "-tMTA -sn" : "-tRAW -sn", 1);
-    if (!scan) return -1;
-    int found = 0;
-    for (u32 i = 1; i <= scan->file_number; ++i) {
-        FILE *f = fselect(scan, FSEL_BY_NUMBER, i);
-        if (!f) { found = -1; break; }
-        char actual[12] = {0};
-        int n = fget_name(f, (u8 *)actual, sizeof(actual) - 1);
-        if (fclose(f)) { found = -1; break; }
-        if (n < 0 || n >= sizeof(actual)) { found = -1; break; }
-        for (int j = 0; j < n; ++j)
-            if (actual[j] >= 'A' && actual[j] <= 'Z') actual[j] += 'a' - 'A';
-        if (!strcmp(actual, expected)) { found = 1; break; }
-        wdt_clear();
-    }
-    fscan_release(scan);
-    return found;
-}
-
 static void rf_path(char *path, const char *name, int metadata)
 {
     sprintf(path, RF_ROOT "%s", name);
@@ -355,10 +325,6 @@ static int rf_write(const char *path, const void *data, u32 len)
 {
     FILE *f = fopen(path, "w+");
     if (!f) {
-        u32 budget = 0;
-        int space = rdx_record_format_space(&budget);
-        printf("[REC_FORMAT] open failed path=%s space=%d budget=%u\n",
-               path, space, budget);
         return -1;
     }
     int written = fwrite((void *)data, 1, len, f);
@@ -398,16 +364,12 @@ static int rf_save_meta(rf_meta *meta)
 
 int rdx_record_format_begin(const uxfile_data_t *file, u8 format)
 {
-    memset(&rf_current, 0, sizeof(rf_current));
     if (!file || !file->sn || !rf_frame_bytes(format) ||
         !rf_name_valid(file->filename)) {
         return rf_fail();
     }
-    if (rf_error || rf_name_on_disk(file->filename, 0) ||
-        rf_name_on_disk(file->filename, 1)) {
-        printf("[REC_FORMAT] recording name unavailable: %s\n", file->filename);
-        return rf_fail();
-    }
+    rf_error = 0; /* 上一次会话的失败不得影响新会话。 */
+    memset(&rf_current, 0, sizeof(rf_current));
     rf_current.magic = RF_MAGIC;
     rf_current.sn = file->sn;
     rf_current.start = file->start_time;
@@ -918,120 +880,6 @@ static int rf_unlink(const char *path)
     return fdelete_by_name(path);
 }
 
-/* This journal is in VM, not the possibly full SD directory. A torn or
- * unreadable intent closes file admission rather than authorizing deletion. */
-static int rf_abort_load(rf_meta *mark)
-{
-    memset(mark, 0, sizeof(*mark));
-    int result = syscfg_read(VM_RDX_RECORD_ABORT, mark, sizeof(*mark));
-    if (result == VM_INDEX_ERR || result == VM_READ_NO_INDEX) return 0;
-    if (result != sizeof(*mark)) return -1;
-    rf_meta empty = {0};
-    if (!memcmp(mark, &empty, sizeof(empty))) return 0;
-    if (mark->magic != RF_DISCARD_MAGIC || !mark->sn ||
-        mark->sn > RF_NORMAL_SN_MAX || mark->name[sizeof(mark->name) - 1] ||
-        !rf_name_valid(mark->name) ||
-        mark->hash != rf_hash(mark, sizeof(*mark) - sizeof(mark->hash))) return -1;
-    return 1;
-}
-
-static int rf_abort_store(const rf_meta *mark)
-{
-    rf_meta check;
-    if (syscfg_write(VM_RDX_RECORD_ABORT, (void *)mark, sizeof(*mark)) != sizeof(*mark) ||
-        syscfg_read(VM_RDX_RECORD_ABORT, &check, sizeof(check)) != sizeof(check) ||
-        memcmp(mark, &check, sizeof(check))) return -1;
-    return 0;
-}
-
-static int rf_abort_clear(void)
-{
-    rf_meta empty = {0};
-    return rf_abort_store(&empty);
-}
-
-/* A failed writer is never added to DAT. Refuse to delete anything if this
- * name already belongs to a historical entry, including an orphaned MTA. */
-static int rf_abort_index_unused(const char *name)
-{
-    FILE *src = fopen(RF_DAT, "r");
-    if (!src) return -1;
-    memset(&rf_reader, 0, sizeof(rf_reader));
-    rf_reader.remaining = flen(src);
-    int ok = rf_nonspace(src) == '[', conflict = 0;
-    int c = rf_nonspace(src);
-    u32 count = 0;
-    while (ok && c == '{') {
-        if (++count > RF_MAX_FILES || rf_object(src, rf_json)) { ok = 0; break; }
-        cJSON *obj = cJSON_ParseWithOpts(rf_json, NULL, 1);
-        cJSON *n = obj ? cJSON_GetObjectItemCaseSensitive(obj, "name") : NULL;
-        cJSON *id = obj ? cJSON_GetObjectItemCaseSensitive(obj, "sn") : NULL;
-        if (!cJSON_IsString(n) || !cJSON_IsNumber(id) ||
-            id->valuedouble < 1 || id->valuedouble > 0x7ffffffeu ||
-            id->valuedouble != (u32)id->valuedouble) {
-            ok = 0;
-        } else {
-            char raw[12];
-            u32 len = strlen(n->valuestring);
-            if (len >= sizeof(raw) || len < 7) ok = 0;
-            else {
-                strcpy(raw, n->valuestring);
-                for (u32 i = 0; raw[i]; ++i)
-                    if (raw[i] >= 'A' && raw[i] <= 'Z') raw[i] += 'a' - 'A';
-                if (!strcmp(raw + len - 4, ".mta")) strcpy(raw + len - 3, "raw");
-                if (!rf_name_valid(raw)) ok = 0;
-                else if (!strcmp(raw, name)) conflict = 1;
-            }
-        }
-        cJSON_Delete(obj);
-        c = rf_nonspace(src);
-        if (c != ',') break;
-        c = rf_nonspace(src);
-        if (c != '{') ok = 0;
-        wdt_clear();
-        rf_cooperate(RF_OBJECT_SIZE);
-    }
-    if (c != ']' || rf_nonspace(src) != -1 || rf_reader.error) ok = 0;
-    if (fclose(src)) ok = 0;
-    return ok && !conflict ? 0 : -1;
-}
-
-static int rf_abort_replay(void)
-{
-    rf_meta mark;
-    int pending = rf_abort_load(&mark);
-    if (pending <= 0) return pending;
-    if (rf_abort_index_unused(mark.name)) return -1;
-    char path[40];
-    rf_path(path, mark.name, 0);
-    if (rf_unlink(path)) return -1;
-    rf_path(path, mark.name, 1);
-    if (rf_unlink(path) || f_flush_wbuf(RF_ROOT)) return -1;
-    /* fopen cannot distinguish a missing file from an I/O error on JL VFS. */
-    if (rf_name_on_disk(mark.name, 0) || rf_name_on_disk(mark.name, 1)) return -1;
-    if (rf_abort_clear()) return -1;
-    printf("[REC_FORMAT] discarded failed sn=%u name=%s\n", mark.sn, mark.name);
-    return 0;
-}
-
-int rdx_record_format_abort(const uxfile_data_t *file)
-{
-    if (rdx_record_storage_active() || !file || !rf_current.sn ||
-        rf_current.magic != RF_MAGIC || file->sn != rf_current.sn ||
-        strcmp(file->filename, rf_current.name) ||
-        file->start_time != rf_current.start || file->record_scene != rf_current.scene ||
-        file->frame_size != rf_frame_bytes(rf_current.format)) return -1;
-    rf_meta pending;
-    if (rf_abort_load(&pending) != 0 || rf_abort_index_unused(rf_current.name)) return -1;
-    rf_meta mark = rf_current;
-    mark.magic = RF_DISCARD_MAGIC;
-    mark.hash = rf_hash(&mark, sizeof(mark) - sizeof(mark.hash));
-    if (rf_abort_store(&mark) || rf_abort_replay()) return -1;
-    memset(&rf_current, 0, sizeof(rf_current));
-    rf_error = 0;
-    return 0;
-}
-
 static int rf_discard_replay(void)
 {
     rf_meta mark = {0};
@@ -1288,7 +1136,6 @@ int rdx_record_format_boot(void)
         /* 过期提交记录不得在下次启动时恢复已删除条目。 */
         if (rf_preserve(RF_COMMIT) || rf_preserve(RF_TMP)) return rf_fail();
     }
-    if (rf_abort_replay()) return rf_fail();
     if (rf_discard_replay()) return rf_fail();
     /* 若删除中断后遇到损坏的 DAT，先在下方重建索引，再
      * 完成删除意图；不得恢复已经删除的 RAW。 */

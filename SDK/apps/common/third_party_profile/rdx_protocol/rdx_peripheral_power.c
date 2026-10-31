@@ -149,7 +149,7 @@ extern u8 get_ota_status(void);
 extern bool rdx_app_get_dut_status(void);
 extern bool rdx_uxfile_sd_format_status_check(void);
 extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
-/* Dirty cache, open readers and queued deletes prevent unmount, not idle errors. */
+/* 补丁库提供：脏缓存、打开的读句柄、IO 错误或删除排队时禁止卸载 */
 extern u8 rdx_uxfile_power_busy(void);
 
 /* This is the only PA4 hardware write entry in the product. */
@@ -433,9 +433,7 @@ static u32 rdx_vdd_conn_busy_snapshot(void)
     if (rdx_uxfile_power_busy()) {
         busy |= RDX_SHARED_VDD_BUSY_STORAGE_STATE;
     }
-    /* A latched failure is not a running recovery operation. Dirty cache,
-     * active file users and format work are fenced independently above. */
-    if (rdx_record_format_service_status() > 0) {
+    if (rdx_record_format_service_status() || rdx_record_format_status()) {
         busy |= RDX_SHARED_VDD_BUSY_FORMAT_RECOVERY;
     }
     if (app_var.goto_poweroff_flag || rdx_app_get_poweroff_flag() ||

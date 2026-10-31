@@ -158,8 +158,6 @@ int rdx_uxfile_flush_cache(void);  // 【对齐CC】返回 int，空闲时保存
  * poll：0 已完成，-1 失败，-2 等待中或票据不匹配；不是瞬时忙状态快照。
  */
 int rdx_uxfile_finish_record(void);
-/* Serializes failed-session discard with the archive's DAT cache. */
-int rdx_uxfile_abort_record(void);
 int rdx_uxfile_storage_status(void);
 int rdx_uxfile_fence_request(u32 ticket);
 int rdx_uxfile_fence_poll(u32 ticket);

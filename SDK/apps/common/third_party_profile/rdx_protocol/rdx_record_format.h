@@ -16,8 +16,7 @@ void rdx_record_format_erased(void);
 void rdx_record_format_erase_leave(int result);
 /* 文件工作任务负责恢复与缓存交接：1 准备中，0 就绪，-1 失败。 */
 int rdx_record_format_service_status(void);
-/* Storage-free route: excludes CDC's read lease and a completed writer fault;
- * boot/erase service state and factory ownership still fence admission. */
+/* Read-only safety query excluding only CDC's read lease, not storage faults. */
 int rdx_record_format_stream_status(void);
 int rdx_record_format_io_enter(void);
 /* 包含真实 IO 与短暂解析占用；仅真实 IO 更新空闲活动并恢复 PA4。 */
@@ -42,9 +41,6 @@ int rdx_record_format_delete(u32 sn, const char *name);
 int rdx_record_format_reserve_sn(u32 *sn);
 /* Closed, current-session RAW only; durable paired RAW/MTA discard. */
 int rdx_record_format_discard_short(const uxfile_data_t *file);
-/* DAT mutex held, after the writer has acknowledged a failed session.
- * A VM intent makes the single-session discard replayable even if SD is full. */
-int rdx_record_format_abort(const uxfile_data_t *file);
 uxfile_datfile_info_t *rdx_record_format_list(uxfile_datfile_info_t *info);
 /* Sticky storage failure, also used by the asynchronous recording writer. */
 void rdx_record_format_storage_fault(void);

@@ -80,7 +80,7 @@ RecordStatus record;
 #define RECORD_FORMATE_OPUS_16K_STERO 1
 int mono_config, marks, record_starts;
 #define TCFG_T2620_MEETING_MONO_DEBUG_MIC mono_config
-u32 record_session_generation, record_init_failed_generation, record_finish_generation;
+u32 record_session_generation;
 enum { RDX_RECORD_MEETING, RDX_RECORD_INSPIRATION, RDX_RECORD_CALL, RDX_RECORD_FACTORY };
 enum { RDX_RECORD_KEY_IDLE, RDX_RECORD_KEY_START_PENDING, RDX_RECORD_KEY_ACTIVE };
 #define RECORD_MODE_OFFLINE 0

@@ -8,8 +8,7 @@ int rdx_record_storage_check_start(void);
 /* 0 admitted, -2 reserve reached, -1 storage unknown/faulted/busy. */
 int rdx_record_storage_admit(void);
 int rdx_record_storage_active(void);
-int rdx_record_storage_error(void);
-/* After a verified session discard or successful explicit format, writer idle. */
+/* Successful explicit format only, after the writer has drained. */
 void rdx_record_storage_reset(void);
 /* Serialized sink lifecycle: begin only after metadata initialization; end
  * must finish before saving/resetting the file, or releasing storage power. */

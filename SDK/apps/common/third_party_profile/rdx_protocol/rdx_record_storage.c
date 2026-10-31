@@ -34,11 +34,6 @@ int rdx_record_storage_active(void)
     return rs.active;
 }
 
-int rdx_record_storage_error(void)
-{
-    return rs.error;
-}
-
 void rdx_record_storage_reset(void)
 {
     if (rs.active) return;

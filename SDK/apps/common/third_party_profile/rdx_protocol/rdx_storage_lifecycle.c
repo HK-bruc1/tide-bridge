@@ -45,7 +45,8 @@ int rdx_storage_lifecycle_stream_blocked(void)
 {
     return rdx_record_format_stream_status() != 0 ||
            rdx_cdc_source_stream_blocked() ||
-           rdx_uxfile_pc_refresh_status() != 0;
+           rdx_uxfile_pc_refresh_status() != 0 ||
+           rdx_uxfile_storage_status() < 0;
 }
 
 int rdx_storage_lifecycle_shutdown_deferred(void)

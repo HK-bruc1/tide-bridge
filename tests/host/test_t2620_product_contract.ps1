@@ -80,7 +80,7 @@ $SharedT2620ProductDefines = @{
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.6"'; VersionHex = '0x00010106' },
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.5"'; VersionHex = '0x00010105' },
     @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
@@ -274,15 +274,14 @@ Assert-Contract 'RDX_LOCAL_SYSTEM_CANCEL_CALLERS' (
     $StorageLifecycle -match '(?s)void rdx_storage_lifecycle_pc_returned\(void\)\s*\{\s*rdx_hogp_input_cancel\(\)'
 ) 'format and PC return cancel both input paths; factory-reset and native-poweroff callers run in C harnesses'
 Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
-    $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_record_finish_file\(\);' -and
-    $RdxRecord -match 'return stream_only \? 0 : rdx_record_finish_file\(\);' -and
+    $RdxRecord -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rdx_uxfile_finish_record\(\);' -and
     $RdxServer -match '(?s)if\(!rdx_record_stream_only_session_is_active\(\)\).*?rp->orig_mode\s*=\s*RECORD_MODE_OFFLINE;' -and
     $RdxApp -match '\(u32\)priv != record_state_upload_generation'
 ) 'stream-only STOP/disconnect must not fall back to storage; stale upload timers cannot restart a request'
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq '6840C41C710FDC5467B5F4BA6DCF3A61678F2BED50FE070D7D8CF21A457B1B93' -and
+                           $PatchedRdxArchiveHash -eq 'CF87FA617E007EDBCAF57790EB5A3DCE9D31C7424DF4F08CB710BE7261F39766' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
