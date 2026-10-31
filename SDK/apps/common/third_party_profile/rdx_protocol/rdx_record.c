@@ -166,6 +166,9 @@ static volatile u32 record_binding_generation = 1;
  * app_core advances it on an accepted START; the audio path owns initialization. */
 static u32 record_session_generation = 1;
 static u32 record_initialized_generation;
+static u32 record_init_failed_generation;
+static u32 record_finish_generation;
+static int record_finish_result;
 
 u8 rdx_record_format_for_session(u8 scene, u8 stream_only)
 {
@@ -1340,6 +1343,35 @@ static void rdx_record_stop_session_cleanup(void)
     rdx_record_online_session_clear();
 }
 
+/* The storage worker has stopped before this is called. Never save a failed
+ * writer into DAT; abort is attempted once for this recording generation. */
+static int rdx_record_finish_file(void)
+{
+    if (record_finish_generation == record_session_generation) {
+        return record_finish_result;
+    }
+    int failed = rdx_record_storage_error() ||
+                 record_init_failed_generation == record_session_generation;
+    int result;
+    if (failed) {
+        int discarded = rdx_uxfile_abort_record();
+        if (!discarded && rdx_uxfile_storage_status() == 0) {
+            rdx_record_storage_reset();
+        } else {
+            rdx_record_format_storage_fault();
+            r_printf("[RECORD] failed file quarantined; storage unavailable\n");
+        }
+        rdx_record_clear_marks();
+        result = -1;
+    } else {
+        result = rdx_uxfile_finish_record();
+        if (rdx_record_format_status() < 0) result = -1;
+    }
+    record_finish_result = result;
+    record_finish_generation = record_session_generation;
+    return result;
+}
+
 static int rdx_record_worker_close(void)
 {
     /* A sink may retire its sidecar during close_all. Snapshot before closing,
@@ -1350,7 +1382,7 @@ static int rdx_record_worker_close(void)
                       record_key_context.route == RECORD_MODE_ONLINE &&
                       record_key_context.state != RDX_RECORD_KEY_IDLE);
     translation_ear_recoder_close_all();
-    return stream_only ? 0 : rdx_uxfile_finish_record();
+    return stream_only ? 0 : rdx_record_finish_file();
 }
 
 /**************************************************************************
@@ -2033,6 +2065,8 @@ void rdx_record_prepare_new_session(void)
     RecordStatus *rp = rdx_record_get_status();
     rp->formate = rdx_record_format_for_session(rp->scene, 0);
     if (!++record_session_generation) ++record_session_generation;
+    record_init_failed_generation = 0;
+    record_finish_generation = 0;
     if (record_key_context.state != RDX_RECORD_KEY_START_PENDING) {
         record_key_context.kind = rdx_app_get_dut_status() ? RDX_RECORD_FACTORY :
                                  (rp->scene == RECORD_SCENE_CALL ? RDX_RECORD_CALL : RDX_RECORD_MEETING);
@@ -3098,11 +3132,13 @@ static void rdx_record_task(void *arg)
                             rdx_ble_server_auto_shut_down_enable(1);
                             if (saved < 0) {
                                 record_binding_cleanup_error = -1;
-                                r_printf("[RDX_RECORD] unbind save failed; gate closed\r");
+                                r_printf("[RDX_RECORD] unbind save failed; file service isolated\r");
                             } else {
                                 record_binding_cleanup_error = 0;
-                                record_binding_revoke_pending = 0;
                             }
+                            /* The worker is closed even if the file failed.
+                             * Storage health must not keep binding/key state busy. */
+                            record_binding_revoke_pending = 0;
                             int notify[2] = {(int)rdx_protocol_record_state_indicate, 0};
                             os_taskq_post_type("app_core", Q_CALLBACK, 2, notify);
                             continue;
@@ -3166,6 +3202,21 @@ static void rdx_record_task(void *arg)
                                 rdx_record_set_process_state_ready();
                             } else {
                                 translation_ear_recoder_close_all();
+                                if (record_status.run == RECORD_STATE_PAUSE &&
+                                    (rdx_record_storage_error() ||
+                                     record_init_failed_generation == record_session_generation)) {
+                                    /* A fault during PAUSE must not lose its STOP
+                                     * when closing the encoder retires its timer. */
+                                    record_status.run = RECORD_STATE_STOP;
+                                    rdx_record_finish_file();
+                                    rdx_record_max_timer_stop();
+                                    rdx_record_pause_timeout_stop();
+                                    rdx_record_stop_session_cleanup();
+                                    record_tone_session_active = false;
+                                    rdx_led_ctrl_set_scene(RDX_LED_SCENE_RECORD_STOP);
+                                    rdx_record_set_process_state_ready();
+                                    rdx_ble_server_auto_shut_down_enable(1);
+                                }
                             }
                             /* Both MIC and DAC paths are now closed. */
                             if (play_stop_tone) {
@@ -3931,8 +3982,7 @@ int rdx_record_run_exit(void)
     }
 
     if(!rdx_record_stream_only_session_is_active()){
-        int saved = rdx_uxfile_finish_record();
-        if (rdx_record_format_status() < 0) saved = -1;
+        int saved = rdx_record_finish_file();
         rdx_factory_audio_saved(saved);
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
@@ -4121,8 +4171,7 @@ int rdx_record_run_exit(void)
     }
     if(rp->orig_mode == RECORD_MODE_OFFLINE){
         // rdx_uxfile_mssg_1_save();
-        int saved = rdx_uxfile_finish_record();
-        if (rdx_record_format_status() < 0) saved = -1;
+        int saved = rdx_record_finish_file();
         if (saved < 0) {
             r_printf("[RECORD] save failed; USB handoff blocked\n");
         }
@@ -4164,6 +4213,7 @@ void rdx_record_run_init_failed(int err)
     if (err == -2) {
         translation_ear_recoder_storage_full();
     } else {
+        record_init_failed_generation = record_session_generation;
         translation_ear_recoder_storage_fault();
     }
 }

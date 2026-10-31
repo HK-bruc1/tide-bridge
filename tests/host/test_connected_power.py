@@ -197,7 +197,7 @@ int check_idle_modes_and_restore(void) {
 int check_busy_gates_and_events(void) {
     int *gates[]={&charge,&vbus,&pc,&led,&dut,&ota,&lowbat,&poweroff,
         &transfer,&sync_busy,&uxsync,&loading,&scanning,&formatting,&format_check,
-        &record_busy,&download,&factory_busy,&persistent_busy,&service,&storage_error,
+        &record_busy,&download,&factory_busy,&persistent_busy,&service,
         &record.run,&record.process_state,&file.file_send_busy,&app_var.goto_poweroff_flag};
     for(u32 i=0;i<sizeof(gates)/sizeof(gates[0]);++i) {
         reset(); CHECK(changed()); now=119000; *gates[i]=1; CHECK(changed());
@@ -210,6 +210,13 @@ int check_busy_gates_and_events(void) {
     usb=DISCONN_MODE; CHECK(changed()); CHECK(g_rdx_shared_vdd.conn_timer);
     reset(); playback.state=2; CHECK(changed()); CHECK(!g_rdx_shared_vdd.conn_timer);
     reset(); pending=1; CHECK(changed()); CHECK(!g_rdx_shared_vdd.conn_timer);
+    /* A completed storage failure must neither prevent idle nor re-arm a
+     * recurring retry. Actual dirty cache and live I/O still fence power. */
+    reset(); service=storage_error=-1; CHECK(changed());
+    CHECK(g_rdx_shared_vdd.conn_timer && last_delay==120000);
+    now=120000; CHECK(fire()); CHECK(cuts==1 && !g_rdx_shared_vdd.conn_timer);
+    for(int i=0;i<20;++i) { now+=5000; CHECK(changed()); }
+    CHECK(cuts==1 && !restore_calls && !g_rdx_shared_vdd.conn_timer);
     return 0;
 }
 int check_activity_and_passive(void) {

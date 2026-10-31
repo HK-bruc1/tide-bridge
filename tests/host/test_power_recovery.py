@@ -354,10 +354,13 @@ int test_stream_only_storage_lifecycle(void) {
     format=1; stream_format=source_fault=refresh=error=0;
     int old_wakes=wakes, old_restores=restores;
     CHECK(rdx_storage_lifecycle_business_blocked() && !rdx_storage_lifecycle_stream_blocked());
-    int *guards[]={&stream_format,&source_fault,&refresh,&error};
-    for(int i=0;i<4;++i) {
+    int *guards[]={&stream_format,&source_fault,&refresh};
+    for(int i=0;i<3;++i) {
         *guards[i]=-1; CHECK(rdx_storage_lifecycle_stream_blocked()); *guards[i]=0;
     }
+    error=-1;
+    CHECK(rdx_storage_lifecycle_business_blocked() && !rdx_storage_lifecycle_stream_blocked());
+    error=0;
     CHECK(format==1 && wakes==old_wakes && restores==old_restores);
     format=0;
     return 0;

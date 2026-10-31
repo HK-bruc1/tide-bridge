@@ -31,7 +31,8 @@ def run_recovery_checks():
     for name in ('rdx_dat_cache_persist_max_sn', 'rdx_uxfile_write_serial_number_into_vm'):
         assert not re.search(r'\bcall\b', extract(name)), name
     for name, target in (('rdx_storage_reserve_sn', 'rdx_record_format_reserve_sn'),
-                         ('rdx_storage_discard_short', 'rdx_record_format_discard_short')):
+                         ('rdx_storage_discard_short', 'rdx_record_format_discard_short'),
+                         ('rdx_uxfile_abort_record', 'rdx_record_format_abort')):
         body = extract(name)
         assert body.index('@os_mutex_pend(') < body.index('@' + target + '(') < body.index('@os_mutex_post(')
     assert '@rdx_storage_reserve_sn(' in extract('rdx_uxfile_dat_1_gen_ready')
@@ -144,12 +145,16 @@ define void @set_reader(i8* %handle) {
 ''')
     power_busy = ctypes.CFUNCTYPE(ctypes.c_uint8)(facts.get_function_address('rdx_uxfile_power_busy'))
     assert not power_busy()
-    for name in ('g_dat_cache.4', 'rdx_storage_io_error', 'delete_queue_head', 'delete_in_progress'):
+    for name in ('g_dat_cache.4', 'delete_queue_head', 'delete_in_progress'):
         value = ctypes.c_ubyte.from_address(facts.get_global_value_address(name))
         value.value = 1
         assert power_busy(), name
         value.value = 0
         assert not power_busy(), name
+    # A latched error fences file admission, but is not an in-flight I/O.
+    integer(facts, 'rdx_storage_io_error').value = -1
+    assert not power_busy()
+    integer(facts, 'rdx_storage_io_error').value = 0
     reader = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(facts.get_function_address('set_reader'))
     reader(1)
     assert power_busy()
@@ -401,6 +406,49 @@ define i32 @rdx_uxfile_flush_cache() {
         assert snapshot_call() == (-2 if result or io_error else 0)
         assert integer(snapshot, 'locked').value == 0
         assert integer(snapshot, 'flush_locked').value == 1
+
+    abort = engine_for(types_for(['OS_SEM', 'uxfile_data_t']) + '\n' +
+                       globals_for(['dat_opera_mutex', 'uxOperateFileData',
+                                    'rdx_storage_io_error']) + '''
+@lock_result = global i32 0
+@unlock_result = global i32 0
+@abort_result = global i32 0
+@abort_calls = global i32 0
+@locked = global i32 0
+@abort_locked = global i32 0
+define i32 @os_mutex_pend(%struct.OS_SEM* %m, i32 %timeout) {
+ %result=load i32, i32* @lock_result
+ %ok=icmp eq i32 %result, 0
+ %held=zext i1 %ok to i32
+ store i32 %held, i32* @locked
+ ret i32 %result
+}
+define i32 @os_mutex_post(%struct.OS_SEM* %m) {
+ store i32 0, i32* @locked
+ %result=load i32, i32* @unlock_result
+ ret i32 %result
+}
+define i32 @rdx_record_format_abort(%struct.uxfile_data_t* %file) {
+ %held=load i32, i32* @locked
+ store i32 %held, i32* @abort_locked
+ %calls=load i32, i32* @abort_calls
+ %next=add i32 %calls, 1
+ store i32 %next, i32* @abort_calls
+ %result=load i32, i32* @abort_result
+ ret i32 %result
+}
+''' + extract('rdx_uxfile_abort_record'))
+    abort_call = ctypes.CFUNCTYPE(ctypes.c_int)(abort.get_function_address('rdx_uxfile_abort_record'))
+    for lock, unlock, result in ((0, 0, 0), (0, 0, -1), (-1, 0, 0), (0, -1, 0)):
+        for name, value in [('lock_result', lock), ('unlock_result', unlock),
+                            ('abort_result', result), ('abort_calls', 0),
+                            ('abort_locked', 0), ('rdx_storage_io_error', -1)]:
+            integer(abort, name).value = value
+        assert abort_call() == (-1 if lock or unlock or result else 0)
+        assert integer(abort, 'abort_calls').value == (not lock)
+        assert integer(abort, 'abort_locked').value == (not lock)
+        assert not integer(abort, 'locked').value
+        assert integer(abort, 'rdx_storage_io_error').value == -1
 
     init = engine_for(types_for(['dat_entry_t', 'uxfile_filelist_t']) + '\n' +
                       globals_for(['g_dat_cache.0', 'g_dat_cache.1', 'g_dat_cache.3',

@@ -59,18 +59,15 @@ function Update-RdxAdvIr {
 define zeroext i8 @rdx_uxfile_power_busy() {
   %dirty = load volatile i8, i8* @g_dat_cache.4, align 4
   %file = load volatile i8*, i8** getelementptr inbounds (%struct.uxfile_data_t, %struct.uxfile_data_t* @uxReadFileData, i32 0, i32 12), align 4
-  %error = load volatile i32, i32* @rdx_storage_io_error, align 4
   %head = load volatile i8, i8* @delete_queue_head, align 1
   %tail = load volatile i8, i8* @delete_queue_tail, align 1
   %deleting = load volatile i8, i8* @delete_in_progress, align 1
   %a = icmp ne i8 %dirty, 0
   %b = icmp ne i8* %file, null
-  %c = icmp ne i32 %error, 0
   %d = icmp ne i8 %head, %tail
   %e = icmp ne i8 %deleting, 0
   %ab = or i1 %a, %b
-  %cd = or i1 %c, %d
-  %abcd = or i1 %ab, %cd
+  %abcd = or i1 %ab, %d
   %busy = or i1 %abcd, %e
   %result = zext i1 %busy to i8
   ret i8 %result

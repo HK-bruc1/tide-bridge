@@ -64,6 +64,9 @@ static int record_binding_cleanup_error;
 static u32 pending_binding_token=1;
 static RecordStatus record_status;
 static u32 record_session_generation=1, record_initialized_generation;
+static u32 record_init_failed_generation, record_finish_generation;
+static int record_finish_result;
+static int store_error, abort_result, aborts, storage_resets, marks_cleared, close_exit, fault_on_close;
 static u16 record_set_process_state_timer;
 static int timeout_adds, timeout_deletes, timeout_live, timeout_delay;
 static void (*timeout_callback)(void *);
@@ -95,7 +98,17 @@ static u32 usb_record_done;
 static int usb_record_result;
 static void local_irq_disable(void) {}
 static void local_irq_enable(void) {}
-static int rdx_record_format_status(void) { return 0; }
+static int rdx_record_format_status(void) { return rf_error; }
+static void rdx_record_format_storage_fault(void) { rf_error=-1; }
+static int rdx_record_storage_error(void) { return store_error; }
+static int rdx_uxfile_storage_status(void) { return file_fault; }
+static int rdx_uxfile_abort_record(void) {
+    ++aborts;
+    if(writer_active) return -1;
+    if(!abort_result) rf_error=0;
+    return abort_result;
+}
+static void rdx_record_storage_reset(void) { ++storage_resets; store_error=0; }
 enum stream_event { STREAM_EVENT_INIT=1, STREAM_EVENT_START, STREAM_EVENT_STOP };
 static int rdx_app_get_poweroff_flag(void) { return poweroff; }
 u8 rdx_record_binding_allowed(void);
@@ -135,7 +148,7 @@ static int rdx_storage_lifecycle_stream_blocked(void) {
         rdx_record_stream_only_release();
         worker_queue_fail=0;
     }
-    return storage_busy || pc_refresh || file_fault || rf_error || rf_service ||
+    return storage_busy || pc_refresh || rf_service ||
         rdx_cdc_source_stream_blocked();
 }
 static int rdx_dut_test_keys_active(void) { return factory_keys; }
@@ -162,7 +175,7 @@ static void rdx_protocol_record_state_indicate(void) { ++replies; }
 static void rdx_record_state_indicate_if_current(const rdx_ble_async_token_t *t) { ++replies; }
 void rdx_record_set_process_state_ready(void);
 static void rdx_peripheral_power_vdd_business_changed_notify(void) {}
-static void rdx_record_clear_marks(void) {}
+static void rdx_record_clear_marks(void) { ++marks_cleared; }
 static void (*process_hook)(void);
 static void rdx_record_process(void) {
     ++processes;
@@ -175,7 +188,8 @@ static int rdx_record_uxfile_is_busy(void) { return ux_busy; }
 static int pause_timeout_starts, pause_timeout_stops;
 static void rdx_record_pause_timeout_stop(void) { ++pause_timeout_stops; }
 static void rdx_record_pause_timeout_start(void) { ++pause_timeout_starts; }
-static void rdx_record_max_timer_stop(void) {}
+static int max_timer_stops;
+static void rdx_record_max_timer_stop(void) { ++max_timer_stops; }
 static void rdx_record_max_timer_start(void) {}
 static void rdx_record_set_filter_cnt(int n) {}
 static int rdx_record_get_filter_cnt(void) { return 10; }
@@ -207,7 +221,13 @@ static int os_taskq_post_type(const char *name,int q,int n,int *msg) {
 static void rdx_record_start_tone_cancel(void) { record_start_tone_pending=0; record_status.run=RECORD_STATE_STOP; }
 static void rdx_app_record_state_upload_timer_stop(void);
 static void rdx_led_ctrl_set_scene(int scene) {}
-static void translation_ear_recoder_close_all(void) { ++closes; if(retire_on_close) g_stream_only_session_active=0; }
+int rdx_record_run_exit(void);
+static void translation_ear_recoder_close_all(void) {
+    ++closes;
+    if(fault_on_close) store_error=-25;
+    if(close_exit) rdx_record_run_exit();
+    if(retire_on_close) g_stream_only_session_active=0;
+}
 static int rdx_uxfile_finish_record(void) { ++finishes; return 0; }
 static void rdx_ble_server_auto_shut_down_enable(int en) {}
 static void rdx_protocol_record_trigger_indicate(RecordStatus *p,int factor) { ++triggers; }
@@ -219,7 +239,7 @@ static ReqFileInfo file_info;
 static ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &file_info; }
 static void rdx_protocol_file_cmd_handle(int x) {}
 static void rdx_uxfile_operate_file_init(void) { ++memory_resets; }
-static void rdx_record_storage_end(void) { ++storage_ends; }
+static void rdx_record_storage_end(void) { ++storage_ends; writer_active=0; }
 static void rdx_factory_audio_saved(int result) { ++saves; }
 static void rdx_record_notify_playback_content_changed(void) {}
 static void rdx_app_emmc_poweroff_check(void) {}
@@ -305,6 +325,8 @@ static void reset(void) {
     record_start_tone_completed=record_stop_tone_pending_epoch=record_start_tone_ready=0;
     tone_binding_token=app_var.goto_poweroff_flag=dut_record_stopping=record_binding_revoke_pending=0;
     owner=(rdx_ble_async_token_t){0,1,1}; record_initialized_generation=0; now_ms=100;
+    record_init_failed_generation=record_finish_generation=record_finish_result=0;
+    store_error=abort_result=aborts=storage_resets=marks_cleared=close_exit=fault_on_close=0;
     writer_active=file_transfer=file_sync=file_loading=file_index=file_format=0;
     pc_refresh=file_fault=rf_error=rf_erasing=rf_service=rf_io_users=rf_command_users=0;
     playback_state=PB_STATE_STOPPED; file_info.file_send_busy=0;
@@ -312,6 +334,7 @@ static void reset(void) {
     source_handles=source_reads=source_releases=acquire_interleave=0;
     app_queue_fail=worker_queue_fail=binding_app_posts=binding_resets=dut_resets=0;
     release_at_worker_query=upload_timer_stops=0;
+    max_timer_stops=0;
     process_hook=0;
     record_binding_generation=pending_binding_token=1; record_binding_cleanup_error=0;
 }
@@ -1000,7 +1023,8 @@ int test_cdc_recording_exclusion_and_identity(void) {
     for(int i=0;i<sizeof(guards)/sizeof(guards[0]);++i) {
         reset(); CHECK(rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
         cmd(RECORD_STATE_START); *guards[i]=1;
-        CHECK(rdx_cdc_source_begin(7,"abc.raw")==2 && !cdc_busy && !source.busy);
+        int rejected=rdx_cdc_source_begin(7,"abc.raw");
+        CHECK(rejected==(guards[i]==&file_fault?8:2) && !cdc_busy && !source.busy);
     }
     return 0;
 }
@@ -1150,6 +1174,83 @@ int test_cdc_worker_release_race(void) {
     }
     return 0;
 }
+int test_failed_writer_cleanup(void) {
+    /* Sink exit and the outer STOP both finalize: discard exactly once,
+     * after the writer has drained, with no DAT save or idle recovery timer. */
+    for(int fault=0;fault<4;++fault) {
+        reset(); tone_setting=0;
+        rdx_record_prepare_new_session();
+        record_status.run=RECORD_STATE_STOP;
+        record_status.begin_time=123;
+        record_status.process_state=REC_PROCESS_STATE_BUSY;
+        record_initialized_generation=record_session_generation;
+        writer_active=close_exit=1;
+        if(fault==0) store_error=-25;
+        if(fault==1) { store_error=-24; file_fault=-1; }
+        if(fault==2) store_error=-23;
+        if(fault==3) record_init_failed_generation=record_session_generation;
+        rf_error=-1;
+        worker_stop(RECORD_STATE_STOP);
+        CHECK(!writer_active && storage_ends==1 && aborts==1 && !finishes);
+        CHECK(!record_status.begin_time && !record_initialized_generation);
+        CHECK(record_status.process_state==REC_PROCESS_STATE_READY);
+        CHECK(rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE && !timeout_live);
+        CHECK(record_finish_generation==record_session_generation && record_finish_result<0);
+        CHECK(storage_resets==(fault!=1) && !record_binding_revoke_pending);
+        if(fault==1) CHECK(rf_error<0 && rdx_storage_lifecycle_business_blocked());
+        else CHECK(!rf_error && !store_error && !rdx_storage_lifecycle_business_blocked());
+        /* A delayed/repeated STOP never retries the destructive operation. */
+        worker_stop(RECORD_STATE_STOP); CHECK(aborts==1 && !finishes);
+        /* Pure F19 streaming still works with a latched file fault. */
+        CHECK(rdx_record_key_start_prepare(RDX_RECORD_INSPIRATION,RECORD_MODE_ONLINE,&owner));
+        cmd(RECORD_STATE_START);
+        CHECK(g_stream_only_session_active && !admit_calls && !timeout_live);
+    }
+    return 0;
+}
+int test_abort_failure_releases_controls(void) {
+    for(int unbind=0;unbind<2;++unbind) {
+        reset(); tone_setting=0;
+        rdx_record_prepare_new_session();
+        record_status.process_state=REC_PROCESS_STATE_BUSY;
+        store_error=-25; rf_error=-1; abort_result=-1;
+        if(unbind) {
+            record_binding_revoke_pending=1;
+            worker_binding();
+            CHECK(!record_binding_revoke_pending && record_binding_cleanup_error==-1);
+        } else {
+            record_status.run=RECORD_STATE_STOP;
+            worker_stop(RECORD_STATE_STOP);
+        }
+        CHECK(aborts==1 && !finishes && !storage_resets && rf_error<0);
+        CHECK(record_status.process_state==REC_PROCESS_STATE_READY);
+        CHECK(record_status.run==RECORD_STATE_STOP && rdx_record_binding_allowed());
+        CHECK(rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE && !timeout_live);
+        CHECK(rdx_storage_lifecycle_business_blocked());
+        CHECK(!rdx_storage_lifecycle_stream_blocked());
+    }
+    return 0;
+}
+int test_pause_drain_failure_stops_session(void) {
+    for(int fault=0;fault<2;++fault) {
+        reset(); tone_setting=0;
+        rdx_record_prepare_new_session();
+        record_status.run=RECORD_STATE_PAUSE;
+        record_status.process_state=REC_PROCESS_STATE_BUSY;
+        record_status.begin_time=100;
+        close_exit=writer_active=1;
+        if(!fault) fault_on_close=1;
+        else record_init_failed_generation=record_session_generation;
+        worker_stop(RECORD_STATE_PAUSE);
+        CHECK(!writer_active && aborts==1 && !finishes && !store_error);
+        CHECK(record_status.run==RECORD_STATE_STOP && !record_status.begin_time);
+        CHECK(record_status.process_state==REC_PROCESS_STATE_READY);
+        CHECK(!record_initialized_generation && !timeout_live && pause_timeout_stops==1);
+        CHECK(max_timer_stops==1);
+        CHECK(rdx_record_key_state_get()==RDX_RECORD_KEY_IDLE);
+    }
+    return 0;
+}
 '''
 
 
@@ -1208,6 +1309,7 @@ def main():
         'rdx_record_update_connection_mode', 'rdx_record_on_ble_conn_changed',
         'rdx_record_run_init', 'rdx_record_run_data_handle',
         'rdx_record_stop_session_cleanup',
+        'rdx_record_finish_file',
         'rdx_record_worker_close', 'rdx_record_run_exit',
         'rdx_record_start_tone_admitted', 'rdx_record_start_tone_is_current',
         'rdx_record_start_tone_finish',

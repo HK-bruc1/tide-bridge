@@ -1,6 +1,23 @@
 ; The format layer owns SN reservation and replayable RAW/MTA removal.
 declare i32 @rdx_record_format_reserve_sn(i32*)
 declare i32 @rdx_record_format_discard_short(%struct.uxfile_data_t*)
+declare i32 @rdx_record_format_abort(%struct.uxfile_data_t*)
+
+; The audio writer is already idle. Do not clear the archive's sticky I/O
+; error: it can also represent an unrelated or dirty DAT cache failure.
+define i32 @rdx_uxfile_abort_record() {
+  %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @dat_opera_mutex, i32 0)
+  %locked = icmp eq i32 %lock, 0
+  br i1 %locked, label %discard, label %failed
+discard:
+  %result = call i32 @rdx_record_format_abort(%struct.uxfile_data_t* @uxOperateFileData)
+  %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @dat_opera_mutex)
+  %unlocked = icmp eq i32 %unlock, 0
+  %status = select i1 %unlocked, i32 %result, i32 -1
+  ret i32 %status
+failed:
+  ret i32 -1
+}
 
 ; Reservation and discard share the existing DAT mutex, never the later save lock.
 define internal i32 @rdx_storage_reserve_sn(i32* %sn) {

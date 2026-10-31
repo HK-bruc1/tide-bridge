@@ -45,6 +45,7 @@ typedef struct { u8 *data; u32 data_len,left_len,sent_size,divpack,cur_pack_num,
 #define RECORD_FORMATE_OPUS_16K_STERO 2
 #define RDX_RECORD_DELETE_REJECTED (-2)
 #define VM_RDX_RECORD_FILE_NUM 147
+#define VM_RDX_RECORD_ABORT 169
 typedef struct { u32 sn; char filename[64]; u8 record_scene; u32 start_time, frame_size; } uxfile_data_t;
 typedef struct { char name[80]; u8 data[65536]; u32 size, pos; int present, opened; } mock_file;
 static mock_file files[640];
@@ -59,7 +60,15 @@ static int fail_alloc;
 static u32 vm_sn;
 static int vm_present, vm_write_fail, vm_writes;
 static int vm_read_fail, vm_readback_fail;
+static u8 vm_abort[64];
+static int vm_abort_present, vm_abort_write_fail, vm_abort_read_fail;
 int syscfg_read(unsigned short id, void *data, unsigned short size) {
+    if(id==VM_RDX_RECORD_ABORT) {
+        if(vm_abort_read_fail) return VM_READ_DATA_ERR;
+        if(!vm_abort_present) return VM_INDEX_ERR;
+        if(size>sizeof(vm_abort)) return -1;
+        memcpy(data,vm_abort,size); return size;
+    }
     if(id!=147 || size!=sizeof(vm_sn)) return -1;
     if(vm_read_fail) return vm_read_fail==1 ? VM_READ_DATA_ERR : vm_read_fail==2 ? size-1 : 0;
     if(!vm_present) return VM_INDEX_ERR;
@@ -70,6 +79,10 @@ int syscfg_read(unsigned short id, void *data, unsigned short size) {
     memcpy(data,&vm_sn,sizeof(vm_sn)); return sizeof(vm_sn);
 }
 int syscfg_write(unsigned short id, void *data, unsigned short size) {
+    if(id==VM_RDX_RECORD_ABORT) {
+        if(vm_abort_write_fail || size>sizeof(vm_abort)) return -1;
+        memcpy(vm_abort,data,size); vm_abort_present=1; return size;
+    }
     if(id!=147 || size!=sizeof(vm_sn)) return -1;
     ++vm_writes;
     if(vm_write_fail) return vm_write_fail==1 ? -1 : size-1;
@@ -156,6 +169,8 @@ static void reset(void) {
     power_fail=power_users=power_enters=idle_hints=0;
     snapshot_result=snapshot_calls=0;
     vm_sn=0; vm_present=vm_write_fail=vm_writes=0;
+    memset(vm_abort,0,sizeof(vm_abort));
+    vm_abort_present=vm_abort_write_fail=vm_abort_read_fail=0;
     vm_read_fail=vm_readback_fail=0;
     fail_delete_path=NULL; fail_flush_call=flush_calls=0;
     fail_alloc=0;
@@ -290,7 +305,7 @@ int test_stream_only_storage_query(void) {
     rf_service=0; rf_erasing=1; CHECK(rdx_record_format_stream_status());
     rf_erasing=0; factory_busy=1; CHECK(rdx_record_format_stream_status());
     factory_busy=0; rdx_record_format_storage_fault();
-    CHECK(rdx_record_format_stream_status()<0);
+    CHECK(!rdx_record_format_stream_status()); /* Fault is not active I/O. */
     CHECK(rf_download && !rf_io_users && !rf_command_users);
     CHECK(power_enters==enters && idle_hints==hints);
     rf_error=0; CHECK(!rdx_record_format_stream_status());
@@ -943,6 +958,86 @@ int test_sn_explicit_format_reset(void) {
     }
     CHECK(handles==0); return 0;
 }
+
+int test_failed_record_abort(void) {
+    /* A first-frame MTA failure never saves a DAT entry; it must not poison
+     * the next recording or remove an unrelated historical recording. */
+    reset(); CHECK(!seed_named(8,"def123.raw"));
+    CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+    current.sn=9; strcpy(current.filename,"abc123.raw");
+    CHECK(!rdx_record_format_begin(&current,1));
+    fail_write=1; fail_path=RF_ROOT "abc123.mta";
+    CHECK(rdx_record_format_frame(&current,1,audio,40)<0 && rf_error<0);
+    fail_write=0; fail_path=NULL;
+    writer_active=1; CHECK(rdx_record_format_abort(&current)<0);
+    writer_active=0; CHECK(!rdx_record_format_abort(&current));
+    CHECK(!rf_error && !lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+    CHECK(lookup(RF_ROOT "def123.raw") && lookup(RF_ROOT "def123.mta"));
+    cJSON *root=read_dat(); CHECK(root && named_sn(root,"def123.raw")==8);
+    CHECK(!named_sn(root,"abc123.raw")); cJSON_Delete(root);
+    current.sn=10; strcpy(current.filename,"aaa111.raw");
+    CHECK(!rdx_record_format_begin(&current,1));
+    CHECK(!rdx_record_format_frame(&current,1,audio,40));
+    CHECK(!handles);
+
+    /* Collision checks include files absent from the bounded archive cache. */
+    reset(); CHECK(!seed_named(8,"def123.raw"));
+    current.sn=9; CHECK(rdx_record_format_begin(&current,1)<0);
+    CHECK(lookup(RF_ROOT "def123.raw") && lookup(RF_ROOT "def123.mta"));
+    CHECK(rdx_record_format_abort(&current)<0 && !handles);
+
+    /* A stale DAT name also prevents removal, even if the file did not exist
+     * when the new identity was generated. */
+    reset(); CHECK(!seed_index("[{\"sn\":8,\"name\":\"abc123.raw\"}]"));
+    CHECK(!rdx_record_format_begin(&current,1));
+    fail_write=1; fail_path=RF_ROOT "abc123.mta";
+    CHECK(rdx_record_format_frame(&current,1,audio,40)<0);
+    fail_write=0; fail_path=NULL;
+    CHECK(rdx_record_format_abort(&current)<0 && lookup(RF_ROOT "abc123.mta"));
+    CHECK(!vm_abort_present && !handles);
+    return 0;
+}
+
+int test_failed_record_replay(void) {
+    for(int stage=0;stage<4;++stage) {
+        reset(); CHECK(!seed_named(8,"def123.raw"));
+        CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+        current.sn=9; strcpy(current.filename,"abc123.raw");
+        CHECK(!rdx_record_format_begin(&current,1));
+        CHECK(!rdx_record_format_frame(&current,1,audio,40));
+        CHECK(!rf_write(RF_ROOT "abc123.raw",audio,4000));
+        rdx_record_format_storage_fault();
+        if(stage==0) fail_delete_path=RF_ROOT "abc123.raw";
+        if(stage==1) fail_delete_path=RF_ROOT "abc123.mta";
+        if(stage==2) fail_flush_call=flush_calls+1;
+        if(stage==3) vm_abort_write_fail=1;
+        CHECK(rdx_record_format_abort(&current)<0 && rf_error<0 && !handles);
+        if(stage<3) {
+            CHECK(vm_abort_present);
+            fail_delete_path=NULL; fail_flush_call=0;
+            CHECK(!recover() && !handles);
+            CHECK(!lookup(RF_ROOT "abc123.raw") && !lookup(RF_ROOT "abc123.mta"));
+        } else {
+            /* No durable intent means no destructive action. */
+            CHECK(lookup(RF_ROOT "abc123.raw") && lookup(RF_ROOT "abc123.mta"));
+        }
+        CHECK(lookup(RF_ROOT "def123.raw") && lookup(RF_ROOT "def123.mta"));
+        cJSON *root=read_dat(); CHECK(root && named_sn(root,"def123.raw")==8); cJSON_Delete(root);
+    }
+    /* An unverified/torn VM intent never authorizes deletion. */
+    reset(); CHECK(!seed_named(8,"def123.raw"));
+    CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+    vm_abort_present=1; memset(vm_abort,0x55,sizeof(vm_abort));
+    CHECK(recover()<0 && lookup(RF_ROOT "def123.raw") && !handles);
+    /* An unreadable intent is not the same as an unused VM slot. */
+    reset(); CHECK(!seed_named(8,"def123.raw"));
+    CHECK(!seed_index("[{\"sn\":8,\"name\":\"def123.raw\"}]"));
+    vm_abort_read_fail=1;
+    CHECK(recover()<0 && lookup(RF_ROOT "def123.raw") && !handles);
+    vm_abort_read_fail=0;
+    CHECK(!recover() && lookup(RF_ROOT "def123.raw") && !handles);
+    return 0;
+}
 '''
 
 def main():
@@ -996,7 +1091,8 @@ double fabs(double);
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',
                         'test_sn_reservation_migration', 'test_sn_reservation_full_index_and_empty',
                         'test_sn_reservation_failures_and_limit', 'test_empty_cancel', 'test_short_discard_admission',
-                        'test_short_discard_replay', 'test_sn_explicit_format_reset'], native=True)
+                        'test_short_discard_replay', 'test_sn_explicit_format_reset',
+                        'test_failed_record_abort', 'test_failed_record_replay'], native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 
