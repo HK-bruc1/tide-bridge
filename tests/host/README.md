@@ -40,6 +40,20 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
 
+`test_record_format.py` also imports `checks/auto_delete_checks.py` and
+`checks/auto_delete_storage_checks.py`. These execute the actual patched BLE
+download parser/sender/cleanup and production C deletion policy, plus the real
+storage implementation with cJSON. Cases cover full-width SN, optional offset,
+contiguous/resumed downloads, duplicate/stale completion, short reads,
+allocation/enqueue failures, owner loss before/after durable intent, completion
+callback success/failure, timeout/STOP and restart. Storage cases reproduce the
+logged orphan-MTA management SN and missing-DAT recording rejection; successful
+last-file deletion must remove RAW/MTA, retain `[]` across reboot, preserve the VM
+SN counter and restore usable recording space. OS, BLE delivery and filesystem
+I/O are mocked; queue pointer ABI is checked structurally with host-side callback
+delivery. These tests do not establish on-device current or RF behavior. See
+`docs/10-10.BLE_download_auto_delete_fix.md` for the device regression checklist.
+
 `test_lowpower_lrc.py` 验证独立 LRC 正常业务配置：真实工具配置与项目覆盖仅允许
 产品开关及原生睡眠时钟类型不同，非法值、关闭原生低功耗或混入非零实验开关必须失败。
 实际电源参数初始化和 `board_power_init()` 在模拟原生 API 下执行，覆盖 LRC/BT_OSC、

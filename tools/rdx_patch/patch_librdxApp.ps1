@@ -8,13 +8,15 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ModuleRoot = Join-Path $PSScriptRoot 'modules'
+$ArchiveRoot = Join-Path $PSScriptRoot '../../SDK/apps/common/third_party_profile/rdx_protocol'
 $ExpectedInputSha256 = '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D'
 
 if ([string]::IsNullOrWhiteSpace($InputArchive)) {
-    $InputArchive = Join-Path $PSScriptRoot 'librdxApp.a'
+    $InputArchive = Join-Path $ArchiveRoot 'librdxApp.a'
 }
 if ([string]::IsNullOrWhiteSpace($OutputArchive)) {
-    $OutputArchive = Join-Path $PSScriptRoot 'librdxApp_patched.a'
+    $OutputArchive = Join-Path $ArchiveRoot 'librdxApp_patched.a'
 }
 
 $InputArchive = (Resolve-Path -LiteralPath $InputArchive).Path
@@ -57,6 +59,9 @@ function Replace-ExactlyOnce {
         [Parameter(Mandatory = $true)][string]$PatchName
     )
 
+    $Text = $Text.Replace("`r`n", "`n")
+    $OldText = $OldText.Replace("`r`n", "`n")
+    $NewText = $NewText.Replace("`r`n", "`n")
     $Count = ([regex]::Matches($Text, [regex]::Escape($OldText))).Count
     if ($Count -ne 1) {
         throw "IR patch '$PatchName' expected exactly one match, found $Count."
@@ -186,13 +191,15 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
 '@
     $Ir = Replace-ExactlyOnce $Ir $OldScanActive $NewScanActive 'scan activity state query'
 
-    . (Join-Path $PSScriptRoot 'patch_librdxApp_storage.ps1')
+    . (Join-Path $ModuleRoot 'patch_librdxApp_storage.ps1')
     $Ir = Update-RdxStorageIr $Ir
-    . (Join-Path $PSScriptRoot 'patch_librdxApp_recovery.ps1')
+    . (Join-Path $ModuleRoot 'patch_librdxApp_recovery.ps1')
     $Ir = Update-RdxRecoveryIr $Ir
-    . (Join-Path $PSScriptRoot 'patch_librdxApp_adv.ps1')
+    . (Join-Path $ModuleRoot 'patch_librdxApp_download.ps1')
+    $Ir = Update-RdxDownloadUxIr $Ir
+    . (Join-Path $ModuleRoot 'patch_librdxApp_adv.ps1')
     $Ir = Update-RdxAdvIr $Ir
-    . (Join-Path $PSScriptRoot 'patch_librdxApp_cache.ps1')
+    . (Join-Path $ModuleRoot 'patch_librdxApp_cache.ps1')
     $Ir = Update-RdxCacheIr $Ir
 
     $Utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
@@ -214,8 +221,9 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
         Pop-Location
     }
     Invoke-CheckedTool $Clang @('-S', '-emit-llvm', '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir', $ProtocolObject, '-o', $ProtocolIr)
-    . (Join-Path $PSScriptRoot 'patch_librdxApp_protocol.ps1')
+    . (Join-Path $ModuleRoot 'patch_librdxApp_protocol.ps1')
     $ProtocolText = Update-RdxProtocolIr ([IO.File]::ReadAllText($ProtocolIr))
+    $ProtocolText = Update-RdxDownloadProtocolIr $ProtocolText
     [IO.File]::WriteAllText($ProtocolIr, $ProtocolText, $Utf8NoBom)
     Invoke-CheckedTool $Clang @('-c', '-emit-llvm', '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir', $ProtocolIr, '-o', $ProtocolObject)
     Push-Location $TempDir
@@ -250,7 +258,11 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
                           'rdx_uxfile_storage_status', 'rdx_uxfile_is_index_active',
                           'rdx_protocol_recieve_data_handle_admitted',
                           'rdx_protocol_ota_handle_admitted',
-                          'rdx_protocol_record_file_info_indicate_admitted')) {
+                          'rdx_protocol_record_file_info_indicate_admitted',
+                          'rdx_protocol_handle_recordFileData_req_legacy',
+                          'rdx_protocol_download_cleanup',
+                          'rdx_uxfile_auto_delete_submit',
+                          'rdx_uxfile_delete_checked_guarded')) {
         if (($Symbols -join "`n") -notmatch ('\b' + $Symbol + '\b')) {
             throw "Patched archive missing ABI symbol: $Symbol"
         }

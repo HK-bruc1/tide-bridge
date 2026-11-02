@@ -5,6 +5,7 @@ Checks persistence semantics and interruption replay, not physical SD durability
 import re
 
 from host_c_test_lib import ROOT, function, run_c_checks
+from checks.auto_delete_storage_checks import CASES as AUTO_DELETE_CASES, NAMES as AUTO_DELETE_NAMES
 
 
 STUBS = r'''
@@ -28,6 +29,7 @@ int rdx_record_storage_active(void) { return writer_active; }
 void rdx_record_storage_reset(void) { ++writer_resets; }
 void rdx_record_storage_recovered(void) { ++record_recovered; }
 void rdx_record_format_service_ready(int result);
+void rdx_record_format_io_leave(void);
 struct vfs_partition { u32 total_size; };
 static struct vfs_partition partition={200000};
 static u32 free_kb;
@@ -1029,7 +1031,7 @@ double fabs(double);
     factory_crc = function((ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_factory_audio.c').read_text(encoding='utf-8'), 'rdx_factory_audio_crc')
     vm_header = (ROOT / 'SDK/interface/utils/device/vm.h').read_text(encoding='utf-8')
     vm_enum = re.search(r'typedef enum _vm_err\s*\{.*?\}\s*VM_ERR;', vm_header, re.S)[0]
-    path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS, encoding='utf-8')
+    path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS + AUTO_DELETE_CASES, encoding='utf-8')
     tests = ['test_space_reserve', 'test_explicit_format_recovery',
                         'test_download_admission', 'test_stream_only_storage_query', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
@@ -1044,7 +1046,7 @@ double fabs(double);
         tests.append('test_abort_vm_diagnostics_preserve_data')
     else:
         print('Abort VM diagnostic draft preserved; not run because the feature is reverted.')
-    run_c_checks(path, tests, native=True)
+    run_c_checks(path, tests + AUTO_DELETE_NAMES, native=True)
     print('Recording format persistence/recovery/replay checks passed (mock filesystem).')
 
 
@@ -1054,3 +1056,5 @@ if __name__ == '__main__':
     run_delete_checks()
     from recovery_regression_checks import run_recovery_checks
     run_recovery_checks()
+    from checks.auto_delete_checks import run_auto_delete_checks
+    run_auto_delete_checks()

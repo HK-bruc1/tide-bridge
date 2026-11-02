@@ -36,7 +36,7 @@ $PeripheralPower = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\
 $PeripheralPowerH = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_peripheral_power.h'
 $AdvPolicy = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_adv_policy.c'
 $AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
-$RdxLibraryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp.ps1'
+$RdxLibraryPatch = Read-RepoFile $RepoRoot 'tools\rdx_patch\patch_librdxApp.ps1'
 $Makefile = Read-RepoFile $RepoRoot 'SDK\Makefile'
 $PatchedRdxArchivePath = Join-Path $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\librdxApp_patched.a'
 $PatchedRdxArchiveHash = if (Test-Path -LiteralPath $PatchedRdxArchivePath) {
@@ -80,7 +80,7 @@ $SharedT2620ProductDefines = @{
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.5"'; VersionHex = '0x00010105' },
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.6"'; VersionHex = '0x00010106' },
     @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
@@ -281,7 +281,7 @@ Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
 
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'CF87FA617E007EDBCAF57790EB5A3DCE9D31C7424DF4F08CB710BE7261F39766' -and
+                           $PatchedRdxArchiveHash -eq '92A06FD712EFBBA572EAA42154133C32D6D33B75A38F855F561DBFA3045DA75D' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and
@@ -516,10 +516,10 @@ Assert-Contract 'ON_CHARGE_LED_RECOVERS_FROM_LIVE_STATE' (
     $ledSceneEntry -match '!on_usb_charge && g_current_scene == RDX_LED_SCENE_LOW_BATTERY'
 ) 'The existing LED tick reconciles silent OTA exits and expired marks without restarting unchanged effects or retaining a stale warning lock'
 
-$StoragePatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_storage.ps1'
-$StorageIr = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\rdx_storage_patch.ll'
+$StoragePatch = Read-RepoFile $RepoRoot 'tools\rdx_patch\modules\patch_librdxApp_storage.ps1'
+$StorageIr = Read-RepoFile $RepoRoot 'tools\rdx_patch\modules\rdx_storage_patch.ll'
 $DipSwitch = $StorageLifecycle
-$RecoveryPatch = Read-RepoFile $RepoRoot 'SDK\apps\common\third_party_profile\rdx_protocol\patch_librdxApp_recovery.ps1'
+$RecoveryPatch = Read-RepoFile $RepoRoot 'tools\rdx_patch\modules\patch_librdxApp_recovery.ps1'
 Assert-Contract 'NATIVE_OFF_NOT_STORAGE_FENCED' (
     $DipSwitch -notmatch 'USB_SWITCH_DRAIN|USB_SWITCH_FAILED|rdx_record_usb_quiesce_request|rdx_uxfile_fence_request' -and
     $Poweroff -notmatch 'rdx_storage_lifecycle_shutdown_deferred\(' -and

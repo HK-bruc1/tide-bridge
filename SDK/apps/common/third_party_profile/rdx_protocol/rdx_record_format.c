@@ -177,6 +177,34 @@ int rdx_record_format_io_enter(void)
     return blocked;
 }
 
+int rdx_record_format_delete_acquire(void)
+{
+    local_irq_disable();
+    int blocked = rdx_record_format_service_status() || rf_error || rf_io_users;
+    if (!blocked) {
+        rf_service = 1;
+        ++rf_io_users;
+    }
+    local_irq_enable();
+    if (blocked) return -1;
+    if (rdx_adv_policy_business_enter()) {
+        local_irq_disable();
+        --rf_io_users;
+        rf_service = 0;
+        local_irq_enable();
+        rdx_peripheral_power_vdd_idle_hint();
+        return -1;
+    }
+    return 0;
+}
+
+void rdx_record_format_delete_release(int result)
+{
+    rdx_record_format_service_ready(
+        result == RDX_RECORD_DELETE_REJECTED ? 0 : result);
+    rdx_record_format_io_leave();
+}
+
 u32 rdx_record_format_io_users(void)
 {
     return rf_io_users + rf_command_users;
@@ -962,9 +990,11 @@ static int rf_delete_replay(void)
 
 /* 仅由文件工作任务在持有库 DAT 互斥锁且刷写脏缓存后调用。
  * 创建持久化删除意图前，必须同时校验两个身份字段。 */
-int rdx_record_format_delete(u32 sn, const char *name)
+int rdx_record_format_delete_guarded(u32 sn, const char *name,
+                                    int (*authorize)(void *), void *context)
 {
     if (!rf_manage_name(name) || !sn) return RDX_RECORD_DELETE_REJECTED;
+    if (authorize && !authorize(context)) return RDX_RECORD_DELETE_REJECTED;
     if (rf_replay() || rf_delete_replay()) return -1;
     FILE *src = fopen(RF_DAT, "r");
     if (!src) return -1;
@@ -1004,8 +1034,15 @@ int rdx_record_format_delete(u32 sn, const char *name)
     mark.sn = sn;
     strcpy(mark.name, name);
     mark.hash = rf_hash(&mark, sizeof(mark)-sizeof(mark.hash));
+    /* Once this intent is durable, disconnect must not interrupt replay. */
+    if (authorize && !authorize(context)) return RDX_RECORD_DELETE_REJECTED;
     if (rf_write(RF_DELETE, &mark, sizeof(mark))) return -1;
     return rf_delete_replay();
+}
+
+int rdx_record_format_delete(u32 sn, const char *name)
+{
+    return rdx_record_format_delete_guarded(sn, name, NULL, NULL);
 }
 
 /* 传输层已将 DAT 分为每包 460 字节；此处读取完整的持久化管理索引，

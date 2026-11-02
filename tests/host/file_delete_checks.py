@@ -60,7 +60,7 @@ int test_delete_admission(void) {
     run_c_checks(path, ['test_delete_admission'])
 
     # 直接执行补丁中的函数；模拟锁、刷写和缓存加载的结果。
-    patch = (directory / 'patch_librdxApp_recovery.ps1').read_text(encoding='utf-8-sig')
+    patch = (ROOT / 'tools/rdx_patch/modules/patch_librdxApp_recovery.ps1').read_text(encoding='utf-8-sig')
     actual_ir = re.search(r'define i32 @rdx_uxfile_delete_checked\(.*?^\}', patch, re.M | re.S).group(0)
     ir = r'''
 %struct.OS_SEM = type { i32 }

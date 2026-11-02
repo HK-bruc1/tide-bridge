@@ -36,6 +36,11 @@ void rdx_record_format_service_ready(int result);
 /* 参数或身份拒绝与存储失败分开，拒绝请求不应关闭健康的文件服务。 */
 #define RDX_RECORD_DELETE_REJECTED (-2)
 int rdx_record_format_delete(u32 sn, const char *name);
+int rdx_record_format_delete_guarded(u32 sn, const char *name,
+                                    int (*authorize)(void *), void *context);
+/* Automatic-delete handoff owns admission and PA4 until the worker exits. */
+int rdx_record_format_delete_acquire(void);
+void rdx_record_format_delete_release(int result);
 /* Archive DAT mutex held. Reserve/persist a normal SN before publishing it;
  * recovery and legacy high IDs stay readable but never advance this counter. */
 int rdx_record_format_reserve_sn(u32 *sn);

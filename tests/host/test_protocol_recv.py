@@ -216,8 +216,15 @@ def main():
     for name in clock_functions:
         if name != 'rdx_protocol_recv_task' and '@clock_refurbish(' in extract(original, name):
             assert extract(actual, name).count('@clock_refurbish(') == extract(original, name).count('@clock_refurbish('), name
-    for name in ('rdx_protocol_task_create', 'rdx_protocol_task_free', 'rdx_protocol_file_cmd_handle'):
+    for name in ('rdx_protocol_task_create', 'rdx_protocol_task_free'):
         assert extract(actual, name) == extract(original, name), name
+    # STOP must invalidate auto-delete authority before legacy early returns;
+    # all other stop/cleanup behavior remains byte-for-byte unchanged.
+    stop = extract(actual, 'rdx_protocol_file_cmd_handle')
+    hook = '  call void @rdx_file_download_abort()\n'
+    assert stop.count(hook) == 1
+    assert '; <label>:4:                                      ; preds = %1\n' + hook in stop
+    assert stop.replace(hook, '') == extract(original, 'rdx_protocol_file_cmd_handle')
     worker = extract(actual, 'rdx_protocol_recv_task')
     assert worker.count('@os_sem_post(') == 2 and worker.count('@clock_refurbish(') == 1
     os_errors = (ROOT / 'SDK/interface/system/os/os_error.h').read_text(encoding='utf-8')
