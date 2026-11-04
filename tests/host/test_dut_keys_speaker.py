@@ -84,8 +84,9 @@ int mono_config, marks, record_starts;
 u32 record_session_generation;
 enum { RDX_RECORD_MEETING, RDX_RECORD_INSPIRATION, RDX_RECORD_CALL, RDX_RECORD_FACTORY };
 enum { RDX_RECORD_KEY_IDLE, RDX_RECORD_KEY_START_PENDING, RDX_RECORD_KEY_ACTIVE };
+enum { RDX_RECORD_SOURCE_NONE, RDX_RECORD_SOURCE_KEY, RDX_RECORD_SOURCE_APP_FLASHNOTE };
 #define RECORD_MODE_OFFLINE 0
-static struct { int state,kind,fixed,route; u32 record_generation; } record_key_context;
+static struct { int state,kind,fixed,route,source; u32 record_generation; } record_key_context;
 static int g_stream_only_session_active;
 static void rdx_record_online_session_clear(void) {}
 

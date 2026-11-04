@@ -29,6 +29,7 @@ $Behavior = @(
     'test_cache_flush.py',
     'test_lowpower_lrc.py',
     'test_protocol_recv.py',
+    'test_flashnote.py',
     'test_amp_output.py',
     'test_record_tone.py',
     'test_hogp_hold.py'

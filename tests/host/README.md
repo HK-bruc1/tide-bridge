@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and eighteen behavioral suites
-as **22 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and nineteen behavioral suites
+as **23 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -26,6 +26,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | F13/F14/F17/F18/F19 defaults, saved-map preservation, real A/B persistence, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds; `rtc_reset_checks.py` executes real RTC initialization, live reads, VM recovery and controlled-reset persistence with stale P11 snapshots and mocked hardware |
 | `test_record_tone.py` | Shared cases execute both real `rectone`/`recsave` parsers and VM/default/reset behavior, same-value durability, shared busy gates, queue/IO/send failures, token isolation and default-MTU replies; APP/F18 no-file recording and receiver-loss cleanup belong to the existing session/dispatch harnesses in `test_hogp_hold.py` |
+| `test_flashnote.py` | APP flashnote command parsing, owner isolation, stream-only state and release, key-session busy responses, stale tokens, start/stop failures and reconnect cancellation; BLE/OS boundaries are mocked |
 | `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, plain-F19 stable-Down startup on any mapped key, cancellation, hot-map cleanup and retained KEY5 DUT intent; `key_record_dispatch_checks.py` owns usage routing, F18/F19 admission, stop-before-DUT and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
@@ -104,7 +105,7 @@ Connection-tone internals are not duplicated in source contracts. Core device
 paths passed user testing; audio coexistence still needs separate validation.
 
 F19 stable-Down device regression (2026-10-24): configure any KEY1-KEY5 to
-plain F19 and check startup without waiting for LONG, release during APP/tone
+plain F19 and check startup without waiting for LONG, release during tone/audio
 startup, normal stop, hot remap and RDX loss. Recheck F13/F14 click/seek,
 F18 toggle/mark and ordinary HID hold/release. If physical DUT entry is enabled,
 KEY5 eight-click must finish its owned F19 cleanup before entering; disabled
@@ -112,6 +113,10 @@ entry stays disabled. Preceding short F19 requests/recordings are accepted.
 Use `[F19_DOWN]` (stable `down_ms`, app_core `wait_ms`) and `[F19_CANCEL]`
 alongside existing recorder logs. READY/submit is not APP receipt; physical
 press-to-UI latency and audio quality still need real device/APP evidence.
+Since 2026-11-04 F19 uses `flashnote` state rather than the old meeting APP
+handshake. Check online stream-only operation, offline file identity on RDX
+reconnect and APP/key control isolation as described in
+`docs/10-10.灵感录音复用闪记协议融合方案.md`.
 
 DUT 调度检查覆盖未连接、BLE 已连接、USB 在线和 DUT 模式内无待办停表；
 执行实际初始化、物理键/命令入口、事件合并及处理中再次通知、消息与定时器失败恢复、

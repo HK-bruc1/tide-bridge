@@ -14,6 +14,7 @@
 #include "rdx_peripheral_power.h"
 #include "syscfg_id.h"
 #include "device/vm.h"
+#include "jiffies.h"
 
 /* RAW and the App's DAT schema are unchanged. MTA is firmware-only metadata.
  * A durable first-frame fingerprint binds it to the RAW, including after a
@@ -719,20 +720,41 @@ static cJSON *rf_restore_object(const rf_entry *e)
     char path[40], crc_text[16];
     u8 buf[512];
     u32 crc = 0, remaining = e->health ? 0 : e->size;
+    u32 progress_ms = (u32)jiffies_msec(), progress_budget = 0;
+    printf("[REC_FORMAT] restore start name=%s size=%u health=%u crc_bytes=%u\n",
+           e->meta.name, e->size, e->health, remaining);
     rf_path(path, e->meta.name, 0);
     FILE *f = fopen(path, "r");
-    if (!f) return NULL;
+    if (!f) {
+        printf("[REC_FORMAT] restore open failed name=%s\n", e->meta.name);
+        return NULL;
+    }
     int ok = 1;
     while (remaining) {
         u32 n = remaining > sizeof(buf) ? sizeof(buf) : remaining;
         if (fread(buf, 1, n, f) != n) { ok = 0; break; }
         crc = rdx_util_crc32(buf, n, &crc);
         remaining -= n;
+        progress_budget += n;
+        if (progress_budget >= 16384) {
+            u32 now = (u32)jiffies_msec();
+            progress_budget = 0;
+            if ((u32)(now - progress_ms) >= 5000) {
+                printf("[REC_FORMAT] restore progress name=%s read=%u size=%u\n",
+                       e->meta.name, e->size - remaining, e->size);
+                progress_ms = now;
+            }
+        }
         wdt_clear();
         rf_cooperate(n);
     }
     if (fclose(f)) ok = 0;
-    if (!ok) return NULL;
+    if (!ok) {
+        printf("[REC_FORMAT] restore failed name=%s remaining=%u\n",
+               e->meta.name, remaining);
+        return NULL;
+    }
+    printf("[REC_FORMAT] restore done name=%s size=%u\n", e->meta.name, e->size);
     cJSON *obj = cJSON_CreateObject();
     if (!obj) return NULL;
     sprintf(crc_text, "%u", crc);
@@ -1166,6 +1188,7 @@ int rdx_record_format_boot(void)
 {
     if (rf_boot_started) return rf_error;
     rf_boot_started = 1;
+    printf("[REC_FORMAT] boot start\n");
     rdx_app_emmc_poweron(0);
     sd_set_power_user(1);
     if (!dev_manager_list_check_by_logo("sd0") && dev_manager_add("sd0")) return rf_fail();
@@ -1180,19 +1203,27 @@ int rdx_record_format_boot(void)
     rf_entry *entries = NULL;
     u32 total = 0;
     int ok = !rf_scan_entries(&entries, &total);
+    printf("[REC_FORMAT] boot scan result=%d files=%u\n", ok, total);
     if (ok) {
         int changed = rf_merge(entries, total, 0);
+        printf("[REC_FORMAT] boot index check=%d\n", changed);
         if (changed < 0) {
             /* 保留原件，仅将经过校验的重建结果交给
              * 闭源解析器，原始音频文件保持不变。 */
             ok = !rf_preserve(RF_DAT);
             changed = 1;
         }
-        if (ok && changed && rf_merge(entries, total, 1)) ok = 0;
+        if (ok && changed) {
+            printf("[REC_FORMAT] boot index repair start\n");
+            if (rf_merge(entries, total, 1)) ok = 0;
+        }
     }
     free(entries);
     if (ok && delete_pending && rf_delete_replay()) ok = 0;
-    if (ok && rf_serial_boot()) ok = 0;
+    if (ok) {
+        printf("[REC_FORMAT] boot serial start\n");
+        if (rf_serial_boot()) ok = 0;
+    }
     if (!ok) return rf_fail();
     rf_error = 0;
     printf("[REC_FORMAT] boot reconciled files=%u\n", total);

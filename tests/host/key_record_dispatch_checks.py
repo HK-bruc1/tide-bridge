@@ -131,7 +131,9 @@ static void rdx_record_stream_only_release_complete(void) { releasing=0; key_sta
 static int rdx_record_stream_only_is_releasing(void) { return releasing; }
 static void rdx_record_stream_only_start_arm(rdx_ble_async_token_t *t) {}
 static void rdx_app_record_state_upload_timer_start(void) {}
-static int rdx_app_record_trigger_post(RecordStatus *s,int f,rdx_ble_async_token_t *t,int stream) {
+static int rdx_app_record_trigger_post(RecordStatus *s,int f,rdx_ble_async_token_t *t,
+                                       int stream,int kind) {
+    (void)kind;
     if(queue_fail) return -1;
     if(s->run==RECORD_STATE_START) ++online_starts;
     else {
@@ -196,6 +198,9 @@ static int rdx_record_nosave_session_open(void) {
     return !save_enabled && record_kind==RDX_RECORD_MEETING &&
         (key_state==RDX_RECORD_KEY_START_PENDING || key_state==RDX_RECORD_KEY_ACTIVE);
 }
+static void rdx_flashnote_cancel_all(void) {}
+static int rdx_record_source_is_app_flashnote(void) { return 0; }
+static int rdx_record_source_is_key(void) { return 1; }
 '''
 
 def check_seek_step():
@@ -307,6 +312,20 @@ int test_inspiration_routes_and_owner(void) {
         CHECK(online_stops==online && stops==!online);
         finish_stop(); CHECK(!key_record_session_active);
     }
+    return 0;
+}
+int test_f19_cannot_stop_app_flashnote(void) {
+    reset(); ready=1; stream_ready=1; stream_active=1;
+    status.run=RECORD_STATE_START;
+    record_kind=RDX_RECORD_INSPIRATION;
+    key_state=RDX_RECORD_KEY_ACTIVE;
+    rdx_hogp_input_cycle_t c=cycle(4,0x6e,11);
+    down(&c);
+    CHECK(!key_record_session_active && !key_record_owner_valid);
+    CHECK(!starts && !online_starts && !stops && !online_stops && !release_calls);
+    gesture(&c,KEY_ACTION_UP);
+    CHECK(status.run==RECORD_STATE_START && stream_active);
+    CHECK(!stops && !online_stops && !release_calls);
     return 0;
 }
 int test_meeting_pending_pause_and_mutual_exclusion(void) {

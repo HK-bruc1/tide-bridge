@@ -66,7 +66,8 @@
                              ABILITY_CONFERENCE_RECORDING | \
                              ABILITY_RTC                 | \
                              ABILITY_RECORD_MARK         | \
-                             ABILITY_RECORD_PAUSE_RESUME)
+                             ABILITY_RECORD_PAUSE_RESUME | \
+                             ABILITY_FLASHNOTE)
 
 #define IS_SUPPORT_ABILITY(ability_bit) (((RDX_DEVICE_ABILITY) & (ability_bit)) ? 1 : 0)
 

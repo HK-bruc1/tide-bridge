@@ -70,7 +70,7 @@ Host-side software tests (Windows, from the repository root):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-This is also the VS Code default test task `test: host software`. It runs 22 independent modules (4 source contracts + 18 C/LLVM behavioral harnesses), continues after failures, and exits nonzero if any module fails. Use `-Suite contracts` or `-Suite behavior` for a focused run. Behavioral harnesses need Python with `llvmlite`, the JL compiler, and PowerShell 5.1. Coverage and on-device limits: `tests/host/README.md`.
+This is also the VS Code default test task `test: host software`. It runs 23 independent modules (4 source contracts + 19 behavioral suites), continues after failures, and exits nonzero if any module fails. Use `-Suite contracts` or `-Suite behavior` for a focused run. Behavioral harnesses need Python with `llvmlite`, the JL compiler, and PowerShell 5.1. Coverage and on-device limits: `tests/host/README.md`.
 
 Source contracts:
 
@@ -82,6 +82,7 @@ Source contracts:
 Notable behavioral harnesses:
 
 - `test_hogp_hold.py` — HOGP hold/scan/FIFO/session, hot-apply release, recording key sessions
+- `test_flashnote.py` — flashnote parser, stream-only state, session ownership, busy responses and release barriers
 - `test_keymap_factory_reset.py` — keymap persistence and factory defaults
 - `test_record_tone.py` — shared `rectone`/`recsave` GET/SET, VM durability, busy gates and token-bound request/ACK; APP/F18 no-file recording is covered by `test_hogp_hold.py`
 - `test_ble_entry.py` — second-ACL 120 s entry window, advertising-close confirmation, fault isolation; pins the reviewed `btstack.a` / `btctrler.a` ABI (re-review on library upgrade, do not just replace hashes)
@@ -114,6 +115,7 @@ RDX lives in `SDK/apps/common/third_party_profile/rdx_protocol/` (`librdxApp.a` 
 
 - `rdx_ble_server.c` — GATT server, advertising, connection state, HOGP extension
 - `rdx_app.c` — RDX application logic, key remapping, startup (`rdx_app_tasks_init()`)
+- `rdx_flashnote.c` — APP and F19 flashnote control, state reporting, session ownership and release
 - `rdx_ble_entry.c` — 120 s second-device entry window while one physical ACL is connected
 - `rdx_hogp_input.c` — KEY1–KEY5 gesture entry, keymap snapshots, HID/local queues
 
@@ -125,6 +127,7 @@ Rules:
 - One RDX owner and one HID owner globally, on separate links or one composite `RDX_HID` link. Keyboard routing requires `Input CCC enabled && encrypted && !suspended`. Bonded CCC intent is persisted per SM peer identity.
 - `*APP#custom#rdxclose#1#` releases RDX through FIFO/worker cleanup while keeping HID and the ACL (`docs/3-5.PC_APP_rdxsession_v1_固件对接说明.md`).
 - Key routing: defaults F13/F14/F17/F18/F19; F17 local playback, F18 meeting recording/marks, F19 inspiration recording on stable Down. Recording route is chosen at gesture admission from RDX owner + CCC + stream readiness. Full rules and acceptance status: `docs/2-8.HID键值绑定本地功能设计.md`.
+- Meeting control/state uses `record`; APP and F19 inspiration use `flashnote`, sharing the `stream` audio channel. APP flashnote is stream-only; F19 is stream-only when RDX is ready at admission and otherwise local-only (`scene=3`). A later RDX connection synchronizes an offline F19's real file identity without taking control or enabling streaming. APP and key sessions cannot stop one another. Details and test limits: `docs/10-10.灵感录音复用闪记协议融合方案.md`.
 - `recsave` controls APP/F18 meeting file storage (VM 168, default ON). OFF requires ready RDX, streams without a file and cancels/stops on RDX/CCC loss; rejected starts are silent. F19/CALL/factory and the F19-only CDC coexistence exception are unchanged. See `docs/10-8.会议录音落盘APP控制方案.md` and `docs/10-9.会议录音落盘APP对接说明.md`.
 
 ### Project config overlay (`t2620_project_config.h`)

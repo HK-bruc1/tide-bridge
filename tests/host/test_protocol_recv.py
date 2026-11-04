@@ -218,6 +218,16 @@ def main():
             assert extract(actual, name).count('@clock_refurbish(') == extract(original, name).count('@clock_refurbish('), name
     for name in ('rdx_protocol_task_create', 'rdx_protocol_task_free'):
         assert extract(actual, name) == extract(original, name), name
+    parser = extract(actual, 'rdx_protocol_recieve_data_handle_admitted')
+    flash_parse = parser.count('@rdx_flashnote_protocol_parse(')
+    flash_event = parser.count('@_rdx_protocol_event_callback(i32 16,')
+    assert flash_parse == 1 and flash_event == 1
+    assert len(re.findall(r'^declare [^\n]*@rdx_flashnote_protocol_parse\(',
+                          actual, re.M)) == 1
+    flash_call = parser.index('@rdx_flashnote_protocol_parse(')
+    record_call = re.search(
+        r'%51 = tail call i8\* @strstr\([^\n]*@\.str\.212', parser)
+    assert record_call and flash_call < record_call.start()
     # STOP must invalidate auto-delete authority before legacy early returns;
     # all other stop/cleanup behavior remains byte-for-byte unchanged.
     stop = extract(actual, 'rdx_protocol_file_cmd_handle')

@@ -86,6 +86,7 @@
 #include "rdx_vm.h"
 #include "rdx_record_tone.h"
 #include "rdx_record_save.h"
+#include "rdx_flashnote.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
 #include "led_pt0807.h"
@@ -351,7 +352,9 @@ typedef struct {
     rdx_ble_async_token_t token;
     u8 factor;
     u8 stream_only;
+    u8 kind;
     u32 request_generation;
+    u32 session_generation;
 } rdx_app_record_trigger_request_t;
 
 static void rdx_app_record_trigger_on_app_core(
@@ -375,7 +378,27 @@ static void rdx_app_record_trigger_on_app_core(
         free(request);
         return;
     }
-    rdx_protocol_record_trigger_indicate(&request->status, request->factor);
+    if (request->kind == RDX_RECORD_INSPIRATION && request->stream_only) {
+        if (request->status.run == RECORD_STATE_START) {
+            Record_info info = {
+                .cmd = RECORD_STATE_START + 0x30,
+                .formate = request->status.formate + 0x30,
+                .type = request->status.scene + 0x30,
+            };
+            rdx_record_cmd_handle_from_rdx(&info, &request->token);
+            if (rdx_record_key_state_get() ==
+                RDX_RECORD_KEY_START_PENDING) {
+                rdx_record_key_start_abort();
+                rdx_app_record_state_upload_timer_stop();
+            }
+        } else if (request->status.run == RECORD_STATE_STOP) {
+            rdx_flashnote_on_key_record_stopped(
+                request->session_generation, request->status.formate,
+                &request->token);
+        }
+    } else {
+        rdx_protocol_record_trigger_indicate(&request->status, request->factor);
+    }
     if (request->stream_only && request->status.run == RECORD_STATE_STOP) {
         rdx_record_stream_only_release_complete();
     }
@@ -386,7 +409,8 @@ static int rdx_app_record_trigger_post(
     const RecordStatus *status,
     u8 factor,
     const rdx_ble_async_token_t *token,
-    u8 stream_only)
+    u8 stream_only,
+    u8 kind)
 {
     rdx_app_record_trigger_request_t *request;
     int msg[3];
@@ -403,7 +427,9 @@ static int rdx_app_record_trigger_post(
     request->token = *token;
     request->factor = factor;
     request->stream_only = stream_only;
+    request->kind = kind;
     request->request_generation = rdx_record_key_request_generation();
+    request->session_generation = rdx_record_generation_get();
     msg[0] = (int)rdx_app_record_trigger_on_app_core;
     msg[1] = 1;
     msg[2] = (int)request;
@@ -904,6 +930,7 @@ void rdx_app_record_binding_reset(void)
 /* RDX 通知订阅被关闭：仅不落盘会议需要收尾，其余业务保持原行为。 */
 void rdx_app_record_receiver_lost(void)
 {
+    rdx_flashnote_cancel_all();
     if (rdx_record_nosave_session_open()) {
         rdx_app_record_transport_lost();
     }
@@ -912,6 +939,9 @@ void rdx_app_record_receiver_lost(void)
 /* 断连回调仅提交收尾请求，由 app_core 关闭纯推流录音并重试队列拥塞。 */
 void rdx_app_record_transport_lost(void)
 {
+    if (rdx_record_source_is_app_flashnote()) {
+        return;
+    }
     /* APP meetings need no key ownership. A retired local-key route must not
      * hide a later no-save APP session, including a cancelled start tone. */
     if (!rdx_record_nosave_session_open() &&
@@ -932,7 +962,8 @@ u8 rdx_app_record_is_hold_active(void)
 {
     RecordStatus *rp = rdx_record_get_status();
     return rp && (rp->run == RECORD_STATE_START || rp->run == RECORD_STATE_RESUME) &&
-           rdx_record_kind_get() == RDX_RECORD_INSPIRATION;
+           rdx_record_kind_get() == RDX_RECORD_INSPIRATION &&
+           rdx_record_source_is_key();
 }
 
 /* 按键开始录音的产品状态门禁：按住式与在线会议共用。 */
@@ -1039,6 +1070,8 @@ static void rdx_app_key_record_pump(void)
     /* 忙碌或开始待处理时直接拒绝，不在之后补执行排队的长按。 */
     if (rdx_record_process_is_busy_check()) {
         key_record_pressed = 0;
+        r_printf("[RDX_HOLD_RECORD] start busy process=%u release=%u\r",
+                 rp->process_state, rdx_record_stream_only_is_releasing());
         return;
     }
     key_record_scene = RECORD_SCENE_CHAT;
@@ -1047,7 +1080,12 @@ static void rdx_app_key_record_pump(void)
                                   key_record_kind);
     if (ret != 0) {
         key_record_pressed = 0;
-        r_printf("[RDX_HOLD_RECORD] start request rejected\r");
+        r_printf("[RDX_HOLD_RECORD] start rejected route=%u run=%u process=%u ready=%u service=%d stream=%d refresh=%d storage=%d sync=%u timer=%u\r",
+                 key_record_local ? RECORD_MODE_OFFLINE : RECORD_MODE_ONLINE,
+                 rp->run, rp->process_state, rdx_ble_server_is_stream_tx_ready(),
+                 rdx_record_format_service_status(), rdx_record_format_stream_status(),
+                 rdx_uxfile_pc_refresh_status(), rdx_uxfile_storage_status(),
+                 rdx_uxfile_sync_is_in_progress(), record_state_upload_timer);
         return;
     }
     key_record_session_active = 1;
@@ -1807,8 +1845,7 @@ void rdx_app_bt_shutdown(void)
 #endif
     bt_cmd_prepare(USER_CTRL_POWER_OFF, 0, NULL);
 
-    sd_set_power(0);
-
+    /* This only shuts down classic BT; storage recovery may still be active. */
     void dac_power_off(void);
     dac_power_off();
 
@@ -1991,7 +2028,8 @@ void rdx_app_record_state_upload_timer_cb(void* priv)
             set_rp.scene = rp->scene;
             //report this action to app.
             u8 factor = 0;
-            int ret = rdx_app_record_trigger_post(&set_rp, factor, &token, 0);
+            int ret = rdx_app_record_trigger_post(
+                &set_rp, factor, &token, 0, RDX_RECORD_MEETING);
             if(ret) {
                 r_printf("%s rdx_record_state_indicate taskq post err \n", __func__);
             }
@@ -2087,7 +2125,7 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
         set_rp = *rp;
         set_rp.run = RECORD_STATE_STOP;
         set_rp.scene = scene;
-        return rdx_app_record_trigger_post(&set_rp, 0, &token, 1);
+        return rdx_app_record_trigger_post(&set_rp, 0, &token, 1, kind);
     }
     if (run != RECORD_STATE_START || !rdx_record_binding_allowed() ||
         get_ota_status() ||
@@ -2124,7 +2162,8 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
         /* 替换定时器会取消旧的开始预置，须在替换后再登记本次预置。 */
         rdx_app_record_state_upload_timer_start();
         if (stream_only) rdx_record_stream_only_start_arm(&token);
-        ret = rdx_app_record_trigger_post(&set_rp, 0, &token, stream_only);
+        ret = rdx_app_record_trigger_post(
+            &set_rp, 0, &token, stream_only, kind);
     } else {
         rp->run = RECORD_STATE_START;
         rp->scene = scene;
@@ -3456,7 +3495,8 @@ void rdx_app_record_switch(u8 orig_scene)
 
         //report this action to app.
         u8 factor = 0;
-        int ret = rdx_app_record_trigger_post(&set_rp, factor, &rdx_token, 0);
+        int ret = rdx_app_record_trigger_post(
+            &set_rp, factor, &rdx_token, 0, RDX_RECORD_MEETING);
         if(ret) {
             r_printf("%s rdx_protocol_record_trigger_indicate taskq post err \n", __func__);
         }
@@ -3680,6 +3720,11 @@ static void rdx_app_record_cmd_on_app_core(rdx_app_record_cmd_request_t *request
 
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale app_core command\r");
+        free(request);
+        return;
+    }
+    if (rdx_record_source_is_app_flashnote() ||
+        rdx_record_key_flashnote_session_open()) {
         free(request);
         return;
     }
@@ -4350,11 +4395,21 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
         }
 
 #if TDX_HAS_FLASHNOTE_ABILITY
-        /* V24 闪记开/停: 本项目不实现闪记业务, 仅打印事件用于通道联调 */
+        /* The protocol object validates the exact frame. This callback only
+         * forwards the one-byte command and captures its original owner. */
         case PROTOCOL_EVENT_CMD_FLASHNOTE: {
-            if(!data || len < 1) break;
-            u8 fn_cmd = *(u8*)data;
-            r_printf("[APP CMD] flashnote cmd=%u (no app impl, swallowed)\r", fn_cmd);
+            rdx_ble_async_token_t token;
+            u8 fn_cmd;
+            if (!data || len != 1) break;
+            fn_cmd = *(u8 *)data;
+            if (fn_cmd != '0' && fn_cmd != '1') break;
+            if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
+                r_printf("[FLASHNOTE] drop command without active RDX owner\r");
+                break;
+            }
+            rdx_flashnote_request(fn_cmd == '1' ?
+                                  RDX_FLASHNOTE_CMD_START :
+                                  RDX_FLASHNOTE_CMD_STOP, &token);
             break;
         }
 #endif

@@ -60,6 +60,7 @@
 #include "rdx_protocol.h"
 #include "poweroff.h"
 #include "rdx_record.h"
+#include "rdx_flashnote.h"
 #include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "clock.h"
@@ -1679,6 +1680,7 @@ static void rdx_ble_server_rdx_disconnected_cleanup_internal(void)
     g_rdx_ble_server_info.ccc_configured = FALSE;
     g_rdx_ble_server_info.stream_tx_ready = FALSE;
 
+    rdx_flashnote_cancel_all();
     rdx_record_stream_interrupt();
     rdx_record_on_ble_conn_changed(false);
     rdx_app_record_transport_lost();
@@ -2968,6 +2970,9 @@ void rdx_ble_server_syn_data_after_ble_write_ready(void* priv)
     } else {
         r_printf("====== %s --> record not running, skip sync. rp->run: %d \r", __func__, rp->run);
     }
+    if (rdx_flashnote_sync_active(&g_syn_data_token)) {
+        r_printf("[FLASHNOTE] offline sync unavailable; no active local session\r");
+    }
 
     //check record mode.
     rdx_record_mode_active_check(0);
@@ -3060,6 +3065,10 @@ static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link,
 
     if (!link || !rdx_ble_session_link_is_rdx(link)) {
         return;
+    }
+    if (cause != RDX_DETACH_PHYSICAL) {
+        rdx_ble_async_token_t detach_token = rdx_ble_session_token_capture(link);
+        rdx_flashnote_cancel_for_token(&detach_token);
     }
     if (!rdx_ble_session_rdx_runtime_begin_quiesce(link)) {
         return;
@@ -3220,6 +3229,11 @@ static int rdx_ble_server_phase2_rdx_write(
                 link->rdx_stream_tx_ready = 0;
                 g_rdx_ble_server_info.ccc_configured = FALSE;
                 g_rdx_ble_server_info.stream_tx_ready = FALSE;
+                {
+                    rdx_ble_async_token_t ccc_token =
+                        rdx_ble_session_token_capture(link);
+                    rdx_flashnote_cancel_for_token(&ccc_token);
+                }
                 /* 不落盘会议失去订阅即失去唯一输出，按传输丢失收尾。 */
                 rdx_app_record_receiver_lost();
                 rdx_dut_service_wake();
@@ -4158,6 +4172,46 @@ void rdx_ble_server_adv_data_changed(void)
 
 static u8 g_ble_send_fail_cnt = 0;
 #define BLE_SEND_FAIL_THRESHOLD     5
+#define RDX_TX_PROBE_LIMIT          3
+
+static u8 g_tx_probe_flashnote_cnt;
+static u8 g_tx_probe_stream_cnt;
+
+static u8 rdx_ble_server_tx_probe_kind(const u8 *data, u32 len)
+{
+    static const u8 flashnote_prefix[] = "*DEV#flashnote#";
+    static const u8 stream_prefix[] = "*DEV#stream#";
+
+    if (data && len >= sizeof(flashnote_prefix) - 1 &&
+        !memcmp(data, flashnote_prefix, sizeof(flashnote_prefix) - 1)) {
+        if (len > sizeof(flashnote_prefix) - 1 &&
+            data[sizeof(flashnote_prefix) - 1] == '1') {
+            g_tx_probe_flashnote_cnt = 0;
+            g_tx_probe_stream_cnt = 0;
+        }
+        return 1;
+    }
+    if (data && len >= sizeof(stream_prefix) - 1 &&
+        !memcmp(data, stream_prefix, sizeof(stream_prefix) - 1)) {
+        return 2;
+    }
+    return 0;
+}
+
+static void rdx_ble_server_tx_probe_log(u8 kind, u32 len, int ret,
+                                        const char *stage)
+{
+    u8 *count = kind == 1 ? &g_tx_probe_flashnote_cnt :
+                 kind == 2 ? &g_tx_probe_stream_cnt : NULL;
+
+    if (!count || *count >= RDX_TX_PROBE_LIMIT) {
+        return;
+    }
+    (*count)++;
+    r_printf("[RDX_TX_PROBE] kind=%s stage=%s len=%u ret=%d\r",
+             kind == 1 ? "flashnote" : "stream",
+             stage ? stage : "unknown", (unsigned)len, ret);
+}
 
 u8 rdx_ble_server_get_send_fail_cnt(void)
 {
@@ -4191,11 +4245,13 @@ static int rdx_ble_server_send_internal(
     int ret = 0;
     void *send_hdl = NULL;
     rdx_ble_rdx_transport_snapshot_t snapshot;
+    u8 probe_kind = rdx_ble_server_tx_probe_kind(data, len);
     /*----------------------------------------------------------------*/
     /* Code Body													  */
     /*----------------------------------------------------------------*/
 
     if (!rdx_ble_server_rdx_transport_snapshot_capture(&snapshot)) {
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "runtime");
         y_printf("[RDX_SESSION] send skipped: runtime not active\n");
         return -1;
     }
@@ -4203,24 +4259,28 @@ static int rdx_ble_server_send_internal(
         (snapshot.token.slot_index != expected_token->slot_index ||
          snapshot.token.slot_generation != expected_token->slot_generation ||
          snapshot.token.transport_epoch != expected_token->transport_epoch)) {
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "token");
         r_printf("[RDX_BLE_TX] drop stale token-bound RDX send\r");
         return -1;
     }
     send_hdl = snapshot.ble_hdl;
     //is data none?
     if(!data || len == 0){
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "empty");
         log_info("%s --> send data error! no data! \r", __func__);
         return -1;
     }
 
     if (!rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
         !send_hdl) {
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "stale");
         return -1;
     }
 
     //ble send buffer is full?
     if(app_ble_att_vaild_len_get(send_hdl) < len){
         g_ble_send_fail_cnt++;
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "buffer");
         rdx_ble_server_rdx_send_retry_arm(&snapshot);
         return -1;
     }
@@ -4236,6 +4296,8 @@ static int rdx_ble_server_send_internal(
         g_ble_send_fail_cnt = 0;
         rdx_ble_server_rdx_send_retry_cancel(&snapshot);
     }
+    rdx_ble_server_tx_probe_log(probe_kind, len, ret,
+                                ret ? "att-fail" : "att-ok");
 
     return ret;
 }

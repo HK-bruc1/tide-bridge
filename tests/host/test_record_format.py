@@ -56,6 +56,8 @@ static const char *fail_delete_path;
 static int fail_write, fail_flush, fail_close, fail_truncate, fail_read, fail_seek, handles;
 static int fail_flush_call, flush_calls;
 static u32 read_bytes;
+static u32 mock_time_ms, read_delay_ms;
+static u32 jiffies_msec(void) { return mock_time_ms; }
 static const char *fail_path;
 static int writes;
 static int fail_alloc;
@@ -106,9 +108,16 @@ static void *format_realloc(void *p,size_t n) { return fail_alloc || !p ? NULL :
 #define fwrite mock_write
 #define ftell mock_tell
 static char abort_log[256];
+static char restore_start_log[256], restore_done_log[256], restore_error_log[256];
+static u32 restore_progress_count;
 #define printf(...) do { \
     char line[256]; sprintf(line,__VA_ARGS__); \
     if(strstr(line,"[REC_FORMAT] abort ")) strcpy(abort_log,line); \
+    if(strstr(line,"[REC_FORMAT] restore start ")) strcpy(restore_start_log,line); \
+    if(strstr(line,"[REC_FORMAT] restore done ")) strcpy(restore_done_log,line); \
+    if(strstr(line,"[REC_FORMAT] restore failed ") || \
+       strstr(line,"[REC_FORMAT] restore open failed ")) strcpy(restore_error_log,line); \
+    if(strstr(line,"[REC_FORMAT] restore progress ")) ++restore_progress_count; \
 } while(0)
 static mock_file *lookup(const char *name) {
     for (u32 i=0; i<640; ++i) if (files[i].present && !strcmp(files[i].name,name)) return &files[i];
@@ -127,6 +136,7 @@ int mock_read(void *buf,u32 size,u32 count,FILE *f) {
     u32 n=size*count;
     if (fail_read) return 0;
     if(n>f->size-f->pos) n=f->size-f->pos;
+    mock_time_ms+=read_delay_ms;
     memcpy(buf,f->data+f->pos,n); f->pos+=n; read_bytes+=n; return n;
 }
 int mock_write(void *buf,u32 size,u32 count,FILE *f) {
@@ -182,6 +192,8 @@ static void reset(void) {
     memset(vm_abort,0,sizeof(vm_abort));
     vm_abort_present=vm_abort_write_fail=vm_abort_read_fail=vm_abort_writes=0;
     abort_log[0]=0;
+    restore_start_log[0]=restore_done_log[0]=restore_error_log[0]=0;
+    restore_progress_count=mock_time_ms=read_delay_ms=0;
     vm_read_fail=vm_readback_fail=0;
     fail_delete_path=NULL; fail_flush_call=flush_calls=0;
     fail_alloc=0;
@@ -570,6 +582,31 @@ int test_format_recovery(void) {
     CHECK(rf_write(RF_DAT,old,strlen(old))==0); unchanged=writes;
     CHECK(recover()==0 && writes==unchanged && handles==0);
     CHECK(lookup(RF_DAT)->size==strlen(old) && !memcmp(lookup(RF_DAT)->data,old,strlen(old)));
+    return 0;
+}
+int test_restore_diagnostics(void) {
+    reset(); CHECK(seed_mono()==0);
+    mock_file *raw=lookup(RF_ROOT "abc123.raw");
+    CHECK(raw); raw->size=40000;
+    rf_entry entry={0}; strcpy(entry.meta.name,"abc123.raw"); entry.size=raw->size;
+    mock_time_ms=0xffffff00u; read_delay_ms=200;
+    cJSON *obj=rf_restore_object(&entry);
+    CHECK(obj && !handles);
+    CHECK(strstr(restore_start_log,"name=abc123.raw size=40000 health=0 crc_bytes=40000"));
+    CHECK(strstr(restore_done_log,"name=abc123.raw size=40000"));
+    CHECK(restore_progress_count==2);
+    u32 crc=0; crc=rdx_util_crc32(raw->data,raw->size,&crc);
+    CHECK(strtoul(cJSON_GetObjectItem(obj,"crc")->valuestring,NULL,10)==crc);
+    cJSON_Delete(obj);
+    restore_progress_count=0; mock_time_ms=0; read_delay_ms=1;
+    obj=rf_restore_object(&entry);
+    CHECK(obj && !handles && !restore_progress_count);
+    cJSON_Delete(obj);
+    fail_read=1; CHECK(!rf_restore_object(&entry) && !handles);
+    CHECK(strstr(restore_error_log,"restore failed name=abc123.raw remaining=40000"));
+    fail_read=0; strcpy(entry.meta.name,"def123.raw");
+    CHECK(!rf_restore_object(&entry) && !handles);
+    CHECK(strstr(restore_error_log,"restore open failed name=def123.raw"));
     return 0;
 }
 int test_format_fail_closed(void) {
@@ -1035,7 +1072,7 @@ double fabs(double);
     tests = ['test_space_reserve', 'test_explicit_format_recovery',
                         'test_download_admission', 'test_stream_only_storage_query', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
                         'test_large_download_open',
-                        'test_format_persistence', 'test_format_recovery',
+                        'test_format_persistence', 'test_format_recovery', 'test_restore_diagnostics',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',

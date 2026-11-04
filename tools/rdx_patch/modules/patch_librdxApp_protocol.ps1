@@ -72,6 +72,35 @@ legacy:
     }
     $parserUpdated = Replace-ExactlyOnce $parser $anchor ($anchor.Replace(
         '@_rdx_is_storage_busy()', '@_rdx_record_control_parse_busy()')) 'recording-only parser gate'
+    $flashnoteAnchor = @'
+; <label>:50:                                     ; preds = %47
+  %51 = tail call i8* @strstr(i8* nonnull %0, i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str.212, i32 0, i32 0)) #14, !dbg !5838
+'@
+    $flashnoteInjection = @'
+; <label>:50:                                     ; preds = %47
+  %rdx_flashnote_cmd = alloca i8, align 1
+  %rdx_flashnote_match = call zeroext i8 @rdx_flashnote_protocol_parse(i8* %0, i16 %1, i8* %rdx_flashnote_cmd), !dbg !5838
+  %rdx_flashnote_matched = icmp ne i8 %rdx_flashnote_match, 0
+  br i1 %rdx_flashnote_matched, label %rdx_flashnote_event, label %rdx_flashnote_record
+
+rdx_flashnote_event:
+  call fastcc void @_rdx_protocol_event_callback(i32 16, i8* %rdx_flashnote_cmd, i32 1), !dbg !5838
+  br label %798
+
+rdx_flashnote_record:
+  %51 = tail call i8* @strstr(i8* nonnull %0, i8* getelementptr inbounds ([13 x i8], [13 x i8]* @.str.212, i32 0, i32 0)) #14, !dbg !5838
+'@
+    $parserUpdated = Replace-ExactlyOnce $parserUpdated $flashnoteAnchor `
+        $flashnoteInjection 'flashnote exact parser event'
+    $flashnoteCalls = ([regex]::Matches(
+        $parserUpdated,
+        [regex]::Escape('@rdx_flashnote_protocol_parse('))).Count
+    $flashnoteEvents = ([regex]::Matches(
+        $parserUpdated,
+        [regex]::Escape('@_rdx_protocol_event_callback(i32 16,'))).Count
+    if ($flashnoteCalls -ne 1 -or $flashnoteEvents -ne 1) {
+        throw 'Flashnote parser/event must be injected exactly once'
+    }
     $Ir = Replace-ExactlyOnce $Ir $parser $parserUpdated 'recording control delegation'
     if ($Ir.Contains('@_rdx_record_control_parse_busy() {')) { throw 'Duplicate recording parser gate' }
     $Ir += @'
@@ -130,6 +159,7 @@ declare void @rdx_record_format_command_enter()
 declare void @rdx_record_format_command_leave()
 declare void @rdx_record_format_io_leave()
 declare i32 @rdx_adv_uxfile_post(i8*, i32, ...)
+declare zeroext i8 @rdx_flashnote_protocol_parse(i8*, i16 zeroext, i8*)
 '@
     return $Ir
 }

@@ -66,6 +66,7 @@
 #include "rdx_storage_lifecycle.h"
 #include "rdx_playback.h"
 #include "rdx_record_save.h"
+#include "rdx_flashnote.h"
 #include "jiffies.h"
 
 #if defined(__UUX_FILE__)
@@ -166,6 +167,7 @@ static volatile u32 record_binding_generation = 1;
  * app_core advances it on an accepted START; the audio path owns initialization. */
 static u32 record_session_generation = 1;
 static u32 record_initialized_generation;
+static u8 flashnote_stream_probe_logged;
 
 u8 rdx_record_format_for_session(u8 scene, u8 stream_only)
 {
@@ -380,14 +382,18 @@ static u16 g_app_stop_timer;
 static volatile u8 g_app_stop_pending;
 static u8 g_app_stop_posted;
 static u8 g_app_stop_close;
+static u8 g_app_stop_notify_generic;
 static u8 rdx_record_token_equal(const rdx_ble_async_token_t *,
                                  const rdx_ble_async_token_t *);
 static u8 rdx_record_hold_fence_blocks(const rdx_ble_async_token_t *);
 static u8 rdx_record_start_uses_local_storage(const rdx_ble_async_token_t *);
+static void rdx_record_online_session_bind(
+    const rdx_ble_async_token_t *token);
+extern void rdx_app_record_state_upload_timer_stop(void);
 static struct {
     u32 request_generation;
     u32 record_generation;
-    u8 kind, route, state, fixed;
+    u8 kind, route, state, fixed, source;
 } record_key_context;
 
 /* 纯推流（不生成文件）的业务类型：灵感录音始终如此；会议录音在落盘开关
@@ -448,10 +454,11 @@ u8 rdx_record_key_request_is_current(u32 generation)
             record_key_context.state == RDX_RECORD_KEY_ACTIVE);
 }
 
-static int rdx_record_stream_business_blocked(u8 kind)
+static int rdx_record_stream_business_blocked(u8 kind, u8 source)
 {
     /* Only F19 has the reviewed CDC read coexistence exception. */
-    return (kind == RDX_RECORD_INSPIRATION ?
+    return (kind == RDX_RECORD_INSPIRATION &&
+            source == RDX_RECORD_SOURCE_KEY ?
             rdx_storage_lifecycle_stream_blocked() :
             rdx_storage_lifecycle_business_blocked()) ||
            rdx_app_get_dut_status() || rdx_factory_audio_owned() ||
@@ -482,7 +489,7 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
         return 0;
     }
     if ((rdx_record_kind_is_stream_only(kind) && route == RECORD_MODE_ONLINE) ?
-        rdx_record_stream_business_blocked(kind) :
+        rdx_record_stream_business_blocked(kind, RDX_RECORD_SOURCE_KEY) :
         rdx_storage_lifecycle_business_blocked()) {
         return 0;
     }
@@ -492,6 +499,7 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
     record_key_context.kind = kind;
     record_key_context.route = route;
     record_key_context.fixed = 1;
+    record_key_context.source = RDX_RECORD_SOURCE_KEY;
     record_key_context.record_generation = 0;
     record_key_context.state = RDX_RECORD_KEY_START_PENDING;
     if (route == RECORD_MODE_ONLINE) {
@@ -505,7 +513,108 @@ void rdx_record_key_start_abort(void)
     ++record_key_context.request_generation;
     record_key_context.state = RDX_RECORD_KEY_IDLE;
     record_key_context.fixed = 0;
+    record_key_context.source = RDX_RECORD_SOURCE_NONE;
     g_stream_only_start_pending = 0;
+}
+
+u8 rdx_record_source_is_key(void)
+{
+    return record_key_context.source == RDX_RECORD_SOURCE_KEY;
+}
+
+u8 rdx_record_key_flashnote_session_open(void)
+{
+    return record_key_context.source == RDX_RECORD_SOURCE_KEY &&
+           record_key_context.kind == RDX_RECORD_INSPIRATION &&
+           rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE;
+}
+
+u8 rdx_record_source_is_app_flashnote(void)
+{
+    return record_key_context.source == RDX_RECORD_SOURCE_APP_FLASHNOTE;
+}
+
+static u8 rdx_record_file_scene(void)
+{
+    return (rdx_record_source_is_app_flashnote() ||
+            (record_key_context.source == RDX_RECORD_SOURCE_KEY &&
+             record_key_context.kind == RDX_RECORD_INSPIRATION)) ?
+           RECORD_SCENE_FLASHNOTE : record_status.scene;
+}
+
+int rdx_record_flashnote_start(const rdx_ble_async_token_t *token,
+                               u32 *session_generation, u8 *format)
+{
+    RecordStatus *rp = &record_status;
+    u8 selected_format;
+
+    if (!token || !session_generation || !format ||
+        !rdx_record_binding_allowed() ||
+        !rdx_ble_session_rdx_token_resolve(token, 1) ||
+        !rdx_ble_server_is_stream_tx_ready() ||
+        rdx_record_hold_fence_blocks(token) ||
+        rdx_record_stream_business_blocked(RDX_RECORD_INSPIRATION,
+                                           RDX_RECORD_SOURCE_APP_FLASHNOTE) ||
+        rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE ||
+        rp->run != RECORD_STATE_STOP ||
+        rp->process_state == REC_PROCESS_STATE_BUSY ||
+        g_app_stop_pending || g_stream_only_release_started ||
+        g_record_cmd_delay_timer || record_start_tone_pending ||
+        record_tone_session_active || record_stop_tone_pending_epoch ||
+        record_binding_revoke_pending || dut_record_stopping ||
+        record_status.rerun || !is_record_task_created) {
+        r_printf("[FLASHNOTE_START] rejected run=%u process=%u key=%u ready=%u service=%d stream=%d refresh=%d storage=%d\r",
+                 rp->run, rp->process_state, record_key_context.state,
+                 rdx_ble_server_is_stream_tx_ready(),
+                 rdx_record_format_service_status(), rdx_record_format_stream_status(),
+                 rdx_uxfile_pc_refresh_status(), rdx_uxfile_storage_status());
+        r_printf("[FLASHNOTE_START] gates bound=%u token_present=%u fence_flag=%u stop=%u release=%u timer=%u tone=%u/%u/%u revoke=%u dut_stop=%u rerun=%u task=%u\r",
+                 rdx_record_binding_allowed(), token != NULL,
+                 g_stream_only_hold_released, g_app_stop_pending,
+                 g_stream_only_release_started, g_record_cmd_delay_timer,
+                 record_start_tone_pending, record_tone_session_active,
+                 (unsigned)record_stop_tone_pending_epoch,
+                 record_binding_revoke_pending, dut_record_stopping,
+                 record_status.rerun, is_record_task_created);
+        return -1;
+    }
+
+    selected_format = rdx_record_format_for_session(RECORD_SCENE_CHAT, 1);
+    if (!++record_session_generation) {
+        ++record_session_generation;
+    }
+    if (++record_key_context.request_generation == 0) {
+        ++record_key_context.request_generation;
+    }
+    record_key_context.kind = RDX_RECORD_INSPIRATION;
+    record_key_context.route = RECORD_MODE_ONLINE;
+    record_key_context.state = RDX_RECORD_KEY_ACTIVE;
+    record_key_context.fixed = 1;
+    record_key_context.source = RDX_RECORD_SOURCE_APP_FLASHNOTE;
+    record_key_context.record_generation = record_session_generation;
+
+    rp->run = RECORD_STATE_START;
+    rp->mode = RECORD_MODE_ONLINE;
+    rp->orig_mode = RECORD_MODE_ONLINE;
+    rp->scene = RECORD_SCENE_CHAT;
+    rp->formate = selected_format;
+    rp->begin_time = 0;
+    rp->stream_discont = false;
+    rp->rerun = false;
+    rp->key_trigger = false;
+    record_initialized_generation = 0;
+
+    g_stream_only_start_pending = 0;
+    g_stream_only_session_active = 1;
+    flashnote_stream_probe_logged = 0;
+    rdx_record_online_session_bind(token);
+    rdx_record_clear_marks();
+    rdx_app_record_state_upload_timer_stop();
+
+    *session_generation = record_session_generation;
+    *format = selected_format;
+    rdx_record_process();
+    return 0;
 }
 
 u8 rdx_record_stream_only_token_capture(rdx_ble_async_token_t *token)
@@ -640,15 +749,24 @@ static u8 rdx_record_online_session_accepts(
     return rdx_record_token_equal(token, &g_record_session_token);
 }
 
-/* BLE 传输断开后，本地录音仍可继续。此放行条件仅用于
- * 传输会话重置；存储接管仍须等待录音停止。 */
+/* Only transport reset may coexist with a detached local recording; storage
+ * handoff still has to wait for the recording to stop. */
 u8 rdx_record_transport_is_detached(void)
 {
     return !g_record_session_token_valid &&
-           !g_stream_only_session_active && record_status.stream_discont &&
+           !g_stream_only_session_active && !g_stream_only_release_started &&
+           !g_app_stop_pending &&
            (record_status.run == RECORD_STATE_START ||
             record_status.run == RECORD_STATE_RESUME ||
-            record_status.run == RECORD_STATE_PAUSE);
+            record_status.run == RECORD_STATE_PAUSE) &&
+           (record_status.stream_discont ||
+            (rdx_record_local_route_is_fixed() &&
+             record_key_context.source == RDX_RECORD_SOURCE_KEY &&
+             record_key_context.kind == RDX_RECORD_INSPIRATION &&
+             record_key_context.state == RDX_RECORD_KEY_ACTIVE &&
+             record_key_context.record_generation != 0 &&
+             record_key_context.record_generation == record_session_generation &&
+             record_initialized_generation == record_session_generation));
 }
 
 u8 rdx_record_online_session_bind_current(void)
@@ -710,6 +828,7 @@ u8 rdx_record_cdc_read_is_busy(void)
 
     if (record_key_context.fixed && record_key_context.request_generation &&
         record_key_context.kind == RDX_RECORD_INSPIRATION &&
+        record_key_context.source == RDX_RECORD_SOURCE_KEY &&
         record_key_context.route == RECORD_MODE_ONLINE &&
         rdx_record_binding_allowed() && rdx_ble_server_is_stream_tx_ready()) {
         if (record_key_context.state == RDX_RECORD_KEY_START_PENDING &&
@@ -753,7 +872,8 @@ static int rdx_record_session_storage_blocked(void)
 {
     if (g_stream_only_session_active) {
         return !rdx_record_stream_owner_is_current() ||
-               rdx_record_stream_business_blocked(record_key_context.kind);
+               rdx_record_stream_business_blocked(record_key_context.kind,
+                                                  record_key_context.source);
     }
     return rdx_storage_lifecycle_business_blocked();
 }
@@ -769,7 +889,8 @@ static int rdx_record_command_storage_blocked(
           !rdx_record_start_uses_local_storage(token)) ||
          (rdx_record_stream_owner_is_current() &&
           rdx_record_token_equal(token, &g_record_session_token)))) {
-        return rdx_record_stream_business_blocked(record_key_context.kind);
+        return rdx_record_stream_business_blocked(record_key_context.kind,
+                                                  record_key_context.source);
     }
     return rdx_storage_lifecycle_business_blocked();
 }
@@ -814,10 +935,18 @@ static u8 rdx_record_state_is_publishable(void)
             record_initialized_generation == record_session_generation);
 }
 
+static u8 rdx_record_generic_state_is_enabled(void)
+{
+    return record_key_context.source != RDX_RECORD_SOURCE_APP_FLASHNOTE &&
+           !(record_key_context.source == RDX_RECORD_SOURCE_KEY &&
+             record_key_context.kind == RDX_RECORD_INSPIRATION);
+}
+
 static void rdx_record_state_indicate_if_current(
     const rdx_ble_async_token_t *token)
 {
-    if (!rdx_record_state_is_publishable()) {
+    if (!rdx_record_generic_state_is_enabled() ||
+        !rdx_record_state_is_publishable()) {
         return;
     }
     if (!rdx_record_online_session_token_is_current(token)) {
@@ -842,7 +971,8 @@ void rdx_record_state_snapshot_indicate(const rdx_ble_async_token_t *token)
                 sample_rates[snapshot.formate] : 1;
     u32 elapsed;
 
-    if (!rdx_record_state_is_publishable() || !rdx_record_online_session_token_is_current(token) ||
+    if (!rdx_record_generic_state_is_enabled() ||
+        !rdx_record_state_is_publishable() || !rdx_record_online_session_token_is_current(token) ||
         (snapshot.run != RECORD_STATE_START &&
          snapshot.run != RECORD_STATE_RESUME && snapshot.run != RECORD_STATE_PAUSE)) {
         return;
@@ -887,6 +1017,9 @@ static int rdx_record_state_post_for_session(void)
     rdx_record_state_request_t *request;
     int msg[3];
 
+    if (!rdx_record_generic_state_is_enabled()) {
+        return -1;
+    }
     request = malloc(sizeof(*request));
     if (!request) {
         return -1;
@@ -1329,6 +1462,12 @@ void rdx_record_clear_marks(void)
  * Storage/format error latches are deliberately not reset here. */
 static void rdx_record_stop_session_cleanup(void)
 {
+    if (record_key_context.source == RDX_RECORD_SOURCE_KEY &&
+        record_key_context.kind == RDX_RECORD_INSPIRATION &&
+        record_key_context.route == RECORD_MODE_OFFLINE) {
+        rdx_flashnote_on_key_local_record_stopped(
+            record_session_generation, record_status.formate);
+    }
     record_status.begin_time = 0;
     record_status.paused_accumulated_ms = 0;
     record_status.pause_start_ms = 0;
@@ -1338,13 +1477,15 @@ static void rdx_record_stop_session_cleanup(void)
     record_initialized_generation = 0;
     g_stream_only_session_active = 0;
     rdx_record_online_session_clear();
+    record_key_context.source = RDX_RECORD_SOURCE_NONE;
 }
 
 static int rdx_record_worker_close(void)
 {
     /* A sink may retire its sidecar during close_all. Snapshot before closing,
      * also covering a held-key request cancelled before any sink was opened. */
-    u8 stream_only = g_stream_only_session_active ||
+    u8 app_flashnote = record_key_context.source == RDX_RECORD_SOURCE_APP_FLASHNOTE;
+    u8 stream_only = app_flashnote || g_stream_only_session_active ||
                      (record_key_context.fixed &&
                       rdx_record_kind_is_stream_only(record_key_context.kind) &&
                       record_key_context.route == RECORD_MODE_ONLINE &&
@@ -1688,10 +1829,15 @@ static void rdx_record_cmd_handle_internal(
     if (!r_info || rdx_factory_audio_owned()) {
         return; /* CDC factory recording cannot be taken over by an APP command. */
     }
+    if (rdx_record_source_is_app_flashnote()) {
+        r_printf("[RDX_RECORD] generic command isolated from APP flashnote\r");
+        return;
+    }
     if (r_info->cmd != (RECORD_STATE_STOP + 0x30) &&
         rdx_record_command_storage_blocked(r_info, token)) {
         rdx_record_format_download_conflict("RECORD_COMMAND");
         if (token && rdx_record_rdx_token_is_current(token) &&
+            rdx_record_generic_state_is_enabled() &&
             rdx_record_state_is_publishable()) {
             rdx_protocol_record_state_indicate();
         }
@@ -1724,7 +1870,8 @@ static void rdx_record_cmd_handle_internal(
     if (token && rdx_record_hold_fence_blocks(token)) {
         if (r_info->cmd != (RECORD_STATE_STOP + 0x30)) {
             r_printf("[RDX_HOLD_RECORD] released hold rejects late command\r");
-            if (rdx_record_state_is_publishable()) {
+            if (rdx_record_generic_state_is_enabled() &&
+                rdx_record_state_is_publishable()) {
                 rdx_protocol_record_state_indicate();
             }
             return;
@@ -1735,6 +1882,7 @@ static void rdx_record_cmd_handle_internal(
         r_printf("[RDX_RECORD] command rejected: device not bound\r");
         /* Existing protocol exposes state, not a recording error code. */
         if (token && rdx_record_rdx_token_is_current(token) &&
+            rdx_record_generic_state_is_enabled() &&
             rdx_record_state_is_publishable()) {
             rdx_protocol_record_state_indicate();
         }
@@ -1833,6 +1981,7 @@ static void rdx_record_cmd_handle_internal(
         if (rdx_record_local_storage_admit("RECORD_COMMAND")) {
             /* Existing protocol exposes state, not a recording error code. */
             if (token && rdx_record_rdx_token_is_current(token) &&
+                rdx_record_generic_state_is_enabled() &&
                 rdx_record_state_is_publishable()) {
                 rdx_protocol_record_state_indicate();
             }
@@ -1863,6 +2012,7 @@ static void rdx_record_cmd_handle_internal(
                                       RDX_RECORD_MEETING : RDX_RECORD_CALL;
             record_key_context.fixed = 0;
         }
+        record_key_context.source = RDX_RECORD_SOURCE_KEY;
         record_key_context.state = RDX_RECORD_KEY_ACTIVE;
         record_key_context.route = RECORD_MODE_ONLINE;
         record_key_context.record_generation = record_session_generation;
@@ -1968,6 +2118,7 @@ static void rdx_record_cmd_handle_admit(
                          !rdx_record_stream_owner_is_current())) {
             r_printf("[RDX_RECORD] no-save START rejected before start\r");
             if (token && rdx_record_rdx_token_is_current(token) &&
+                rdx_record_generic_state_is_enabled() &&
                 rdx_record_state_is_publishable()) {
                 rdx_protocol_record_state_indicate();
             }
@@ -2037,6 +2188,7 @@ void rdx_record_prepare_new_session(void)
         record_key_context.kind = rdx_app_get_dut_status() ? RDX_RECORD_FACTORY :
                                  (rp->scene == RECORD_SCENE_CALL ? RDX_RECORD_CALL : RDX_RECORD_MEETING);
         record_key_context.fixed = 0;
+        record_key_context.source = RDX_RECORD_SOURCE_KEY;
     } else if (record_key_context.route == RECORD_MODE_OFFLINE) {
         rdx_record_online_session_clear();
         g_stream_only_session_active = 0;
@@ -2140,7 +2292,8 @@ static void rdx_record_app_stop_pump(void *priv)
     rdx_record_set_process_state_ready();
     /* Serialize the legacy singleton indication with owner changes on app_core.
      * Do not bind an offline recording to the command's response recipient. */
-    if (rdx_record_rdx_token_is_current(&g_app_stop_token)) {
+    if (g_app_stop_notify_generic &&
+        rdx_record_rdx_token_is_current(&g_app_stop_token)) {
         g_printf("[RDX_RECORD] STOP complete, state reply ticket=%u\r", ticket);
         rdx_protocol_record_state_indicate();
     } else {
@@ -2177,6 +2330,7 @@ static void rdx_record_app_stop_request(const rdx_ble_async_token_t *token)
         return;
     }
     g_app_stop_token = *token;
+    g_app_stop_notify_generic = rdx_record_generic_state_is_enabled();
     g_app_stop_close = record_status.run != RECORD_STATE_STOP ||
                        record_status.process_state == REC_PROCESS_STATE_BUSY;
     g_app_stop_posted = 0;
@@ -2267,7 +2421,9 @@ u8 rdx_record_stream_only_release(void)
     rdx_record_stream_only_start_cancel();
     if (record_start_tone_pending) {
         rdx_record_start_tone_cancel();
-        rdx_protocol_record_state_indicate();
+        if (rdx_record_generic_state_is_enabled()) {
+            rdx_protocol_record_state_indicate();
+        }
     }
     if (!is_record_task_created) {
         return 1;
@@ -2289,6 +2445,7 @@ void rdx_record_stream_only_release_complete(void)
     if (!is_record_task_created || g_hold_release_done == g_hold_release_ticket) {
         g_stream_only_release_started = 0;
         record_key_context.state = RDX_RECORD_KEY_IDLE;
+        record_key_context.source = RDX_RECORD_SOURCE_NONE;
     }
 }
 
@@ -2909,7 +3066,8 @@ static void rdx_record_process_impl(void)
     }
     //send record state to app.
     u16 con_hdl = rdx_ble_server_get_conn_handle();
-    if(con_hdl != 0xffff && con_hdl != 0){
+    if(rdx_record_generic_state_is_enabled() &&
+       con_hdl != 0xffff && con_hdl != 0){
         if(rdx_record_state_post_for_session()) {
             log_info("%s record taskq post err \n", __func__);
         }
@@ -3088,6 +3246,8 @@ static void rdx_record_task(void *arg)
                             continue;
                         }
                         if (msg[1] == RDX_RECORD_BIND_FENCE) {
+                            u8 notify_generic =
+                                !rdx_record_source_is_app_flashnote();
                             record_status.run = RECORD_STATE_STOP;
                             int saved = rdx_record_worker_close();
                             if (rdx_record_format_status() < 0) saved = -1;
@@ -3103,8 +3263,12 @@ static void rdx_record_task(void *arg)
                                 record_binding_cleanup_error = 0;
                                 record_binding_revoke_pending = 0;
                             }
-                            int notify[2] = {(int)rdx_protocol_record_state_indicate, 0};
-                            os_taskq_post_type("app_core", Q_CALLBACK, 2, notify);
+                            if (notify_generic) {
+                                int notify[2] = {
+                                    (int)rdx_protocol_record_state_indicate, 0
+                                };
+                                os_taskq_post_type("app_core", Q_CALLBACK, 2, notify);
+                            }
                             continue;
                         }
                         if ((msg[1] == RECORD_STATE_START || msg[1] == RECORD_STATE_RESUME) &&
@@ -3788,6 +3952,13 @@ int rdx_record_run_init(void)
     rdx_record_max_timer_stop();
     // 暂停、恢复及 APP 接管时，保留录音开始时的模式。
     rdx_record_update_connection_mode(con_hdl);
+    /* A stream-only route is frozen at admission and never falls back to a
+     * local file if the RDX session disappears before sink init. */
+    if (rdx_record_stream_only_session_is_active() &&
+        (con_hdl == 0xffff || con_hdl == 0 ||
+         !rdx_record_online_session_is_current())) {
+        return -1;
+    }
     if(rdx_record_stream_only_session_is_active()){
         if(record_initialized_generation != record_session_generation){
             rdx_uxfile_operate_file_init();
@@ -3814,7 +3985,7 @@ int rdx_record_run_init(void)
                      (unsigned)rp->paused_accumulated_ms,
                      (unsigned)s_cur_mark_count);
         }else{
-            if (rdx_uxfile_dat_1_gen(rp->scene) < 0) return -1;
+            if (rdx_uxfile_dat_1_gen(rdx_record_file_scene()) < 0) return -1;
             rdx_record_init_raw_metadata(rp->formate);
             if (rdx_record_format_begin(rdx_uxfile_get_operateFile_info(), rp->formate)) {
                 return -1;
@@ -3829,7 +4000,7 @@ int rdx_record_run_init(void)
     }
 
     if (!rdx_record_stream_only_session_is_active() &&
-        rdx_record_storage_begin(record_session_generation, rp->scene, rp->formate)) {
+        rdx_record_storage_begin(record_session_generation, rdx_record_file_scene(), rp->formate)) {
         return -1;
     }
 
@@ -3837,9 +4008,42 @@ int rdx_record_run_init(void)
     rdx_record_max_timer_start();
     record_initialized_generation = record_session_generation;
 
-    /* Publish only after mode, file identity and storage are initialized. */
-    if(con_hdl != 0xffff && con_hdl != 0 &&
-       rdx_record_online_session_is_current()){
+    r_printf("[FLASHNOTE] init source=%u generation=%u initialized=%u format=%u stream_only=%u\r",
+             record_key_context.source,
+             (unsigned)record_session_generation,
+             (unsigned)record_initialized_generation,
+             (unsigned)rp->formate,
+             (unsigned)rdx_record_stream_only_session_is_active());
+    if (rdx_record_source_is_app_flashnote()) {
+        if (!rdx_record_stream_only_session_is_active() ||
+            rdx_flashnote_on_stream_started(
+                record_session_generation, rp->formate,
+                &g_record_session_token)) {
+            record_initialized_generation = 0;
+            return -1;
+        }
+    } else if (rdx_record_source_is_key() &&
+               record_key_context.kind == RDX_RECORD_INSPIRATION &&
+               rdx_record_stream_only_session_is_active()) {
+        if (rdx_flashnote_on_key_record_started(
+                record_session_generation, rp->formate,
+                &g_record_session_token)) {
+            record_initialized_generation = 0;
+            return -1;
+        }
+    } else if (rdx_record_source_is_key() &&
+               record_key_context.kind == RDX_RECORD_INSPIRATION) {
+        uxfile_data_t *file = rdx_uxfile_get_operateFile_info();
+        if (!file ||
+            rdx_flashnote_on_key_local_record_started(
+                record_session_generation, rp->formate,
+                file->sn, file->filename)) {
+            record_initialized_generation = 0;
+            return -1;
+        }
+    } else if (con_hdl != 0xffff && con_hdl != 0 &&
+               rdx_record_online_session_is_current()) {
+        /* Publish only after mode, file identity and storage are initialized. */
         rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 
@@ -3880,7 +4084,21 @@ int rdx_record_run_data_handle(u8* d, u32 len)
        rdx_record_online_session_is_current() &&
        rp->stream_discont == false &&
        rdx_ble_server_is_stream_tx_ready()){
-        rdx_protocol_audio_data_indicate(d, len);
+        int ret = rdx_protocol_audio_data_indicate(d, len);
+        if (rdx_record_source_is_app_flashnote() &&
+            !flashnote_stream_probe_logged) {
+            flashnote_stream_probe_logged = 1;
+            r_printf("[FLASHNOTE] stream first frame len=%u ret=%d\r",
+                     (unsigned)len, ret);
+        }
+    } else if (rdx_record_source_is_app_flashnote() &&
+               !flashnote_stream_probe_logged) {
+        flashnote_stream_probe_logged = 1;
+        r_printf("[FLASHNOTE] stream gated len=%u conn=0x%04x current=%u discont=%u tx_ready=%u\r",
+                 (unsigned)len, con_hdl,
+                 rdx_record_online_session_is_current(),
+                 rp->stream_discont,
+                 rdx_ble_server_is_stream_tx_ready());
     }
 
     rdx_factory_audio_frame(d, len);
@@ -3989,12 +4207,16 @@ int rdx_record_run_init(void)
     //stop limit timer.
     rdx_record_max_timer_stop();
     //check way of record.
-    if(0xffff == con_hdl || 0 == con_hdl ||
-       !rdx_record_online_session_is_current()){
-        rp->mode = RECORD_MODE_OFFLINE;
-        rp->orig_mode = RECORD_MODE_OFFLINE;
+    u8 online = con_hdl != 0xffff && con_hdl != 0 &&
+                rdx_record_online_session_is_current();
+    if (rdx_record_stream_only_session_is_active() && !online) {
+        return -1;
+    }
+    if(!online){
+        rp->mode = online ? RECORD_MODE_ONLINE : RECORD_MODE_OFFLINE;
+        rp->orig_mode = rp->mode;
         // 现在 RECORD_SCENE_xxx 与 COMMAND_RECORD_SCENE_xxx 值一致，无需映射
-        u8 scene = rp->scene;
+        u8 scene = rdx_record_file_scene();
         y_printf("%s --> not connected, rp->mode = %d, rp->scene = %d \r", __FUNCTION__, rp->mode, rp->scene);
 
         //power on force online.
@@ -4034,13 +4256,29 @@ int rdx_record_run_init(void)
     // rdx_record_mic_gain_check();
 
     if (rp->orig_mode == RECORD_MODE_OFFLINE &&
-        rdx_record_storage_begin(record_session_generation, rp->scene, rp->formate)) {
+        rdx_record_storage_begin(record_session_generation, rdx_record_file_scene(), rp->formate)) {
         return -1;
     }
 
     //start max record time.
     rdx_record_max_timer_start();
     record_initialized_generation = record_session_generation;
+
+    r_printf("[FLASHNOTE] init source=%u generation=%u initialized=%u format=%u stream_only=%u\r",
+             record_key_context.source,
+             (unsigned)record_session_generation,
+             (unsigned)record_initialized_generation,
+             (unsigned)rp->formate,
+             (unsigned)rdx_record_stream_only_session_is_active());
+    if (rdx_record_source_is_app_flashnote()) {
+        if (!rdx_record_stream_only_session_is_active() ||
+            rdx_flashnote_on_stream_started(
+                record_session_generation, rp->formate,
+                &g_record_session_token)) {
+            record_initialized_generation = 0;
+            return -1;
+        }
+    }
 
     return 0;
 }
@@ -4086,7 +4324,26 @@ int rdx_record_run_data_handle(u8* d, u32 len)
            rdx_record_online_session_is_current() &&
            rp->stream_discont == false &&
            rdx_ble_server_is_stream_tx_ready()){
-            rdx_protocol_audio_data_indicate(d, len);
+            int ret = rdx_protocol_audio_data_indicate(d, len);
+            if (rdx_record_source_is_app_flashnote() &&
+                !flashnote_stream_probe_logged) {
+                flashnote_stream_probe_logged = 1;
+                r_printf("[FLASHNOTE] stream first frame len=%u ret=%d\r",
+                         (unsigned)len, ret);
+            }
+        } else if (rdx_record_source_is_app_flashnote() &&
+                   !flashnote_stream_probe_logged) {
+            flashnote_stream_probe_logged = 1;
+            r_printf("[FLASHNOTE] stream gated len=%u conn=0x%04x current=%u discont=%u tx_ready=%u\r",
+                     (unsigned)len, con_hdl,
+                     rdx_record_online_session_is_current(),
+                     rp->stream_discont,
+                     rdx_ble_server_is_stream_tx_ready());
+        }
+        if (rdx_record_source_is_app_flashnote() &&
+            !rdx_record_stream_only_session_is_active() &&
+            rdx_record_storage_push(d, len)) {
+            return -1;
         }
     }
 
@@ -4119,7 +4376,9 @@ int rdx_record_run_exit(void)
         rp->stream_discont = false;
         return 0;
     }
-    if(rp->orig_mode == RECORD_MODE_OFFLINE){
+    if(rp->orig_mode == RECORD_MODE_OFFLINE ||
+       (rdx_record_source_is_app_flashnote() &&
+        !rdx_record_stream_only_session_is_active())){
         // rdx_uxfile_mssg_1_save();
         int saved = rdx_uxfile_finish_record();
         if (rdx_record_format_status() < 0) saved = -1;
@@ -4158,6 +4417,10 @@ int rdx_record_run_exit(void)
 void rdx_record_run_init_failed(int err)
 {
     r_printf("[RECORD] sink init failed %d; orderly STOP\r", err);
+    if (rdx_record_source_is_app_flashnote()) {
+        rdx_flashnote_on_record_init_failed(err);
+        return;
+    }
     if (!rdx_record_session_allowed()) {
         return; /* Binding/DUT fences own the cleanup. */
     }

@@ -21,7 +21,11 @@ def main():
     source = (base / 'rdx_record_storage.c').read_text(encoding='utf-8')
     source = re.sub(r'^#include .*\n', '', source, flags=re.M)
     record = (base / 'rdx_record.c').read_text(encoding='utf-8')
-    assert record.count('rdx_record_storage_push(d, len)') == 2
+    assert record.count('rdx_record_storage_push(d, len)') == 3
+    assert record.count('rdx_uxfile_dat_1_gen(rdx_record_file_scene())') == 1
+    assert record.count('rdx_uxfile_dat_1_gen(scene)') == 1
+    assert record.count('rdx_record_storage_begin(record_session_generation, rdx_record_file_scene(), rp->formate)') == 2
+    assert 'RECORD_SCENE_FLASHNOTE' in (base / 'rdx_record.h').read_text(encoding='utf-8')
     assert record.count('rdx_record_storage_end();') == 2
     assert 'rdx_uxfile_raw_write(' not in record
     assert 'rdx_record_format_frame(' not in record
@@ -392,6 +396,8 @@ def check_reconnect():
     base = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     record = (base / 'rdx_record.c').read_text(encoding='utf-8')
     app = (base / 'rdx_app.c').read_text(encoding='utf-8')
+    session = (base / 'rdx_ble_session.c').read_text(encoding='utf-8')
+    server = (base / 'rdx_ble_server.c').read_text(encoding='utf-8')
     source = r'''
 static int cdc_file_busy;
 static int cdc_download_busy;
@@ -410,6 +416,11 @@ typedef unsigned char u8;
 #define RECORD_STATE_PAUSE 1
 #define RECORD_STATE_RESUME 2
 #define RECORD_STATE_STOP 3
+#define RECORD_MODE_OFFLINE 0
+#define RDX_RECORD_SOURCE_KEY 1
+#define RDX_RECORD_INSPIRATION 1
+#define RDX_RECORD_KEY_IDLE 0
+#define RDX_RECORD_KEY_ACTIVE 2
 #define RDX_STORAGE_PLAYBACK_PREEMPT 2
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
 enum { PB_STATE_UNREADY, PB_STATE_STOPPED, PB_STATE_STARTING, PB_STATE_PLAYING,
@@ -420,9 +431,11 @@ void rdx_playback_get_info(pb_public_info_t *p) { p->state=playback_state; }
 typedef struct { int run, stream_discont; } RecordStatus;
 static RecordStatus record_status;
 static int g_record_session_token_valid, g_stream_only_session_active;
+static int g_stream_only_release_started, g_app_stop_pending;
+static unsigned record_session_generation, record_initialized_generation;
+static struct { int fixed, route, source, kind, state; unsigned record_generation; } record_key_context;
 static int stream_resume_timer, g_stream_resume_token_valid;
 static int record_start_tone_pending, cancelled_timer, pause_timer;
-static int rdx_record_local_route_is_fixed(void) { return 0; }
 /* File-backed reconnect fixture; no-save meetings live in the session harness. */
 static int rdx_record_nosave_session_open(void) { return 0; }
 void rdx_record_stream_only_start_cancel(void) {}
@@ -453,11 +466,37 @@ u8 rdx_uxfile_is_formatting(void) { return format; }
 int rdx_uxfile_sd_format_status_check(void) { return format; }
 int get_ota_status(void) { return ota; }
 '''
+    source += function(record, 'rdx_record_local_route_is_fixed')
     source += function(record, 'rdx_record_transport_is_detached')
     source += function(record, 'rdx_record_on_ble_conn_changed')
     for name in ['rdx_app_storage_activity_check', 'rdx_app_storage_activity_is_busy', 'rdx_pc_storage_is_busy',
                  'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
         source += function(app, name)
+    source += r'''
+typedef enum {
+    RDX_BLE_RUNTIME_READY, RDX_BLE_RUNTIME_ACTIVE,
+    RDX_BLE_RUNTIME_QUIESCING, RDX_BLE_RUNTIME_RESETTING,
+    RDX_BLE_RUNTIME_FAILED
+} rdx_ble_runtime_state_t;
+static rdx_ble_runtime_state_t s_rdx_runtime_state;
+static int s_rdx_runtime_consumed_this_boot=1;
+static int aborts, finalizes, power_checks;
+static u8 g_rdx_lifecycle_barrier_armed;
+static char g_rdx_lifecycle_barrier_value[17];
+static struct { int ble_conn; } g_rdx_ble_server_info;
+#define FALSE 0
+void *memset(void *, int, unsigned long long);
+static void rdx_ble_server_rdx_session_abort(void) { ++aborts; }
+static void rdx_ble_server_rdx_session_reset_finalize(void) { ++finalizes; }
+static void rdx_app_emmc_poweroff_check(void) { ++power_checks; }
+'''
+    for name in ['rdx_ble_session_rdx_runtime_state_get',
+                 'rdx_ble_session_rdx_runtime_barrier_arrive',
+                 'rdx_ble_session_rdx_runtime_rearm',
+                 'rdx_ble_session_rdx_runtime_fail_closed']:
+        source += function(session, name)
+    source += function(server, 'rdx_ble_server_rdx_runtime_try_rearm')
+    source += function(server, 'rdx_ble_server_rdx_lifecycle_barrier_complete')
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
 int test_reconnect(void) {
@@ -480,6 +519,12 @@ int test_reconnect(void) {
         CHECK(rdx_app_rdx_rebind_is_idle());
         CHECK(rdx_pc_storage_is_busy());
         CHECK(rdx_app_storage_activity_is_busy("FORMAT", 2, 0));
+        g_stream_only_release_started=1;
+        CHECK(!rdx_app_rdx_rebind_is_idle());
+        g_stream_only_release_started=0;
+        g_app_stop_pending=1;
+        CHECK(!rdx_app_rdx_rebind_is_idle());
+        g_app_stop_pending=0;
         /* 仍绑定会话、处于纯推流模式或传输未中断时，拒绝重新绑定。 */
         g_record_session_token_valid=1;
         CHECK(!rdx_app_rdx_rebind_is_idle());
@@ -526,11 +571,96 @@ int test_reconnect(void) {
     }
     return 0;
 }
+
+int test_rearm_after_online_f19_disconnect(void) {
+    /* Old stream still owns its recorder fence when the FIFO barrier arrives. */
+    playback_state=PB_STATE_STOPPED;
+    record_status.stream_discont=0;
+    g_record_session_token_valid=0;
+    s_rdx_runtime_state=RDX_BLE_RUNTIME_QUIESCING;
+    g_rdx_lifecycle_barrier_armed=1;
+    g_rdx_ble_server_info.ble_conn=1;
+    record_status.run=RECORD_STATE_START;
+    g_stream_only_session_active=1;
+    g_stream_only_release_started=1;
+    key_record_disconnect_pending=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    rdx_ble_server_rdx_lifecycle_barrier_complete();
+    CHECK(s_rdx_runtime_state==RDX_BLE_RUNTIME_RESETTING);
+    CHECK(aborts==1 && !finalizes && !g_rdx_ble_server_info.ble_conn);
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+
+    /* Once that fence completes, a new offline F19 may start before reconnect. */
+    g_stream_only_session_active=g_stream_only_release_started=0;
+    key_record_disconnect_pending=0;
+    record_status.stream_discont=0;
+    record_key_context.fixed=1;
+    record_key_context.route=RECORD_MODE_OFFLINE;
+    record_key_context.source=RDX_RECORD_SOURCE_KEY;
+    record_key_context.kind=RDX_RECORD_INSPIRATION;
+    record_key_context.state=RDX_RECORD_KEY_ACTIVE;
+    record_key_context.record_generation=record_session_generation=42;
+    record_initialized_generation=42;
+    CHECK(rdx_record_transport_is_detached());
+    CHECK(rdx_pc_storage_is_busy());
+    CHECK(rdx_app_storage_activity_is_busy("FORMAT", 2, 0));
+
+    /* Generation mismatch, unfinished old fences or send/file workers fail closed. */
+    --record_initialized_generation;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    ++record_initialized_generation;
+    --record_key_context.record_generation;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    ++record_key_context.record_generation;
+    record_key_context.state=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    record_key_context.state=RDX_RECORD_KEY_ACTIVE;
+    g_record_session_token_valid=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    g_record_session_token_valid=0;
+    g_stream_only_session_active=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    g_stream_only_session_active=0;
+    g_stream_only_release_started=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    g_stream_only_release_started=0;
+    g_app_stop_pending=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    g_app_stop_pending=0;
+    key_record_disconnect_pending=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    key_record_disconnect_pending=0;
+    send.send_pending=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    send.send_pending=0;
+    transfer=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    transfer=0;
+    worker=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    worker=0;
+    record_key_context.source=0;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    record_key_context.source=RDX_RECORD_SOURCE_KEY;
+    record_key_context.kind=0;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    record_key_context.kind=RDX_RECORD_INSPIRATION;
+    record_key_context.route=1;
+    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    record_key_context.route=RECORD_MODE_OFFLINE;
+
+    CHECK(rdx_ble_server_rdx_runtime_try_rearm());
+    CHECK(s_rdx_runtime_state==RDX_BLE_RUNTIME_READY && finalizes==1);
+    CHECK(power_checks==1 && record_status.run==RECORD_STATE_START);
+    CHECK(record_key_context.record_generation==42);
+    CHECK(rdx_ble_server_rdx_runtime_try_rearm() && finalizes==1);
+    return 0;
+}
 '''
     with tempfile.TemporaryDirectory(prefix='t2620-reconnect-') as work:
         path = Path(work) / 'reconnect.c'
         path.write_text(source, encoding='utf-8')
-        run_c_checks(path, ['test_reconnect'], native=True)
+        run_c_checks(path, ['test_reconnect', 'test_rearm_after_online_f19_disconnect'], native=True)
 
 
 def check_stream():
@@ -545,10 +675,12 @@ typedef unsigned int u32;
 #define false 0
 #define RECORD_MODE_OFFLINE 0
 #define RECORD_MODE_ONLINE 1
+enum { RDX_RECORD_SOURCE_NONE, RDX_RECORD_SOURCE_KEY, RDX_RECORD_SOURCE_APP_FLASHNOTE };
 typedef struct { int mode, orig_mode, stream_discont; } RecordStatus;
 static RecordStatus status;
-static struct { int fixed, route; } record_key_context;
+static struct { int fixed, route, source; } record_key_context;
 static int record_initialized_generation, record_session_generation=1;
+static u8 flashnote_stream_probe_logged;
 static int current, ready, only, sent, saved, allowed=1;
 static u8 filter_count=10;
 static u16 conn=0xffff;
@@ -561,6 +693,8 @@ void rdx_record_set_filter_cnt(u8 c) { filter_count=c; }
 void rdx_record_set_process_state_ready(void) {}
 int rdx_ble_server_is_stream_tx_ready(void) { return ready; }
 int rdx_record_stream_only_session_is_active(void) { return only; }
+int rdx_record_source_is_app_flashnote(void) { return record_key_context.source==2; }
+static void r_printf(const char *fmt, ...) {}
 int rdx_protocol_audio_data_indicate(u8 *d, u32 len) { ++sent; return 0; }
 int rdx_record_storage_push(u8 *d, u32 len) { ++saved; return 0; }
 '''
@@ -668,10 +802,14 @@ typedef struct { u32 sn; char filename[32]; } uxfile_data_t;
 #define false 0
 #define y_printf(...) ((void)0)
 #define r_printf(...) ((void)0)
+enum { RDX_RECORD_SOURCE_NONE, RDX_RECORD_SOURCE_KEY, RDX_RECORD_SOURCE_APP_FLASHNOTE };
+enum { RDX_RECORD_MEETING, RDX_RECORD_INSPIRATION };
 static RecordStatus record_status;
+static struct { int source, kind, route; } record_key_context;
 #define status record_status
 static uxfile_data_t file={6,"d9e348.raw"};
 static int g_app_stop_pending, current=1, sends;
+static int local_stops;
 static int g_stream_only_session_active, g_record_session_token_valid;
 static u32 record_initialized_generation=1, record_session_generation=1;
 static char sent[128];
@@ -688,8 +826,12 @@ int rdx_protocol_packet_send_priority(void *p, u16 n) {
 void rdx_protocol_record_state_indicate(void) { ++sends; }
 void rdx_uxfile_operate_file_init(void) { file=(uxfile_data_t){0}; }
 void rdx_record_online_session_clear(void) { g_record_session_token_valid=0; }
+void rdx_flashnote_on_key_local_record_stopped(u32 generation, u8 format) {
+    if (generation==5 && format==1 && file.sn==6) ++local_stops;
+}
 '''
     source += function(record, 'rdx_record_state_is_publishable')
+    source += function(record, 'rdx_record_generic_state_is_enabled')
     source += function(record, 'rdx_record_state_indicate_if_current')
     source += function(record, 'rdx_record_state_snapshot_indicate')
     source += function(record, 'rdx_record_stop_session_cleanup')
@@ -752,6 +894,10 @@ int test_stop_cleanup(void) {
     record_initialized_generation=record_session_generation=5;
     g_stream_only_session_active=g_record_session_token_valid=1;
     g_app_stop_pending=0;
+    record_key_context.source=RDX_RECORD_SOURCE_KEY;
+    record_key_context.kind=RDX_RECORD_INSPIRATION;
+    record_key_context.route=RECORD_MODE_OFFLINE;
+    status.formate=1;
     int count=sends;
     for(int repeat=0;repeat<2;++repeat) {
         rdx_record_stop_session_cleanup();
@@ -760,6 +906,7 @@ int test_stop_cleanup(void) {
         CHECK(!file.sn && !file.filename[0] && !record_initialized_generation);
         CHECK(!g_stream_only_session_active && !g_record_session_token_valid);
         CHECK(status.run==RECORD_STATE_STOP && record_session_generation==5 && sends==count);
+        CHECK(local_stops==1);
         CHECK(rdx_record_state_is_publishable());
     }
     status.run=RECORD_STATE_START; ++record_session_generation;
@@ -801,6 +948,7 @@ typedef unsigned int u32;
 #define false 0
 #define TCFG_SD_ALWAY_ONLINE_ENABLE 1
 #define RECORD_MODE_OFFLINE 0
+#define RECORD_MODE_ONLINE 1
 #define RDX_APP_FILE_CMD_STOP 2
 #define y_printf(...) ((void)0)
 #define r_printf(...) ((void)0)
@@ -814,6 +962,8 @@ static u16 conn=1;
 static ReqFileInfo info;
 static void notify(void) { ++notified; }
 static RecordStatus status={0,0,0,notify};
+static int rdx_record_source_is_app_flashnote(void) { return 0; }
+u8 rdx_record_file_scene(void) { return status.scene; }
 int rdx_record_session_allowed(void) { return allowed; }
 u16 rdx_ble_server_get_conn_handle(void) { return conn; }
 RecordStatus *rdx_record_get_status(void) { return &status; }
@@ -852,9 +1002,16 @@ int test_run_init_space(void) {
         CHECK(!init[v]() && !gen_calls && !meta_calls && !begin_calls);
         record_initialized_generation=0;
     }
-    /* Online stream-only sessions (variant 0) never consult local storage. */
-    only=1; space=-2; checks=0;
+    /* Online stream-only sessions never consult local storage. */
+    only=1; current=1; space=-2; checks=0;
     CHECK(!run_init_0() && !checks);
+    CHECK(!run_init_1() && !checks);
+    /* Losing the online route before sink init fails instead of falling back
+     * to a local file. */
+    current=0; checks=0;
+    CHECK(run_init_0()==-1 && !checks);
+    CHECK(run_init_1()==-1 && !checks);
+    only=0;
     return 0;
 }
 """

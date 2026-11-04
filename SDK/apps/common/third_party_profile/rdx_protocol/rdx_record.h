@@ -51,6 +51,7 @@ extern "C" {
 // 与协议定义保持一致 (COMMAND_RECORD_SCENE_CHAT=0, COMMAND_RECORD_SCENE_CALL=1)
 #define RECORD_SCENE_CHAT                               (0u)  // 会议模式
 #define RECORD_SCENE_CALL                               (1u)  // 通话模式
+#define RECORD_SCENE_FLASHNOTE                          (3u)  // UXFILE scene 3
 
 #define CALL_STATE_OFF                                  (0)
 #define CALL_STATE_ON                                   (1)
@@ -72,6 +73,12 @@ enum rdx_record_key_state {
     RDX_RECORD_KEY_START_PENDING,
     RDX_RECORD_KEY_ACTIVE,
     RDX_RECORD_KEY_STOPPING,
+};
+
+enum rdx_record_source {
+    RDX_RECORD_SOURCE_NONE,
+    RDX_RECORD_SOURCE_KEY,
+    RDX_RECORD_SOURCE_APP_FLASHNOTE,
 };
 
 #define RECORD_MIC_DB_VALUE_MIN                         (0)
@@ -196,6 +203,12 @@ u8 rdx_record_key_start_prepare(u8 kind, u8 route,
 void rdx_record_key_start_abort(void);
 u32 rdx_record_key_request_generation(void);
 u8 rdx_record_key_request_is_current(u32 generation);
+u8 rdx_record_source_is_key(void);
+/* app_core: includes key F19 start-pending and stop cleanup. */
+u8 rdx_record_key_flashnote_session_open(void);
+u8 rdx_record_source_is_app_flashnote(void);
+int rdx_record_flashnote_start(const rdx_ble_async_token_t *token,
+                               u32 *session_generation, u8 *format);
 u8 rdx_record_stream_only_token_capture(rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_arm(const rdx_ble_async_token_t *token);
 void rdx_record_stream_only_start_cancel(void);
