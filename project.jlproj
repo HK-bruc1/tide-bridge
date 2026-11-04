@@ -139,9 +139,9 @@
   }
  ],
  "create_time": "2024-12-24T09:42:31.813Z",
- "update_time": "2026-10-23T09:32:11.772Z",
+ "update_time": "2026-11-04T04:14:15.830Z",
  "standardPatch": "3.4.1",
- "lastOpenToolVersion": "4.12.0",
+ "lastOpenToolVersion": "4.12.1",
  "lastStencilFlowTime": "20260316151503",
  "proxyRepoid": null,
  "versionName": "3.0.0",

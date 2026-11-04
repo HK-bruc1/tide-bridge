@@ -538,7 +538,7 @@
           "name": "arg0",
           "enable": true,
           "range": 48,
-          "gain": -3,
+          "gain": -4.81,
           "data": [
            {
             "id": 1686704298380,
@@ -553,7 +553,7 @@
             "id": 1686704298381,
             "name": "2",
             "CenterFrequency": 200,
-            "Gain": -41.94,
+            "Gain": -24,
             "QValue": 1,
             "type": 2,
             "fEnable": true
