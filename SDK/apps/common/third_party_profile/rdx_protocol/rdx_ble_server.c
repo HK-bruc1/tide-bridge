@@ -2519,6 +2519,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
 static void rdx_ble_server_hid_encryption_change(rdx_ble_link_state_t *link,
                                                u8 encrypted, u8 status)
 {
+    /* HID readiness is silent; RDX session attachment owns the prompt. */
     if (rdx_ble_session_link_is_hid(link)) {
         rdx_hogp_on_encryption_change(link->con_handle, encrypted, status);
     } else if (encrypted &&
@@ -2526,7 +2527,6 @@ static void rdx_ble_server_hid_encryption_change(rdx_ble_link_state_t *link,
                !rdx_ble_server_phase2_hid_attach(link)) {
         rdx_hogp_on_encryption_change(link->con_handle, encrypted, status);
     }
-    rdx_ble_server_conn_tone_post(link, 1);
 }
 #endif
 
@@ -3158,11 +3158,8 @@ static int rdx_ble_server_hid_write(rdx_ble_link_state_t *link, u16 handle,
                                    u16 transaction_mode, u16 offset,
                                    u8 *buffer, u16 buffer_size)
 {
-    int result = rdx_hogp_att_write(link->con_handle, handle,
-                                    transaction_mode, offset,
-                                    buffer, buffer_size);
-    if (!result) rdx_ble_server_conn_tone_post(link, 1);
-    return result;
+    return rdx_hogp_att_write(link->con_handle, handle, transaction_mode,
+                              offset, buffer, buffer_size);
 }
 #endif
 
