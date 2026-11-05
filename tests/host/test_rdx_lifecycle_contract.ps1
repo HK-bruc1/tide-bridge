@@ -234,7 +234,7 @@ Assert-Contract 'RECORD_STOP_COMPLETION_FOLLOWS_WORKER_CLEANUP' (
     (Test-TokensInOrder $RecordWorkerStop @('if (msg[1] == RECORD_STATE_STOP)',
         'int saved = rdx_record_worker_close()', 'rdx_record_stop_session_cleanup()',
         'rdx_record_set_process_state_ready()')) -and
-    $Record -match '!g_app_stop_pending && rdx_record_online_session_is_current\(\)' -and
+    $Record -match '!g_app_stop_pending && !g_stream_only_release_started &&\s*rdx_record_online_session_is_current\(\)' -and
     $StopPump -match '!g_app_stop_pending \|\| ticket != g_app_stop_ticket'
 ) 'STOP completion must wait for both audio paths, paused-file finalization and session cleanup, and reject stale callbacks'
 

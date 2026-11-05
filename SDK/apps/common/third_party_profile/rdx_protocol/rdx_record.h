@@ -180,6 +180,8 @@ void rdx_record_cmd_handle(Record_info *r_info);
  * callback.  A stale token must never be allowed to mutate recording state. */
 void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
                                     const rdx_ble_async_token_t *token);
+/* app_core: start an online key meeting now, without an APP handshake or retry. */
+int rdx_record_key_meeting_start(const rdx_ble_async_token_t *token);
 /* Capture and validate the fixed token of the current App-originated online
  * recording session.  Callers that queue a record indication must retain this
  * value instead of looking up the current RDX owner when the callback runs. */

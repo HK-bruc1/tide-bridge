@@ -630,7 +630,8 @@ extern void rdx_app_record_state_upload_timer_stop(void);
 
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
-    const rdx_ble_async_token_t *token);
+    const rdx_ble_async_token_t *token,
+    u8 allow_delay);
 extern void rdx_protocol_record_state_indicate(void);
 
 static u8 rdx_record_rdx_token_is_current(
@@ -1805,7 +1806,7 @@ static void rdx_record_cmd_delay_cb(void *priv)
     }
     rdx_record_pending_cmd_clear();
     rdx_record_cmd_handle_internal(&g_pending_record_info,
-                                   token_valid ? &token : NULL);
+                                   token_valid ? &token : NULL, 1);
 }
 
 /**************************************************************************
@@ -1816,7 +1817,8 @@ static void rdx_record_cmd_delay_cb(void *priv)
  **************************************************************************/
 static void rdx_record_cmd_handle_internal(
     Record_info *r_info,
-    const rdx_ble_async_token_t *token)
+    const rdx_ble_async_token_t *token,
+    u8 allow_delay)
 {
     /*----------------------------------------------------------------*/
     /* Local Variables                                                */
@@ -1925,6 +1927,11 @@ static void rdx_record_cmd_handle_internal(
             return;
         }
         if(stream_not_ready || uxfile_busy) {
+            /* A physical key must not start a meeting later without another
+             * gesture; APP commands retain their existing deferred retry. */
+            if (!allow_delay) {
+                return;
+            }
             if(g_record_cmd_delay_timer) {
                 if (token && g_pending_record_token_valid &&
                     !rdx_record_rdx_token_is_current(
@@ -2096,7 +2103,8 @@ static void rdx_record_cmd_handle_internal(
  * 播放中断和存储动作之前完成。准入失败时设备状态保持不变，因此不会有提示音。 */
 static void rdx_record_cmd_handle_admit(
     Record_info *r_info,
-    const rdx_ble_async_token_t *token)
+    const rdx_ble_async_token_t *token,
+    u8 allow_delay)
 {
     u8 prepared = 0;
 
@@ -2125,7 +2133,7 @@ static void rdx_record_cmd_handle_admit(
             return;
         }
     }
-    rdx_record_cmd_handle_internal(r_info, token);
+    rdx_record_cmd_handle_internal(r_info, token, allow_delay);
     /* 准备成功但命令未真正开始（重复、忙、被存储门禁拦截等）时撤销。 */
     if (prepared && record_status.run != RECORD_STATE_START) {
         rdx_record_key_start_abort();
@@ -2134,7 +2142,7 @@ static void rdx_record_cmd_handle_admit(
 
 void rdx_record_cmd_handle(Record_info *r_info)
 {
-    rdx_record_cmd_handle_admit(r_info, NULL);
+    rdx_record_cmd_handle_admit(r_info, NULL, 1);
 }
 
 void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
@@ -2143,7 +2151,25 @@ void rdx_record_cmd_handle_from_rdx(Record_info *r_info,
     if (!token) {
         return;
     }
-    rdx_record_cmd_handle_admit(r_info, token);
+    rdx_record_cmd_handle_admit(r_info, token, 1);
+}
+
+int rdx_record_key_meeting_start(const rdx_ble_async_token_t *token)
+{
+    u32 generation = record_session_generation;
+    Record_info info = {
+        .cmd = RECORD_STATE_START + 0x30,
+        .formate = rdx_record_format_for_session(
+                       RECORD_SCENE_CHAT, !rdx_record_save_enabled()) + 0x30,
+        .type = RECORD_SCENE_CHAT + 0x30,
+    };
+
+    if (!token || g_record_cmd_delay_timer) {
+        return -1;
+    }
+    rdx_record_cmd_handle_admit(&info, token, 0);
+    return record_status.run == RECORD_STATE_START &&
+           record_session_generation != generation ? 0 : -1;
 }
 
 /**************************************************************************
@@ -2421,9 +2447,6 @@ u8 rdx_record_stream_only_release(void)
     rdx_record_stream_only_start_cancel();
     if (record_start_tone_pending) {
         rdx_record_start_tone_cancel();
-        if (rdx_record_generic_state_is_enabled()) {
-            rdx_protocol_record_state_indicate();
-        }
     }
     if (!is_record_task_created) {
         return 1;
@@ -4133,7 +4156,8 @@ int rdx_record_run_exit(void)
 
     //send ack of record state.
     if(con_hdl != 0xffff && con_hdl != 0 &&
-       !g_app_stop_pending && rdx_record_online_session_is_current()){
+       !g_app_stop_pending && !g_stream_only_release_started &&
+       rdx_record_online_session_is_current()){
         rdx_record_state_indicate_if_current(&g_record_session_token);
     }
 

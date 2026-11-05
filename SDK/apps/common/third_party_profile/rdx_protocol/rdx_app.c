@@ -363,8 +363,19 @@ static void rdx_app_record_trigger_on_app_core(
     if (!request) {
         return;
     }
+    if (request->kind == RDX_RECORD_MEETING && request->stream_only &&
+        request->status.run == RECORD_STATE_STOP &&
+        (request->request_generation != rdx_record_key_request_generation() ||
+         !rdx_record_stream_only_is_releasing())) {
+        free(request);
+        return;
+    }
     if (!rdx_ble_session_rdx_token_resolve(&request->token, 1)) {
         r_printf("[RDX_RECORD] drop stale record trigger indication\r");
+        if (request->kind == RDX_RECORD_MEETING && request->stream_only &&
+            request->status.run == RECORD_STATE_STOP) {
+            rdx_record_stream_only_release_complete();
+        }
         free(request);
         return;
     }
@@ -396,6 +407,9 @@ static void rdx_app_record_trigger_on_app_core(
                 request->session_generation, request->status.formate,
                 &request->token);
         }
+    } else if (request->kind == RDX_RECORD_MEETING && request->stream_only &&
+               request->status.run == RECORD_STATE_STOP) {
+        rdx_protocol_record_state_indicate();
     } else {
         rdx_protocol_record_trigger_indicate(&request->status, request->factor);
     }
@@ -2155,15 +2169,21 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
     rdx_playback_stop();
 #endif
     if (route == RECORD_MODE_ONLINE) {
-        set_rp = *rp;
-        set_rp.run = RECORD_STATE_START;
-        set_rp.formate = rdx_record_format_for_session(scene, stream_only);
-        set_rp.scene = scene;
-        /* 替换定时器会取消旧的开始预置，须在替换后再登记本次预置。 */
-        rdx_app_record_state_upload_timer_start();
-        if (stream_only) rdx_record_stream_only_start_arm(&token);
-        ret = rdx_app_record_trigger_post(
-            &set_rp, 0, &token, stream_only, kind);
+        if (kind == RDX_RECORD_MEETING && scene == RECORD_SCENE_CHAT) {
+            /* Key meetings start locally; the recorder publishes record state
+             * after audio and the optional file have actually initialized. */
+            ret = rdx_record_key_meeting_start(&token);
+        } else {
+            set_rp = *rp;
+            set_rp.run = RECORD_STATE_START;
+            set_rp.formate = rdx_record_format_for_session(scene, stream_only);
+            set_rp.scene = scene;
+            /* Replacing the timer cancels the old stream-only preparation. */
+            rdx_app_record_state_upload_timer_start();
+            if (stream_only) rdx_record_stream_only_start_arm(&token);
+            ret = rdx_app_record_trigger_post(
+                &set_rp, 0, &token, stream_only, kind);
+        }
     } else {
         rp->run = RECORD_STATE_START;
         rp->scene = scene;
