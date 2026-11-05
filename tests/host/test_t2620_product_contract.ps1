@@ -80,7 +80,7 @@ $SharedT2620ProductDefines = @{
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.6"'; VersionHex = '0x00010106' },
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.7"'; VersionHex = '0x00010107' },
     @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()

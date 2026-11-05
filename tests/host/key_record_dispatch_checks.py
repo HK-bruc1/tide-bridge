@@ -247,7 +247,7 @@ static void reset(void) {
     queue_fail=stop_fail=stops=starts=online_starts=online_stops=ota=formatting=0;
     timer_fail=pc_mode=factory_keys=local_burnin=consume_key=0;
     player_messages=last_player_message=0;
-    playback=playback_stops=marks=mark_fail=tone_running=0;
+    playback=playback_stops=marks=mark_fail=tone_running=volume_step=0;
     battery_queries=hid_ready=feedback_calls=release_calls=stream_active=releasing=0;
     trigger_deferred=trigger_stop_pending=retirement_pending=0;
     storage_full=storage_admits=0;
@@ -260,7 +260,9 @@ static rdx_hogp_input_cycle_t cycle(u8 key,u8 usage,u32 id) {
     rdx_hogp_input_cycle_t c={0};
     c.id=id; c.epoch=local_epoch; c.map=1; c.physical_key=KEY_IO_NUM0+key;
     c.mode=rdx_dut_mode?RDX_LOCAL_KEY_DUT:RDX_LOCAL_KEY_NORMAL;
-    c.keymap.usages[0]=usage; c.usage=usage; c.hid_admitted=hid_ready;
+    c.keymap.usages[0]=usage;
+    c.keymap.modifiers=(usage>=0x68 && usage<=0x73)?7:0;
+    c.usage=rdx_hogp_key_action_local_usage(&c.keymap); c.hid_admitted=hid_ready;
     return c;
 }
 static void gesture(rdx_hogp_input_cycle_t *c,u8 action) {
@@ -278,7 +280,8 @@ int test_all_usages_on_all_keys(void) {
     for(int key=0;key<5;++key) for(int usage=0x68;usage<=0x73;++usage) {
         reset(); ready=hid_ready=1;
         rdx_hogp_input_cycle_t c=cycle(key,usage,1);
-        int msg=-1; rdx_app_usage_key_remap(&msg,c.physical_key,usage,KEY_ACTION_CLICK,1);
+        CHECK(c.keymap.modifiers==7 && c.usage==usage);
+        int msg=-1; rdx_app_usage_key_remap(&msg,c.physical_key,c.usage,KEY_ACTION_CLICK,1);
         CHECK(msg==(usage<=0x6c?messages[usage-0x68]:APP_MSG_NULL));
         gesture(&c,KEY_ACTION_CLICK);
         CHECK(feedback_calls==(usage>=0x6f));
@@ -293,12 +296,69 @@ int test_all_usages_on_all_keys(void) {
     }
     return 0;
 }
+int test_f13_f14_click_and_seek_on_all_keys(void) {
+    for(int key=0;key<5;++key) for(int usage=0x68;usage<=0x69;++usage) {
+        for(int action=KEY_ACTION_CLICK;action<=KEY_ACTION_HOLD;++action) {
+            reset();
+            rdx_hogp_input_cycle_t c=cycle(key,usage,10);
+            CHECK(c.usage==usage);
+            gesture(&c,action);
+            CHECK(player_messages==1);
+            CHECK(last_player_message==(action==KEY_ACTION_CLICK?usage-0x68+1:usage-0x68+3));
+        }
+    }
+    return 0;
+}
+int test_other_product_combinations_do_not_dispatch(void) {
+    const u8 modifiers[]={0,1,15,7};
+    for(int key=0;key<5;++key) for(int usage=0x68;usage<=0x73;++usage) {
+        for(int i=0;i<4;++i) {
+            reset(); ready=hid_ready=1;
+            rdx_hogp_input_cycle_t c=cycle(key,usage,11);
+            c.keymap.modifiers=modifiers[i];
+            if(i==3) c.keymap.usages[1]=4;
+            c.usage=rdx_hogp_key_action_local_usage(&c.keymap);
+            CHECK(!c.usage);
+            down(&c);
+            gesture(&c,KEY_ACTION_CLICK);
+            gesture(&c,KEY_ACTION_LONG);
+            gesture(&c,KEY_ACTION_DOUBLE_CLICK);
+            CHECK(!starts && !online_starts && !marks && !playback);
+            CHECK(!player_messages && !volume_step && !feedback_calls);
+        }
+    }
+    return 0;
+}
+int test_other_record_combinations_do_not_dispatch(void) {
+    const u8 modifiers[]={0,1,0x70,0x0f,7};
+    for(int key=0;key<5;++key) for(int i=0;i<5;++i) {
+        reset();
+        rdx_hogp_input_cycle_t c=cycle(key,0x6e,3);
+        c.keymap.modifiers=modifiers[i];
+        if(i==4) c.keymap.usages[1]=4;
+        CHECK(!rdx_hogp_key_action_local_usage(&c.keymap));
+        /* Down independently revalidates the snapshot, even if usage is stale. */
+        down(&c);
+        CHECK(!key_record_owner_valid && !starts && !online_starts);
+
+        c.keymap.usages[0]=0x6d;
+        c.usage=rdx_hogp_key_action_local_usage(&c.keymap);
+        gesture(&c,KEY_ACTION_DOUBLE_CLICK);
+        CHECK(!starts && !online_starts);
+        status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE;
+        gesture(&c,KEY_ACTION_CLICK);
+        CHECK(!marks);
+    }
+    return 0;
+}
 int test_inspiration_routes_and_owner(void) {
     for(int key=0;key<5;++key) for(int links=0;links<5;++links) {
         reset(); ready=links>=2; stream_ready=links>=3;
         hid_ready=links==1 || links==4;
         int online=ready && stream_ready;
         rdx_hogp_input_cycle_t c=cycle(key,0x6e,10);
+        c.usage=rdx_hogp_key_action_local_usage(&c.keymap);
+        CHECK(c.usage==0x6e);
         down(&c);
         CHECK(key_record_session_active && key_record_owner_valid);
         CHECK(key_record_local==!online && record_kind==RDX_RECORD_INSPIRATION);
@@ -333,6 +393,9 @@ int test_meeting_pending_pause_and_mutual_exclusion(void) {
         reset(); ready=online;
         rdx_hogp_input_cycle_t meeting=cycle(key,0x6d,20);
         rdx_hogp_input_cycle_t inspiration=cycle(key,0x6e,21);
+        meeting.usage=rdx_hogp_key_action_local_usage(&meeting.keymap);
+        inspiration.usage=rdx_hogp_key_action_local_usage(&inspiration.keymap);
+        CHECK(meeting.usage==0x6d && inspiration.usage==0x6e);
         gesture(&meeting,KEY_ACTION_DOUBLE_CLICK);
         /* 在线会议与 APP 开启一致（推流并落盘），不建立按住式会话；本地会议固定离线路由。 */
         CHECK(key_record_session_active==!online && record_kind==RDX_RECORD_MEETING);
@@ -446,14 +509,18 @@ int test_online_release_restores_business_without_reboot(void) {
     return 0;
 }
 int test_mark_feedback_and_player_admission(void) {
-    reset(); rdx_hogp_input_cycle_t f18=cycle(0,0x6d,40), f17=cycle(1,0x6c,41);
-    status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE;
-    gesture(&f17,KEY_ACTION_CLICK); CHECK(!marks && !playback && battery_queries==1);
-    gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==1);
-    mark_fail=1; gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==2);
-    mark_fail=0; status.run=RECORD_STATE_PAUSE;
-    gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==3);
-    reset(); f17=cycle(0,0x6c,42); ready=1;
+    {
+        reset(); rdx_hogp_input_cycle_t f18=cycle(0,0x6d,40), f17=cycle(1,0x6c,41);
+        f18.usage=rdx_hogp_key_action_local_usage(&f18.keymap);
+        CHECK(f18.usage==0x6d);
+        status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE;
+        gesture(&f17,KEY_ACTION_CLICK); CHECK(!marks && !playback && battery_queries==1);
+        gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==1);
+        mark_fail=1; gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==2);
+        mark_fail=0; status.run=RECORD_STATE_PAUSE;
+        gesture(&f18,KEY_ACTION_CLICK); CHECK(marks==1 && battery_queries==3);
+    }
+    reset(); rdx_hogp_input_cycle_t f17=cycle(0,0x6c,42); ready=1;
     gesture(&f17,KEY_ACTION_CLICK); CHECK(playback && battery_queries==1);
     const int messages[]={APP_MSG_REC_PREV,APP_MSG_REC_NEXT,APP_MSG_REC_FR,APP_MSG_REC_FF,
         APP_MSG_REC_PLAY_TOGGLE,APP_MSG_LOCAL_VOL_UP,APP_MSG_LOCAL_VOL_DOWN};
@@ -563,7 +630,7 @@ int test_device_record_set_admits_before_key_context(void) {
     }
     return 0;
 }
-int test_cdc_first_only_online_plain_f19(void) {
+int test_cdc_first_only_online_shortcut_f19(void) {
     for(int link=0;link<4;++link) {
         reset(); cdc_busy=1; ready=link>=1; stream_ready=link>=2;
         hid_ready=link==3; playback=1;
@@ -738,10 +805,13 @@ def main():
     begin = handler.index('        case APP_MSG_DUT:')
     cases += handler[begin:handler.index('    #endif', begin)]
     playback = (BASE / 'rdx_playback.c').read_text(encoding='utf-8')
-    program = (STUBS + enums + headers + '\n' + tables +
+    hid_usage = (ROOT / 'SDK/apps/common/device/hid/hid_keyboard_usage.h').read_text(encoding='utf-8')
+    program = (STUBS + enums + headers + '\n' + hid_usage + tables +
                function(keys, 'rdx_key_usage_message') + function(keys, 'rdx_key_get_io_num_table') +
                function((BASE / 'rdx_hogp_key_action.c').read_text(encoding='utf-8'),
                         'rdx_hogp_key_action_plain_usage') +
+               function((BASE / 'rdx_hogp_key_action.c').read_text(encoding='utf-8'),
+                        'rdx_hogp_key_action_local_usage') +
                'static rdx_hogp_input_cycle_t key_record_owner;\nstatic u8 key_record_owner_valid;\n'
                'static const rdx_hogp_input_cycle_t *local_key_dispatch_cycle;\n'
                '#define KEY_DRIVER_TYPE_IO 0\n'

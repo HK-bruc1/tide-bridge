@@ -148,6 +148,24 @@ u8 rdx_hogp_key_action_plain_usage(const rdx_hogp_key_action_keyboard_t *action)
     return usage;
 }
 
+u8 rdx_hogp_key_action_local_usage(const rdx_hogp_key_action_keyboard_t *action)
+{
+    rdx_hogp_key_action_keyboard_t plain;
+    u8 usage;
+
+    if (!action) return 0;
+    plain = *action;
+    plain.modifiers = 0;
+    usage = rdx_hogp_key_action_plain_usage(&plain);
+    /* Product F13-F24 bindings require exactly left Ctrl+Shift+Alt. */
+    if (usage >= 0x68 && usage <= 0x73) {
+        return action->modifiers == (HID_KEYBOARD_MOD_LCTRL |
+                                     HID_KEYBOARD_MOD_LSHIFT |
+                                     HID_KEYBOARD_MOD_LALT) ? usage : 0;
+    }
+    return action->modifiers ? 0 : usage;
+}
+
 u8 rdx_hogp_key_action_is_plain_key(u8 key_id, u8 usage)
 {
     const rdx_hogp_key_action_keyboard_t *action;

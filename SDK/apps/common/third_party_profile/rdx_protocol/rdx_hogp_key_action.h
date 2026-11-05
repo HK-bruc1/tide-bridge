@@ -51,6 +51,8 @@ u8 rdx_hogp_key_action_is_plain_key(u8 key_id, u8 usage);
 /* 调用方须持有短时扫描中断锁；仅复制 RAM，不执行 ATT 或 VM 操作。 */
 u32 rdx_hogp_key_action_snapshot_locked(u8 key_id, rdx_hogp_key_action_keyboard_t *action);
 u8 rdx_hogp_key_action_plain_usage(const rdx_hogp_key_action_keyboard_t *action);
+/* F13-F24 local business requires the exact 0x07 modifier. */
+u8 rdx_hogp_key_action_local_usage(const rdx_hogp_key_action_keyboard_t *action);
 int  rdx_hogp_key_action_press(u8 key_id, u32 input_epoch);
 int  rdx_hogp_key_action_press_snapshot(u8 key_id, u32 input_epoch,
                                       const rdx_hogp_key_action_keyboard_t *action);

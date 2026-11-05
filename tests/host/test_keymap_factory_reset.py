@@ -42,10 +42,6 @@ int syscfg_read(int id,void *p,int n) {
     if(id==fail_read || lengths[id]!=n) return -1;
     memcpy(p,flash[id],n); return n;
 }
-/* Checksum backend is mocked; record construction/validation is production. */
-u32 rdx_hogpkm_crc32(const u8 *p,u16 n) {
-    u32 v=5381; while(n--) v=(v*33)^*p++; return v;
-}
 int rdx_hogpkm_apply_payload(const u8 *p) {
     if(apply_fail) return -1;
     memcpy(applied,p,35); return 0;
@@ -55,6 +51,7 @@ int rdx_hogpkm_apply_payload(const u8 *p) {
 CHECKS = r'''
 static void seed(void) {
     rdx_hogpkm_store_transaction_t t;
+    rdx_init_crc32_table();
     memset(flash,0,sizeof(flash)); memset(lengths,0,sizeof(lengths));
     fail_write=fail_read=-1; apply_fail=0; writes=cancels=0;
     memcpy(s_rdx_hogpkm_current_keymap,s_rdx_hogpkm_default_keymap,35);
@@ -72,7 +69,7 @@ int check_reset(void) {
     seed();
     const u8 expected[]={0x68,0x69,0x6c,0x6d,0x6e};
     for(int key=0;key<5;++key) {
-        CHECK(s_rdx_hogpkm_default_keymap[key*7]==0);
+        CHECK(s_rdx_hogpkm_default_keymap[key*7]==7);
         CHECK(s_rdx_hogpkm_default_keymap[key*7+1]==expected[key]);
         for(int slot=2;slot<7;++slot) CHECK(s_rdx_hogpkm_default_keymap[key*7+slot]==0);
     }
@@ -97,6 +94,94 @@ int check_saved_old_defaults(void) {
     CHECK(!rdx_hogpkm_store_load(&boot));
     CHECK(boot.revision==9 && !memcmp(boot.payload,old,35));
     CHECK(boot.payload[15]==0x6a && boot.payload[22]==0x6b && boot.payload[29]==0x6c);
+    return 0;
+}
+int check_saved_plain_product_keys_remain_authoritative(void) {
+    rdx_hogpkm_store_transaction_t t;
+    u8 old[35];
+    seed();
+    memcpy(old,s_rdx_hogpkm_default_keymap,35);
+    for(int key=0;key<5;++key) old[key*7]=0;
+    CHECK(!rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,9,old,rdx_hogpkm_crc32(old,35),&t));
+    CHECK(!rdx_hogpkm_store_commit(&t,&s_rdx_hogpkm_active_slot));
+    memset(applied,0,sizeof(applied));
+    rdx_hogp_keymap_config_init();
+    CHECK(s_rdx_hogpkm_current_revision==9);
+    CHECK(!memcmp(s_rdx_hogpkm_current_keymap,old,35) && !memcmp(applied,old,35));
+    CHECK(!rdx_hogp_keymap_config_factory_reset());
+    CHECK(s_rdx_hogpkm_current_revision==10);
+    CHECK(!memcmp(applied,s_rdx_hogpkm_default_keymap,35));
+    return 0;
+}
+int check_saved_custom_keymap_remains_authoritative(void) {
+    rdx_hogpkm_store_transaction_t t;
+    u8 custom[35];
+    seed();
+    memcpy(custom,s_rdx_hogpkm_default_keymap,35);
+    custom[0]=1; custom[1]=6; /* Ctrl+C */
+    custom[7]=7; custom[8]=0x68; custom[9]=4; /* Multi-usage shortcut */
+    CHECK(!rdx_hogpkm_validate_keymap(custom));
+    CHECK(!rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,9,custom,rdx_hogpkm_crc32(custom,35),&t));
+    CHECK(!rdx_hogpkm_store_commit(&t,&s_rdx_hogpkm_active_slot));
+    memset(applied,0,sizeof(applied));
+    rdx_hogp_keymap_config_init();
+    CHECK(s_rdx_hogpkm_current_revision==9);
+    CHECK(!memcmp(s_rdx_hogpkm_current_keymap,custom,35) && !memcmp(applied,custom,35));
+    return 0;
+}
+int check_modified_product_keymap_frame(void) {
+    const char frame[] =
+        "010134120700000023000768000000000007690000000000076C0000000000"
+        "076D0000000000076E00000000003CB4CF95";
+    char broken[sizeof(frame)];
+    rdx_hogpkm_request_t request;
+    rdx_hogpkm_store_transaction_t transaction;
+    rdx_hogpkm_store_entry_t boot;
+    u8 status, can_respond;
+    seed();
+    CHECK(!rdx_hogpkm_decode_request(frame,&request,&status,&can_respond));
+    CHECK(can_respond && request.opcode==RDX_HOGPKM_OP_SET_KEYMAP);
+    CHECK(request.request_id==0x1234 && request.base_revision==7 && request.payload_len==35);
+    CHECK(!memcmp(request.payload,s_rdx_hogpkm_default_keymap,35));
+    CHECK(rdx_hogpkm_validate_keymap(request.payload)==RDX_HOGPKM_STATUS_OK);
+    CHECK(rdx_hogpkm_crc32(request.payload,35)==0xd0b5287aU);
+    CHECK(!rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,8,request.payload,
+                                    rdx_hogpkm_crc32(request.payload,35),&transaction));
+    CHECK(!rdx_hogpkm_store_commit(&transaction,&s_rdx_hogpkm_active_slot));
+    CHECK(!rdx_hogpkm_store_load(&boot));
+    CHECK(boot.revision==8 && !memcmp(boot.payload,request.payload,35));
+    memcpy(broken,frame,sizeof(frame)); broken[sizeof(frame)-2]='0';
+    CHECK(rdx_hogpkm_decode_request(broken,&request,&status,&can_respond));
+    CHECK(can_respond && status==RDX_HOGPKM_STATUS_CRC_ERROR);
+    return 0;
+}
+int check_all_product_shortcut_frames_and_reboot(void) {
+    const char digits[]="0123456789ABCDEF";
+    for(int key=0;key<5;++key) for(int usage=0x68;usage<=0x73;++usage) {
+        u8 frame[49]={1,1,0x34,0x12,7,0,0,0,35,0};
+        char hex[99];
+        rdx_hogpkm_request_t request;
+        rdx_hogpkm_store_transaction_t transaction;
+        u8 status, can_respond;
+        seed();
+        memcpy(frame+10,s_rdx_hogpkm_default_keymap,35);
+        frame[10+key*7+1]=usage;
+        rdx_hogpkm_put_le32(frame+45,rdx_hogpkm_crc32(frame,45));
+        for(int i=0;i<49;++i) {
+            hex[i*2]=digits[frame[i]>>4]; hex[i*2+1]=digits[frame[i]&15];
+        }
+        hex[98]=0;
+        CHECK(!rdx_hogpkm_decode_request(hex,&request,&status,&can_respond));
+        CHECK(can_respond && !memcmp(request.payload,frame+10,35));
+        CHECK(rdx_hogpkm_validate_keymap(request.payload)==RDX_HOGPKM_STATUS_OK);
+        CHECK(!rdx_hogpkm_store_prepare(s_rdx_hogpkm_active_slot,8,request.payload,
+                                        rdx_hogpkm_crc32(request.payload,35),&transaction));
+        CHECK(!rdx_hogpkm_store_commit(&transaction,&s_rdx_hogpkm_active_slot));
+        memset(applied,0,sizeof(applied));
+        rdx_hogp_keymap_config_init();
+        CHECK(s_rdx_hogpkm_current_revision==8);
+        CHECK(!memcmp(applied,frame+10,35));
+    }
     return 0;
 }
 int check_failures(void) {
@@ -258,8 +343,16 @@ header = strip_includes(read('rdx_hogp_keymap_internal.h'))
 # Locate the SDK usage constants independently of SDK include-path aliases.
 usage = next((ROOT / 'SDK').rglob('hid_keyboard_usage.h'))
 code = STUBS + header + strip_includes(usage.read_text(encoding='utf-8'))
+util = read('rdx_util.c')
+active_crc = util[util.index('static u32 crc32_table[256];'):]
+code += 'static u32 crc32_table[256];\n'
+code += function(active_crc, 'rdx_init_crc32_table')
+code += function(active_crc, 'rdx_util_crc32')
+code += function(protocol, 'rdx_hogpkm_crc32')
 for name in ('rdx_hogpkm_get_le16','rdx_hogpkm_get_le32','rdx_hogpkm_put_le16',
-             'rdx_hogpkm_put_le32','rdx_hogpkm_usage_is_supported','rdx_hogpkm_validate_keymap'):
+             'rdx_hogpkm_put_le32','rdx_hogpkm_bounded_strlen','rdx_hogpkm_hex_nibble',
+             'rdx_hogpkm_hex_decode','rdx_hogpkm_usage_is_supported',
+             'rdx_hogpkm_validate_keymap','rdx_hogpkm_decode_request'):
     code += function(protocol,name)
 code += strip_includes(read('rdx_hogp_keymap_store.c'))
 code += re.search(r'static const u8 s_rdx_hogpkm_default_keymap.*?\};',service,re.S)[0]
@@ -270,6 +363,7 @@ struct { rdx_hogpkm_request_t frame; } s_rdx_hogpkm_pending;
 struct { int valid; } s_rdx_hogpkm_cache;
 '''
 code += function(service,'rdx_hogp_keymap_config_on_disconnect')
+code += function(service,'rdx_hogp_keymap_config_init')
 code += function(service,'rdx_hogp_keymap_config_factory_reset') + CHECKS
 code += r'''
 typedef struct { int valid; } rdx_ble_async_token_t;
@@ -307,7 +401,12 @@ int check_callback(void) {
 with tempfile.TemporaryDirectory(prefix='keymap-reset-') as tmp:
     path = Path(tmp) / 'checks.c'
     path.write_text(code,encoding='utf-8')
-    run_c_checks(path, ['check_reset','check_saved_old_defaults','check_failures','check_callback'], native=True)
+    run_c_checks(path, ['check_reset','check_saved_old_defaults',
+                        'check_saved_plain_product_keys_remain_authoritative',
+                        'check_saved_custom_keymap_remains_authoritative',
+                        'check_modified_product_keymap_frame',
+                        'check_all_product_shortcut_frames_and_reboot',
+                        'check_failures','check_callback'], native=True)
 check_playback_volume_defaults()
 check_rtc_reset()
-print('Factory defaults: keymap, playback volume and RTC persistence/reset checks passed.')
+print('Factory defaults and product shortcut keymap: codec, CRC, persistence/reset checks passed.')

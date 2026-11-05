@@ -1281,6 +1281,21 @@ static void rdx_app_local_volume_change(int message)
     app_send_message(APP_MSG_VOL_CHANGED, app_audio_get_volume(APP_AUDIO_STATE_MUSIC));
 }
 
+static u8 rdx_app_compat_key_usage(u8 key_id)
+{
+    rdx_hogp_key_action_keyboard_t action;
+    local_irq_disable();
+    rdx_hogp_key_action_snapshot_locked(key_id, &action);
+    local_irq_enable();
+
+    u8 usage = rdx_hogp_key_action_local_usage(&action);
+    /* Recording requires the product input's Down snapshot. */
+    if (usage < 0x68 || usage > 0x73 || usage == 0x6d || usage == 0x6e) {
+        return 0;
+    }
+    return usage;
+}
+
 void rdx_app_earphone_key_remap(int *value, int *msg)
 {
     /*----------------------------------------------------------------*/
@@ -1325,13 +1340,7 @@ void rdx_app_earphone_key_remap(int *value, int *msg)
         int scene = rdx_app_get_scene();
         rdx_key_io_num_log(num_idx, index);             // DEBUG
 
-        u8 usage = 0;
-        for (u8 candidate = 0x68; candidate <= 0x73; ++candidate) {
-            if (rdx_hogp_key_action_is_plain_key(num_idx, candidate)) {
-                usage = candidate;
-                break;
-            }
-        }
+        u8 usage = rdx_app_compat_key_usage(num_idx);
         rdx_app_usage_key_remap(value, key->value, usage, index, scene);
         return;
     }
@@ -3167,7 +3176,7 @@ void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle)
         cycle->mode != RDX_LOCAL_KEY_NORMAL ||
         rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
         cycle->physical_key < KEY_IO_NUM0 || cycle->physical_key > KEY_IO_NUM4 ||
-        rdx_hogp_key_action_plain_usage(&cycle->keymap) != 0x6e ||
+        rdx_hogp_key_action_local_usage(&cycle->keymap) != 0x6e ||
         rdx_dut_key_consume(cycle->physical_key, cycle->down_ms)) return;
 
     g_printf("[F19_DOWN] key=%u cycle=%u down_ms=%u wait_ms=%u\r",

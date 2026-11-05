@@ -10,6 +10,7 @@
 #include "app_config.h"
 #include "system/includes.h"
 
+#include "device/hid/hid_keyboard_usage.h"
 #include "rdx_app_config.h"
 #include "rdx_ble_server.h"
 #include "rdx_ble_session.h"
@@ -43,13 +44,18 @@ typedef struct {
     rdx_ble_async_token_t rdx_token;
 } rdx_hogpkm_owned_request_t;
 
-/* KEY1..KEY5 默认依次为 F13、F14、F17、F18、F19；优先保留已保存的有效配键。 */
+/* Product shortcuts use left Ctrl+Shift+Alt; saved maps remain authoritative. */
 static const u8 s_rdx_hogpkm_default_keymap[RDX_HOGPKM_KEYMAP_LEN] = {
-    0x00, 0x68, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x6d, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x6e, 0x00, 0x00, 0x00, 0x00, 0x00,
+    HID_KEYBOARD_MOD_LCTRL | HID_KEYBOARD_MOD_LSHIFT | HID_KEYBOARD_MOD_LALT,
+    0x68, 0x00, 0x00, 0x00, 0x00, 0x00,
+    HID_KEYBOARD_MOD_LCTRL | HID_KEYBOARD_MOD_LSHIFT | HID_KEYBOARD_MOD_LALT,
+    0x69, 0x00, 0x00, 0x00, 0x00, 0x00,
+    HID_KEYBOARD_MOD_LCTRL | HID_KEYBOARD_MOD_LSHIFT | HID_KEYBOARD_MOD_LALT,
+    0x6c, 0x00, 0x00, 0x00, 0x00, 0x00,
+    HID_KEYBOARD_MOD_LCTRL | HID_KEYBOARD_MOD_LSHIFT | HID_KEYBOARD_MOD_LALT,
+    0x6d, 0x00, 0x00, 0x00, 0x00, 0x00,
+    HID_KEYBOARD_MOD_LCTRL | HID_KEYBOARD_MOD_LSHIFT | HID_KEYBOARD_MOD_LALT,
+    0x6e, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
 static u8 s_rdx_hogpkm_current_keymap[RDX_HOGPKM_KEYMAP_LEN];

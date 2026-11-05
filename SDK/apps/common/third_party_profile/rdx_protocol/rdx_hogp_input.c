@@ -177,7 +177,7 @@ void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
             scan_cycle.physical_key = current;
             scan_cycle.map = rdx_hogp_key_action_snapshot_locked(
                 current - KEY_IO_NUM0, &scan_cycle.keymap);
-            scan_cycle.usage = rdx_hogp_key_action_plain_usage(&scan_cycle.keymap);
+            scan_cycle.usage = rdx_hogp_key_action_local_usage(&scan_cycle.keymap);
             scan_cycle.mode = local_mode;
             scan_cycle.hid_admitted = event.admitted &&
                 event.route == RDX_HOGP_INPUT_HID && scan_cycle.map == published_map;

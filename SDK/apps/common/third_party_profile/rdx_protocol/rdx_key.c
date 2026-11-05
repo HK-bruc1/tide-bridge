@@ -434,7 +434,7 @@ u8 key_table_wifi_r[KEY_ACTION_MAX] = {
     APP_MSG_NULL
 };
 
-/* 无修饰键的单一键盘 Usage 共用一张业务表，与 GPIO 无关。 */
+/* 本地准入的单一键盘 Usage 共用一张业务表，与 GPIO 无关。 */
 static const u8 key_table_usage[7][KEY_ACTION_MAX] = {
     [0x68 - 0x68] = {
         [KEY_ACTION_CLICK] = APP_MSG_REC_PREV,

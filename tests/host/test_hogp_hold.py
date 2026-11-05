@@ -148,7 +148,7 @@ static void session_boot(int split) {
     rdx_hogp_key_action_init();
     rdx_hogp_key_action_keymap_t map={0}; map.version=1; map.key_count=5;
     map.keys[0].usages[0]=4;
-    map.keys[4].usages[0]=0x6c; /* KEY5 对应 F17 */
+    map.keys[4].modifiers=7; map.keys[4].usages[0]=0x6c; /* KEY5 对应 F17 */
     rdx_hogp_key_action_keymap_apply(&map);
     rdx_hogp_key_action_service(); reports=0; cleanup_pending=0;
 }
@@ -297,10 +297,13 @@ static void reconnect(void) {
 }
 int test_plain_key_query_tracks_active_map(void) {
     boot(1);
+    CHECK(!rdx_hogp_key_action_is_plain_key(4,0x6c));
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[4].modifiers=0;
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map));
     CHECK(rdx_hogp_key_action_is_plain_key(4,0x6c));
     CHECK(!rdx_hogp_key_action_is_plain_key(5,0x6c));
     CHECK(!rdx_hogp_key_action_is_plain_key(4,0));
-    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
     map.keys[4].usages[0]=0x6d;
     CHECK(!rdx_hogp_key_action_keymap_apply(&map));
     CHECK(!rdx_hogp_key_action_is_plain_key(4,0x6c));
@@ -482,14 +485,14 @@ int test_worker_notification_and_timer_failure_recovery(void) {
     CHECK(!input_timer && !release_pending && !irq_depth && !context_errors);
     return 0;
 }
-int test_down_snapshot_has_no_torn_map_and_classifies_plain_usage(void) {
+int test_down_snapshot_has_no_torn_map_and_classifies_local_usage(void) {
     boot(1);
     rdx_hogp_key_action_keyboard_t action={0};
     action.usages[5]=0x6d; CHECK(rdx_hogp_key_action_plain_usage(&action)==0x6d);
     action.usages[0]=0x6d; CHECK(!rdx_hogp_key_action_plain_usage(&action));
     action.usages[0]=0; action.modifiers=1; CHECK(!rdx_hogp_key_action_plain_usage(&action));
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    map.keys[0].usages[0]=0x6e;
+    map.keys[0].modifiers=7; map.keys[0].usages[0]=0x6e;
     rdx_hogp_key_action_keymap_apply(&map);
     /* 服务发布配键前发生的 Down 仍须锁定当前 RAM 中的实际配键。 */
     sample(KEY_IO_NUM0);
@@ -501,11 +504,32 @@ int test_down_snapshot_has_no_torn_map_and_classifies_plain_usage(void) {
     sample(NO_KEY); settle(); CHECK(local_cancels==1);
     return 0;
 }
-static void map_f19(int key) {
+int test_local_product_shortcut_requires_exact_modifier_and_usage(void) {
+    rdx_hogp_key_action_keyboard_t action={0};
+    CHECK(!rdx_hogp_key_action_local_usage(NULL));
+    for(int usage=0;usage<256;usage++) for(int modifiers=0;modifiers<256;modifiers++) {
+        action.modifiers=modifiers; action.usages[0]=usage;
+        int product_key=usage>=0x68 && usage<=0x73;
+        int accepted=(modifiers==0 && !product_key) || (modifiers==7 && product_key);
+        CHECK(rdx_hogp_key_action_local_usage(&action)==(accepted?usage:0));
+        if(modifiers) CHECK(!rdx_hogp_key_action_plain_usage(&action));
+    }
+    action.modifiers=7;
+    for(int usage=0x68;usage<=0x73;usage++) {
+        action.usages[0]=usage; action.usages[1]=4;
+        CHECK(!rdx_hogp_key_action_local_usage(&action));
+    }
+    action.usages[0]=action.usages[1]=0;
+    CHECK(!rdx_hogp_key_action_local_usage(&action));
+    return 0;
+}
+static void map_f19_modifier(int key,u8 modifiers) {
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    memset(&map.keys[key],0,sizeof(map.keys[key])); map.keys[key].usages[0]=0x6e;
+    memset(&map.keys[key],0,sizeof(map.keys[key]));
+    map.keys[key].modifiers=modifiers; map.keys[key].usages[0]=0x6e;
     rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
 }
+static void map_f19(int key) { map_f19_modifier(key,7); }
 int test_f19_down_before_long_all_keys_and_hid_backpressure(void) {
     for(int key=0;key<5;key++) for(int online=0;online<2;online++) {
         boot(online); map_f19(key); task_name="app_core";
@@ -518,6 +542,132 @@ int test_f19_down_before_long_all_keys_and_hid_backpressure(void) {
         sample(NO_KEY); tick(); CHECK(local_cancels==1 && !local_owner.id);
         CHECK(!context_errors && !irq_depth);
     }
+    return 0;
+}
+int test_product_default_shortcut_reports(void) {
+    const u8 usages[]={0x68,0x69,0x6c,0x6d,0x6e};
+    for(int key=0;key<5;key++) {
+        const u8 down[8]={7,0,usages[key],0,0,0,0,0}, up[8]={0};
+        rdx_hogp_key_action_keymap_t map;
+        boot(1);
+        rdx_hogpkm_payload_to_executor(s_rdx_hogpkm_default_keymap,&map);
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick(); settle(); reports=0;
+        sample(KEY_IO_NUM0+key); tick();
+        rdx_hogp_input_cycle_t cycle;
+        CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0+key,&cycle));
+        CHECK(cycle.usage==down[2]);
+        CHECK(reports==1 && !memcmp(report_bytes[0],down,8));
+        sample(NO_KEY); tick();
+        CHECK(reports==2 && !memcmp(report_bytes[1],up,8));
+    }
+    return 0;
+}
+int test_product_shortcuts_report_and_release_all_keys(void) {
+    for(int key=0;key<5;key++) for(int usage=0x68;usage<=0x73;usage++) {
+        const u8 down[8]={7,0,usage,0,0,0,0,0}, up[8]={0};
+        boot(1);
+        rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+        memset(&map.keys[key],0,sizeof(map.keys[key]));
+        map.keys[key].modifiers=7; map.keys[key].usages[0]=usage;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick(); settle(); reports=0;
+        sample(KEY_IO_NUM0+key); tick();
+        rdx_hogp_input_cycle_t cycle;
+        CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0+key,&cycle) && cycle.usage==usage);
+        CHECK(reports==1 && !memcmp(report_bytes[0],down,8));
+        sample(NO_KEY); tick();
+        CHECK(reports==2 && !memcmp(report_bytes[1],up,8));
+        if(usage==0x6e) CHECK(local_cancels==1);
+    }
+    return 0;
+}
+int test_saved_plain_product_keys_are_hid_only(void) {
+    for(int key=0;key<5;key++) for(int usage=0x68;usage<=0x73;usage++) {
+        const u8 down[8]={0,0,usage,0,0,0,0,0}, up[8]={0};
+        boot(1);
+        rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+        memset(&map.keys[key],0,sizeof(map.keys[key]));
+        map.keys[key].usages[0]=usage;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick(); settle(); reports=0;
+        sample(KEY_IO_NUM0+key); tick();
+        rdx_hogp_input_cycle_t cycle;
+        CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0+key,&cycle));
+        CHECK(!cycle.usage && !local_start.id && !local_owner.id);
+        CHECK(reports==1 && !memcmp(report_bytes[0],down,8));
+        sample(NO_KEY); tick(); settle();
+        CHECK(reports==2 && !memcmp(report_bytes[1],up,8));
+        for(int i=0;i<local_events;i++) CHECK(!local_usages[i]);
+    }
+    return 0;
+}
+int test_other_product_combinations_are_hid_only(void) {
+    for(int key=0;key<5;key++) for(int usage=0x68;usage<=0x73;usage++) {
+        for(int kind=0;kind<3;kind++) {
+            u8 mod=kind==0?1:(kind==1?15:7);
+            const u8 down[8]={mod,0,usage,kind==2?4:0,0,0,0,0}, up[8]={0};
+            boot(1);
+            rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+            memset(&map.keys[key],0,sizeof(map.keys[key]));
+            map.keys[key].modifiers=mod; map.keys[key].usages[0]=usage;
+            if(kind==2) map.keys[key].usages[1]=4;
+            CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick(); settle(); reports=0;
+            sample(KEY_IO_NUM0+key); tick();
+            rdx_hogp_input_cycle_t cycle;
+            CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM0+key,&cycle) && !cycle.usage);
+            CHECK(reports==1 && !memcmp(report_bytes[0],down,8));
+            sample(NO_KEY); tick(); settle();
+            CHECK(reports==2 && !memcmp(report_bytes[1],up,8));
+            for(int i=0;i<local_events;i++) CHECK(!local_usages[i]);
+        }
+    }
+    return 0;
+}
+int test_compatibility_dispatch_requires_product_shortcut(void) {
+    for(int key=0;key<5;key++) for(int usage=0x68;usage<=0x73;usage++) {
+        boot(0);
+        rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+        memset(&map.keys[key],0,sizeof(map.keys[key]));
+        map.keys[key].modifiers=7; map.keys[key].usages[0]=usage;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+        CHECK(rdx_app_compat_key_usage(key)==((usage==0x6d || usage==0x6e)?0:usage));
+        map.keys[key].modifiers=0;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+        CHECK(!rdx_app_compat_key_usage(key));
+        map.keys[key].modifiers=7; map.keys[key].usages[1]=4;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map));
+        CHECK(!rdx_app_compat_key_usage(key));
+        CHECK(!irq_depth);
+    }
+    CHECK(!rdx_app_compat_key_usage(5));
+    return 0;
+}
+int test_f18_shortcut_double_click_all_keys(void) {
+    for(int key=0;key<5;key++) {
+        boot(0);
+        rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+        memset(&map.keys[key],0,sizeof(map.keys[key]));
+        map.keys[key].modifiers=7; map.keys[key].usages[0]=0x6d;
+        CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick(); settle();
+        local_events=0;
+        for(int i=0;i<2;i++) { sample(KEY_IO_NUM0+key); sample(NO_KEY); tick(); }
+        settle();
+        CHECK(local_events==1 && local_actions[0]==KEY_ACTION_DOUBLE_CLICK);
+        CHECK(local_usages[0]==0x6d);
+    }
+    return 0;
+}
+int test_f19_shortcut_hot_map_preserves_local_release(void) {
+    boot(1); map_f19_modifier(2,7); sample(KEY_IO_NUM0+2); tick();
+    CHECK(local_events==1 && local_owner.id && reports==1);
+    u32 id=local_owner.id;
+    rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
+    map.keys[2].modifiers=1;
+    CHECK(!rdx_hogp_key_action_keymap_apply(&map)); tick();
+    CHECK(local_owner.id==id && !local_cancels && reports==2);
+    CHECK(!report_bytes[1][0] && !report_bytes[1][2]);
+    sample(NO_KEY); settle(); CHECK(local_cancels==1);
+    local_events=0;
+    sample(KEY_IO_NUM0+2); tick(); CHECK(!local_events && !local_start.id);
+    sample(NO_KEY); settle();
     return 0;
 }
 int test_f19_fast_up_queued_down_and_source_cancel_cannot_replay(void) {
@@ -536,16 +686,16 @@ int test_f19_fast_up_queued_down_and_source_cancel_cannot_replay(void) {
     CHECK(local_events==1); sample(NO_KEY); rdx_hogp_input_poll(); CHECK(local_cancels==1);
     return 0;
 }
-int test_f19_modified_multiple_disabled_and_dut_never_fast_start(void) {
-    for(int kind=0;kind<4;kind++) for(int key=0;key<5;key++) {
+int test_f19_plain_other_multiple_disabled_and_dut_never_fast_start(void) {
+    for(int kind=0;kind<5;kind++) for(int key=0;key<5;key++) {
         boot(0);
         rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
         memset(&map.keys[key],0,sizeof(map.keys[key]));
         map.keys[key].usages[0]=0x6e;
-        if(kind==0) map.keys[key].modifiers=1;
-        if(kind==1) map.keys[key].usages[1]=4;
-        if(kind==2) map.keys[key].usages[0]=0;
-        if(kind==3) business_mode=RDX_LOCAL_KEY_DUT;
+        if(kind==1) map.keys[key].modifiers=1;
+        if(kind==2) { map.keys[key].modifiers=7; map.keys[key].usages[1]=4; }
+        if(kind==3) map.keys[key].usages[0]=0;
+        if(kind==4) { map.keys[key].modifiers=7; business_mode=RDX_LOCAL_KEY_DUT; }
         rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
         sample(KEY_IO_NUM0+key); tick(); CHECK(!local_events && !local_start.id);
     }
@@ -555,7 +705,8 @@ int test_f19_hot_map_keeps_down_snapshot_and_one_attempt(void) {
     boot(0); map_f19(2); sample(KEY_IO_NUM0+2); tick(); CHECK(local_events==1);
     u32 id=local_owner.id;
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    map.keys[2].usages[0]=0x68; rdx_hogp_key_action_keymap_apply(&map); tick();
+    map.keys[2].modifiers=7; map.keys[2].usages[0]=0x68;
+    rdx_hogp_key_action_keymap_apply(&map); tick();
     for(int i=0;i<8;i++) { sample(KEY_IO_NUM0+2); tick(); }
     CHECK(local_events==1 && local_owner.id==id);
     sample(NO_KEY); settle(); CHECK(local_cancels==1);
@@ -645,7 +796,7 @@ int test_snapshot_survives_map_change_and_hid_invalidation(void) {
     rdx_hogp_input_cycle_t before;
     CHECK(rdx_hogp_input_cycle_get(KEY_IO_NUM4,&before) && before.usage==0x6c);
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    map.keys[4].usages[0]=0x6e;
+    map.keys[4].modifiers=7; map.keys[4].usages[0]=0x6e;
     CHECK(!rdx_hogp_key_action_keymap_apply(&map));
     pump(8);
     for(int i=0;i<4;i++) { sample(KEY_IO_NUM4); pump(2); }
@@ -737,12 +888,13 @@ int test_source_cancel_and_stale_held_events(void) {
 int test_f18_click_groups_keep_snapshots_and_key5_eight_clicks(void) {
     boot(0);
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    map.keys[0].usages[0]=0x6d; rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+    map.keys[0].modifiers=7; map.keys[0].usages[0]=0x6d;
+    rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
     for(int i=0;i<2;++i) { sample(KEY_IO_NUM0); sample(NO_KEY); tick(); }
     settle(); CHECK(local_events==1 && local_actions[0]==KEY_ACTION_DOUBLE_CLICK);
     local_events=0;
     sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(!local_events);
-    map.keys[0].usages[0]=0x68; rdx_hogp_key_action_keymap_apply(&map);
+    map.keys[0].modifiers=7; map.keys[0].usages[0]=0x68; rdx_hogp_key_action_keymap_apply(&map);
     tick(); sample(KEY_IO_NUM0); sample(NO_KEY); tick();
     CHECK(local_events==2 && local_actions[0]==KEY_ACTION_CLICK && local_actions[1]==KEY_ACTION_CLICK);
     CHECK(local_usages[0]==0x6d && local_usages[1]==0x68 && local_ids[0]!=local_ids[1]);
@@ -761,7 +913,8 @@ int test_f18_click_groups_keep_snapshots_and_key5_eight_clicks(void) {
 int test_pending_click_survives_next_map_long_press(void) {
     boot(0);
     rdx_hogp_key_action_keymap_t map=s_rdx_hogp_key_action_active_keymap;
-    map.keys[0].usages[0]=0x6d; rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
+    map.keys[0].modifiers=7; map.keys[0].usages[0]=0x6d;
+    rdx_hogp_key_action_keymap_apply(&map); tick(); settle();
     sample(KEY_IO_NUM0); sample(NO_KEY); tick(); CHECK(!local_events);
     map.keys[0].usages[0]=0x6e; rdx_hogp_key_action_keymap_apply(&map); tick();
     for(int i=0;i<3;i++) { sample(KEY_IO_NUM0); tick(); }
@@ -884,10 +1037,17 @@ def main():
     driver = (ROOT / 'SDK/apps/common/device/key/key_driver.c').read_text(encoding='utf-8')
     header = source('rdx_hogp_keyboard.h')
     keyboard = source('rdx_hogp_keyboard.c')
+    hid_usage = (ROOT / 'SDK/apps/common/device/hid/hid_keyboard_usage.h').read_text(encoding='utf-8')
+    keymap = source('rdx_hogp_keymap_config.c')
+    defaults = re.search(r'static const u8 s_rdx_hogpkm_default_keymap.*?\};', keymap, re.S)[0]
     program = (STUBS + types + '\n' +
+               hid_usage +
                header[header.index('#define RDX_HOGP_KEYBOARD_REPORT_LEN'):header.index('int rdx_hogp_keyboard_report_send(')] +
                no_includes(source('rdx_hogp_key_action.h')) +
                no_includes(source('rdx_hogp_input.h')) +
+               '#define RDX_HOGPKM_VERSION 1\n#define RDX_HOGPKM_KEY_COUNT 5\n'
+               '#define RDX_HOGPKM_ENTRY_LEN 7\n#define RDX_HOGPKM_KEYMAP_LEN 35\n' +
+               defaults + function(keymap, 'rdx_hogpkm_payload_to_executor') +
                'void rdx_app_local_key_gesture(const struct key_event *, const rdx_hogp_input_cycle_t *);\n'
                'u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *);\n' +
                'void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *);\n'
@@ -899,6 +1059,7 @@ def main():
                    'static void hogp_tx_execute(', 'int rdx_hogp_report_send_for_input(',
                    'int rdx_hogp_report_send_for_token(')) +
                no_includes(source('rdx_hogp_key_action.c')) +
+               function(source('rdx_app.c'), 'rdx_app_compat_key_usage') +
                no_includes(source('rdx_hogp_input.c')) + adapter_state +
                function(adapter, 'void key_event_handler(') + SESSION_TESTS + SCAN_TESTS +
                function(driver, 'static void key_driver_scan(') + ASYNC_TESTS)

@@ -24,10 +24,10 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | C behavioral harness | Production behavior exercised with mocked boundaries |
 | --- | --- |
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
-| `test_keymap_factory_reset.py` | F13/F14/F17/F18/F19 defaults, saved-map preservation, real A/B persistence, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds; `rtc_reset_checks.py` executes real RTC initialization, live reads, VM recovery and controlled-reset persistence with stale P11 snapshots and mocked hardware |
+| `test_keymap_factory_reset.py` | `0x07`+F13/F14/F17/F18/F19 defaults, saved-map preservation, real frame decoder/CRC and A/B persistence on mocked VM, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds; `rtc_reset_checks.py` executes real RTC initialization, live reads, VM recovery and controlled-reset persistence with stale P11 snapshots and mocked hardware |
 | `test_record_tone.py` | Shared cases execute both real `rectone`/`recsave` parsers and VM/default/reset behavior, same-value durability, shared busy gates, queue/IO/send failures, token isolation and default-MTU replies; APP/F18 no-file recording and receiver-loss cleanup belong to the existing session/dispatch harnesses in `test_hogp_hold.py` |
 | `test_flashnote.py` | APP flashnote command parsing, owner isolation, stream-only state and release, key-session busy responses, stale tokens, start/stop failures and reconnect cancellation; BLE/OS boundaries are mocked |
-| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, plain-F19 stable-Down startup on any mapped key, cancellation, hot-map cleanup and retained KEY5 DUT intent; `key_record_dispatch_checks.py` owns usage routing, F18/F19 admission, stop-before-DUT and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
+| `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, default/APP-style `0x07`+F13–F24 reports and local admission on any key, exact modifier/Usage rejection including plain F13–F24, cancellation, hot-map cleanup and retained KEY5 DUT intent; `key_record_dispatch_checks.py` owns usage routing, F18/F19 admission, stop-before-DUT and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |
 | `test_finalpack.py` | Packaging commit order, VM/format/queue/timer failures, business unbinding, key DUT recovery, completion reminder loop/volume/shutdown and packaged tone presence |
 | `test_dut_keys_speaker.py` | Parsing/ownership, key state reset, queue overflow/legacy cleanup, recording authorization, speaker ACK/stop ordering, volume rollback and PCM partial writes; local pink-noise toggle/isolation, low-volume/fade/stalled-stop cleanup, counter wrap and generated-PCM octave spectrum |
@@ -98,14 +98,15 @@ These scheduling checks do not prove on-device current or latency; see the
 and [CDC lifecycle](../../docs/8-2.工厂CDC通信基础与实施记录.md).
 
 `test_hogp_hold.py` also runs `connection_tone_checks.py`: focused checks of
-independent HID/RDX prompts, deduplication, stale sessions and failure handling.
-It uses the real BLE registry and tone logic, mocking HID readiness, OS and
-audio; HID/security and recording remain covered by their existing tests.
-Connection-tone internals are not duplicated in source contracts. Core device
-paths passed user testing; audio coexistence still needs separate validation.
+RDX-only prompts, silent HID attachment/readiness, deduplication, stale sessions
+and failure handling. It uses the real BLE registry, service entry points and
+tone logic, mocking HID internals, OS and audio; HID/security and recording
+remain covered by their existing tests. Connection-tone internals are not
+duplicated in source contracts. Actual prompt counts, first-bond feedback and
+audio coexistence under the current policy still need on-device validation.
 
-F19 stable-Down device regression (2026-10-24): configure any KEY1-KEY5 to
-plain F19 and check startup without waiting for LONG, release during tone/audio
+F19 stable-Down device regression: configure any KEY1-KEY5 to `0x07`+F19
+and check startup without waiting for LONG, release during tone/audio
 startup, normal stop, hot remap and RDX loss. Recheck F13/F14 click/seek,
 F18 toggle/mark and ordinary HID hold/release. If physical DUT entry is enabled,
 KEY5 eight-click must finish its owned F19 cleanup before entering; disabled
@@ -117,6 +118,17 @@ Since 2026-11-04 F19 uses `flashnote` state rather than the old meeting APP
 handshake. Check online stream-only operation, offline file identity on RDX
 reconnect and APP/key control isolation as described in
 `docs/10-10.灵感录音复用闪记协议融合方案.md`.
+
+The user confirmed the first F18/F19 shortcut test passed. The subsequent
+extension to all product keys still needs APP/board/host-OS regression. Check
+APP GET/SET response and restart persistence, all five default keys and
+`0x07`+F13–F24, `07 00 <Usage>` Down plus all-zero Up, playback/volume,
+F18 double-click/mark, F19 Down/Up, F20–F24 feedback, hot remap and
+offline/online routes. Verify plain F13–F24 do not trigger the corresponding
+local function and that previously saved plain maps are not overwritten; they
+still report plain until the APP changes the map or the user resets all five
+keys. Test actual Windows/macOS receipt and conference-software conflicts;
+host simulations do not prove OS shortcut support or conflict avoidance.
 
 DUT 调度检查覆盖未连接、BLE 已连接、USB 在线和 DUT 模式内无待办停表；
 执行实际初始化、物理键/命令入口、事件合并及处理中再次通知、消息与定时器失败恢复、
@@ -185,7 +197,7 @@ See [CDC file transfer](../../docs/10-4.CDC通用文件传输业务方案.md),
 sections 6.3–6.4 for board validation and section 7 for historical performance.
 
 CDC / online-F19 coverage stays in the existing suites. Usage dispatch owns
-plain-F19 routing/readiness; `record_key_session_checks.py` owns both startup
+`0x07`+F19 routing/readiness; `record_key_session_checks.py` owns both startup
 orders, LIST/GET during pending/tone/active/pause, no-storage cleanup, ordinary
 recording exclusion, stale owners and post-acquire conflicts. One shared fixture
 covers both process variants and the worker guard: CDC deadline/error/cancel,
@@ -226,7 +238,7 @@ cannot certify USB throughput or scheduler races; those require board tests.
 
 Factory reset board regression: save a non-default HID map with the PC App,
 send the phone App's `*APP#default#`, then reconnect after reboot and verify
-KEY1–KEY5 are F13/F14/F17/F18/F19. Power-cycle again and query the map to check persistence.
+KEY1–KEY5 are `0x07`+F13/F14/F17/F18/F19. Power-cycle again and query the map to check persistence.
 Repeat when the map is already default and with a held HID key; verify no stuck
 key remains. The shared packaging reset must restore the same map without
 rebooting. Storage failure must return failure and must not schedule a reboot.
