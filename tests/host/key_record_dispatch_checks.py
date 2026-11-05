@@ -54,7 +54,8 @@ static int player_messages, last_player_message;
 static u32 local_epoch=1;
 static int rdx_app_init_flag=1, poweroff_ready_flag, rdx_dut_mode, mode_switch_keep_timer;
 static int ready, bound=1, blocked, cdc_busy, queue_fail, stop_fail, stops, playback, playback_stops, starts;
-static int online_starts, online_stops, ota, formatting;
+static int online_starts, online_stops, direct_meeting_starts, meeting_trigger_starts;
+static int reject_direct_start, ota, formatting;
 static int marks;
 static int dut_disabled;
 static int dut_entries;
@@ -110,7 +111,8 @@ static void rdx_record_process(void) {}
 static void rdx_playback_stop(void) { playback=0; ++playback_stops; }
 static int os_taskq_post_type(const char *t,int q,int n,int *m) {
     if(queue_fail) return -1;
-    if(status.run==RECORD_STATE_START) ++starts;
+    if(n==2 && m[0]==(int)(long long)rdx_record_process &&
+       status.run==RECORD_STATE_START) ++starts;
     return 0;
 }
 static int sys_timeout_add(void *p,void (*cb)(void *),int t) { return timer_fail?0:1; }
@@ -135,7 +137,10 @@ static int rdx_app_record_trigger_post(RecordStatus *s,int f,rdx_ble_async_token
                                        int stream,int kind) {
     (void)kind;
     if(queue_fail) return -1;
-    if(s->run==RECORD_STATE_START) ++online_starts;
+    if(s->run==RECORD_STATE_START) {
+        ++online_starts;
+        if(kind==RDX_RECORD_MEETING) ++meeting_trigger_starts;
+    }
     else {
         ++online_stops;
         if(trigger_deferred) trigger_stop_pending=1;
@@ -194,6 +199,17 @@ static int storage_full, storage_admits;
 static int rdx_record_local_storage_admit(const char *who) { ++storage_admits; return storage_full?-2:0; }
 static int save_enabled=1;
 static int rdx_record_save_enabled(void) { return save_enabled; }
+static int rdx_record_key_meeting_start(rdx_ble_async_token_t *token) {
+    (void)token;
+    ++online_starts;
+    ++direct_meeting_starts;
+    if(reject_direct_start) return -1;
+    record_kind=RDX_RECORD_MEETING;
+    status.run=RECORD_STATE_START;
+    key_state=RDX_RECORD_KEY_ACTIVE;
+    stream_active=!save_enabled;
+    return 0;
+}
 static int rdx_record_nosave_session_open(void) {
     return !save_enabled && record_kind==RDX_RECORD_MEETING &&
         (key_state==RDX_RECORD_KEY_START_PENDING || key_state==RDX_RECORD_KEY_ACTIVE);
@@ -245,6 +261,7 @@ static void reset(void) {
     rdx_app_init_flag=bound=stream_ready=release_done=1;
     poweroff_ready_flag=rdx_dut_mode=mode_switch_keep_timer=ready=blocked=cdc_busy=0;
     queue_fail=stop_fail=stops=starts=online_starts=online_stops=ota=formatting=0;
+    direct_meeting_starts=meeting_trigger_starts=reject_direct_start=0;
     timer_fail=pc_mode=factory_keys=local_burnin=consume_key=0;
     player_messages=last_player_message=0;
     playback=playback_stops=marks=mark_fail=tone_running=volume_step=0;
@@ -402,8 +419,9 @@ int test_meeting_pending_pause_and_mutual_exclusion(void) {
         CHECK(online_starts==online && starts==!online);
         CHECK(!(online && key_record_local));
         gesture(&meeting,KEY_ACTION_UP); CHECK(!stops && !online_stops);
-        /* 在线会议由 APP 回复后引擎受理；桩函数不模拟该回复，这里显式推进状态。 */
-        if(online) { status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE; }
+        /* 在线会议由设备直接受理，不发送旧的 APP 触发请求。 */
+        if(online) CHECK(direct_meeting_starts==1 && !meeting_trigger_starts &&
+                         status.run==RECORD_STATE_START && key_state==RDX_RECORD_KEY_ACTIVE);
         down(&inspiration); CHECK(!key_record_owner_valid);
         if(online) {
             /* 引擎已受理的在线会议，再双击只做本地权威停止。 */
@@ -546,12 +564,19 @@ int test_nosave_meeting_f18_online_only(void) {
             continue;
         }
         CHECK(online_starts==1 && !starts && !storage_admits && !key_record_local);
-        CHECK(key_record_session_active && key_state==RDX_RECORD_KEY_START_PENDING);
-        /* APP 受理后再次触发：按纯推流停止，不走本地落盘停止。 */
-        status.run=RECORD_STATE_START; key_state=RDX_RECORD_KEY_ACTIVE; stream_active=1;
+        CHECK(key_record_session_active && key_state==RDX_RECORD_KEY_ACTIVE);
+        CHECK(direct_meeting_starts==1 && !meeting_trigger_starts && stream_active);
+        /* 设备启动后再次触发：按纯推流停止，不走本地落盘停止。 */
         gesture(&f18,KEY_ACTION_DOUBLE_CLICK);
         CHECK(release_calls>=1 && online_stops==1 && !stops);
     }
+    /* 直接启动被底层拒绝时，撤销纯推流预置，不能遗留待开始会话。 */
+    reset(); save_enabled=0; ready=1; reject_direct_start=1;
+    rdx_hogp_input_cycle_t failed=cycle(0,0x6d,93);
+    gesture(&failed,KEY_ACTION_DOUBLE_CLICK);
+    CHECK(direct_meeting_starts==1 && !meeting_trigger_starts);
+    CHECK(key_state==RDX_RECORD_KEY_IDLE && !key_record_session_active &&
+          !key_record_pressed && status.run==RECORD_STATE_STOP);
     /* APP 发起的不落盘会议：F18 同样必须能停止，不能被请求代次不符而静默吞掉。 */
     reset(); save_enabled=0; ready=1; status.run=RECORD_STATE_START; stream_active=1;
     key_state=RDX_RECORD_KEY_ACTIVE; record_kind=RDX_RECORD_MEETING; request_generation+=7;

@@ -119,6 +119,12 @@ handshake. Check online stream-only operation, offline file identity on RDX
 reconnect and APP/key control isolation as described in
 `docs/10-10.灵感录音复用闪记协议融合方案.md`.
 
+Online F18 now starts on the device. The usage-dispatch harness checks the
+`0x07` shortcut and direct-start routing; the recorder-session harness checks
+actual admission and state publication, `recsave` on/off, no delayed key start
+and stream-only STOP cleanup. These separate harnesses mock BLE/OS boundaries
+and do not replace end-to-end device/APP testing.
+
 The user confirmed the first F18/F19 shortcut test passed. The subsequent
 extension to all product keys still needs APP/board/host-OS regression. Check
 APP GET/SET response and restart persistence, all five default keys and
