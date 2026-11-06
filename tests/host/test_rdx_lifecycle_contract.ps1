@@ -12,6 +12,7 @@ $Session = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_session.c"
 $SessionHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_session.h"
 $Server = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.c"
 $ServerHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_server.h"
+$Entry = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_ble_entry.c"
 $ProtocolHeader = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_protocol.h"
 $App = Read-RepoFile $RepoRoot "$ProtocolRoot\rdx_app.c"
 $ArchiveHash = (Get-FileHash -Algorithm SHA256 `
@@ -38,6 +39,12 @@ $Abort = Get-SourceSlice $Server `
 $TryRearm = Get-SourceSlice $Server `
     'static u8 rdx_ble_server_rdx_runtime_try_rearm(' `
     'u8 rdx_ble_server_rdx_lifecycle_barrier_match(' -Last
+$RearmService = Get-SourceSlice $Server `
+    'u8 rdx_ble_entry_rearm_service(' `
+    'static u8 rdx_ble_server_rdx_runtime_try_rearm(' -Last
+$CommitRearm = Get-SourceSlice $Entry `
+    'u8 rdx_ble_entry_commit_rearm(' `
+    'void rdx_ble_entry_rearm_requested('
 $BarrierComplete = Get-SourceSlice $Server `
     'void rdx_ble_server_rdx_lifecycle_barrier_complete(' `
     'static void rdx_ble_server_link_disconnected_cleanup_internal('
@@ -84,13 +91,14 @@ Assert-Contract 'NONCE_FIFO_BARRIER' $barrierOk `
 
 $sendClosedOk = $GetInfo -match '(?s)g_rdx_ble_server_info\.ble_con_handle\s*=\s*0.*?g_rdx_lifecycle_barrier_armed.*?RDX_BLE_RUNTIME_QUIESCING.*?ble_conn\s*=\s*TRUE' -and
                 $GetInfo -notmatch '(?s)g_rdx_lifecycle_barrier_armed.*?ble_con_handle\s*=\s*[^0]' -and
-                $BarrierComplete -match '(?s)g_rdx_lifecycle_barrier_armed\s*=\s*0.*?ble_conn\s*=\s*FALSE'
+                $BarrierComplete -match '(?s)ble_conn\s*=\s*FALSE.*?rdx_ble_server_rdx_session_abort\s*\(\).*?g_rdx_lifecycle_barrier_armed\s*=\s*0'
 Assert-Contract 'BARRIER_ADMISSION_SEND_CLOSED' $sendClosedOk `
     'the parser-only drain window must keep the legacy connection handle and send paths closed'
 
 $drainOk = Test-TokensInOrder $BarrierComplete @(
     'rdx_ble_session_rdx_runtime_barrier_arrive()',
     'rdx_ble_server_rdx_session_abort()',
+    'g_rdx_lifecycle_barrier_armed = 0',
     'rdx_ble_server_rdx_runtime_try_rearm()'
 )
 $drainOk = $drainOk -and
@@ -101,12 +109,15 @@ $drainOk = $drainOk -and
 Assert-Contract 'OLD_WORK_IS_REABORTED' $drainOk `
     'work started before FIFO arrival must be cancelled again before rearm'
 
-$idleOk = Test-TokensInOrder $TryRearm @(
+$idleOk = Test-TokensInOrder $RearmService @(
+    'g_rdx_lifecycle_barrier_armed',
     'rdx_app_rdx_rebind_is_idle()',
     'rdx_ble_server_rdx_session_reset_finalize()',
-    'rdx_ble_session_rdx_runtime_rearm()'
+    'rdx_ble_entry_commit_rearm(epoch)'
 )
 $idleOk = $idleOk -and
+          (Test-TokensInOrder $CommitRearm @('rdx_ble_entry_lock()', 'rdx_ble_session_rdx_runtime_rearm()', 'rdx_ble_entry_unlock()')) -and
+          $TryRearm -match 'rdx_ble_entry_rearm_requested\s*\(' -and
           $Idle -notmatch 'rdx_pc_storage_is_busy\s*\(' -and
           $Idle -match 'rdx_app_storage_activity_is_busy\s*\(\s*"RDX_BLE_SESSION"\s*,\s*1\s*,\s*1\s*\)' -and
           $StorageActivity -match 'rdx_record_get_status\s*\(' -and
@@ -133,12 +144,12 @@ Assert-Contract 'CROSS_PEER_HANDOFF_REQUIRES_FULL_RESET' $handoffOk `
 $closedOk = $Detach -match '(?s)rdx_protocol_packet_recv\s*\(.*?!=\s*barrier_packet_len.*?rdx_ble_session_rdx_runtime_fail_closed\s*\(' -and
             $Server -notmatch 'RDX_LIFECYCLE_BARRIER_TIMEOUT' -and
             $BarrierArrive -notmatch 'RDX_BLE_RUNTIME_READY' -and
-            $TryRearm -match '(?s)!rdx_ble_session_rdx_runtime_rearm\s*\(\).*?rdx_ble_session_rdx_runtime_fail_closed\s*\('
+            $RearmService -match '(?s)!rdx_ble_entry_commit_rearm\s*\(epoch\).*?rdx_ble_session_rdx_runtime_fail_closed\s*\('
 Assert-Contract 'LIFECYCLE_FAILURES_STAY_CLOSED' $closedOk `
     'barrier or rearm failure must never time out or fall through to READY'
 
-$isolationOk = ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_protocol_task_(free|create)|rdx_uxfile_task_free|rdx_uxfile_init|os_task_(create|del)' -and
-               ($Detach + $BarrierComplete + $TryRearm) -notmatch 'rdx_hogp_(on_disconnected|deinit)' -and
+$isolationOk = ($Detach + $BarrierComplete + $TryRearm + $RearmService) -notmatch 'rdx_protocol_task_(free|create)|rdx_uxfile_task_free|rdx_uxfile_init|os_task_(create|del)' -and
+               ($Detach + $BarrierComplete + $TryRearm + $RearmService) -notmatch 'rdx_hogp_(on_disconnected|deinit)' -and
                $Disconnect -match '(?s)rdx_ble_session_link_is_hid.*?rdx_hogp_on_disconnected' -and
                $Disconnect -match '(?s)rdx_ble_session_link_is_rdx.*?rdx_ble_server_phase2_rdx_detach'
 Assert-Contract 'RUNTIME_REUSE_PRESERVES_HID' $isolationOk `

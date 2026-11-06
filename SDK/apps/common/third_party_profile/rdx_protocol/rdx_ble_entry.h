@@ -12,6 +12,14 @@ void rdx_ble_entry_changed(void);
 void rdx_ble_entry_topology_changed(void);
 void rdx_ble_entry_activity(void);
 void rdx_ble_entry_key(u8 down);
+/* Protect only short state transitions; never perform radio or queue I/O. */
+void rdx_ble_entry_lock(void);
+void rdx_ble_entry_unlock(void);
+void rdx_ble_entry_composite_owned_locked(void);
+void rdx_ble_entry_composite_releasing(u32 runtime_epoch);
+void rdx_ble_entry_composite_disconnected(void);
+u8 rdx_ble_entry_commit_rearm(u32 runtime_epoch);
+void rdx_ble_entry_rearm_requested(void);
 u8 rdx_ble_entry_needs_service(void);
 void rdx_ble_entry_service(void);
 u8 rdx_ble_entry_allowed(void);
@@ -19,6 +27,7 @@ u8 rdx_ble_entry_allowed(void);
 /* app_core 适配接口；广播操作返回正数时，须等待明确的完成事件。 */
 u8 rdx_ble_entry_suppressed(void);
 u8 rdx_ble_entry_business_busy(void);
+u8 rdx_ble_entry_rearm_service(void);
 int rdx_ble_entry_radio_apply(u8 enable, u8 refresh);
 u32 rdx_ble_entry_radio_deadline(void);
 

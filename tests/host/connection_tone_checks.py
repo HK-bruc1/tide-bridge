@@ -23,12 +23,16 @@ int strcmp(const char *, const char *);
 #define Q_CALLBACK 1
 #define r_printf(...) ((void)0)
 #define y_printf(...) ((void)0)
+#define printf(...) ((void)0)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 enum stream_event { STREAM_EVENT_INIT, STREAM_EVENT_START, STREAM_EVENT_STOP };
 static struct { int goto_poweroff_flag; } app_var;
 static u8 g_rdx_ble_exiting, hid_ready, hid_connected, hid_encrypted;
 static u8 hid_subscribed, hid_saved_subscription;
 static u16 hid_con_handle;
+static int composite_full, composite_events, composite_wait, composite_clears;
+static int barrier_fail, cleanup_calls, abort_calls, recv_calls;
+static u32 composite_release_epoch;
 static int wrappers[2], core, irq, context_errors, queue_fail, play_fail;
 static int qr, qw, tr, tw, starts, drops, hid_writes, hid_encryptions;
 static u32 queue[32];
@@ -58,13 +62,69 @@ ENTRY_STUBS = r'''
 #define RDX_BLE_PHASE0A_ATT_ERR_UNLIKELY_ERROR 0x0e
 #define HID_CCC_HANDLE 0x001b
 #define RECORD_STATE_STOP 0
+#define TCFG_RDX_HOGP_ENABLE 1
+#define RDX_DISCONNECTION_COMPLETE_MIN_SIZE 5
+#define RDX_LIFECYCLE_BARRIER_PACKET_SIZE 64
+#define RDX_LIFECYCLE_CUSTOM_CMD "__rdxlc"
+enum rdx_detach_cause { RDX_DETACH_PHYSICAL, RDX_DETACH_LOGICAL_COMMAND };
 typedef struct { int run; } RecordStatus;
-static struct { u16 ble_mtu_size; u8 ccc_configured, stream_tx_ready; }
+static struct { u16 ble_mtu_size, ble_con_handle; u8 ble_conn, ccc_configured, stream_tx_ready; }
     g_rdx_ble_server_info;
+static volatile u8 g_rdx_lifecycle_barrier_armed;
+static char g_rdx_lifecycle_barrier_value[17];
+static void *g_rdx_ble_phase0a_disconnect_pending_hdl;
+int sprintf(char *, const char *, ...);
+unsigned long long strlen(const char *);
+static u32 rand32(void) { static u32 value=1; return value++; }
 static void rdx_ble_server_rdx_runtime_try_rearm(void) {}
-static void rdx_ble_server_set_conn_handle(u16 con_handle) { (void)con_handle; }
+static void rdx_ble_entry_lock(void) { local_irq_disable(); }
+static void rdx_ble_entry_unlock(void) { local_irq_enable(); }
+static void rdx_ble_entry_composite_owned_locked(void) {
+    if (!irq) ++context_errors;
+    if (!composite_full) { composite_full=1; ++composite_events; }
+}
+static void rdx_ble_entry_changed(void) { if (irq) ++context_errors; }
+static void rdx_ble_entry_composite_releasing(u32 epoch) {
+    composite_wait=1; composite_full=0; composite_release_epoch=epoch;
+}
+static void rdx_ble_entry_composite_disconnected(void) {
+    composite_full=composite_wait=0; ++composite_clears;
+}
+static void rdx_ble_server_set_conn_handle(u16 con_handle) { g_rdx_ble_server_info.ble_con_handle=con_handle; }
 static void rdx_ble_server_reset_send_fail_cnt(void) {}
 static void rdx_session_control_attach(rdx_ble_link_state_t *link) { (void)link; }
+static void rdx_session_control_reset(void) {}
+static void rdx_flashnote_cancel_for_token(const rdx_ble_async_token_t *token) { (void)token; }
+static void rdx_ble_server_transfer_param_cancel(void) {}
+static void rdx_dut_test_session_revoke(void) {}
+static void rdx_ble_server_syn_data_timers_cancel(void) {}
+static void rdx_ble_server_rdx_send_pending_reset(void) {}
+static void rdx_ble_server_rdx_disconnected_cleanup_internal(void) { ++cleanup_calls; }
+static void rdx_ble_server_rdx_session_abort(void) { ++abort_calls; }
+static void rdx_ble_server_rdx_send_worker_quiesce(void) {}
+static int rdx_protocol_packet_recv(const char *packet, int len) {
+    ++recv_calls; return barrier_fail ? len-1 : len;
+}
+static int rdx_ble_server_phase0a_event_matches(void *hdl, u16 con, const char *event) {
+    (void)event; return rdx_ble_session_find(hdl,con)!=NULL;
+}
+static rdx_ble_link_state_t *rdx_ble_server_phase0b_link_find(void *hdl, u16 con) {
+    return rdx_ble_session_find(hdl,con);
+}
+static u16 hci_event_disconnection_complete_get_connection_handle(const u8 *p) { return p[3] | p[4]<<8; }
+static u8 hci_event_disconnection_complete_get_status(const u8 *p) { return p[2]; }
+static u8 hci_event_disconnection_complete_get_reason(const u8 *p) { return p[5]; }
+static void rdx_hogp_on_disconnected(u16 con) {
+    if(con!=hid_con_handle) ++context_errors;
+    hid_connected=hid_ready=hid_encrypted=hid_subscribed=0;
+}
+static void multi_att_clear_ccc_config(u16 con) { (void)con; }
+static void rdx_ble_server_phase0a_connect_adv_restart_cancel(void) {}
+static void rdx_hogp_input_invalidate(void) {}
+static void rdx_peripheral_power_vdd_ble_links_changed_notify(void) {}
+static void rdx_ble_server_phase0b_adv_token_capture(void *hdl) { (void)hdl; }
+static void rdx_ble_server_disconnected_adv_restart_schedule(void) {}
+static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link, enum rdx_detach_cause cause);
 static RecordStatus *rdx_record_get_status(void) { return NULL; }
 static void rdx_record_online_session_bind_current(void) {}
 static void rdx_ble_server_rdx_connected_handle(void) {}
@@ -114,6 +174,11 @@ static void boot(void) {
     app_var.goto_poweroff_flag=g_rdx_ble_exiting=hid_ready=hid_connected=0;
     hid_encrypted=hid_subscribed=hid_saved_subscription=0;
     hid_con_handle=0; hid_writes=hid_encryptions=0;
+    composite_full=composite_events=composite_wait=composite_clears=0;
+    composite_release_epoch=barrier_fail=cleanup_calls=abort_calls=recv_calls=0;
+    g_rdx_lifecycle_barrier_armed=0; g_rdx_ble_phase0a_disconnect_pending_hdl=NULL;
+    memset(g_rdx_lifecycle_barrier_value,0,sizeof(g_rdx_lifecycle_barrier_value));
+    memset(&g_rdx_ble_server_info,0,sizeof(g_rdx_ble_server_info));
     core=irq=context_errors=queue_fail=play_fail=0;
     qr=qw=tr=tw=starts=drops=0;
     s_rdx_runtime_consumed_this_boot=0;
@@ -178,15 +243,66 @@ int test_both_orders_and_rdx_dedup(void) {
         } else {
             CHECK(!attach(rdx,0) && qw==1 && !ready_hid(hid));
         }
+        CHECK(composite_full==same && composite_events==same);
         for (int i=0;i<3;++i) {
             CHECK(!attach(rdx,0) && !attach(hid,1));
             CHECK(!subscribe_hid(hid,0) && !subscribe_hid(hid,1));
             encrypt_hid(hid,0); encrypt_hid(hid,1);
         }
         CHECK(hid_ready && qw==1);
+        CHECK(composite_full==same && composite_events==same);
         drain_core(); drain_audio();
         CHECK(starts==1 && !drops && !context_errors && !irq);
     }
+    return 0;
+}
+int test_restored_hid_subscription_claims_composite(void) {
+    boot(); rdx_ble_link_state_t *link=connect(0);
+    CHECK(!attach(link,0) && !composite_full);
+    hid_saved_subscription=1; encrypt_hid(link,1);
+    CHECK(hid_ready && rdx_ble_session_link_is_hid(link));
+    CHECK(composite_full && composite_events==1 && !context_errors && !irq);
+    return 0;
+}
+int test_logical_release_uses_real_server_lifecycle(void) {
+    for (int fail=0;fail<2;++fail) {
+        boot(); rdx_ble_link_state_t *link=connect(0);
+        CHECK(!ready_hid(link) && !attach(link,0) && composite_full);
+        rdx_ble_async_token_t token=rdx_ble_session_token_capture(link);
+        u32 generation=link->slot_generation;
+        barrier_fail=fail;
+        rdx_ble_server_session_detach(&token,RDX_DETACH_LOGICAL_COMMAND);
+        CHECK(link->connected && link->slot_generation==generation && hid_ready);
+        CHECK(rdx_ble_session_link_is_hid(link) && !rdx_ble_session_link_is_rdx(link));
+        CHECK(composite_wait && !composite_full &&
+              composite_release_epoch==rdx_ble_session_rdx_runtime_epoch_get());
+        CHECK(cleanup_calls==1 && abort_calls==1 && recv_calls==1);
+        CHECK(s_rdx_runtime_state==(fail ? RDX_BLE_RUNTIME_FAILED : RDX_BLE_RUNTIME_QUIESCING));
+        CHECK(g_rdx_lifecycle_barrier_armed==!fail);
+        rdx_ble_server_session_detach(&token,RDX_DETACH_LOGICAL_COMMAND);
+        CHECK(cleanup_calls==1 && hid_ready && !context_errors && !irq);
+    }
+    boot(); rdx_ble_link_state_t *rdx=connect(0), *hid=connect(1);
+    CHECK(!attach(rdx,0) && !ready_hid(hid) && !composite_full);
+    rdx_ble_async_token_t token=rdx_ble_session_token_capture(rdx);
+    rdx_ble_server_session_detach(&token,RDX_DETACH_LOGICAL_COMMAND);
+    CHECK(!composite_wait && rdx_ble_session_link_is_hid(hid) && hid_ready);
+    CHECK(rdx->connected && hid->connected && !context_errors && !irq);
+    return 0;
+}
+int test_unrelated_and_composite_physical_disconnect(void) {
+    boot(); rdx_ble_link_state_t *link=connect(0), *other=connect(1);
+    CHECK(!ready_hid(link) && !attach(link,0) && composite_full);
+    u8 other_packet[6]={5,4,0,0x51,0,0x13};
+    rdx_ble_server_phase0a_link_disconnected(&wrappers[1],other_packet,sizeof(other_packet));
+    CHECK(!other->connected && link->connected && composite_full && !composite_clears);
+    CHECK(rdx_ble_session_link_is_hid(link) && rdx_ble_session_link_is_rdx(link) && hid_ready);
+    u8 link_packet[6]={5,4,0,0x50,0,0x13};
+    rdx_ble_server_phase0a_link_disconnected(&wrappers[0],link_packet,sizeof(link_packet));
+    CHECK(!link->connected && !composite_full && composite_clears==1 && !hid_ready);
+    CHECK(!rdx_ble_session_get_hid_link() && !rdx_ble_session_get_rdx_link());
+    CHECK(s_rdx_runtime_state==RDX_BLE_RUNTIME_QUIESCING && recv_calls==1);
+    CHECK(!context_errors && !irq);
     return 0;
 }
 int test_rdx_release_reconnect_drops_stale_prompt(void) {
@@ -275,7 +391,9 @@ def main():
                          for name in ('rdx_ble_session.h', 'rdx_ble_session.c'))
     entries = ('rdx_ble_server_phase2_claim_to_att_error',
                'rdx_ble_server_phase2_hid_attach', 'rdx_ble_server_hid_write',
-               'rdx_ble_server_hid_encryption_change', 'rdx_ble_server_phase2_rdx_attach')
+               'rdx_ble_server_hid_encryption_change', 'rdx_ble_server_phase2_rdx_attach',
+               'rdx_ble_server_phase2_rdx_detach', 'rdx_ble_server_session_detach',
+               'rdx_ble_server_rdx_detach_common', 'rdx_ble_server_phase0a_link_disconnected')
     entry_code = ''.join(function(server, name) for name in entries)
     code = (STUBS + registry + state + '\n' +
             ''.join(function(server, n) for n in names) + ENTRY_STUBS + entry_code + TESTS)
