@@ -10,6 +10,7 @@ STUBS = r'''
 typedef unsigned char u8;
 typedef unsigned short u16;
 typedef unsigned int u32;
+typedef signed short s16;
 typedef int bool;
 #define NULL ((void *)0)
 #define true 1
@@ -166,6 +167,7 @@ static void app_audio_volume_down(u8 step) {
     volume_step=step; local_volume-=step;
     if(local_volume<0) local_volume=0;
 }
+static void rdx_volume_local_music_changed(s16 previous,s16 current) {}
 static int rdx_uxfile_is_datFileInfo_loading(void) { return 0; }
 static int rdx_is_file_transfer_active(void) { return 0; }
 static int rdx_is_file_sync_busy(void) { return 0; }

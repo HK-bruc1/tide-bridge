@@ -61,6 +61,7 @@
 #include "poweroff.h"
 #include "rdx_record.h"
 #include "rdx_flashnote.h"
+#include "rdx_volume.h"
 #include "rdx_dut.h"
 #include "rdx_vm.h"
 #include "clock.h"
@@ -3230,6 +3231,7 @@ static int rdx_ble_server_phase2_rdx_write(
                     rdx_ble_async_token_t ccc_token =
                         rdx_ble_session_token_capture(link);
                     rdx_flashnote_cancel_for_token(&ccc_token);
+                    rdx_volume_cancel_for_token(&ccc_token);
                 }
                 /* 不落盘会议失去订阅即失去唯一输出，按传输丢失收尾。 */
                 rdx_app_record_receiver_lost();

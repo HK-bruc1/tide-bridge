@@ -6,8 +6,8 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and nineteen behavioral suites
-as **23 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and twenty behavioral suites
+as **24 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
@@ -26,6 +26,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_adv_policy.py` | Production offline advertising state machine: 120-second idle window, overlapping/pending/short business, paused/busy snapshots, stale timers, wraparound, deferred modes, queue/timer/radio/restore failures and tagged file-worker admission; RF and physical power remain on-device checks |
 | `test_keymap_factory_reset.py` | `0x07`+F13/F14/F17/F18/F19 defaults, saved-map preservation, real frame decoder/CRC and A/B persistence on mocked VM, reset/reboot and write/readback/apply failures; configured maximum playback volume and busy/write failures, including playback-disabled builds; `rtc_reset_checks.py` executes real RTC initialization, live reads, VM recovery and controlled-reset persistence with stale P11 snapshots and mocked hardware |
 | `test_record_tone.py` | Shared cases execute both real `rectone`/`recsave` parsers and VM/default/reset behavior, same-value durability, shared busy gates, queue/IO/send failures, token isolation and default-MTU replies; APP/F18 no-file recording and receiver-loss cleanup belong to the existing session/dispatch harnesses in `test_hogp_hold.py` |
+| `test_volume.py` | Real RDX playback-volume parser and execution path: 22/24/29-byte requests, leading-zero IDs, odd/raw levels, trusted playback-node range, GET/SET busy boundaries, same-value SET, token-bound ACK suppression, 150 ms notification coalescing, latest-value reread and CCC/token batch invalidation |
 | `test_flashnote.py` | APP flashnote command parsing, owner isolation, stream-only state and release, key-session busy responses, stale tokens, start/stop failures and reconnect cancellation; BLE/OS boundaries are mocked |
 | `test_hogp_hold.py` | Real scan/adapter, cycle snapshots, independent HID/local queues, default/APP-style `0x07`+F13–F24 reports and local admission on any key, exact modifier/Usage rejection including plain F13–F24, cancellation, hot-map cleanup and retained KEY5 DUT intent; `key_record_dispatch_checks.py` owns usage routing, F18/F19 admission, stop-before-DUT and post-release re-entry; `record_key_session_checks.py` owns real recorder routes, meeting persistence versus inspiration streaming, late replies, worker STOP/READY fences and shared recording-tone snapshots for APP/F18/F19, online/offline and CHAT/CALL, plus factory/DUT isolation; `led_key_feedback_checks.py` owns 2 s indications, recording-kind restore and protected priorities |
 | `test_factory_usb.py` | CDC independent of DUT/key/SD health, MSC ownership/shutdown, stale sessions, partial I/O and bounded DMA; includes `test_factory_protocol.py` for CRLF framing, invalid-frame isolation, response/mailbox backpressure, timeout recovery, bounded identity fields, session-scoped timer lifecycle and failed-notification recovery |

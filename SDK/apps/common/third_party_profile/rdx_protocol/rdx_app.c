@@ -86,6 +86,7 @@
 #include "rdx_vm.h"
 #include "rdx_record_tone.h"
 #include "rdx_record_save.h"
+#include "rdx_volume.h"
 #include "rdx_flashnote.h"
 #include "rdx_spi.h"
 #include "rdx_battery.h"
@@ -1278,10 +1279,14 @@ static bool rdx_app_local_player_message_blocked(int message)
 
 static void rdx_app_local_volume_change(int message)
 {
+    s16 previous_music_volume;
+    s16 current_music_volume;
+
     /* 本地音量独立于 BLE 能力，但不抢录音、保存和提示音资源。 */
     if (rdx_app_local_player_message_blocked(message) || tone_player_runing()) {
         return;
     }
+    previous_music_volume = app_audio_get_volume(APP_AUDIO_STATE_MUSIC);
     /* 使用本地两级步进及框架限幅，不经过蓝牙绝对音量同步表。 */
     if (message == APP_MSG_LOCAL_VOL_UP) {
         app_audio_volume_up(2);
@@ -1289,6 +1294,11 @@ static void rdx_app_local_volume_change(int message)
         app_audio_volume_down(2);
     } else {
         return;
+    }
+    current_music_volume = app_audio_get_volume(APP_AUDIO_STATE_MUSIC);
+    if (current_music_volume != previous_music_volume) {
+        rdx_volume_local_music_changed(previous_music_volume,
+                                       current_music_volume);
     }
     y_printf("[KEY] local volume=%d step=2\n",
              app_audio_get_volume(APP_AUDIO_CURRENT_STATE));
@@ -2480,6 +2490,10 @@ void rdx_app_custom_command_parse(char* cmd, char* value)
     }
     if (strcmp(cmd, RDX_RECORD_SAVE_CUSTOM_CMD) == 0) {
         rdx_record_save_handle_custom(value);
+        return;
+    }
+    if (strcmp(cmd, RDX_VOLUME_CUSTOM_CMD) == 0) {
+        rdx_volume_handle_custom(value);
         return;
     }
     y_printf("%s --> cmd: %s, value: %s \r", __func__, cmd, value);

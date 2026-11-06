@@ -45,6 +45,7 @@
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_record_tone.h"
 #include "rdx_record_save.h"
+#include "rdx_volume.h"
 #include "rdx_led_ctrl.h"
 
 #ifdef SUPPORT_MS_EXTENSIONS
@@ -181,6 +182,7 @@ void rdx_vm_init(void)
     /*----------------------------------------------------------------*/
     rdx_record_tone_init();
     rdx_record_save_init();
+    rdx_volume_init();
     if (!bound_transition_ready) {
         if (os_mutex_create(&bound_transition_mutex)) {
             return; /* Static zero authorization remains fail-closed. */
@@ -798,9 +800,14 @@ EarphoneInfo* rdx_vm_get_ep_info(void)
 static int rdx_vm_playback_volume_set_default(void)
 {
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
-    s16 volume = app_audio_volume_max_query(AppVol_BT_MUSIC);
-    if (volume <= 0 ||
-        syscfg_write(CFG_MUSIC_VOL, &volume, sizeof(volume)) != sizeof(volume)) {
+    u16 max_level;
+    s16 volume;
+
+    if (rdx_volume_playback_max_get(&max_level)) {
+        return -1;
+    }
+    volume = max_level;
+    if (syscfg_write(CFG_MUSIC_VOL, &volume, sizeof(volume)) != sizeof(volume)) {
         return -1;
     }
     /* 同步运行时音量，防止延迟保存或关机时把旧值写回 VM。 */

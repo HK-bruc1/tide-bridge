@@ -212,6 +212,7 @@ def check_playback_volume_defaults():
     vm = read('rdx_vm.c')
     source = r'''
 typedef unsigned char u8;
+typedef unsigned short u16;
 typedef short s16;
 void *memset(void *, int, unsigned long long);
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
@@ -242,6 +243,11 @@ static int get_ota_status(void) { return ota; }
 static s16 app_audio_volume_max_query(int index) {
     if (index!=AppVol_BT_MUSIC) bad_audio_state=1;
     return maximum;
+}
+static int rdx_volume_playback_max_get(u16 *max_level) {
+    if (!max_level || maximum<1 || maximum>99) return -1;
+    *max_level=(u16)maximum;
+    return 0;
 }
 static int syscfg_write(int id, const void *data, int length) {
     if (id==CFG_MUSIC_VOL) {
