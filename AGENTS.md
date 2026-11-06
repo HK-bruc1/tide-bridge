@@ -70,7 +70,7 @@ Host-side software tests (Windows, from the repository root):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-This is also the VS Code default test task `test: host software`. It runs 23 independent modules (4 source contracts + 19 behavioral suites), continues after failures, and exits nonzero if any module fails. Use `-Suite contracts` or `-Suite behavior` for a focused run. Behavioral harnesses need Python with `llvmlite`, the JL compiler, and PowerShell 5.1. Coverage and on-device limits: `tests/host/README.md`.
+This is also the VS Code default test task `test: host software`. It runs 24 independent modules (4 source contracts + 20 behavioral suites), continues after failures, and exits nonzero if any module fails. Use `-Suite contracts` or `-Suite behavior` for a focused run. Behavioral harnesses need Python with `llvmlite`, the JL compiler, and PowerShell 5.1. Coverage and on-device limits: `tests/host/README.md`.
 
 Source contracts:
 
@@ -81,7 +81,7 @@ Source contracts:
 
 Notable behavioral harnesses:
 
-- `test_hogp_hold.py` — HOGP hold/scan/FIFO/session, hot-apply release, recording key sessions
+- `test_hogp_hold.py` — HOGP hold/scan/FIFO/session, hot-apply release, recording key sessions, no periodic timer while online idle
 - `test_flashnote.py` — flashnote parser, stream-only state, session ownership, busy responses and release barriers
 - `test_keymap_factory_reset.py` — keymap persistence and factory defaults
 - `test_record_tone.py` — shared `rectone`/`recsave` GET/SET, VM durability, busy gates and token-bound request/ACK; APP/F18 no-file recording is covered by `test_hogp_hold.py`
@@ -151,6 +151,7 @@ Storage/shutdown: `rdx_storage_lifecycle.c` owns file-service admission and PC-r
 - The library sets the system clock to 120 MHz at boot outside `clock_manager`, so the native clock observer never runs unless something refurbishes it. `rdx_app_tasks_init()` calls `clock_refurbish()` once, unconditionally; the native observer then drops to 24 MHz in about 10 s when idle.
 - Raise CPU frequency only via `clock_alloc` / `clock_lock`; never call `clk_set("sys", ...)` directly, or the clock may not drop back.
 - USB detection, battery sampling, key scan and debug UART stay native.
+- Never keep a periodic `sys_timer` while idle: it wakes the system and blocks sleep. The HOGP input service is event-driven and runs its 10 ms retry timer only while a HID report is in flight or a release is owed; this took the PC HID + PC RDX composite session from about 3 mA to below 1 mA (`docs/6-2.T2620BLE连接后低功耗设计.md` section 2.7).
 - Measured 2026-10-27 (multimeter, user confirmed): 0.6–1.4 mA without the former 2–4 mA spikes. The idle probe and logs used to find this are frozen on branch `freeze/idle-probe-20261027`.
 - Details and acceptance limits: `docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md` (sections 2.4, 4.6, 5, 6.6); connected-state power: `docs/6-2.T2620BLE连接后低功耗设计.md`.
 
