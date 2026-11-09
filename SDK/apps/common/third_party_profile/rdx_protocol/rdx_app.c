@@ -1009,6 +1009,17 @@ static void rdx_app_key_record_pump(void)
         rdx_app_key_record_reset();
         return;
     }
+    /* 会话已在按键路径之外结束（例如 APP 停止离线开始的会议）。此时录音
+     * 任务、停止栅栏和纯推流收尾都已空闲，必须撤销残留的按键归属，否则
+     * “上一段会话未收尾”会永久拦下后续 F19。正在停止或收尾的会话不会被
+     * 这里清理，仍由原松键/停止重试路径负责。 */
+    if (key_record_local && key_record_session_active &&
+        !key_record_stop_queued && !rdx_record_stream_only_is_releasing() &&
+        rp->run == RECORD_STATE_STOP &&
+        rdx_record_key_state_get() == RDX_RECORD_KEY_IDLE) {
+        rdx_app_key_record_reset();
+        return;
+    }
     if (!key_record_local && key_record_session_active && !key_record_stop_queued &&
         !rdx_record_stream_only_is_releasing() &&
         !rdx_record_key_request_is_current(key_record_request_generation)) {
@@ -2946,8 +2957,12 @@ int rdx_app_msg_handler(int *msg)
             if (key_record_session_active || key_record_pressed ||
                 key_record_stop_queued || key_record_disconnect_pending) {
                 /* Finish the previous release before accepting a new hold. */
-                ret = TRUE;
-                break;
+                rdx_app_key_record_pump();
+                if (key_record_session_active || key_record_pressed ||
+                    key_record_stop_queued || key_record_disconnect_pending) {
+                    ret = TRUE;
+                    break;
+                }
             }
             key_record_kind = RDX_RECORD_INSPIRATION;
             key_record_local = !rdx_app_rdx_key_route_ready();

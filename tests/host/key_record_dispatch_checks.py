@@ -787,6 +787,35 @@ int test_dut_final_ticket_guard_and_existing_direct_exit_paths(void) {
     gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(dut_entries==2 && !rdx_dut_mode);
     return 0;
 }
+int test_app_stop_of_offline_meeting_releases_key_ownership(void) {
+    /* 离线双击 F18 由设备直接开始会议；松键不结束会议，归属保留到会话结束。 */
+    for(int key=0;key<5;++key) {
+        reset();
+        rdx_hogp_input_cycle_t meeting=cycle(key,0x6d,140+key);
+        gesture(&meeting,KEY_ACTION_DOUBLE_CLICK);
+        CHECK(starts==1 && key_record_session_active && key_record_pressed && key_record_local);
+        gesture(&meeting,KEY_ACTION_UP);
+        CHECK(key_record_session_active && key_record_pressed);
+        /* APP STOP 完成：STOP 栅栏、worker 与纯推流收尾均已空闲。 */
+        status.run=RECORD_STATE_STOP; status.process_state=0;
+        key_state=RDX_RECORD_KEY_IDLE; ready=1;
+        rdx_hogp_input_cycle_t inspiration=cycle(key,0x6e,150+key);
+        down(&inspiration);
+        CHECK(online_starts==1 && key_record_session_active && !key_record_local);
+        gesture(&inspiration,KEY_ACTION_UP);
+        CHECK(online_stops==1);
+    }
+    /* 会议仍在进行时 F19 必须继续被拒绝，新的归属清理不能结束会议。 */
+    reset();
+    rdx_hogp_input_cycle_t live=cycle(0,0x6d,160);
+    gesture(&live,KEY_ACTION_DOUBLE_CLICK);
+    CHECK(starts==1 && key_record_session_active && status.run==RECORD_STATE_START);
+    rdx_hogp_input_cycle_t blocked_f19=cycle(0,0x6e,161);
+    down(&blocked_f19);
+    CHECK(!online_starts && starts==1 && !stops && !release_calls);
+    CHECK(status.run==RECORD_STATE_START && key_record_session_active);
+    return 0;
+}
 '''
 
 
