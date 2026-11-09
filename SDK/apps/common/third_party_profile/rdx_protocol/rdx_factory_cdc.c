@@ -258,20 +258,37 @@ static void factory_byte(u8 byte)
     else factory_protocol.line[factory_protocol.length++] = byte;
 }
 
-/* CDC 会话必然有 USB 供电：会话期间锁定原生最高档，避免空闲降频拖慢传输；
- * 会话结束即释放，电池态调频不受影响。仅 app_core 调用（clock_alloc 需任务上下文）。 */
+/* 仅在 CDC 存在实际工作时持有原生最高频下限。此前整段 DTR 会话保持
+ * 160 MHz，后续启动 F19 时曾发生 P33 VDDIO LVD 复位，因果关系尚未确认。
+ * 由 app_core 统一管理频率租约，因为 clock_alloc 需要任务上下文。 */
 static u8 factory_clock_floor;
+static u8 factory_clock_work_pending(u32 generation)
+{
+    if (!generation || generation != factory_cdc_generation()) return 0;
+    if (factory_count || factory_protocol.response_length) return 1;
+    if (rdx_factory_audio_needs_service() ||
+        rdx_factory_audio_tx_pending(generation)) {
+        return 1;
+    }
+#if TCFG_T2620_CDC_FILE_ENABLE
+    if (rdx_cdc_file_active()) return 1;
+#endif
+    return 0;
+}
+
 static void factory_clock_floor_update(u32 generation)
 {
-    if (generation && !factory_clock_floor) {
+    u8 needed = factory_clock_work_pending(generation);
+
+    if (needed && !factory_clock_floor) {
         u32 floor = clk_get_max_frequency();
-        /* 申请失败保持未持有，由会话期间的 10 ms 服务继续重试。 */
+        /* 申请失败保持未持有；仍需处理的活动由 10 ms 服务继续重试。 */
         if (clock_alloc("factory_cdc", floor)) return;
         factory_clock_floor = 1;
 #if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
         printf("[CDC_CLK] floor=%u sys=%u\n", floor, clk_get("sys"));
 #endif
-    } else if (!generation && factory_clock_floor) {
+    } else if (!needed && factory_clock_floor) {
         clock_free("factory_cdc");
         factory_clock_floor = 0;
 #if TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL
@@ -289,7 +306,6 @@ static void factory_service(void *priv)
     /* At most 256 bytes and four responses per tick, including error frames. */
     unsigned int bytes = 0, responses = 0;
     u32 generation = factory_cdc_generation();
-    factory_clock_floor_update(generation);
     if (generation) {
         if (!factory_protocol.timer) {
             factory_protocol.timer = sys_timer_add(NULL, factory_service, 10);
@@ -308,6 +324,7 @@ static void factory_service(void *priv)
 #if TCFG_T2620_CDC_FILE_ENABLE
     rdx_cdc_file_session(generation);
 #endif
+    factory_clock_floor_update(generation);
     if (!generation) {
         local_irq_disable();
         if (!factory_cdc_generation()) factory_head = factory_count = 0;
@@ -324,6 +341,7 @@ static void factory_service(void *priv)
                     (u32)(sys_timer_get_ms() - factory_protocol.response_since) >= FACTORY_RESPONSE_TIMEOUT) {
                     factory_cdc_abort(generation);
                 }
+                factory_clock_floor_update(factory_cdc_generation());
                 return;
             }
             factory_protocol.response_length = 0;
@@ -341,7 +359,7 @@ static void factory_service(void *priv)
                 if (rdx_cdc_file_active()) return;
 #endif
                 rdx_factory_audio_send(generation);
-                return;
+                break;
             }
             ++bytes;
             factory_byte(byte);
@@ -356,6 +374,7 @@ static void factory_service(void *priv)
         }
     }
 #endif
+    factory_clock_floor_update(factory_cdc_generation());
 }
 
 void rdx_factory_cdc_init(void)
@@ -379,8 +398,7 @@ int rdx_factory_cdc_needs_poll(void)
 #endif
     /* 只读状态，供优先级 0 恢复入口判断；不得在此执行协议或文件操作。 */
     return factory_pending || generation != factory_protocol.generation ||
-           !!generation != !!factory_protocol.timer || (!generation && cleanup) ||
-           !!generation != factory_clock_floor;
+           !!generation != !!factory_protocol.timer || (!generation && cleanup);
 }
 
 void rdx_factory_cdc_poll(void)

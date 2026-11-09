@@ -1,5 +1,6 @@
 """Exercise archive admission wrappers and production OTA dispatch."""
 import ctypes
+import os
 import re
 import subprocess
 import tempfile
@@ -11,20 +12,24 @@ from host_c_test_lib import ROOT, function, run_c_checks
 
 def run_conflict_checks():
     folder = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
+    archive = Path(os.environ.get('RDX_TEST_ARCHIVE', folder / 'librdxApp_patched.a'))
     with tempfile.TemporaryDirectory(prefix='cdc_protocol_') as work:
         directory = Path(work)
-        subprocess.run(['C:/JL/pi32/bin/llvm-ar.exe', 'x',
-                        str(folder / 'librdxApp_patched.a'), 'rdx_protocol.c.o'],
-                       cwd=directory, check=True, capture_output=True, timeout=60)
-        subprocess.run(['C:/JL/pi32/bin/clang.exe', '-S', '-emit-llvm',
-                        '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir',
-                        str(directory / 'rdx_protocol.c.o'), '-o', str(directory / 'actual.ll')],
-                       check=True, capture_output=True, timeout=60)
-        actual = (directory / 'actual.ll').read_text(encoding='utf-8')
+        for name in ('protocol', 'uxfile'):
+            subprocess.run(['C:/JL/pi32/bin/llvm-ar.exe', 'x',
+                            str(archive), f'rdx_{name}.c.o'],
+                           cwd=directory, check=True, capture_output=True, timeout=60)
+            subprocess.run(['C:/JL/pi32/bin/clang.exe', '-S', '-emit-llvm',
+                            '-target', 'pi32v2', '-mcpu=r3', '-x', 'ir',
+                            str(directory / f'rdx_{name}.c.o'),
+                            '-o', str(directory / f'{name}.ll')],
+                           check=True, capture_output=True, timeout=60)
+        actual = (directory / 'protocol.ll').read_text(encoding='utf-8')
+        uxfile_actual = (directory / 'uxfile.ll').read_text(encoding='utf-8')
 
-    def extract(name):
+    def extract(name, text=actual):
         match = re.search(r'^define [^\n]*@' + re.escape(name) +
-                          r'\([^\n]*\).*?^}', actual, re.M | re.S)
+                          r'\([^\n]*\).*?^}', text, re.M | re.S)
         assert match, name
         text = re.sub(r', ![a-z_.]+ !\d+| !dbg !\d+| #\d+', '', match.group())
         return text.replace('define internal ', 'define ')
@@ -164,6 +169,81 @@ define void @{name}_admitted(i8* %data, i16 zeroext %length) {{
                      'rdx_protocol_fileTransfer_stop_indicate()',
                      'rdx_protocol_recordDatFileInfo_indicateByRequestNum(i32 0, i32 1)'):
         assert response in parser, response
+
+    # 空间查询由协议解析任务异步转交 UXFILE worker。入口检查无法覆盖
+    # “已排队但尚未执行”的窗口，因此执行函数本身必须再次取得存储占用，
+    # 并保证 fget_free_space/fget_partition 只在占用有效时运行。
+    mem_worker = extract('rdx_uxfile_sd_mem_check', uxfile_actual)
+    assert '@rdx_record_format_io_enter()' in mem_worker
+    assert '@rdx_record_format_io_leave()' in mem_worker
+    assert '@rdx_uxfile_sd_mem_check_ready()' in mem_worker
+    assert '@fget_free_space(' not in mem_worker
+    ready_worker = extract('rdx_uxfile_sd_mem_check_ready', uxfile_actual)
+    assert '@fget_free_space(' in ready_worker
+    assert '@fget_partition(' in ready_worker
+
+    mem_source = r'''
+@busy = global i32 0
+@holds = global i32 0
+@max_holds = global i32 0
+@ready_calls = global i32 0
+@ready_held = global i32 0
+define i32 @rdx_record_format_io_enter() {
+ %value = load i32, i32* @busy
+ %blocked = icmp ne i32 %value, 0
+ br i1 %blocked, label %reject, label %acquire
+reject:
+ ret i32 1
+acquire:
+ %held = load i32, i32* @holds
+ %next = add i32 %held, 1
+ store i32 %next, i32* @holds
+ store i32 %next, i32* @max_holds
+ ret i32 0
+}
+define void @rdx_record_format_io_leave() {
+ %held = load i32, i32* @holds
+ %next = sub i32 %held, 1
+ store i32 %next, i32* @holds
+ ret void
+}
+define i32 @rdx_uxfile_sd_mem_check_ready() {
+ %count = load i32, i32* @ready_calls
+ %next = add i32 %count, 1
+ store i32 %next, i32* @ready_calls
+ %held = load i32, i32* @holds
+ %inside = icmp eq i32 %held, 1
+ %inside_value = zext i1 %inside to i32
+ store i32 %inside_value, i32* @ready_held
+ ret i32 0
+}
+'''
+    mem_source += mem_worker
+    llvm.initialize_native_target()
+    llvm.initialize_native_asmprinter()
+    target = llvm.Target.from_default_triple().create_target_machine()
+    mem_module = llvm.parse_assembly(mem_source)
+    mem_module.triple = llvm.get_default_triple()
+    mem_module.data_layout = str(target.target_data)
+    mem_module.verify()
+    mem_engine = llvm.create_mcjit_compiler(mem_module, target)
+    mem_engine.finalize_object()
+
+    def mem_integer(name):
+        return ctypes.c_int.from_address(mem_engine.get_global_value_address(name))
+
+    mem_check = ctypes.CFUNCTYPE(ctypes.c_int)(
+        mem_engine.get_function_address('rdx_uxfile_sd_mem_check'))
+    mem_integer('busy').value = 1
+    mem_check()  # worker 忽略返回值，关键是不能执行容量读取。
+    assert mem_integer('ready_calls').value == 0
+    assert mem_integer('holds').value == 0
+    mem_integer('busy').value = 0
+    assert mem_check() == 0
+    assert mem_integer('ready_calls').value == 1
+    assert mem_integer('max_holds').value == 1
+    assert mem_integer('ready_held').value == 1
+    assert mem_integer('holds').value == 0
 
     ota = r'''
 typedef unsigned char u8;

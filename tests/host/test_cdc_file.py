@@ -855,8 +855,9 @@ def check_transport():
     from test_factory_usb import CDC_STUBS, CDC_TESTS
     folder = ROOT / 'SDK/apps/common/device/usb/device'
     strip = lambda text: re.sub(r'^#include.*$', '', text, flags=re.M)
-    headers = strip((folder / 'usb_factory_cdc.h').read_text()) + strip((folder / 'usb_factory_cdc_internal.h').read_text())
-    source = strip((folder / 'usb_factory_cdc.c').read_text())
+    headers = strip((folder / 'usb_factory_cdc.h').read_text(encoding='utf-8')) + \
+              strip((folder / 'usb_factory_cdc_internal.h').read_text(encoding='utf-8'))
+    source = strip((folder / 'usb_factory_cdc.c').read_text(encoding='utf-8'))
     tests = r'''
 #if TCFG_T2620_CDC_TX_STATS_ENABLE
 #define CHECK_STATS(value) CHECK(value)
@@ -1115,16 +1116,23 @@ def check_parser_integration():
     parser_stubs = re.sub(r'int printf\(.*?\n}',
                          'int printf(const char *format, ...) { if (irq) log_in_irq=1; return 0; }',
                          parser_stubs, flags=re.S)
+    for definition in (
+            'int rdx_cdc_file_active(void) { return file_active; }',
+            'void rdx_cdc_file_session(unsigned g) {}',
+            'int rdx_cdc_file_command(unsigned g, const char *s, int invalid, char *o, unsigned c) { return 0; }',
+            'void rdx_cdc_file_service(unsigned g) {}',
+            'int rdx_cdc_file_reply(char *o, unsigned c) { return 0; }',
+            'int rdx_cdc_source_busy(void) { return 0; }',
+            'int rdx_cdc_source_closed(void) { return 2; }'):
+        parser_stubs = parser_stubs.replace(definition + '\n', '', 1)
     folder = ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol'
     source = '\n'.join(re.sub(r'^#include.*$', '', (folder / name).read_text(encoding='utf-8'), flags=re.M)
                        for name in ('rdx_cdc_file.c', 'rdx_factory_cdc.c'))
     stubs = r'''
 #define TCFG_T2620_CDC_FILE_ENABLE 1
-void factory_cdc_set_tx_handler(void (*handler)(void)) {}
 int rdx_dut_is_in_mode(void) { return 0; }
 int rdx_factory_audio_owned(void) { return 0; }
 int rdx_factory_audio_file_busy(void) { return 0; }
-int rdx_factory_audio_tx_pending(u32 gen) { return 0; }
 int factory_cdc_stream_send(u32 gen,const u8 *bytes,u32 length) { return factory_cdc_send(gen,bytes,length); }
 '''
     tests = r'''

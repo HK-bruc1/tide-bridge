@@ -6,10 +6,18 @@ from host_c_test_lib import ROOT, run_c_checks
 
 STUBS = r'''
 int rdx_factory_audio_command(unsigned g, const char *s, char *o, unsigned c) { return 0; }
-static int cleanup_pending, audio_services;
+static int cleanup_pending, audio_services, audio_tx_pending, file_active;
 void rdx_factory_audio_service(unsigned g) { ++audio_services; }
 int rdx_factory_audio_needs_service(void) { return cleanup_pending; }
+int rdx_factory_audio_tx_pending(unsigned g) { return audio_tx_pending; }
 void rdx_factory_audio_send(unsigned g) {}
+int rdx_cdc_file_active(void) { return file_active; }
+void rdx_cdc_file_session(unsigned g) {}
+int rdx_cdc_file_command(unsigned g, const char *s, int invalid, char *o, unsigned c) { return 0; }
+void rdx_cdc_file_service(unsigned g) {}
+int rdx_cdc_file_reply(char *o, unsigned c) { return 0; }
+int rdx_cdc_source_busy(void) { return 0; }
+int rdx_cdc_source_closed(void) { return 2; }
 
 typedef unsigned char u8;
 typedef unsigned short u16;
@@ -17,6 +25,7 @@ typedef unsigned int u32;
 #define NULL ((void *)0)
 #define TCFG_T2620_FACTORY_USB_CDC_ENABLE 1
 #define TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE 0
+#define TCFG_T2620_CDC_FILE_ENABLE 1
 #define TCFG_T2620_FACTORY_USB_CDC_LOG_LEVEL 1
 static int clock_held, clock_allocs, clock_frees, clock_fail, clock_in_irq;
 static unsigned int clock_floor_hz;
@@ -91,6 +100,7 @@ u16 sys_timer_add(void *p, void (*cb)(void *), int period) {
 void sys_timer_del(u16 id) { ++timer_dels; timer_live=0; }
 static void (*state_handler)(void);
 void factory_cdc_set_state_handler(void (*handler)(void)) { state_handler=handler; }
+void factory_cdc_set_tx_handler(void (*handler)(void)) {}
 static int (*consumer)(u32, const u8 *, u32);
 void factory_cdc_set_rx_handler(int (*cb)(u32, const u8 *, u32)) { consumer=cb; }
 void factory_cdc_abort(u32 gen) { if (gen==generation) { generation=0; ++aborted; } }
@@ -113,7 +123,7 @@ static void boot(void) {
     command_logs=0; command_log[0]=0; log_in_irq=0;
     factory_event_posted=factory_pending=factory_initialized=0;
     timer_live=timer_adds=timer_dels=app_queued=app_posts=app_fail=0;
-    cleanup_pending=audio_services=0; state_handler=NULL;
+    cleanup_pending=audio_services=audio_tx_pending=file_active=0; state_handler=NULL;
     factory_clock_floor=0;
     clock_held=clock_allocs=clock_frees=clock_fail=clock_in_irq=clock_logs=0; clock_floor_hz=0;
     for (int i=0;i<6;++i) mac[i]=i+1;
@@ -257,25 +267,47 @@ int test_idle_session_lifecycle(void) {
 int test_clock_floor_lifecycle(void) {
     boot(); generation=0; pump();
     CHECK(!clock_held && !clock_allocs && !rdx_factory_cdc_needs_poll());
-    /* 会话建立即申请原生最高档下限，会话内重复服务不重复申请。 */
+    /* 仅打开 CDC 会话时，不应保持 CPU 最高频。 */
     generation=2; state_handler(); pump();
+    CHECK(!clock_held && !clock_allocs && !rdx_factory_cdc_needs_poll());
+    CHECK(!factory_receive(2,(const u8 *)"PING\r\n",6));
+    CHECK(factory_count==1);
+    full=1; factory_service(NULL);
     CHECK(clock_held && clock_allocs==1 && clock_floor_hz==320000000u);
-    CHECK(!input("PING\r\n") && !strcmp(wire,"OK PONG\r\n"));
+    full=0;
+    factory_service(NULL);
+    CHECK(!clock_held && clock_frees==1 && !rdx_factory_cdc_needs_poll());
+    CHECK(!strcmp(wire,"OK PONG\r\n"));
     for (int i=0;i<10;i++) factory_service(NULL);
-    CHECK(clock_allocs==1 && !clock_frees && !rdx_factory_cdc_needs_poll());
-    /* 断开（拔线/关闭/超时）后释放，且只释放一次。 */
-    generation=0; state_handler(); pump();
-    CHECK(!clock_held && clock_frees==1);
-    factory_service(NULL); rdx_factory_cdc_poll(); CHECK(clock_frees==1);
-    /* 申请失败不误记持有；恢复后由服务或优先级 0 轮询补申请。 */
+    CHECK(clock_allocs==1 && clock_frees==1);
+
+    /* 文件和产测音频工作应保持频率租约，直到数据处理完成。 */
+    file_active=1; factory_service(NULL);
+    CHECK(clock_held && clock_allocs==2);
+    file_active=0; audio_tx_pending=1; factory_service(NULL);
+    CHECK(clock_held && clock_allocs==2);
+    audio_tx_pending=0; factory_service(NULL);
+    CHECK(!clock_held);
+    CHECK(clock_frees==2);
+
+    /* 断开连接时，活动中的频率租约只释放一次。 */
+    file_active=1; factory_service(NULL); CHECK(clock_held);
+    generation=0; factory_service(NULL);
+    CHECK(!clock_held && clock_frees==3);
+    factory_service(NULL); rdx_factory_cdc_poll(); CHECK(clock_frees==3);
+
+    /* 分配失败后，出现新的实际工作时重新申请。 */
+    file_active=audio_tx_pending=0;
     clock_fail=1; generation=3; state_handler(); pump();
-    CHECK(!clock_held && !factory_clock_floor && rdx_factory_cdc_needs_poll());
-    clock_fail=0; rdx_factory_cdc_poll(); CHECK(clock_held && factory_clock_floor);
-    /* 申请失败期间断开不能产生多余释放。 */
-    generation=0; state_handler(); pump(); CHECK(!clock_held && clock_frees==2);
-    clock_fail=1; generation=4; state_handler(); pump();
-    generation=0; state_handler(); pump(); CHECK(clock_frees==2 && !clock_held);
-    CHECK(!clock_in_irq && !irq && clock_logs==4);
+    CHECK(!clock_held && !factory_clock_floor && !rdx_factory_cdc_needs_poll());
+    CHECK(!factory_receive(3,(const u8 *)"PING\r\n",6));
+    factory_service(NULL); CHECK(clock_allocs==4 && !clock_held && !factory_clock_floor);
+    clock_fail=0; full=1; CHECK(!factory_receive(3,(const u8 *)"PING\r\n",6));
+    factory_service(NULL);
+    CHECK(clock_allocs==5 && clock_held && factory_clock_floor);
+    full=0; factory_service(NULL);
+    CHECK(!clock_held && !factory_clock_floor && clock_frees==4);
+    CHECK(!clock_in_irq && !irq && clock_logs==8);
     return 0;
 }
 int test_notification_and_timer_failure_recovery(void) {

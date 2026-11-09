@@ -138,8 +138,10 @@ done:
         $Ir = [regex]::Replace($Ir, $pattern, "define internal void @$name(i8* %arg) {`n  ret void`n}")
     }
     # 保护面向文件的公开 ABI，包括闭源协议解析器绕过
-    # APP 回调发起的调用；指针查询返回空结构体。
+    # APP 回调发起的调用；指针查询返回空结构体。空间查询在 UXFILE
+    # 异步执行，必须在真正读盘时重新准入，不能只检查协议入口。
     $names = @('rdx_uxfile_get_all_size','rdx_uxfile_get_dat_cout',
+        'rdx_uxfile_sd_mem_check',
         'rdx_uxfile_dat_1_gen','rdx_uxfile_dat_1_save_gen','rdx_uxfile_raw_write',
         'rdx_uxfile_raw_read','rdx_uxfile_get_file_data_by_filename',
         'rdx_uxfile_get_file_data_by_sn','rdx_uxfile_get_datFileInfo',
