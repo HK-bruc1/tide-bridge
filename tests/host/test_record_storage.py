@@ -473,6 +473,7 @@ int get_ota_status(void) { return ota; }
                  'rdx_app_factory_file_is_busy', 'rdx_app_rdx_rebind_is_idle']:
         source += function(app, name)
     source += r'''
+typedef unsigned int u32;
 typedef enum {
     RDX_BLE_RUNTIME_READY, RDX_BLE_RUNTIME_ACTIVE,
     RDX_BLE_RUNTIME_QUIESCING, RDX_BLE_RUNTIME_RESETTING,
@@ -480,8 +481,9 @@ typedef enum {
 } rdx_ble_runtime_state_t;
 static rdx_ble_runtime_state_t s_rdx_runtime_state;
 static int s_rdx_runtime_consumed_this_boot=1;
-static int aborts, finalizes, power_checks;
+static int aborts, finalizes, power_checks, rearm_signals;
 static u8 g_rdx_lifecycle_barrier_armed;
+static u8 g_rdx_ble_exiting;
 static char g_rdx_lifecycle_barrier_value[17];
 static struct { int ble_conn; } g_rdx_ble_server_info;
 #define FALSE 0
@@ -489,16 +491,31 @@ void *memset(void *, int, unsigned long long);
 static void rdx_ble_server_rdx_session_abort(void) { ++aborts; }
 static void rdx_ble_server_rdx_session_reset_finalize(void) { ++finalizes; }
 static void rdx_app_emmc_poweroff_check(void) { ++power_checks; }
+static void rdx_ble_entry_lock(void) {}
+static void rdx_ble_entry_unlock(void) {}
+static u32 rdx_ble_session_rdx_runtime_epoch_get(void) { return 1; }
+static void rdx_ble_entry_rearm_requested(void) { ++rearm_signals; }
 '''
     for name in ['rdx_ble_session_rdx_runtime_state_get',
                  'rdx_ble_session_rdx_runtime_barrier_arrive',
                  'rdx_ble_session_rdx_runtime_rearm',
                  'rdx_ble_session_rdx_runtime_fail_closed']:
         source += function(session, name)
+    source += r'''
+static u8 rdx_ble_entry_commit_rearm(u32 epoch) {
+    return epoch==1 && rdx_ble_session_rdx_runtime_rearm();
+}
+'''
+    source += function(server, 'rdx_ble_entry_rearm_service')
     source += function(server, 'rdx_ble_server_rdx_runtime_try_rearm')
     source += function(server, 'rdx_ble_server_rdx_lifecycle_barrier_complete')
     source += r'''
 #define CHECK(c) do { if (!(c)) return __LINE__; } while (0)
+static u8 test_rearm(void) {
+    rdx_ble_server_rdx_runtime_try_rearm();
+    rdx_ble_entry_rearm_service();
+    return s_rdx_runtime_state==RDX_BLE_RUNTIME_READY;
+}
 int test_reconnect(void) {
     for (int state=0; state<3; ++state) {
         record_status.run=state;
@@ -584,11 +601,11 @@ int test_rearm_after_online_f19_disconnect(void) {
     g_stream_only_session_active=1;
     g_stream_only_release_started=1;
     key_record_disconnect_pending=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     rdx_ble_server_rdx_lifecycle_barrier_complete();
     CHECK(s_rdx_runtime_state==RDX_BLE_RUNTIME_RESETTING);
     CHECK(aborts==1 && !finalizes && !g_rdx_ble_server_info.ble_conn);
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(rearm_signals==1 && !test_rearm() && !finalizes);
 
     /* Once that fence completes, a new offline F19 may start before reconnect. */
     g_stream_only_session_active=g_stream_only_release_started=0;
@@ -607,53 +624,53 @@ int test_rearm_after_online_f19_disconnect(void) {
 
     /* Generation mismatch, unfinished old fences or send/file workers fail closed. */
     --record_initialized_generation;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     ++record_initialized_generation;
     --record_key_context.record_generation;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     ++record_key_context.record_generation;
     record_key_context.state=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     record_key_context.state=RDX_RECORD_KEY_ACTIVE;
     g_record_session_token_valid=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     g_record_session_token_valid=0;
     g_stream_only_session_active=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     g_stream_only_session_active=0;
     g_stream_only_release_started=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     g_stream_only_release_started=0;
     g_app_stop_pending=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     g_app_stop_pending=0;
     key_record_disconnect_pending=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     key_record_disconnect_pending=0;
     send.send_pending=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     send.send_pending=0;
     transfer=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     transfer=0;
     worker=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     worker=0;
     record_key_context.source=0;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     record_key_context.source=RDX_RECORD_SOURCE_KEY;
     record_key_context.kind=0;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     record_key_context.kind=RDX_RECORD_INSPIRATION;
     record_key_context.route=1;
-    CHECK(!rdx_ble_server_rdx_runtime_try_rearm() && !finalizes);
+    CHECK(!test_rearm() && !finalizes);
     record_key_context.route=RECORD_MODE_OFFLINE;
 
-    CHECK(rdx_ble_server_rdx_runtime_try_rearm());
+    CHECK(test_rearm());
     CHECK(s_rdx_runtime_state==RDX_BLE_RUNTIME_READY && finalizes==1);
     CHECK(power_checks==1 && record_status.run==RECORD_STATE_START);
     CHECK(record_key_context.record_generation==42);
-    CHECK(rdx_ble_server_rdx_runtime_try_rearm() && finalizes==1);
+    CHECK(test_rearm() && finalizes==1);
     return 0;
 }
 '''

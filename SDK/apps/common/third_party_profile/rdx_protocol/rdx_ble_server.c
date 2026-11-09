@@ -223,7 +223,7 @@ static struct {
 #define RDX_ADV_CLOSE_TIMEOUT_MS 1000u
 #define RDX_HCI_EXT_ADV_ENABLE 0x2039
 #define RDX_HCI_REMOVE_ADV_SET 0x203c
-static u8 g_rdx_lifecycle_barrier_armed;
+static volatile u8 g_rdx_lifecycle_barrier_armed;
 static char g_rdx_lifecycle_barrier_value[
     RDX_LIFECYCLE_BARRIER_VALUE_SIZE];
 
@@ -1596,27 +1596,60 @@ static void rdx_ble_server_rdx_session_reset_finalize(void)
     rdx_protocol_send_buffer_reinit();
 }
 
-static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
+/* Only app_core finalizes the singleton, so parser, ATT and USB retries cannot
+ * reset its buffers concurrently or race app_core transport teardown. */
+u8 rdx_ble_entry_rearm_service(void)
 {
+    u32 epoch;
+
+    rdx_ble_entry_lock();
+    if (g_rdx_ble_exiting) {
+        rdx_ble_entry_unlock();
+        return 0;
+    }
     if (rdx_ble_session_rdx_runtime_state_get() !=
         RDX_BLE_RUNTIME_RESETTING) {
-        return rdx_ble_session_rdx_runtime_state_get() ==
-               RDX_BLE_RUNTIME_READY;
+        rdx_ble_entry_unlock();
+        return 0;
     }
+    /* RESETTING is published before the parser finishes its second abort. */
+    if (g_rdx_lifecycle_barrier_armed) {
+        rdx_ble_entry_unlock();
+        return 1;
+    }
+    epoch = rdx_ble_session_rdx_runtime_epoch_get();
+    rdx_ble_entry_unlock();
     if (!rdx_app_rdx_rebind_is_idle()) {
         r_printf("[RDX_BLE_SESSION] runtime RESETTING: old workers still busy\r");
-        return 0;
+        return 1;
     }
 
     rdx_ble_server_rdx_session_reset_finalize();
     rdx_app_emmc_poweroff_check();
-    if (!rdx_ble_session_rdx_runtime_rearm()) {
-        rdx_ble_session_rdx_runtime_fail_closed();
-        r_printf("[RDX_BLE_SESSION] runtime FAILED: rearm rejected\r");
+    if (g_rdx_ble_exiting || epoch != rdx_ble_session_rdx_runtime_epoch_get() ||
+        rdx_ble_session_rdx_runtime_state_get() != RDX_BLE_RUNTIME_RESETTING) {
+        return 0;
+    }
+    if (!rdx_ble_entry_commit_rearm(epoch)) {
+        if (!g_rdx_ble_exiting &&
+            epoch == rdx_ble_session_rdx_runtime_epoch_get() &&
+            rdx_ble_session_rdx_runtime_state_get() == RDX_BLE_RUNTIME_RESETTING) {
+            rdx_ble_session_rdx_runtime_fail_closed();
+            r_printf("[RDX_BLE_SESSION] runtime FAILED: rearm rejected\r");
+        }
         return 0;
     }
     r_printf("[RDX_BLE_SESSION] runtime READY: FIFO drained and workers idle\r");
-    return 1;
+    return 0;
+}
+
+static u8 rdx_ble_server_rdx_runtime_try_rearm(void)
+{
+    if (rdx_ble_session_rdx_runtime_state_get() == RDX_BLE_RUNTIME_RESETTING) {
+        rdx_ble_entry_rearm_requested();
+        return 0;
+    }
+    return rdx_ble_session_rdx_runtime_state_get() == RDX_BLE_RUNTIME_READY;
 }
 
 u8 rdx_ble_server_rdx_lifecycle_barrier_match(const char *value)
@@ -1627,15 +1660,15 @@ u8 rdx_ble_server_rdx_lifecycle_barrier_match(const char *value)
 
 void rdx_ble_server_rdx_lifecycle_barrier_complete(void)
 {
+    rdx_ble_entry_lock();
     if (!g_rdx_lifecycle_barrier_armed ||
         !rdx_ble_session_rdx_runtime_barrier_arrive()) {
+        rdx_ble_entry_unlock();
         r_printf("[RDX_BLE_SESSION] unexpected lifecycle barrier ignored\r");
         return;
     }
+    rdx_ble_entry_unlock();
 
-    g_rdx_lifecycle_barrier_armed = 0;
-    memset(g_rdx_lifecycle_barrier_value, 0,
-           sizeof(g_rdx_lifecycle_barrier_value));
     g_rdx_ble_server_info.ble_conn = FALSE;
     r_printf("[RDX_BLE_SESSION] receive FIFO drain barrier reached\r");
 
@@ -1643,6 +1676,11 @@ void rdx_ble_server_rdx_lifecycle_barrier_complete(void)
      * disconnect cleanup. Abort once more on the FIFO consumer task before
      * testing the worker-idle boundary. */
     rdx_ble_server_rdx_session_abort();
+    rdx_ble_entry_lock();
+    g_rdx_lifecycle_barrier_armed = 0;
+    memset(g_rdx_lifecycle_barrier_value, 0,
+           sizeof(g_rdx_lifecycle_barrier_value));
+    rdx_ble_entry_unlock();
     rdx_ble_server_rdx_runtime_try_rearm();
 }
 static void rdx_ble_server_link_disconnected_cleanup_internal(void)
@@ -2478,6 +2516,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     u16 con_handle;
     u8 status;
     u8 reason;
+    u8 had_hid_owner;
 
     if (!packet || size < RDX_DISCONNECTION_COMPLETE_MIN_SIZE) {
         r_printf("[RDX_BLE_LINK] disconnection complete too short: %u\n", size);
@@ -2496,8 +2535,9 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
 
     r_printf("[RDX_BLE_LINK] disconnect accepted status=0x%02x reason=0x%02x\n",
              status, reason);
+    had_hid_owner = rdx_ble_session_link_is_hid(link);
 #if TCFG_RDX_HOGP_ENABLE
-    if (rdx_ble_session_link_is_hid(link)) {
+    if (had_hid_owner) {
         /* Disconnection Complete is already too late for an ATT release
          * report.  HOGP only drops its local report/runtime state here. */
         rdx_hogp_on_disconnected(con_handle);
@@ -2511,6 +2551,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     g_rdx_ble_phase0a_disconnect_pending_hdl = hdl;
     if (!rdx_hogp_keyboard_is_ready()) rdx_hogp_input_invalidate();
     rdx_ble_session_link_release(hdl, con_handle);
+    if (had_hid_owner) rdx_ble_entry_composite_disconnected();
     rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_phase0b_adv_token_capture(hdl);
     rdx_ble_server_disconnected_adv_restart_schedule();
@@ -3012,12 +3053,17 @@ static u8 rdx_ble_server_phase2_rdx_attach(rdx_ble_link_state_t *link)
         return 0;
     }
     had_hid_owner = rdx_ble_session_link_is_hid(link);
+    rdx_ble_entry_lock();
     claim_result = rdx_ble_session_claim_rdx(link, link->slot_generation);
+    if (claim_result == RDX_BLE_CLAIM_OK && had_hid_owner)
+        rdx_ble_entry_composite_owned_locked();
+    rdx_ble_entry_unlock();
     if (claim_result != RDX_BLE_CLAIM_OK) {
         y_printf("[RDX_BLE_SESSION] RDX claim rejected result=%u con=0x%04x\n",
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
+    if (had_hid_owner) rdx_ble_entry_changed();
     rdx_ble_server_set_conn_handle(link->con_handle);
     g_rdx_ble_server_info.ble_mtu_size = link->mtu_size;
     g_rdx_ble_server_info.ccc_configured = FALSE;
@@ -3081,6 +3127,10 @@ static void rdx_ble_server_rdx_detach_common(rdx_ble_link_state_t *link,
             rdx_session_control_reset();
             return;
         }
+        if (rdx_ble_session_link_is_hid(link)) {
+            rdx_ble_entry_composite_releasing(
+                rdx_ble_session_rdx_runtime_epoch_get());
+        }
         printf("[RDX_BLE_SESSION] logical detach cause=%u con=0x%04x capability=%u->%u\n",
                cause, link->con_handle, capability, link->capability);
     }
@@ -3133,12 +3183,17 @@ static u8 rdx_ble_server_phase2_hid_attach(rdx_ble_link_state_t *link)
     }
     had_hid_owner = rdx_ble_session_link_is_hid(link);
     had_rdx_owner = rdx_ble_session_link_is_rdx(link);
+    rdx_ble_entry_lock();
     claim_result = rdx_ble_session_claim_hid(link, link->slot_generation);
+    if (claim_result == RDX_BLE_CLAIM_OK && had_rdx_owner)
+        rdx_ble_entry_composite_owned_locked();
+    rdx_ble_entry_unlock();
     if (claim_result != RDX_BLE_CLAIM_OK) {
         y_printf("[RDX_BLE_HID] claim rejected result=%u con=0x%04x\n",
                  claim_result, link->con_handle);
         return rdx_ble_server_phase2_claim_to_att_error(claim_result);
     }
+    if (had_rdx_owner) rdx_ble_entry_changed();
     if (!rdx_hogp_keyboard_is_connected()) {
         rdx_hogp_on_connected_with_hdl(link->ble_hdl, link->con_handle,
                                        link->encrypted);

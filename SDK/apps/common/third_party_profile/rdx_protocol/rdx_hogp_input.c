@@ -9,6 +9,7 @@
 
 #define INPUT_FIFO_SIZE 24
 #define LOCAL_FIFO_SIZE 24
+#define INPUT_RETRY_MS 10 /* 仅在 HID 报告在途/欠发松开时运行 */
 
 /* HID 边沿与本地手势各自使用有界存储，独立推进。 */
 struct input_event {
@@ -31,6 +32,8 @@ static volatile u32 published_map;
 static rdx_hogp_token_t published_token;
 static volatile u16 input_timer;
 static volatile u8 input_initialized, input_pending, input_posted, input_servicing;
+static volatile u8 published_ready;
+static u8 input_requeued;
 static u32 overflow_count, reported_overflows;
 static u8 input_high_water;
 
@@ -495,25 +498,46 @@ static void input_service_run(void *priv)
     }
 }
 
-static void input_service(void *priv)
+/* 只有 HID 报告在途（等待 btstack 回执）或欠发松开报告时才需要轮询；
+ * 空闲在线时不保留周期定时器，否则 sys_timer 会持续唤醒并阻止休眠。 */
+static u8 input_retry_needed(void)
 {
-    if (!input_initialized) return;
-    if (rdx_hogp_keyboard_is_ready()) {
-        if (!input_timer) input_timer = sys_timer_add(NULL, input_service, 10);
-    } else if (input_timer) {
+    return rdx_hogp_keyboard_is_ready() &&
+           (rdx_hogp_key_action_busy() || rdx_hogp_key_action_blocked());
+}
+
+static void input_retry_update(void)
+{
+    u8 needed = input_retry_needed();
+    if (needed && !input_timer) {
+        /* 创建失败时由 needs_poll 交给已有恢复服务重试。 */
+        input_timer = sys_timer_add(NULL, input_service, INPUT_RETRY_MS);
+    } else if (!needed && input_timer) {
         sys_timer_del(input_timer);
         input_timer = 0;
     }
+}
+
+static void input_service(void *priv)
+{
+    u8 requeue;
+    if (!input_initialized) return;
     local_irq_disable();
     input_pending = 0;
     input_servicing = 1;
     local_irq_enable();
+    published_ready = rdx_hogp_keyboard_is_ready();
     input_service_run(priv);
+    input_retry_update();
     local_irq_disable();
     input_servicing = 0;
+    /* 本轮执行期间产生的新事件（含本轮内部失效）补投一次；连续两轮仍有
+     * 待办则不再自投递，避免忙循环，由外部事件或已有产品服务恢复。 */
+    requeue = input_pending && !input_timer && !input_requeued;
+    input_requeued = requeue;
     if (local_count || local_start.id || local_dut.cycle.id ||
         local_cleanup_pending || local_owner_pending) input_pending = 1;
-    /* 不连续自投递重试，避免忙循环；由外部事件或已有产品服务恢复。 */
+    if (requeue) input_wake_locked();
     local_irq_enable();
 }
 
@@ -522,7 +546,8 @@ static int input_changed(void)
     return input_pending || rdx_app_hogp_input_route() != published_route ||
            rdx_app_local_key_mode() != local_mode ||
            rdx_hogp_key_action_generation() != published_map ||
-           !!input_timer != !!rdx_hogp_keyboard_is_ready();
+           rdx_hogp_keyboard_is_ready() != published_ready ||
+           !!input_timer != !!input_retry_needed();
 }
 
 void rdx_hogp_input_poll(void)

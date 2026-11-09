@@ -10,12 +10,12 @@
 static rdx_ble_link_state_t s_rdx_ble_links[RDX_BLE_LINK_MAX];
 static rdx_ble_config_session_t s_rdx_config_session;
 static u32 s_rdx_ble_transport_epoch = 1;
-static u32 s_rdx_runtime_epoch = 1;
+static volatile u32 s_rdx_runtime_epoch = 1;
 static u8 s_rdx_rdx_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_hid_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_compat_link_index = RDX_BLE_LINK_INVALID_INDEX;
 static u8 s_rdx_runtime_consumed_this_boot;
-static rdx_ble_runtime_state_t s_rdx_runtime_state = RDX_BLE_RUNTIME_OFF;
+static volatile rdx_ble_runtime_state_t s_rdx_runtime_state = RDX_BLE_RUNTIME_OFF;
 
 static void rdx_ble_session_transport_epoch_advance(void)
 {

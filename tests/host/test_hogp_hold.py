@@ -134,6 +134,7 @@ static rdx_ble_link_state_t *rdx_link, *hid_link;
 static void session_boot(int split) {
     input_initialized=input_pending=input_posted=input_servicing=0;
     input_timer=0; timer_live=timer_adds=timer_dels=timer_fail=0;
+    published_ready=input_requeued=0;
     app_queued=app_posts=app_post_fail=0;
     task_name="btstack"; irq_depth=in_irq=context_errors=0;
     queue_fail=queue_count=invalidate_on_send=0; hogp_tx.state=HOGP_TX_IDLE;
@@ -465,6 +466,34 @@ int test_idle_worker_lifecycle(void) {
     CHECK(!irq_depth && !context_errors);
     return 0;
 }
+int test_online_idle_has_no_periodic_timer(void) {
+    async_boot(); pump(2);
+    /* 在线空闲：会话屏障完成后不保留周期定时器，也不请求恢复轮询。 */
+    CHECK(admission && !input_timer && !timer_live && !rdx_hogp_input_needs_poll());
+    int adds=timer_adds, posts=app_posts;
+    for(int i=0;i<50;i++) { rdx_hogp_input_poll(); run_app(); }
+    CHECK(timer_adds==adds && app_posts==posts && !input_timer);
+    /* 按下由事件送达；只在报告在途期间计时，回执消费后停止。 */
+    edge(KEY_IO_NUM0); run_app();
+    CHECK(queue_count && input_timer && timer_live);
+    run_btstack(); input_service(NULL);
+    CHECK(reports==1 && report_bytes[0][2]==4 && !input_timer && !timer_live);
+    CHECK(!rdx_hogp_input_needs_poll());
+    /* 长按保持期间无定时器；松开同样只在在途期间计时。 */
+    for(int i=0;i<20;i++) { rdx_hogp_input_poll(); run_app(); }
+    CHECK(!input_timer && reports==1);
+    edge(NO_KEY); run_app(); CHECK(input_timer);
+    run_btstack(); input_service(NULL);
+    CHECK(reports==2 && !report_bytes[1][2] && !input_timer && !timer_live);
+    CHECK(!rdx_hogp_input_needs_poll());
+    /* 欠发松开期间保持重试，成功后停止。 */
+    edge(KEY_IO_NUM0); pump(2); fail_up=1; edge(NO_KEY); pump(4);
+    CHECK(release_pending && input_timer && timer_live);
+    fail_up=0; pump(4);
+    CHECK(!release_pending && !input_timer && !timer_live);
+    CHECK(!rdx_hogp_input_needs_poll() && !context_errors && !irq_depth);
+    return 0;
+}
 int test_worker_notification_and_timer_failure_recovery(void) {
     boot(0); run_app(); rdx_hogp_input_poll(); run_app();
     app_post_fail=1; rdx_hogp_input_invalidate();
@@ -478,9 +507,13 @@ int test_worker_notification_and_timer_failure_recovery(void) {
     sample(NO_KEY); run_app(); CHECK(offline==1);
     timer_fail=1; ready=1; route=RDX_HOGP_INPUT_HID; ++s_hid_epoch;
     rdx_hogp_input_wake(); run_app();
+    /* 本轮内部失效只补投一次，定时器失败时不会自投递忙循环。 */
+    CHECK(app_queued); run_app();
     CHECK(!input_timer && timer_adds && !app_queued);
     CHECK(rdx_hogp_input_needs_poll());
-    timer_fail=0; rdx_hogp_input_poll(); CHECK(input_timer);
+    /* 恢复入口在 app_core 执行；在途报告期间重建重试定时器。 */
+    timer_fail=0; task_name="app_core"; rdx_hogp_input_poll(); task_name="btstack";
+    CHECK(input_timer && send_pending);
     ready=0; route=RDX_HOGP_INPUT_OFFLINE; rdx_hogp_input_poll(); run_app();
     CHECK(!input_timer && !release_pending && !irq_depth && !context_errors);
     return 0;

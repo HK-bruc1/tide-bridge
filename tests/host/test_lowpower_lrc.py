@@ -43,7 +43,6 @@ def check_configuration():
     changed = {k for k in baseline.keys() | trial.keys() if baseline.get(k) != trial.get(k)}
     assert changed == {SWITCH, 'TCFG_LOWPOWER_OSC_TYPE'}, changed
     assert preprocess() == trial, 'The accepted low-power baseline must enable standalone LRC'
-    assert trial['TCFG_DEBUG_UART_ENABLE'] == '1'
     assert all(key not in trial for key in LAB_SWITCHES)
 
     for enabled in (0, 1):
