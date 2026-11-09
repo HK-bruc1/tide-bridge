@@ -20,7 +20,7 @@ static struct {
     volatile u32 refresh, wake_time;
     volatile u32 release, release_time, release_epoch, rearm;
     volatile u8 requested, dirty, queued;
-    volatile u8 active, key_down, wake;
+    volatile u8 active, key_down, wake, slow;
     volatile u8 capacity;
     u32 consumed_topology, consumed_refresh, consumed_release, consumed_rearm;
     u32 deadline, timer_serial, rearm_deadline;
@@ -55,7 +55,7 @@ void rdx_ble_entry_stop(void)
     entry.running = 0;
     ++entry.epoch;
     entry.requested = entry.dirty = entry.queued = 0;
-    entry.active = entry.key_down = entry.wake = entry.window = 0;
+    entry.active = entry.key_down = entry.wake = entry.window = entry.slow = 0;
     entry.capacity = ENTRY_CAPACITY_AVAILABLE;
     entry.rearm_pending = entry.rearm_attempts = 0;
     rdx_ble_entry_unlock();
@@ -281,8 +281,14 @@ u8 rdx_ble_entry_allowed(void)
     links = rdx_ble_server_get_connected_count();
     if (links >= 2 || rdx_ble_entry_suppressed()) return 0;
     if (links && entry.capacity != ENTRY_CAPACITY_AVAILABLE) return 0;
-    return !links || (entry.window && entry.topology == entry.consumed_topology &&
-                     (s32)(sys_timer_get_ms() - entry.deadline) < 0);
+    return !links || (entry.window && entry.topology == entry.consumed_topology);
+}
+
+u8 rdx_ble_entry_adv_slow(void)
+{
+    return entry.running && entry.requested && entry.slow && entry.window &&
+           entry.capacity == ENTRY_CAPACITY_AVAILABLE &&
+           rdx_ble_server_get_connected_count() == 1;
 }
 
 static void entry_run(void *epoch)
@@ -290,6 +296,7 @@ static void entry_run(void *epoch)
     u32 topology, revision, refresh, wake_time, release, release_time, rearm;
     u32 now, due = 0;
     u8 links, wake, capacity, timed = 0;
+    u8 rate_changed = 0;
     int ret;
     rdx_ble_entry_lock();
     if (!entry.running || (u32)epoch != entry.epoch) {
@@ -314,31 +321,42 @@ static void entry_run(void *epoch)
         entry.links = links;
         entry.consumed_topology = topology;
         entry.window = links == 1 && capacity == ENTRY_CAPACITY_AVAILABLE;
+        entry.slow = 0;
         entry.deadline = now + ENTRY_WINDOW_MS;
         entry.retries = 0;
-        if (entry.window) printf("[BLE_ENTRY] topology window=120s\n");
+        if (entry.window) {
+            printf("[BLE_ENTRY] topology entry=persistent\n");
+        }
     }
     if (capacity != ENTRY_CAPACITY_AVAILABLE) entry.window = 0;
     if (release != entry.consumed_release) {
         entry.consumed_release = release;
         if (links == 1 && capacity == ENTRY_CAPACITY_AVAILABLE) {
             entry.deadline = release_time + ENTRY_WINDOW_MS;
-            entry.window = (s32)(now - entry.deadline) < 0;
+            entry.window = 1;
+            entry.slow = 0;
             entry.retries = 0;
-            if (entry.window) printf("[BLE_ENTRY] RDX released window=120s\n");
+            if (entry.window) {
+                printf("[BLE_ENTRY] RDX released entry=persistent\n");
+            }
         }
     }
-    if (entry.window && (s32)(now - entry.deadline) >= 0) {
-        entry.window = 0;
-        printf("[BLE_ENTRY] window expired\n");
+    if (entry.window && !entry.slow && (s32)(now - entry.deadline) >= 0) {
+        entry.slow = 1;
+        rate_changed = 1;
+        printf("[BLE_ENTRY] second entry slow adv\n");
     }
-    if (wake && links == 1 && !entry.window &&
+    /* 慢档期间出现真实业务唤醒（业务消息或产品键按下）时给回一轮快广播：
+     * 用户开始使用设备，第二台设备应尽快可被发现。只在新一次活动突发触发，
+     * 快档内不因活动续期，120 秒到期后重新回慢档，避免持续 100 ms 功耗。 */
+    if (wake && links == 1 && entry.slow &&
         capacity == ENTRY_CAPACITY_AVAILABLE &&
-        (s32)(wake_time - entry.deadline) >= 0 && !rdx_ble_entry_suppressed()) {
-        entry.window = 1;
+        (s32)(wake_time - entry.deadline) >= 0 &&
+        !rdx_ble_entry_suppressed()) {
+        entry.slow = 0;
         entry.deadline = now + ENTRY_WINDOW_MS;
-        entry.retries = 0;
-        printf("[BLE_ENTRY] business wake window=120s\n");
+        rate_changed = 1;
+        printf("[BLE_ENTRY] business wake fast adv\n");
     }
     /* 同一业务占用资源期间，重复数据包或按键报告不能再次触发重开。
      * 业务完成后才重新受理活动，不以 PA4 电平或 CPU 睡眠回调判定。 */
@@ -366,10 +384,11 @@ static void entry_run(void *epoch)
             entry.rearm_deadline = sys_timer_get_ms() + delay;
         }
     }
-    ret = rdx_ble_entry_radio_apply(rdx_ble_entry_allowed(), refresh != entry.consumed_refresh);
+    ret = rdx_ble_entry_radio_apply(rdx_ble_entry_allowed(),
+                                    rate_changed || refresh != entry.consumed_refresh);
     if (!ret) entry.consumed_refresh = refresh;
     now = sys_timer_get_ms();
-    if (entry.window) {
+    if (entry.window && !entry.slow) {
         due = entry.deadline;
         timed = 1;
     }
@@ -393,11 +412,16 @@ static void entry_run(void *epoch)
         entry.timer = sys_timeout_add_2_task((void *)entry.timer_serial, entry_timeout,
             (s32)(due - now) > 0 ? due - now : 1, "app_core");
         if (!entry.timer) {
-            /* A failed rearm timer alone must not close zero-ACL advertising.
-             * A bounded window or pending radio operation still fails closed. */
-            if (entry.window || ret != 0) {
+            if (ret < 0) {
                 entry.window = 0;
                 (void)rdx_ble_entry_radio_apply(0, 0);
+            } else if (entry.window && !entry.slow) {
+                rdx_ble_entry_lock();
+                entry.slow = 1;
+                ++entry.refresh;
+                ++entry.revision;
+                entry.dirty = 1;
+                rdx_ble_entry_unlock();
             }
             if (entry.retries++ < ENTRY_RETRY_MAX) entry.dirty = 1;
             else if (entry.rearm_pending)

@@ -23,6 +23,8 @@ void rdx_ble_entry_rearm_requested(void);
 u8 rdx_ble_entry_needs_service(void);
 void rdx_ble_entry_service(void);
 u8 rdx_ble_entry_allowed(void);
+/* 单 ACL 第二入口当前是否已进入 500 ms 慢广播阶段（入口仍保持开放）。 */
+u8 rdx_ble_entry_adv_slow(void);
 
 /* app_core 适配接口；广播操作返回正数时，须等待明确的完成事件。 */
 u8 rdx_ble_entry_suppressed(void);

@@ -208,6 +208,8 @@ static u8 g_syn_data_token_valid;
 static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
+/* 广播参数/数据提交期间保留保护，避免 SDK 等待 HCI 时入睡。 */
+static volatile u8 g_rdx_ble_adv_setup;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
 static u8 g_rdx_ble_exiting;
 /* 控制器确认广播集停止前保留 SDK 广播句柄，
@@ -454,16 +456,17 @@ static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
     u8 connected = rdx_ble_server_phase0a_connected_count();
     u8 second_acl_window = g_rdx_ble_advertising_hdl ||
                           g_rdx_adv_close.waiting || g_rdx_adv_close.fault;
+    u8 adv_in_flight = g_rdx_ble_adv_setup || g_rdx_adv_close.waiting;
     u8 block;
 
     block = g_rdx_adv_close.fault ||
             (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
-            (connected == 1 && second_acl_window);
+            (connected == 1 && adv_in_flight);
     if (g_rdx_ble_dual_acl_sleep_blocked != block) {
         g_rdx_ble_dual_acl_sleep_blocked = block;
         r_printf("[RDX_BLE_LP] system_sleep_block=%u connected=%u "
-                 "second_acl_window=%u reason=%s\n",
-                 block, connected, second_acl_window, reason);
+                 "second_acl_window=%u adv_in_flight=%u reason=%s\n",
+                 block, connected, second_acl_window, adv_in_flight, reason);
     }
 }
 
@@ -3944,8 +3947,12 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     /* 恢复 PA4 时可能让出执行权，操作广播前须重新检查准入条件。 */
     if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) return 0;
     g_rdx_ble_advertising_hdl = hdl;
+    g_rdx_ble_adv_setup = 1;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_prepare");
-    ret = app_ble_set_adv_param(hdl, g_rdx_ble_server_info.adv_interval_min,
+    /* 单 ACL 第二入口：前 120 秒快广播，之后切 500 ms 慢广播但保持开放。 */
+    ret = app_ble_set_adv_param(hdl, rdx_ble_entry_adv_slow() ?
+                               RDX_BLE_ADV_INTERVAL_LOW :
+                               g_rdx_ble_server_info.adv_interval_min,
                                ADV_IND, ADV_CHANNEL_ALL);
     if (ret) goto not_enabled;
     if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) goto not_enabled;
@@ -3968,6 +3975,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
         if (!rdx_ble_server_get_connected_count())
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_BLE_ADV_START);
     }
+    g_rdx_ble_adv_setup = 0;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_result");
     r_printf("[BLE_ENTRY] open ret=%d wrapper=%u\n", ret,
              rdx_ble_server_phase0a_wrapper_index(hdl));
@@ -3976,6 +3984,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
 not_enabled:
     /* 设置参数和数据不会开启广播，提交开启前取消不构成广播故障；
      * 只有已提交开启且结果不确定时才锁定保护。 */
+    g_rdx_ble_adv_setup = 0;
     if (g_rdx_ble_advertising_hdl == hdl) g_rdx_ble_advertising_hdl = NULL;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_cancelled");
     return ret;

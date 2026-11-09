@@ -116,7 +116,7 @@ RDX lives in `SDK/apps/common/third_party_profile/rdx_protocol/` (`librdxApp.a` 
 - `rdx_ble_server.c` — GATT server, advertising, connection state, HOGP extension
 - `rdx_app.c` — RDX application logic, key remapping, startup (`rdx_app_tasks_init()`)
 - `rdx_flashnote.c` — APP and F19 flashnote control, state reporting, session ownership and release
-- `rdx_ble_entry.c` — 120 s second-device entry window while one physical ACL is connected
+- `rdx_ble_entry.c` — fixed single-ACL second-device entry: 100 ms fast advertising for 120 s, then 500 ms slow advertising without closing
 - `rdx_hogp_input.c` — KEY1–KEY5 gesture entry, keymap snapshots, HID/local queues
 
 Rules:
@@ -141,6 +141,7 @@ Included by `app_config.h` right after `sdk_config.h`.
 - `TCFG_T2620_STORAGE_PRESERVE_ON_BOOT` — never auto-format SD at boot; SD NAND is always-online.
 - `TCFG_T2620_LOWPOWER_LRC_ENABLE` (default 1) — native LRC sleep clock, configured at boot.
 - `TCFG_T2620_CONN_SLAVE_LATENCY` (default 49) — standing BLE connection target `{6,12,L,600}`: fast interval, power saved by slave latency; no fast/slow switching, no local latency gate. Rationale: section 2.4 of `docs/6-2.T2620BLE连接后低功耗设计.md`.
+- Single-ACL second entry is a fixed product policy, not a `TCFG_*` switch: while exactly one ACL is connected the idle wrapper advertises at 100 ms for the first 120 s, then switches to 500 ms and stays open. A real business wake in the slow phase (business message or product key press) promotes back to fast for one new 120 s window; activity inside the fast phase does not extend it. Every 2→1 restart begins a new fast phase. Composite HID+RDX still closes the entry. Section 4.2.1 of `docs/6-2.T2620BLE连接后低功耗设计.md`.
 - Idle-probe (`TCFG_T2620_IDLE_PROBE_*`) and connection-probe/latency-gate switches (`TCFG_T2620_CONN_PROBE_ENABLE`, `TCFG_T2620_CONN_LATENCY_GATE_ENABLE`) are rejected at compile time on this branch.
 
 Storage/shutdown: `rdx_storage_lifecycle.c` owns file-service admission and PC-return reconciliation; `rdx_dip_switch.c` owns debounced OFF admission and a 3 s reset guard. See section 0 of `docs/7-0.T2620_U盘与BLE及充电共存可行性评估与实施方案.md`.
@@ -152,6 +153,7 @@ Storage/shutdown: `rdx_storage_lifecycle.c` owns file-service admission and PC-r
 - Raise CPU frequency only via `clock_alloc` / `clock_lock`; never call `clk_set("sys", ...)` directly, or the clock may not drop back.
 - USB detection, battery sampling, key scan and debug UART stay native.
 - Never keep a periodic `sys_timer` while idle: it wakes the system and blocks sleep. The HOGP input service is event-driven and runs its 10 ms retry timer only while a HID report is in flight or a release is owed; this took the PC HID + PC RDX composite session from about 3 mA to below 1 mA (`docs/6-2.T2620BLE连接后低功耗设计.md` section 2.7).
+- A single ACL keeps the second-entry advertising on (100 ms for 120 s, then 500 ms, with business wakes promoting back to a fresh 120 s fast phase). Neither stable phase holds the sleep gate; two ACLs, single-ACL advertising transactions and faults retain protection. Board tests on 2026-11-09 (`COM3_2026-11-09_15-59-06.log`) confirmed sleep in both phases and two successful second-ACL connections during slow-phase sleep, three total with the earlier run, with no controller assert or unexpected reset. The user reported three tests in the latest run, but only two second-ACL connections appear in that log. One `timer_no_response` coincided with the business-wake fast-advertising transition; its callback address corresponds to `input_service` in the current ELF, but that is not the sampled PC and its root cause remains open. The user measured 0.5–2.2 mA total current (2.2 mA peak, roughly 1 mA visually estimated, not an integrated average); current was not separately recorded for each advertising phase. Connecting during fast-phase sleep, bonded reconnects and long-run stability remain unvalidated. Composite HID+RDX still closes the entry.
 - Measured 2026-10-27 (multimeter, user confirmed): 0.6–1.4 mA without the former 2–4 mA spikes. The idle probe and logs used to find this are frozen on branch `freeze/idle-probe-20261027`.
 - Details and acceptance limits: `docs/6-0.T2620外设低功耗与共享VDD电源管理设计.md` (sections 2.4, 4.6, 5, 6.6); connected-state power: `docs/6-2.T2620BLE连接后低功耗设计.md`.
 

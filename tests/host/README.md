@@ -37,7 +37,7 @@ run directly. Individual PowerShell scripts accept `-Verbose` for assertion name
 | `test_power_recovery.py` | Actual DIP controller, native power entry and idle completion: debounce, stalled app_core, fixed OFF deadline, cold charging, ordinary shutdown and accepted OFF→ON restart; legacy storage power ABI delegates to the PA4 manager |
 | `test_connected_power.py` | 实际 PA4 管理器：单/双 ACL 的 120 秒窗口、忙时停表、解析占用不重计、真实活动重计、旧回调与计数回绕、三种停用档位、关断边界竞争、USB/充满/关机门禁、失败保电与恢复、未连接慢广播边界 |
 | `test_connected_params.py` | 实际 RDX 快档协调器：长时间空闲不降档、下载结束及旧参数索引均不恢复慢档、实际快档范围、延迟/拒绝时有界重试和停表、逻辑会话切换不刷新物理 ACL 预算、迟到慢参数恢复、HID 同链保护与异链隔离、RDX 退出后的 HID 快档收尾与跨 peer 接管、重连/旧回调隔离、消息/定时器失败恢复及计数回绕；协商、交互、射频与电流仍须板测 |
-| `test_ble_entry.py` | 实际第二入口协调器、广播/连接适配与退出函数：120 秒到期、持续业务不续期、真实业务/物理键重开且纯 HID 不恢复 PA4、双 ACL/零 ACL、关闭两阶段确认与在途建链、软件缓存提前清零、超时/错误保守锁定、开放前取消、退出/重初始化及旧任务隔离、队列/定时器失败与回绕；固定已审阅 SDK 库哈希，不替代实际 HCI/RF 时序、睡眠与电流板测 |
+| `test_ble_entry.py` | 实际第二入口协调器、广播/连接适配与退出函数：常开入口的 120 秒快档、到期转 500 ms 慢档且不关闭、持续业务不续期、慢档真实业务/物理键回升快档、单 ACL 快慢档均不占睡眠门禁、双 ACL/广播在途/故障仍阻止、复合会话关闭、零 ACL、关闭两阶段确认与在途建链、软件缓存提前清零、超时/错误保守锁定、开放前取消、退出/重初始化及旧任务隔离、队列/定时器失败与回绕；固定已审阅 SDK 库哈希，不替代实际 HCI/RF 时序、睡眠与电流板测 |
 | `test_cache_flush.py` | 实际缓存协调器：干净停表、固定 5 秒期限、重复修改不续期、同步清除、临时忙和故障、队列/定时器失败恢复、生命周期隔离及回绕；实际库的 dirty 通知/准入/有界互斥由 `test_record_format.py` 中的 `cache_flush_library_checks.py` 执行 |
 | `test_protocol_recv.py` | 实际补丁库接收任务/生产者：无限等待、等待前/期间及消费中入队、自通知连续排空、空唤醒不提频、真实数据分派前提频、分配/入队/出队/通知失败、计数饱和、满队列旧包清理及零连接句柄下的 FIFO 屏障传输；`clock_manager_checks.py` 执行实际观察器调度，覆盖 `app_core` 归属、7 轮后停表/业务重启、刷新期限、已排队旧超时、回绕与分配失败 |
 | `test_amp_output.py` | PE5 = DAC 模拟就绪 && 数字输出运行：对照 `media.a` 校验 `_audio_dac_status_hook` INIT/START/STOP ABI、最后通道 stop、淡出与互斥顺序；冷/热启动、录音占用、模拟关闭作废输出、未知状态、临界区及 `[AMP]` 诊断；复用消息缓冲并污染返回值/信号量标志，验证完整 `Q_CALLBACK` 消息与失败重投。MIC、功放时序与电流仍需板测 |
@@ -81,7 +81,15 @@ sessions, TX-full control reception, coalesced wakeups and bounded output.
 隔离 SDK 清理命令。退出在 `app_core` 有界排空；未确认的故障保留保护且禁止重开直到重启，
 不能把退出/重新初始化或迟到完成当成恢复证据。此检查不等于执行真实 controller。
 
-2026-10-19 第二入口单 RDX 核心路径已板测：两次关窗后的睡眠、列表唤醒重开和窗口内
+单 ACL 第二入口要求：快档、慢档都允许 `system_sleep_block=0`；双 ACL、单 ACL 的广播准备/关闭/重开
+在途和故障锁定仍必须阻止睡眠。第二台设备在放行睡眠后接入仍可能触发 controller 低功耗
+计数断言，主机模拟不能证明安全。2026-11-09 板测 `COM3_2026-11-09_14-51-35.log` 与
+`COM3_2026-11-09_15-59-06.log`：新策略快、慢档均出现睡眠轨迹，慢档睡眠期间手机两次
+接入（连同前一轮共 3 次）未触发断言/异常复位；业务唤醒切快档时有 1 次
+`timer_no_response` 待分析。用户万用表 0.5–2.2 mA 跳动（尖峰 2.2、粗估均值约 1 mA，
+整机且未分档积分）。快档睡眠期间接入、绑定重连与长稳仍待验证。
+
+2026-10-19 历史 120 秒窗口策略（已由常开策略取代）单 RDX 核心路径已板测：两次关窗后的睡眠、列表唤醒重开和窗口内
 不续期，用户实测入口开放/关窗待机约 4/2 mA，确认锁定阶段收益。第二手机物理接入后
 因 RDX runtime 已占用而被拒绝接管，随后退回单 ACL 并重开窗口，也已覆盖一次。
 此记录不代表持续录音/下载、HID/双 ACL、关闭故障、退出或长稳板测通过；完整边界见

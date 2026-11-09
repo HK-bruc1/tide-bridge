@@ -21,6 +21,7 @@ typedef int s32;
 #define ADV_CHANNEL_ALL 7
 #define ADV_RSP_PACKET_MAX 31
 #define RDX_BLE_PHASE0A_WRAPPER_MAX 2
+#define RDX_BLE_ADV_INTERVAL_LOW 800
 #define RDX_LED_SCENE_BLE_ADV_START 1
 #define RDX_LE_CONNECTION_COMPLETE_MIN_SIZE 20
 #define RDX_LE_ENHANCED_CONNECTION_COMPLETE_MIN_SIZE 32
@@ -41,6 +42,7 @@ static int queue_read, queue_write;
 static int suppressed, busy, power_calls, led_calls, opens, sdk_stops, close_calls;
 static int sdk_fail, submit_fail, auto_notification, open_race, setup_fail, close_race;
 static int exit_ack, exit_delays, free_calls;
+static u16 last_adv_interval;
 enum { RDX_BLE_RUNTIME_READY, RDX_BLE_RUNTIME_ACTIVE, RDX_BLE_RUNTIME_QUIESCING,
        RDX_BLE_RUNTIME_RESETTING, RDX_BLE_RUNTIME_FAILED };
 static int runtime, workers_busy, rearm_fail, rearm_calls, finalizes, power_checks;
@@ -60,6 +62,7 @@ static struct { void *rdx_ble_server_hdl; u16 adv_interval_min, adv_interval_cha
 static void *g_rdx_ble_advertising_hdl, *g_rdx_ble_phase0a_disconnect_pending_hdl;
 static void *g_rdx_ble_secondary_hdl;
 static u8 g_rdx_ble_exiting;
+static volatile u8 g_rdx_ble_adv_setup;
 static struct { u8 slot_index; } g_rdx_ble_adv_token;
 static u16 g_rdx_ble_phase0a_connect_adv_timer;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
@@ -147,6 +150,7 @@ int fake_ll(int argc,int opcode,u8 *data,u32 size) {
 #define ll_hci_cmd_to_task fake_ll
 int app_ble_set_adv_param(void *h,u16 interval,u8 type,u8 channel) {
     if(!in_core || irq) ++context_error;
+    last_adv_interval=interval;
     if(open_race==1) { open_race=0; suppressed=1; rdx_ble_entry_changed(); }
     if(open_race==4) { open_race=0; publish_composite(); }
     return setup_fail==1 ? -1 : 0;
@@ -233,7 +237,7 @@ void app_ble_hdl_free(void *h) {
 }
 '''
 
-CHECKS = r'''
+HELPERS = r'''
 void publish_composite(void) {
     rdx_ble_entry_lock(); rdx_ble_entry_composite_owned_locked(); rdx_ble_entry_unlock();
     rdx_ble_entry_changed();
@@ -248,11 +252,13 @@ static void reset(void) {
     g_rdx_ble_server_info.adv_interval_min=160;
     g_rdx_ble_advertising_hdl=g_rdx_ble_phase0a_disconnect_pending_hdl=NULL;
     g_rdx_ble_phase0a_connect_adv_timer=g_rdx_ble_dual_acl_sleep_blocked=0;
+    g_rdx_ble_adv_setup=0;
     now=next_timer=queue_pending=queue_fail=timer_fail=in_core=context_error=irq=spin_held=0;
     entry_state_lock.locked=0;
     suppressed=busy=power_calls=led_calls=opens=sdk_stops=close_calls=0;
     sdk_fail=submit_fail=auto_notification=open_race=command_count=accepted=rejected=0;
     setup_fail=close_race=exit_ack=exit_delays=free_calls=queue_read=queue_write=0;
+    last_adv_interval=0;
     g_rdx_ble_exiting=0;
     runtime=RDX_BLE_RUNTIME_READY; runtime_epoch=1;
     workers_busy=rearm_fail=rearm_calls=finalizes=power_checks=0;
@@ -291,36 +297,9 @@ static int reply(u8 status) {
     return drain();
 }
 static int closed(void) { return reply(0) && reply(0x42); }
-int check_window_and_business_cycle(void) {
-    reset(); CHECK(single()); CHECK(opens==1 && g_rdx_ble_dual_acl_sleep_blocked);
-    CHECK(!power_calls && !led_calls);
-    u32 deadline=entry.deadline;
-    CHECK(advance(110000)); busy=1; rdx_ble_entry_activity(); CHECK(drain());
-    CHECK(entry.deadline==deadline);
-    CHECK(advance(10000)); CHECK(g_rdx_adv_close.waiting && g_rdx_ble_dual_acl_sleep_blocked);
-    CHECK(commands[0].opcode==0x2039 && commands[0].data[0]==0 && commands[0].data[1]==1);
-    CHECK(commands[0].data[2]==0 && commands[1].opcode==0x203c && commands[1].data[0]==0);
-    CHECK(wrappers[1].handle==1 && wrappers[1].adv); /* 不能提前释放 SDK 句柄。 */
-    CHECK(closed()); CHECK(!g_rdx_ble_dual_acl_sleep_blocked && !g_rdx_ble_advertising_hdl);
-    for(int i=0;i<6;++i) { rdx_ble_entry_activity(); CHECK(drain()); }
-    CHECK(opens==1); /* 同一持续业务不能重开已到期的窗口。 */
-    busy=0; rdx_ble_entry_changed(); CHECK(drain()); CHECK(!entry.active);
-    rdx_ble_entry_activity(); CHECK(drain()); CHECK(opens==2 && entry.window);
-    CHECK(entry.deadline==240000 && !power_calls);
-    CHECK(advance(120000)); CHECK(closed()); CHECK(!entry.window);
-    for(int i=0;i<20;++i) { rdx_ble_entry_changed(); rdx_ble_entry_request(1,0); CHECK(drain()); }
-    CHECK(opens==2 && !g_rdx_ble_dual_acl_sleep_blocked && !entry.timer);
-    return 0;
-}
-int check_hid_key_without_pa4_and_no_renewal(void) {
-    reset(); CHECK(single()); CHECK(advance(120000)); CHECK(closed());
-    rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==2 && !power_calls && entry.active);
-    CHECK(advance(120000)); CHECK(closed());
-    rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==2);
-    rdx_ble_entry_key(0); CHECK(drain()); CHECK(!entry.active);
-    rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==3 && !power_calls);
-    return 0;
-}
+'''
+
+CHECKS = HELPERS + r'''
 int check_topology_and_inflight_connection(void) {
     reset(); CHECK(single()); CHECK(advance(120000));
     u8 packet[34]={62,19,1,0,0x51,0};
@@ -336,10 +315,11 @@ int check_topology_and_inflight_connection(void) {
     rdx_ble_entry_topology_changed(); rdx_ble_entry_request(1,0); CHECK(drain());
     CHECK(entry.window && opens==2 && g_rdx_ble_advertising_hdl==&wrappers[0]);
     CHECK(advance(120000)); CHECK(closed()); CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(opens==3 && entry.slow && last_adv_interval==800);
     wrappers[1].con=0; links[1].connected=0;
-    rdx_ble_entry_topology_changed(); rdx_ble_entry_request(1,0); CHECK(drain());
-    CHECK(opens==3 && !entry.window && !g_rdx_ble_dual_acl_sleep_blocked);
-    CHECK(advance(1200000)); CHECK(!entry.timer && opens==3);
+    rdx_ble_entry_topology_changed(); rdx_ble_entry_request(1,1); CHECK(drain());
+    CHECK(closed()); CHECK(opens==4 && !entry.window && !g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(last_adv_interval==160 && advance(1200000)); CHECK(!entry.timer && opens==4);
     return 0;
 }
 int check_failure_is_not_cached_off_success(void) {
@@ -387,12 +367,13 @@ int check_refresh_suppression_and_stale_callbacks(void) {
     rdx_ble_entry_request(1,1); CHECK(drain()); CHECK(g_rdx_adv_close.waiting);
     CHECK(closed()); CHECK(opens==2 && entry.deadline==deadline);
     in_core=1; entry_timeout(old_arg); in_core=0; CHECK(!queue_pending);
-    CHECK(advance(110000)); CHECK(closed());
-    rdx_ble_entry_request(1,1); CHECK(drain()); CHECK(opens==2);
-    suppressed=1; rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==2);
+    CHECK(advance(110000)); CHECK(closed() && opens==3 && entry.slow);
+    rdx_ble_entry_request(1,1); CHECK(drain()); CHECK(closed() && opens==4);
+    suppressed=1; rdx_ble_entry_key(1); CHECK(drain());
+    CHECK(g_rdx_adv_close.waiting); CHECK(closed() && opens==4);
     rdx_ble_entry_key(0); CHECK(drain()); suppressed=0;
-    rdx_ble_entry_changed(); CHECK(drain()); CHECK(opens==2);
-    rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==3);
+    rdx_ble_entry_changed(); CHECK(drain()); CHECK(opens==5 && entry.slow);
+    rdx_ble_entry_key(1); CHECK(drain()); CHECK(closed() && opens==6 && !entry.slow);
     suppressed=1; rdx_ble_entry_changed(); CHECK(drain()); CHECK(closed());
     CHECK(!g_rdx_ble_advertising_hdl);
     reset(); auto_notification=1; rdx_ble_entry_request(1,1); CHECK(drain());
@@ -403,16 +384,26 @@ int check_queue_timer_failure_and_rollover(void) {
     reset(); queue_fail=1; CHECK(single()); CHECK(!opens && rdx_ble_entry_needs_service());
     queue_fail=0; rdx_ble_entry_service(); CHECK(drain()); CHECK(opens==1);
     reset(); timer_fail=1; CHECK(single()); CHECK(g_rdx_adv_close.waiting);
-    CHECK(g_rdx_ble_dual_acl_sleep_blocked && !entry.window);
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked && entry.window && entry.slow);
     for(int i=0;i<8;++i) { rdx_ble_entry_service(); CHECK(drain()); }
-    CHECK(!rdx_ble_entry_needs_service()); timer_fail=0; CHECK(closed());
+    CHECK(!rdx_ble_entry_needs_service() && entry.window); timer_fail=0; CHECK(closed());
+    CHECK(entry.window && entry.slow && last_adv_interval==800);
     CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    reset(); timer_fail=1; CHECK(single());
+    CHECK(g_rdx_adv_close.waiting && g_rdx_ble_dual_acl_sleep_blocked);
+    now+=1001; rdx_ble_entry_changed(); CHECK(drain());
+    CHECK(g_rdx_adv_close.fault && g_rdx_ble_dual_acl_sleep_blocked);
     reset(); now=0xffff0000u; CHECK(single());
     CHECK(advance(119999)); CHECK(!g_rdx_adv_close.waiting);
-    CHECK(advance(1)); CHECK(closed()); CHECK(!entry.window);
+    CHECK(advance(1)); CHECK(closed()); CHECK(entry.window && entry.slow && opens==2);
     reset(); CHECK(single()); now=119999; rdx_ble_entry_activity();
-    now=120001; CHECK(drain()); CHECK(g_rdx_adv_close.waiting && !entry.window);
-    CHECK(closed()); CHECK(opens==1); /* 窗口内发生但延迟处理的活动不能续期。 */
+    now=120001; CHECK(drain()); CHECK(g_rdx_adv_close.waiting && entry.slow);
+    CHECK(closed()); CHECK(opens==2 && last_adv_interval==800);
+    reset(); CHECK(single() && advance(120000) && closed());
+    timer_fail=1; runtime=RDX_BLE_RUNTIME_RESETTING; runtime_epoch=46; workers_busy=1;
+    rdx_ble_entry_rearm_requested(); CHECK(drain());
+    CHECK(entry.slow && entry.window && wrappers[1].adv);
+    CHECK(!g_rdx_adv_close.waiting && !g_rdx_ble_dual_acl_sleep_blocked);
     return 0;
 }
 int check_getter_connection_and_cancel_before_enable(void) {
@@ -425,7 +416,7 @@ int check_getter_connection_and_cancel_before_enable(void) {
         CHECK(!opens && !g_rdx_adv_close.fault && !g_rdx_ble_advertising_hdl);
         CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
         suppressed=0; rdx_ble_entry_changed(); CHECK(drain());
-        CHECK(opens==1 && g_rdx_ble_dual_acl_sleep_blocked);
+        CHECK(opens==1 && !g_rdx_ble_dual_acl_sleep_blocked);
         reset(); setup_fail=stage; CHECK(single()); CHECK(advance(1000));
         CHECK(!opens && !g_rdx_adv_close.fault && !g_rdx_ble_advertising_hdl);
         setup_fail=0; rdx_ble_entry_changed(); CHECK(drain()); CHECK(opens==1);
@@ -490,14 +481,15 @@ int check_composite_release_wait_ready_and_deadline(void) {
     CHECK(runtime==RDX_BLE_RUNTIME_READY && finalizes==1 && rearm_calls==1);
     CHECK(entry.capacity==ENTRY_CAPACITY_AVAILABLE && entry.window && opens==2);
     CHECK(entry.deadline==now+120000 && power_checks==1);
-    CHECK(advance(120000)); CHECK(closed()); CHECK(!entry.window);
+    CHECK(advance(120000)); CHECK(closed());
+    CHECK(entry.window && entry.slow && opens==3 && last_adv_interval==800);
 
-    /* A delayed app_core event cannot extend the window past READY + 120 s. */
     reset(); CHECK(single()); publish_composite(); CHECK(drain()); CHECK(closed());
     runtime_epoch=20; runtime=RDX_BLE_RUNTIME_RESETTING;
     rdx_ble_entry_composite_releasing(runtime_epoch); CHECK(drain());
     in_core=1; CHECK(rdx_ble_entry_commit_rearm(runtime_epoch)); in_core=0;
-    now+=120001; CHECK(drain()); CHECK(!entry.window && opens==1);
+    now+=120001; CHECK(drain());
+    CHECK(entry.window && entry.slow && opens==2 && last_adv_interval==800);
     return 0;
 }
 int check_release_during_close_and_suppression(void) {
@@ -508,7 +500,7 @@ int check_release_during_close_and_suppression(void) {
     rdx_ble_entry_rearm_requested(); CHECK(drain());
     CHECK(runtime==RDX_BLE_RUNTIME_READY && entry.window && opens==1);
     CHECK(g_rdx_adv_close.waiting && g_rdx_ble_dual_acl_sleep_blocked);
-    CHECK(closed()); CHECK(opens==2 && g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(closed()); CHECK(opens==2 && !g_rdx_ble_dual_acl_sleep_blocked);
 
     reset(); CHECK(single()); publish_composite(); CHECK(drain()); CHECK(closed());
     suppressed=1; runtime=RDX_BLE_RUNTIME_RESETTING; runtime_epoch=22;
@@ -516,8 +508,9 @@ int check_release_during_close_and_suppression(void) {
     rdx_ble_entry_rearm_requested(); CHECK(drain());
     CHECK(runtime==RDX_BLE_RUNTIME_READY && entry.window && opens==1);
     CHECK(advance(120000)); suppressed=0; rdx_ble_entry_changed(); CHECK(drain());
-    CHECK(opens==1 && !entry.window);
-    rdx_ble_entry_key(1); CHECK(drain()); CHECK(opens==2);
+    CHECK(opens==2 && entry.window && entry.slow && last_adv_interval==800);
+    rdx_ble_entry_key(1); CHECK(drain()); CHECK(closed());
+    CHECK(opens==3 && !entry.slow && last_adv_interval==160);
     return 0;
 }
 int check_rearm_failures_backoff_and_stale_epochs(void) {
@@ -664,6 +657,177 @@ int check_lifecycle_pending_and_faulted_exit(void) {
 }
 '''
 
+CHECKS_PERSISTENT = r'''
+/* 单 ACL 入口常开时快慢档都允许睡眠；双 ACL、广播在途与故障仍阻止。 */
+int check_sleep_policy_boundaries(void) {
+    reset();
+    g_rdx_ble_adv_setup=1; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[0].con=0x50; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    g_rdx_ble_adv_setup=0; g_rdx_adv_close.waiting=1;
+    rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    g_rdx_adv_close.waiting=0; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[1].con=0x51; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[0].con=wrappers[1].con=0; g_rdx_adv_close.fault=1;
+    rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+int check_persistent_fast_then_slow(void) {
+    reset(); CHECK(single());
+    CHECK(opens==1 && wrappers[1].adv && !g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(entry.window && !entry.slow && rdx_ble_entry_allowed());
+    CHECK(last_adv_interval==160 && !rdx_ble_entry_adv_slow());
+    for(int i=0;i<5;++i) {
+        rdx_ble_entry_activity(); rdx_ble_entry_key(1); CHECK(drain());
+    }
+    CHECK(opens==1 && last_adv_interval==160 && !entry.slow);
+    rdx_ble_entry_key(0); CHECK(drain());
+    CHECK(advance(119999));
+    CHECK(opens==1 && !entry.slow && last_adv_interval==160 && !g_rdx_adv_close.waiting);
+    CHECK(advance(1)); /* 120 s: stay open but switch to 500 ms */
+    CHECK(entry.window && entry.slow && rdx_ble_entry_adv_slow());
+    CHECK(g_rdx_adv_close.waiting && g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(closed());
+    CHECK(opens==2 && wrappers[1].adv && entry.window && entry.slow);
+    CHECK(last_adv_interval==800 && !entry.timer);
+    CHECK(advance(600000)); /* slow phase has no expiry and no periodic timer */
+    CHECK(opens==2 && entry.window && entry.slow && last_adv_interval==800);
+    CHECK(!g_rdx_adv_close.waiting && !entry.timer);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+int check_business_spanning_fast_deadline(void) {
+    reset(); CHECK(single()); CHECK(!power_calls && !led_calls);
+    u32 deadline=entry.deadline;
+    CHECK(advance(110000)); busy=1; rdx_ble_entry_activity(); CHECK(drain());
+    CHECK(entry.deadline==deadline);
+    CHECK(advance(10000)); CHECK(g_rdx_adv_close.waiting && g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(commands[0].opcode==0x2039 && commands[0].data[0]==0 && commands[0].data[1]==1);
+    CHECK(commands[0].data[2]==0 && commands[1].opcode==0x203c && commands[1].data[0]==0);
+    CHECK(wrappers[1].handle==1 && wrappers[1].adv);
+    CHECK(closed() && opens==2 && entry.slow && last_adv_interval==800);
+    for(int i=0;i<6;++i) { rdx_ble_entry_activity(); CHECK(drain()); }
+    CHECK(opens==2 && entry.slow && !g_rdx_adv_close.waiting);
+    busy=0; rdx_ble_entry_changed(); CHECK(drain()); CHECK(!entry.active);
+    rdx_ble_entry_activity(); CHECK(drain()); CHECK(closed());
+    CHECK(opens==3 && !entry.slow && entry.deadline==now+120000 && !power_calls);
+    CHECK(advance(120000)); CHECK(closed() && entry.slow);
+    rdx_ble_entry_key(1); CHECK(drain()); CHECK(closed() && !entry.slow && !power_calls);
+    return 0;
+}
+int check_persistent_slow_wake_promotes_fast(void) {
+    reset(); CHECK(single() && advance(120000));
+    CHECK(entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==2 && last_adv_interval==800 && !entry.timer);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    /* 慢档期出现真实业务唤醒：回到 100 ms 快档并重新计满 120 秒。 */
+    CHECK(advance(60000));
+    rdx_ble_entry_activity(); CHECK(drain());
+    CHECK(entry.window && !entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==3 && last_adv_interval==160);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked); /* 快档同样允许睡眠。 */
+    CHECK(rdx_ble_entry_allowed() && !rdx_ble_entry_adv_slow());
+    /* 快档内的活动不续期：仍按唤醒时刻 +120 s 回慢档。 */
+    CHECK(advance(60000));
+    rdx_ble_entry_activity(); rdx_ble_entry_key(1); CHECK(drain());
+    CHECK(opens==3 && !entry.slow && last_adv_interval==160);
+    rdx_ble_entry_key(0); CHECK(drain());
+    CHECK(opens==3 && !entry.slow && last_adv_interval==160);
+    CHECK(advance(59999) && opens==3 && !entry.slow);
+    CHECK(advance(1) && entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==4 && last_adv_interval==800 && !entry.timer);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    /* 产品键按下同样能把慢档拉回快档，且只占一轮窗口。 */
+    rdx_ble_entry_key(1); CHECK(drain());
+    CHECK(!entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==5 && last_adv_interval==160);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    rdx_ble_entry_key(0); CHECK(drain());
+    CHECK(opens==5 && !entry.slow && last_adv_interval==160);
+    return 0;
+}
+int check_persistent_second_acl_and_return(void) {
+    u8 packet[34]={62,19,1,0,0x51,0};
+    reset(); CHECK(single() && advance(119999));
+    wrappers[1].con=0x51; wrappers[1].adv=0; wrappers[1].handle=0;
+    rdx_ble_server_phase0a_link_connected(&wrappers[1],packet,20,0);
+    CHECK(accepted==1 && links[1].connected);
+    CHECK(drain());
+    CHECK(!entry.window && !rdx_ble_entry_allowed());
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(advance(600000) && opens==1 && !entry.timer);
+    wrappers[1].con=0; links[1].connected=0;
+    g_rdx_ble_phase0a_connect_adv_timer=0;
+    rdx_ble_entry_topology_changed(); CHECK(drain());
+    CHECK(entry.window && !entry.slow && opens==2 && rdx_ble_entry_allowed());
+    CHECK(last_adv_interval==160 && !rdx_ble_entry_adv_slow());
+    CHECK(advance(120000)); /* every 2->1 restart gets a new fast phase */
+    CHECK(entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed());
+    CHECK(opens==3 && wrappers[1].adv && last_adv_interval==800 && !entry.timer);
+    CHECK(advance(600000) && opens==3 && entry.slow);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+int check_persistent_slow_accepts_second_acl(void) {
+    u8 packet[34]={62,19,1,0,0x52,0};
+    reset(); CHECK(single()); CHECK(advance(120000));
+    CHECK(entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==2 && last_adv_interval==800);
+    CHECK(advance(300000) && entry.slow && rdx_ble_entry_adv_slow());
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    /* 目标拓扑：PC HID 已占 ACL1，手机在 500 ms 慢广播阶段才接入 ACL2。 */
+    wrappers[1].con=0x52; wrappers[1].adv=0; wrappers[1].handle=0;
+    rdx_ble_server_phase0a_link_connected(&wrappers[1],packet,20,0);
+    CHECK(accepted==1 && links[1].connected);
+    CHECK(drain());
+    CHECK(!entry.window && !entry.slow && !rdx_ble_entry_allowed());
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked); /* 双 ACL 仍须阻止睡眠。 */
+    CHECK(advance(600000) && opens==2 && !entry.timer);
+    /* 手机断开后按 2→1 重新进入快广播阶段，不需要业务唤醒。 */
+    wrappers[1].con=0; links[1].connected=0;
+    g_rdx_ble_phase0a_connect_adv_timer=0;
+    rdx_ble_entry_topology_changed(); CHECK(drain());
+    CHECK(entry.window && !entry.slow && opens==3 && last_adv_interval==160);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(rdx_ble_entry_allowed() && !rdx_ble_entry_adv_slow());
+    return 0;
+}
+int check_persistent_suppression_and_composite(void) {
+    reset(); CHECK(single() && advance(120000));
+    CHECK(entry.slow && g_rdx_adv_close.waiting);
+    CHECK(closed() && opens==2 && last_adv_interval==800);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    suppressed=1; rdx_ble_entry_changed(); CHECK(drain());
+    CHECK(g_rdx_adv_close.waiting && !rdx_ble_entry_allowed());
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(closed() && !g_rdx_ble_dual_acl_sleep_blocked);
+    suppressed=0; rdx_ble_entry_changed(); CHECK(drain());
+    CHECK(opens==3 && wrappers[1].adv && last_adv_interval==800);
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+
+    /* A full composite owner still closes the entry: a second device could not
+     * obtain either global owner, so advertising there would only mislead it. */
+    publish_composite(); CHECK(drain());
+    CHECK(g_rdx_adv_close.waiting && !rdx_ble_entry_allowed());
+    CHECK(closed() && !g_rdx_ble_dual_acl_sleep_blocked && !entry.window);
+    rdx_ble_entry_activity(); rdx_ble_entry_request(1,1); CHECK(drain());
+    CHECK(opens==3 && !entry.window && !rdx_ble_entry_allowed());
+    rdx_ble_entry_topology_changed(); CHECK(drain());
+    CHECK(opens==3 && !entry.window && !rdx_ble_entry_allowed());
+    rdx_ble_entry_composite_disconnected(); rdx_ble_entry_topology_changed();
+    CHECK(drain());
+    CHECK(opens==4 && entry.window && !entry.slow && rdx_ble_entry_allowed());
+    CHECK(last_adv_interval==160 && !rdx_ble_entry_adv_slow());
+    return 0;
+}
+'''
+
 
 def main():
     # 已审阅的 SDK ABI：公共句柄从 0 开始，0xff 表示不存在；命令保留缓冲引用；
@@ -689,11 +853,12 @@ def main():
              'rdx_ble_server_entry_stop', 'rdx_ble_server_exit',
              'rdx_ble_server_adv_enable', 'rdx_ble_entry_rearm_service',
              'rdx_ble_server_rdx_runtime_try_rearm', 'rdx_ble_server_usb_quiesce']
-    source = STUBS + state + '\n' + policy + '\n'.join(function(server, n) for n in names) + CHECKS
+    body = state + '\n' + policy + '\n'.join(function(server, n) for n in names)
     with tempfile.TemporaryDirectory(prefix='ble-entry-') as directory:
         path = Path(directory) / 'entry.c'
-        path.write_text(source, encoding='utf-8')
-        run_c_checks(path, re.findall(r'int (check_\w+)\(void\)', CHECKS), native=True)
+        checks = CHECKS + CHECKS_PERSISTENT
+        path.write_text(STUBS + body + checks, encoding='utf-8')
+        run_c_checks(path, re.findall(r'int (check_\w+)\(void\)', checks), native=True)
     # 实际调用方必须发布事件，不得绕过协调器独立操作广播。
     assert 'rdx_ble_entry_request(1, 1)' in function(server, 'rdx_ble_server_adv_data_changed')
     assert 'rdx_ble_entry_request(enable, 0)' in function(server, 'rdx_ble_server_adv_enable')
@@ -738,7 +903,15 @@ def main():
             'rdx_ble_entry_commit_rearm(epoch)')
     sleep = function(server, 'rdx_ble_server_dual_acl_sleep_policy_update')
     assert 'rdx_ble_server_phase0a_connected_count()' in sleep
+    assert 'RDX_BLE_PHASE0A_WRAPPER_MAX' in sleep
+    assert 'g_rdx_ble_adv_setup' in sleep
+    assert 'g_rdx_adv_close.waiting' in sleep
+    assert 'connected == 1 && adv_in_flight' in sleep
+    assert 'rdx_ble_entry_adv_slow()' not in sleep
+    assert 'app_ble_adv_state_get(' not in sleep
     assert 'composite' not in sleep and 'capacity' not in sleep
+    assert 'TCFG_T2620_BLE_SECOND_ENTRY_SLEEP' not in server
+    assert 'TCFG_T2620_BLE_SECOND_ENTRY_ALWAYS' not in policy
     ordered(function(policy, 'rdx_ble_entry_lock'), 'spinlock_t *lock = &entry_state_lock',
             'local_irq_disable()', 'arch_spin_lock(lock)')
     ordered(function(policy, 'rdx_ble_entry_unlock'), 'spinlock_t *lock = &entry_state_lock',
