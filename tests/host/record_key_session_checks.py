@@ -190,6 +190,8 @@ static int rdx_dut_test_keys_active(void) { return factory_keys; }
 static int get_ota_status(void) { return ota; }
 static int rdx_dip_switch_shutdown_pending(void) { return shutdown; }
 static void rdx_playback_stop(void) { ++playback_stops; }
+/* Key admission is covered by key_record_dispatch_checks; APP paths never preempt. */
+static int rdx_file_download_preempt(const char *who) { return 0; }
 static int rdx_record_format_download_conflict(const char *op) { return cdc_busy; }
 static int rdx_record_format_service_status(void) { return cdc_busy || rf_service || rf_error; }
 static int rdx_record_storage_active(void) { return writer_active; }

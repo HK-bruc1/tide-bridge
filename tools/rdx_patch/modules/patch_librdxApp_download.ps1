@@ -66,6 +66,18 @@ function Update-RdxDownloadProtocolIr {
     param([string]$Ir)
     $old = Get-RdxDownloadFunction $Ir 'rdx_protocol_handle_recordFileData_req'
     $new = Clear-RdxDownloadMetadata $old
+    # A recording run or OTA rejects every chunk. That is a device-side
+    # interrupt, so record it for the wrapper to answer with one stop
+    # indication; silence here made the APP retry until it reported failure.
+    foreach ($tag in @('([60 x i8], [60 x i8]* @.str.24', '([65 x i8], [65 x i8]* @.str.25')) {
+        $reason = if ($tag -like '*str.24*') { 'OTA' } else { 'recording' }
+        $block = "  tail call void (i32, i8*, i8*, ...) @log_print(i32 2, i8* null, i8* getelementptr inbounds " +
+                 "$tag, i32 0, i32 0), i8* getelementptr inbounds ([39 x i8], [39 x i8]* @__func__.rdx_protocol_handle_recordFileData_req, i32 0, i32 0))`n" +
+                 "  tail call void @rdx_uxfile_recordFileData_sendBuf_free()`n" +
+                 "  tail call void @rdx_protocol_file_sync_busy_timer_stop()`n" +
+                 "  tail call void @rdx_uxfile_recordFileData_send_finish(%struct.ReqFileInfo* nonnull @r_file_info)"
+        $new = Replace-ExactlyOnce $new $block ($block + "`n  call void @rdx_file_download_interrupt_notify()") "$reason conflict is an interrupt"
+    }
     $new = Replace-ExactlyOnce $new '@rdx_protocol_handle_recordFileData_req(' `
         '@rdx_protocol_handle_recordFileData_req_legacy(' 'guard before shared request mutation'
     # No delayed callback may borrow mutable r_file_info. The receive worker
@@ -120,6 +132,8 @@ function Update-RdxDownloadProtocolIr {
 
 declare void @rdx_file_download_abort()
 declare i32 @rdx_file_download_generation()
+declare void @rdx_file_download_interrupt_notify()
+declare zeroext i8 @rdx_file_download_take_interrupt()
 declare i32 @rdx_file_download_request(i8*, i16 zeroext)
 declare i32 @rdx_file_download_chunk(%struct.ReqFileInfo*, %struct.uxfile_data_t*)
 declare void @rdx_file_download_sent(i32, %struct.ReqFileInfo*, %struct.uxfile_data_t*, i32, i32, i32, i32)
@@ -128,7 +142,38 @@ define i32 @rdx_protocol_handle_recordFileData_req(i8* %data, i16 zeroext %lengt
   %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @file_trans_mutex, i32 0)
   %result = call i32 @rdx_file_download_request(i8* %data, i16 zeroext %length)
   %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @file_trans_mutex)
+  %interrupted = call zeroext i8 @rdx_file_download_take_interrupt()
+  %is_interrupted = icmp ne i8 %interrupted, 0
+  br i1 %is_interrupted, label %stop_transfer, label %done
+stop_transfer:
+  call void @rdx_protocol_fileTransfer_stop_indicate()
+  br label %done
+done:
   ret i32 %result
+}
+
+; Local recording outranks a BLE download. Admission posts this to
+; protocol_send_task (the busy timer's task) so app_core never waits behind an
+; SD read. Only the generation seen at admission is stopped: a transfer that
+; already ended, or a newer one, is left to the parser's conflict branch.
+define void @rdx_protocol_download_preempt(i32 %generation) {
+  %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @file_trans_mutex, i32 0)
+  %current = call i32 @rdx_file_download_generation()
+  %live = icmp ne i32 %current, 0
+  %same = icmp eq i32 %current, %generation
+  %stop = and i1 %live, %same
+  br i1 %stop, label %cleanup, label %release
+cleanup:
+  call void @rdx_protocol_download_cleanup()
+  br label %release
+release:
+  %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @file_trans_mutex)
+  br i1 %stop, label %notify, label %exit
+notify:
+  call void @rdx_protocol_fileTransfer_stop_indicate()
+  br label %exit
+exit:
+  ret void
 }
 
 ; Called with file_trans_mutex held, before the immutable delete is queued.

@@ -6,10 +6,12 @@
 #include "rdx_playback.h"
 
 #define DOWNLOAD_BLOCK_BYTES 24480u
+#define DOWNLOAD_TASK "protocol_send_task"
 
 /* These entry points are supplied by the hash-pinned archive patch. */
 extern int rdx_protocol_handle_recordFileData_req_legacy(u8 *data, u16 length);
 extern void rdx_protocol_download_cleanup(void);
+extern void rdx_protocol_download_preempt(u32 generation);
 extern int rdx_uxfile_auto_delete_submit(void *context);
 extern int rdx_uxfile_delete_checked_guarded(u32 sn, const char *name,
                                             int (*authorize)(void *), void *context);
@@ -30,6 +32,13 @@ typedef struct {
 
 static download_state_t download;
 
+/* The archive's shared request parser rejects new chunks once a recording run
+ * or OTA owns the device. That rejection is a device-side interrupt, not a
+ * transport failure: remember it here so the wrapper can answer the APP with
+ * one stop indication after it releases file_trans_mutex. Both sides run on
+ * protocol_recv_task. */
+static u8 download_interrupted;
+
 void rdx_file_download_abort(void)
 {
     local_irq_disable();
@@ -38,9 +47,36 @@ void rdx_file_download_abort(void)
     local_irq_enable();
 }
 
+void rdx_file_download_interrupt_notify(void)
+{
+    download_interrupted = 1;
+}
+
+u8 rdx_file_download_take_interrupt(void)
+{
+    u8 value = download_interrupted;
+    download_interrupted = 0;
+    return value;
+}
+
 u32 rdx_file_download_generation(void)
 {
     return download.active ? download.generation : 0;
+}
+
+/* Recording outranks file transfer. The stop runs on protocol_send_task under
+ * file_trans_mutex (see rdx_protocol_download_preempt): app_core never blocks
+ * behind an SD read, and the APP gets one stop indication right away instead
+ * of after its next chunk request. If the post fails, the parser's recording
+ * conflict branch still stops and notifies on that next request. */
+int rdx_file_download_preempt(const char *who)
+{
+    u32 generation = rdx_file_download_generation();
+    if (!generation) return 0;
+    int msg[3] = { (int)rdx_protocol_download_preempt, 1, (int)generation };
+    int ret = os_taskq_post_type(DOWNLOAD_TASK, Q_CALLBACK, 3, msg);
+    printf("[DL_PREEMPT] %s sn=%u gen=%u post=%d\n", who, download.sn, generation, ret);
+    return ret;
 }
 
 static int download_owner_valid(const rdx_ble_async_token_t *token)
@@ -152,6 +188,7 @@ int rdx_file_download_request(u8 *data, u16 length)
     download_state_t completed;
     download_delete_t *request = NULL;
     rdx_ble_async_token_t token;
+    download_interrupted = 0;
     if (download_parse(data, length, values)) return 3;
 
     local_irq_disable();

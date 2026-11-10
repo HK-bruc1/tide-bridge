@@ -83,6 +83,7 @@
 #include "rdx_charge.h"
 #include "rdx_rtc.h"
 #include "rdx_uxfile.h"
+#include "rdx_file_download.h"
 #include "rdx_vm.h"
 #include "rdx_record_tone.h"
 #include "rdx_record_save.h"
@@ -2195,6 +2196,11 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
                rdx_record_key_state_get() != RDX_RECORD_KEY_IDLE) {
         return -1;
     }
+    /* Admission passed: a local recording outranks BLE file download and
+     * local playback. The transfer stops with *DEV#filecmd#0#; the APP resumes
+     * it from its last complete block after the recording. */
+    rdx_file_download_preempt(kind == RDX_RECORD_INSPIRATION ? "F19" :
+                              kind == RDX_RECORD_MEETING ? "F18" : "CALL");
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
     rdx_playback_stop();
 #endif

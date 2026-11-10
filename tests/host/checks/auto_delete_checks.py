@@ -59,7 +59,9 @@ static int short_read, read_fail, enqueue_fail, ota, record_run=1;
 static int flush_result, delete_result, reload_result, drop_during_scan;
 static int committed, drop_after_commit, raw_exists=1, mta_exists=1, dat_count=1;
 static int cache_invalidations, list_invalidations, read_open, sends;
-static int playback_notifications;
+static int playback_notifications, stop_indications;
+static int preempt_posts, preempt_post_fail;
+static u32 preempt_generation;
 static u32 loaded_sn=13, loaded_size=4000, last_offset, last_length;
 static char loaded_name[64]="f5062.raw";
 static void *pending, *dispatched, *completion;
@@ -88,6 +90,13 @@ int rdx_uxfile_auto_delete_submit(void *p) {
     pending=p; return 0;
 }
 int os_taskq_post_type(const char *task,int type,int n,int *args) {
+    /* Recording admission hands the stop to the busy timer's task. The 32-bit
+     * callback pointer is not host-sized; tests run the captured generation. */
+    if(!strcmp(task,"protocol_send_task")) {
+        if(type!=Q_CALLBACK || n!=3 || !args[0] || args[1]!=1 || !args[2]) ++invalid;
+        ++preempt_posts; preempt_generation=(u32)args[2];
+        return preempt_post_fail;
+    }
     /* The patched duplicate branch must not queue a borrowed ReqFileInfo. */
     if(!dispatched || strcmp(task,"app_core") || type!=Q_CALLBACK ||
        n!=3 || !args[0] || args[1]!=1 || args[2]!=(int)dispatched) ++invalid;
@@ -109,7 +118,7 @@ u16 sys_timeout_add_2_task(void *context,void (*callback)(void*),u32 delay,const
 }
 void sys_timeout_del(u16 id) { timer=0; }
 void sys_timer_re_run(u16 id) { timer=1; }
-void rdx_protocol_fileTransfer_stop_indicate(void) {}
+void rdx_protocol_fileTransfer_stop_indicate(void) { ++stop_indications; }
 void rdx_record_mode_active_check(bool active) {}
 void rdx_app_wifi_handle(u8 active) {}
 void rdx_app_emmc_poweroff_check(void) {}
@@ -172,6 +181,7 @@ void rdx_file_download_delete_worker(void *);
 void rdx_uxfile_recordFileData_send_finish(ReqFileInfo *);
 void rdx_protocol_file_sync_busy_timer_cb(void *);
 void rdx_protocol_file_cmd_handle(u8);
+void rdx_protocol_download_preempt(u32);
 '''
 
 TESTS = r'''
@@ -199,7 +209,8 @@ static void reset(void) {
     short_read=read_fail=enqueue_fail=ota=0; record_run=1;
     flush_result=delete_result=reload_result=drop_during_scan=drop_after_commit=0;
     committed=delete_calls=cache_invalidations=list_invalidations=sends=0;
-    complete_post_fail=1; playback_notifications=0;
+    complete_post_fail=1; playback_notifications=stop_indications=0;
+    preempt_posts=preempt_post_fail=0; preempt_generation=0;
     raw_exists=mta_exists=dat_count=1;
     alloc_size_fail=alloc_fail_once=0;
 }
@@ -278,6 +289,9 @@ int test_auto_failures_never_delete(void) {
         if(failure==7) raw_exists=0;
         cmd(13,1,1,0,0);
         CHECK(!timer && !clock_hold && !read_open && !download.active);
+        /* Only a device-side conflict is an interrupt the APP must be told
+         * about; transport/file failures stay silent and are retried. */
+        CHECK(stop_indications==(failure==5 || failure==6));
         CHECK(!cmd(13,0,1,0,0) && !pending && !delete_calls);
         CHECK(!invalid && !allocations);
     }
@@ -328,12 +342,90 @@ int test_auto_timeout_and_stop(void) {
         reset(); CHECK(!cmd(13,1,1,0,0) && timer && clock_hold && read_open);
         if(cancel) rdx_protocol_file_cmd_handle(0);
         else rdx_protocol_file_sync_busy_timer_cb(NULL);
+        CHECK(stop_indications==1);
         CHECK(!download.active && !timer && !clock_hold && !read_open);
         CHECK(!cmd(13,0,1,0,0) && !pending && raw_exists && !delete_calls);
         CHECK(!invalid && !allocations);
         CHECK(!cmd(13,1,1,0,0) && !cmd(13,0,1,0,0));
         worker(); CHECK(delete_calls==1 && !raw_exists);
     }
+    return 0;
+}
+int test_auto_record_interrupt_notifies_stop(void) {
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0) && sends==1 && last_offset==0 && !stop_indications);
+    /* A recording run rejects the next chunk. The APP must learn that the
+     * transfer stopped instead of retrying until it reports a failure. */
+    record_run=0;
+    CHECK(cmd(13,2,1,0,0)==3 && stop_indications==1);
+    CHECK(!download.active && !timer && !clock_hold && !read_open && !allocations);
+    /* Later chunks are refused before the parser: no duplicate indication and
+     * no borrowed state may be resurrected. */
+    CHECK(cmd(13,3,1,0,0)==3 && stop_indications==1 && !download.active);
+    CHECK(rdx_protocol_handle_recordFileData_req((u8*)"*APP#opusfile#0#13#2#1#junk#",
+                                                 strlen("*APP#opusfile#0#13#2#1#junk#"))==3);
+    CHECK(stop_indications==1);
+    /* APP resumes from the last complete block after the recording ends. */
+    record_run=1;
+    CHECK(!cmd(13,1,1,24480,0) && sends==2 && last_offset==24480 && last_length==24480);
+    CHECK(download.offset==24480);
+    CHECK(download.failed==0);
+    CHECK(download.identified==1);
+    CHECK(download.next==48960);
+    CHECK(download.size==60000);
+    CHECK(cmd(13,0,1,0,0)==0);
+    CHECK(!pending);
+    CHECK(raw_exists);
+    CHECK(!delete_calls);
+    CHECK(!invalid && !allocations && stop_indications==1);
+    /* OTA uses the same contract and must not be mistaken for a file failure. */
+    ota=1;
+    CHECK(cmd(13,1,1,0,0)==3 && stop_indications==2);
+    CHECK(!download.active && !timer && !clock_hold && !read_open && !allocations);
+    ota=0;
+    CHECK(!invalid && !timer && !clock_hold);
+    return 0;
+}
+int test_auto_record_admission_preempts_download(void) {
+    /* Idle admission queues nothing and says nothing. */
+    reset(); CHECK(!rdx_file_download_preempt("F19") && !preempt_posts);
+    loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0) && sends==1 && timer && clock_hold && read_open);
+    u32 generation=download.generation;
+    /* F18/F19 admission stops the live transfer at once: resources released
+     * and exactly one stop indication, before any further chunk request. */
+    CHECK(!rdx_file_download_preempt("F19") && preempt_posts==1 &&
+          preempt_generation==generation && !stop_indications && download.active);
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(stop_indications==1 && !download.active);
+    CHECK(!timer && !clock_hold && !read_open && !allocations);
+    /* The recording now owns the device: the APP's in-flight chunk request is
+     * refused silently (already notified), a fresh request once more. */
+    record_run=0;
+    CHECK(cmd(13,2,1,0,0)==3 && stop_indications==1 && sends==1);
+    CHECK(cmd(13,1,1,24480,0)==3 && stop_indications==2 && !download.active);
+    /* A duplicate or stale preemption never stops a newer transfer. */
+    record_run=1;
+    rdx_protocol_download_preempt(generation);
+    CHECK(stop_indications==2);
+    CHECK(!cmd(13,1,1,24480,0) && sends==2 && last_offset==24480);
+    rdx_protocol_download_preempt(generation);
+    CHECK(stop_indications==2 && download.active && timer && clock_hold);
+    CHECK(cmd(13,0,1,0,0)==0 && !pending && raw_exists && !delete_calls);
+    /* A transfer that finished before the queued stop ran is left alone. */
+    CHECK(!cmd(13,1,0,0,0) && download.active);
+    CHECK(!rdx_file_download_preempt("F18") && preempt_posts==2);
+    CHECK(cmd(13,0,0,0,0)==0 && !download.active);
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(stop_indications==2);
+    /* If the stop cannot be queued, the parser conflict branch still stops
+     * and notifies on the APP's next chunk request. */
+    CHECK(!cmd(13,1,0,0,0) && download.active);
+    preempt_post_fail=1;
+    CHECK(rdx_file_download_preempt("F19") && download.active);
+    record_run=0;
+    CHECK(cmd(13,2,0,0,0)==3 && stop_indications==3 && !download.active);
+    CHECK(!timer && !clock_hold && !read_open && !allocations && !invalid);
     return 0;
 }
 int test_auto_malformed_finish(void) {
@@ -387,7 +479,8 @@ def run_auto_delete_checks():
                      'rdx_protocol_file_transfer_track_reset',
                      'rdx_protocol_file_sync_busy_timer_start', 'rdx_protocol_file_sync_busy_timer_stop',
                      'rdx_protocol_file_sync_busy_timer_rerun', 'rdx_protocol_file_sync_busy_timer_cb',
-                     'rdx_protocol_file_cmd_handle', 'rdx_protocol_uploadFileInfo_clean'],
+                     'rdx_protocol_file_cmd_handle', 'rdx_protocol_uploadFileInfo_clean',
+                     'rdx_protocol_download_preempt'],
         'uxfile': ['rdx_uxfile_recordFileData_send_finish', 'rdx_uxfile_delete_checked_guarded'],
     }
     bodies = '\n'.join(extract(actual[k], n) for k, names in selected.items() for n in names)

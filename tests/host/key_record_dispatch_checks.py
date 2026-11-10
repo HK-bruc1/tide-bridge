@@ -54,7 +54,7 @@ static int local_burnin, consume_key, dut_burnins;
 static int player_messages, last_player_message;
 static u32 local_epoch=1;
 static int rdx_app_init_flag=1, poweroff_ready_flag, rdx_dut_mode, mode_switch_keep_timer;
-static int ready, bound=1, blocked, cdc_busy, queue_fail, stop_fail, stops, playback, playback_stops, starts;
+static int ready, bound=1, blocked, cdc_busy, queue_fail, stop_fail, stops, playback, playback_stops, download_preempts, starts;
 static int online_starts, online_stops, direct_meeting_starts, meeting_trigger_starts;
 static int reject_direct_start, ota, formatting;
 static int marks;
@@ -110,6 +110,8 @@ static void rdx_record_prepare_new_session(void) { ++generation; key_state=RDX_R
 static u32 rdx_record_generation_get(void) { return generation; }
 static void rdx_record_process(void) {}
 static void rdx_playback_stop(void) { playback=0; ++playback_stops; }
+/* Admission preempts BLE download at the same point it stops playback. */
+static int rdx_file_download_preempt(const char *who) { ++download_preempts; return 0; }
 static int os_taskq_post_type(const char *t,int q,int n,int *m) {
     if(queue_fail) return -1;
     if(n==2 && m[0]==(int)(long long)rdx_record_process &&
@@ -266,7 +268,7 @@ static void reset(void) {
     direct_meeting_starts=meeting_trigger_starts=reject_direct_start=0;
     timer_fail=pc_mode=factory_keys=local_burnin=consume_key=0;
     player_messages=last_player_message=0;
-    playback=playback_stops=marks=mark_fail=tone_running=volume_step=0;
+    playback=playback_stops=download_preempts=marks=mark_fail=tone_running=volume_step=0;
     battery_queries=hid_ready=feedback_calls=release_calls=stream_active=releasing=0;
     trigger_deferred=trigger_stop_pending=retirement_pending=0;
     storage_full=storage_admits=0;
@@ -381,7 +383,7 @@ int test_inspiration_routes_and_owner(void) {
         down(&c);
         CHECK(key_record_session_active && key_record_owner_valid);
         CHECK(key_record_local==!online && record_kind==RDX_RECORD_INSPIRATION);
-        CHECK(online_starts==online && starts==!online && playback_stops==1);
+        CHECK(online_starts==online && starts==!online && playback_stops==1 && download_preempts==1);
         gesture(&c,KEY_ACTION_HOLD); CHECK(online_starts==online && starts==!online);
         rdx_hogp_input_cycle_t stale=c; ++stale.id;
         CHECK(rdx_app_local_key_cancel(&stale) && !stops && !release_calls);
@@ -561,7 +563,7 @@ int test_nosave_meeting_f18_online_only(void) {
         gesture(&f18,KEY_ACTION_DOUBLE_CLICK);
         if(!online) {
             /* RDX 未就绪：不开始、不落盘、不打断播放、无任何会话状态。 */
-            CHECK(!starts && !online_starts && !storage_admits && playback && !playback_stops);
+            CHECK(!starts && !online_starts && !storage_admits && playback && !playback_stops && !download_preempts);
             CHECK(key_state==RDX_RECORD_KEY_IDLE && !key_record_session_active && !key_record_pressed);
             continue;
         }
@@ -617,7 +619,7 @@ int test_full_storage_rejects_local_writes_only(void) {
         u8 usage=case_id==0?0x6e:0x6d;
         rdx_hogp_input_cycle_t c=cycle(case_id,usage,70+case_id);
         if(usage==0x6e) down(&c); else gesture(&c,KEY_ACTION_DOUBLE_CLICK);
-        CHECK(storage_admits==1 && !starts && !online_starts && !playback_stops && playback);
+        CHECK(storage_admits==1 && !starts && !online_starts && !playback_stops && !download_preempts && playback);
         CHECK(key_state==RDX_RECORD_KEY_IDLE && status.run==RECORD_STATE_STOP);
         CHECK(!key_record_session_active && !key_record_pressed && !status.key_trigger);
         gesture(&c,KEY_ACTION_UP); CHECK(!stops && !online_stops && !release_calls);
@@ -645,7 +647,7 @@ int test_device_record_set_admits_before_key_context(void) {
         }
         /* 拒绝发生在 key_start_prepare、回放停止与触发投递之前。 */
         CHECK(ret==-1 && request_generation==req && generation==gen && key_state==RDX_RECORD_KEY_IDLE);
-        CHECK(!playback_stops && playback && !online_starts && !starts && !status.key_trigger);
+        CHECK(!playback_stops && !download_preempts && playback && !online_starts && !starts && !status.key_trigger);
         CHECK(status.run==RECORD_STATE_STOP);
         storage_full=0;
         CHECK(!rdx_app_device_record_set(RECORD_SCENE_CHAT,RECORD_STATE_START,routes[i],kinds[i]));
@@ -666,7 +668,7 @@ int test_cdc_first_only_online_shortcut_f19(void) {
         int admitted=ready && stream_ready;
         CHECK(online_starts==admitted && !starts && !storage_admits);
         CHECK(!!key_record_session_active==admitted && cdc_busy);
-        CHECK(playback_stops==admitted && playback==!admitted);
+        CHECK(playback_stops==admitted && download_preempts==admitted && playback==!admitted);
         gesture(&c,KEY_ACTION_LONG); gesture(&c,KEY_ACTION_HOLD);
         CHECK(online_starts==admitted && !starts);
         gesture(&c,KEY_ACTION_UP);
