@@ -3168,7 +3168,7 @@ int rdx_app_msg_handler(int *msg)
                     (rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
                      rdx_record_tone_config_busy() ||
                      (local_key_dispatch_cycle &&
-                      !rdx_hogp_input_dut_pending(local_key_dispatch_cycle)))) {
+                      !rdx_hogp_input_system_pending(local_key_dispatch_cycle)))) {
                     break;
                 }
 
@@ -3189,7 +3189,7 @@ int rdx_app_msg_handler(int *msg)
                 }
                 /* Scan-side cancellation may occur during the checks above. */
                 if (!rdx_dut_is_in_mode() && local_key_dispatch_cycle &&
-                    !rdx_hogp_input_dut_pending(local_key_dispatch_cycle)) break;
+                    !rdx_hogp_input_system_pending(local_key_dispatch_cycle)) break;
                 rdx_dut_key_mode_handle();
             }
             break;
@@ -3225,6 +3225,41 @@ SHUTOFF);
     return ret;
 }
 
+/* 恢复出厂提交成功后到复位前，不再接受第二次提交。 */
+static u8 rdx_app_factory_reset_scheduled;
+
+/* APP 与 KEY5 共用的恢复出厂提交：持久默认值写入成功返回 0，调用方负责安排复位。 */
+static int rdx_app_factory_reset_commit(void)
+{
+    if (rdx_app_factory_reset_scheduled ||
+        rdx_record_format_download_conflict("RESET") ||
+        rdx_factory_audio_file_busy() || rdx_factory_audio_owned() ||
+        rdx_vm_reset_defaults_no_poweroff()) return -1;
+    rdx_app_factory_reset_scheduled = 1;
+    return 0;
+}
+
+/* KEY5 五击恢复出厂仅在 HID 与 RDX 均未连接（零 BLE ACL）时受理。 */
+static u8 rdx_app_local_key_reset_admitted(void)
+{
+    if (!rdx_ble_server_has_active_link()) return 1;
+    y_printf("[KEY_RESET] rejected: BLE link active\r");
+    return 0;
+}
+
+/* 系统手势票据已在 F19 清理完成后发布；执行前复核票据与连接门禁。 */
+static void rdx_app_local_key_factory_reset(const rdx_hogp_input_cycle_t *cycle)
+{
+    if (!rdx_hogp_input_system_pending(cycle) ||
+        !rdx_app_local_key_reset_admitted()) return;
+    if (rdx_app_factory_reset_commit()) {
+        y_printf("[KEY_RESET] rejected: busy\r");
+        return;
+    }
+    y_printf("[KEY_RESET] defaults committed, reset scheduled\r");
+    rdx_app_time_to_reset();
+}
+
 void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle)
 {
     if (!cycle || !rdx_hogp_input_cycle_valid(cycle) ||
@@ -3243,11 +3278,18 @@ void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle)
     local_key_dispatch_cycle = NULL;
 }
 
-int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *owner)
+int rdx_app_local_key_system_ready(const struct key_event *key,
+                                   const rdx_hogp_input_cycle_t *owner)
 {
-    if (rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
-        rdx_dut_is_key_dut_disabled() ||
+    if (!key || rdx_app_local_key_mode() != RDX_LOCAL_KEY_NORMAL ||
         rdx_storage_lifecycle_business_blocked()) return -1;
+    /* 门禁不通过时直接拒绝，不为一个不会执行的手势停止 F19。 */
+    if (key->event == KEY_ACTION_EIGHTUPLE_CLICK) {
+        if (rdx_dut_is_key_dut_disabled()) return -1;
+    } else if (key->event != KEY_ACTION_FIRTH_CLICK ||
+               !rdx_app_local_key_reset_admitted()) {
+        return -1;
+    }
 
     u8 owned = owner && owner->id && owner->physical_key == KEY_IO_NUM4 &&
         owner->usage == 0x6e && owner->id == key_record_owner.id &&
@@ -3290,6 +3332,13 @@ void rdx_app_local_key_gesture(const struct key_event *key,
         return;
     }
     local_key_dispatch_cycle = cycle;
+    if (mode == RDX_LOCAL_KEY_NORMAL && key->value == KEY_IO_NUM4 &&
+        key->event == KEY_ACTION_FIRTH_CLICK) {
+        /* 物理系统手势，不经配键表；不复用 APP_MSG_BT_PAIR_SET_DEFAULT（DUT 内为格式化）。 */
+        rdx_app_local_key_factory_reset(cycle);
+        local_key_dispatch_cycle = NULL;
+        return;
+    }
     int scene = mode == RDX_LOCAL_KEY_DUT ? 4 : rdx_app_get_scene();
     rdx_app_usage_key_remap(&message, key->value, cycle->usage, key->event, scene);
     u8 business_feedback = 0;
@@ -4043,9 +4092,7 @@ static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
         free(token);
         return;
     }
-    if (rdx_record_format_download_conflict("RESET") ||
-        rdx_factory_audio_file_busy() || rdx_factory_audio_owned()) ret = -1;
-    else ret = rdx_vm_reset_defaults_no_poweroff();
+    ret = rdx_app_factory_reset_commit();
     if (rdx_ble_session_rdx_token_resolve(token, 1) && g_protocol_ops) {
         g_protocol_ops->sys_set_default_ack_indicate(ret ? 1 : 0);
     }

@@ -39,8 +39,8 @@ static u8 input_high_water;
 
 static struct local_event local_fifo[LOCAL_FIFO_SIZE];
 static rdx_hogp_input_cycle_t scan_cycle, local_owner;
-static rdx_hogp_input_cycle_t local_start, local_f19_owner, local_dut_owner;
-static struct local_event local_dut;
+static rdx_hogp_input_cycle_t local_start, local_f19_owner, local_system_owner;
+static struct local_event local_system;
 static u32 local_epoch = 1, cycle_sequence, local_baseline, local_overflows;
 static u8 local_head, local_count, local_admission, local_cleanup_pending = 1;
 static u8 local_mode, local_down, local_owner_pending;
@@ -76,6 +76,14 @@ static u8 product_key(u8 value)
     return value >= KEY_IO_NUM0 && value <= KEY_IO_NUM4;
 }
 
+/* KEY5 物理系统手势：八击进入 DUT、五击恢复出厂，与配键无关。 */
+static u8 system_gesture(const struct key_event *key)
+{
+    return key->value == KEY_IO_NUM4 &&
+           (key->event == KEY_ACTION_EIGHTUPLE_CLICK ||
+            key->event == KEY_ACTION_FIRTH_CLICK);
+}
+
 /* Caller holds the short IRQ critical section. No ATT/VM/business calls. */
 static void invalidate_locked(void)
 {
@@ -90,7 +98,7 @@ static void invalidate_locked(void)
 
 static void local_invalidate_locked(void)
 {
-    local_start.id = local_f19_owner.id = local_dut.cycle.id = 0;
+    local_start.id = local_f19_owner.id = local_system.cycle.id = 0;
     ++local_epoch;
     if (!local_epoch) ++local_epoch;
     local_admission = local_down = 0;
@@ -169,8 +177,8 @@ void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered)
         event.admitted = admission && !filtered;
         event.map = rdx_hogp_key_action_generation();
         if (product_key(current)) {
-            /* A later physical press cannot replay an old deferred DUT request. */
-            local_dut.cycle.id = 0;
+            /* A later physical press cannot replay an old deferred system request. */
+            local_system.cycle.id = 0;
             memset(&scan_cycle, 0, sizeof(scan_cycle));
             ++cycle_sequence;
             if (!cycle_sequence) ++cycle_sequence;
@@ -240,11 +248,10 @@ void rdx_hogp_input_gesture(const struct key_event *key, const rdx_hogp_input_cy
     local_irq_disable();
     if (input_initialized && cycle->id && cycle->epoch == local_epoch &&
         !local_cleanup_pending && !scan_filtered) {
-        if (key->value == KEY_IO_NUM4 && key->event == KEY_ACTION_EIGHTUPLE_CLICK &&
-            cycle->mode == RDX_LOCAL_KEY_NORMAL) {
-            local_dut.key = *key;
-            local_dut.cycle = *cycle;
-            local_dut_owner = local_f19_owner;
+        if (system_gesture(key) && cycle->mode == RDX_LOCAL_KEY_NORMAL) {
+            local_system.key = *key;
+            local_system.cycle = *cycle;
+            local_system_owner = local_f19_owner;
             input_wake_locked();
         } else if (local_owner_pending) {
             /* Preserve physical multi-click counting, not queued business. */
@@ -272,12 +279,12 @@ static u8 local_cycle_down(const rdx_hogp_input_cycle_t *cycle)
     return down;
 }
 
-u8 rdx_hogp_input_dut_pending(const rdx_hogp_input_cycle_t *cycle)
+u8 rdx_hogp_input_system_pending(const rdx_hogp_input_cycle_t *cycle)
 {
     u8 pending;
     local_irq_disable();
-    pending = cycle && cycle->id && cycle->id == local_dut.cycle.id &&
-        cycle->epoch == local_dut.cycle.epoch && cycle->epoch == local_epoch &&
+    pending = cycle && cycle->id && cycle->id == local_system.cycle.id &&
+        cycle->epoch == local_system.cycle.epoch && cycle->epoch == local_epoch &&
         stable_key == NO_KEY && !scan_filtered && !local_cleanup_pending &&
         local_mode == RDX_LOCAL_KEY_NORMAL;
     local_irq_enable();
@@ -308,8 +315,8 @@ static u8 local_owner_release(void)
 
 static void local_service(void)
 {
-    struct local_event event, dut;
-    rdx_hogp_input_cycle_t dut_owner;
+    struct local_event event, system;
+    rdx_hogp_input_cycle_t system_owner;
     u8 mode = rdx_app_local_key_mode();
     local_irq_disable();
     if (mode != local_mode) {
@@ -328,18 +335,18 @@ static void local_service(void)
     local_irq_enable();
 
     local_irq_disable();
-    dut = local_dut;
-    dut_owner = local_dut_owner;
+    system = local_system;
+    system_owner = local_system_owner;
     local_irq_enable();
-    if (dut.cycle.id) {
-        int result = rdx_app_local_key_dut_ready(&dut_owner);
+    if (system.cycle.id) {
+        int result = rdx_app_local_key_system_ready(&system.key, &system_owner);
         /* The callback may race a new Down or system cancellation. Keep the
          * ticket published through admission, and consume only this identity. */
-        if (result > 0 && rdx_hogp_input_dut_pending(&dut.cycle))
-            rdx_app_local_key_gesture(&dut.key, &dut.cycle);
+        if (result > 0 && rdx_hogp_input_system_pending(&system.cycle))
+            rdx_app_local_key_gesture(&system.key, &system.cycle);
         local_irq_disable();
-        if (result && local_dut.cycle.id == dut.cycle.id &&
-            local_dut.cycle.epoch == dut.cycle.epoch) local_dut.cycle.id = 0;
+        if (result && local_system.cycle.id == system.cycle.id &&
+            local_system.cycle.epoch == system.cycle.epoch) local_system.cycle.id = 0;
         local_irq_enable();
         return;
     }
@@ -535,7 +542,7 @@ static void input_service(void *priv)
      * 待办则不再自投递，避免忙循环，由外部事件或已有产品服务恢复。 */
     requeue = input_pending && !input_timer && !input_requeued;
     input_requeued = requeue;
-    if (local_count || local_start.id || local_dut.cycle.id ||
+    if (local_count || local_start.id || local_system.cycle.id ||
         local_cleanup_pending || local_owner_pending) input_pending = 1;
     if (requeue) input_wake_locked();
     local_irq_enable();

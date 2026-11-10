@@ -175,8 +175,9 @@ $storeOk = $Makefile.Contains('rdx_hogp_subscription_store.c') -and
            $Store.Contains('baseline_revision') -and
            $Keyboard -match 'get_sm_peer_address\s*\(' -and
            $Keyboard -match 'rdx_hogp_subscription_store_(?:set|contains)\s*\(' -and
-           $Vm -match '(?s)rdx_vm_ble_pairing_state_reset.*?rdx_hogp_subscription_store_reset\s*\('
+           -not $Store.Contains('rdx_hogp_subscription_store_reset') -and
+           -not $Vm.Contains('rdx_hogp_subscription_store')
 Assert-Contract 'BONDED_CCC_IS_PEER_SCOPED' $storeOk `
-    'bonded CCC intent must use verified A/B records keyed by SM identity and clear with bond reset'
+    'bonded CCC intent must use verified A/B records keyed by SM identity and live as long as the SM bond (factory reset/unbind keep it: PC reconnects with the old LTK and never rewrites CCC)'
 
 Write-Host 'HOGP profile contracts passed.'

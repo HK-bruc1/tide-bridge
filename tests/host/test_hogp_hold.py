@@ -69,7 +69,7 @@ static u32 local_ids[512];
 static u8 local_usages[512];
 static u32 cancelled_ids[32];
 static void (*local_callback_hook)(void);
-static int dut_ready=1, dut_checks;
+static int dut_ready=1, dut_checks, system_ready_event;
 static void (*dut_callback_hook)(void);
 void rdx_app_key_click(u8 value,u8 action) { if(action==0) ++feedback_clicks; }
 int rdx_app_key_msg_handler(int *msg);
@@ -212,8 +212,8 @@ void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *cycle) {
     struct key_event key={.type=KEY_DRIVER_TYPE_IO,.value=cycle->physical_key,.event=KEY_ACTION_MAX};
     rdx_app_local_key_gesture(&key,cycle);
 }
-int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *owner) {
-    ++dut_checks;
+int rdx_app_local_key_system_ready(const struct key_event *key, const rdx_hogp_input_cycle_t *owner) {
+    ++dut_checks; system_ready_event=key->event;
     if(dut_callback_hook) dut_callback_hook();
     return dut_ready;
 }
@@ -280,8 +280,8 @@ static void boot(int online) {
     local_cleanup_pending=1; local_epoch=1; cycle_sequence=local_baseline=local_overflows=0;
     memset(&scan_cycle,0,sizeof(scan_cycle)); memset(&local_owner,0,sizeof(local_owner));
     memset(&local_start,0,sizeof(local_start)); memset(&local_f19_owner,0,sizeof(local_f19_owner));
-    memset(&local_dut,0,sizeof(local_dut)); memset(&local_dut_owner,0,sizeof(local_dut_owner));
-    dut_ready=1; dut_checks=0; dut_callback_hook=NULL;
+    memset(&local_system,0,sizeof(local_system)); memset(&local_system_owner,0,sizeof(local_system_owner));
+    dut_ready=1; dut_checks=0; system_ready_event=0; dut_callback_hook=NULL;
     local_events=local_cancels=cancel_fail=0; business_mode=RDX_LOCAL_KEY_NORMAL;
     local_callback_hook=NULL; memset(cancelled_ids,0,sizeof(cancelled_ids));
     memset(&published_token,0,sizeof(published_token));
@@ -757,28 +757,48 @@ int test_key5_f19_eight_click_survives_failed_cleanup_and_wakes(void) {
         sample(NO_KEY); rdx_hogp_input_poll();
     }
     sample(NO_KEY); sample(NO_KEY); rdx_hogp_input_poll();
-    CHECK(local_dut.cycle.id && local_epoch==epoch && local_events==1);
+    CHECK(local_system.cycle.id && local_epoch==epoch && local_events==1);
     CHECK(local_owner_pending && rdx_hogp_input_needs_poll());
     dut_ready=0; cancel_fail=0; rdx_hogp_input_poll();
-    CHECK(!local_owner.id && local_dut.cycle.id && local_events==1);
+    CHECK(!local_owner.id && local_system.cycle.id && local_events==1);
     for(int i=0;i<5;i++) rdx_hogp_input_poll(); CHECK(local_events==1);
     dut_ready=1; rdx_hogp_input_poll();
-    CHECK(!local_dut.cycle.id && local_events==2 &&
+    CHECK(!local_system.cycle.id && local_events==2 &&
         local_actions[1]==KEY_ACTION_EIGHTUPLE_CLICK);
     rdx_hogp_input_poll(); CHECK(local_events==2);
+    return 0;
+}
+int test_key5_f19_five_click_uses_system_ticket_after_cleanup(void) {
+    boot(0); map_f19(4); run_app(); sample(KEY_IO_NUM4); run_app(); CHECK(local_events==1);
+    sample(NO_KEY); run_app();
+    for(int i=1;i<5;i++) { sample(KEY_IO_NUM4); tick(); sample(NO_KEY); tick(); }
+    dut_ready=0; settle();
+    CHECK(local_system.cycle.id && local_system.key.event==KEY_ACTION_FIRTH_CLICK);
+    CHECK(system_ready_event==KEY_ACTION_FIRTH_CLICK);
+    int before=local_events;
+    dut_ready=1; tick();
+    CHECK(!local_system.cycle.id && local_events==before+1 &&
+        local_actions[before]==KEY_ACTION_FIRTH_CLICK);
+    tick(); CHECK(local_events==before+1);
+    return 0;
+}
+int test_key5_five_click_in_dut_mode_bypasses_system_ticket(void) {
+    boot(0); business_mode=RDX_LOCAL_KEY_DUT; tick();
+    for(int i=0;i<5;i++) { sample(KEY_IO_NUM4); tick(); sample(NO_KEY); tick(); }
+    settle(); CHECK(!local_system.cycle.id && !dut_checks);
     return 0;
 }
 int test_key5_deferred_entry_cancelled_by_system_new_press_or_gate(void) {
     for(int reason=0;reason<4;reason++) {
         boot(0); map_f19(4); dut_ready=0;
         for(int i=0;i<8;i++) { sample(KEY_IO_NUM4); tick(); sample(NO_KEY); tick(); }
-        settle(); CHECK(local_dut.cycle.id);
+        settle(); CHECK(local_system.cycle.id);
         int before=local_events;
         if(reason==0) rdx_hogp_input_cancel();
         if(reason==1) sample(KEY_IO_NUM0);
         if(reason==2) business_mode=RDX_LOCAL_KEY_BLOCKED;
         if(reason==3) dut_ready=-1;
-        tick(); CHECK(!local_dut.cycle.id);
+        tick(); CHECK(!local_system.cycle.id);
         dut_ready=1; tick(); CHECK(local_events==before);
     }
     return 0;
@@ -795,10 +815,10 @@ int test_key5_ticket_revalidates_after_callback_race(void) {
     for(int cancel=0;cancel<2;cancel++) {
         boot(0); dut_ready=0;
         for(int i=0;i<8;i++) { sample(KEY_IO_NUM4); sample(NO_KEY); tick(); }
-        settle(); CHECK(local_dut.cycle.id && !local_events);
+        settle(); CHECK(local_system.cycle.id && !local_events);
         dut_callback_hook=cancel?cancel_dut_during_admission:new_down_during_dut_admission;
         dut_ready=1; tick();
-        CHECK(!local_dut.cycle.id && !local_events);
+        CHECK(!local_system.cycle.id && !local_events);
         tick(); CHECK(!local_events && !context_errors && !irq_depth);
     }
     return 0;
@@ -1084,7 +1104,7 @@ def main():
                'void rdx_app_local_key_gesture(const struct key_event *, const rdx_hogp_input_cycle_t *);\n'
                'u8 rdx_app_local_key_cancel(const rdx_hogp_input_cycle_t *);\n' +
                'void rdx_app_local_key_down(const rdx_hogp_input_cycle_t *);\n'
-               'int rdx_app_local_key_dut_ready(const rdx_hogp_input_cycle_t *);\n' +
+               'int rdx_app_local_key_system_ready(const struct key_event *, const rdx_hogp_input_cycle_t *);\n' +
                no_includes(source('rdx_ble_session.h')) + no_includes(source('rdx_ble_session.c')) +
                TRANSPORT + keyboard[keyboard.index('enum hogp_tx_state'):keyboard.index('int rdx_hogp_keyboard_report_send(')] +
                ''.join(function(keyboard, name) for name in (

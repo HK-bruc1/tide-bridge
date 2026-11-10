@@ -56,6 +56,6 @@ void rdx_hogp_input_cancel(void);
 void rdx_hogp_input_scan(u8 type, u8 previous, u8 current, u8 filtered);
 u8 rdx_hogp_input_cycle_get(u8 value, rdx_hogp_input_cycle_t *cycle);
 u8 rdx_hogp_input_cycle_valid(const rdx_hogp_input_cycle_t *cycle);
-u8 rdx_hogp_input_dut_pending(const rdx_hogp_input_cycle_t *cycle);
+u8 rdx_hogp_input_system_pending(const rdx_hogp_input_cycle_t *cycle);
 void rdx_hogp_input_gesture(const struct key_event *key, const rdx_hogp_input_cycle_t *cycle);
 #endif

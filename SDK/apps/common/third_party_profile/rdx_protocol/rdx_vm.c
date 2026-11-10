@@ -41,7 +41,6 @@
 #include "rdx_uxfile.h"
 #include "rdx_hogp_input.h"
 #include "rdx_util.h"
-#include "rdx_hogp_subscription_store.h"
 #include "rdx_hogp_keymap_config.h"
 #include "rdx_record_tone.h"
 #include "rdx_record_save.h"
@@ -153,12 +152,12 @@ extern void rdx_ble_server_app_disconnect(void);
 
 static bool rdx_vm_license_para_head_check(u8 *para);
 
+/* 只清经典蓝牙配对。BLE SM 绑定在恢复出厂/解绑后仍保留，PC 会用原 LTK
+ * 加密回连且不重写 Input CCC；HOGP 订阅记录随 SM 绑定存续，在此清掉会
+ * 使回连后的键盘永久不可用，直到 PC 端删除设备重新配对。 */
 static void rdx_vm_ble_pairing_state_reset(void)
 {
     bt_cmd_prepare(USER_CTRL_DEL_ALL_REMOTE_INFO, 0, NULL);
-    if (rdx_hogp_subscription_store_reset()) {
-        y_printf("[HOGP_SUB] reset failed while deleting BLE bonds\r");
-    }
 }
 
 /*******************************************************************************

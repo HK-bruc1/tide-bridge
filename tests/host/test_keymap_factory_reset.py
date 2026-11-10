@@ -385,6 +385,8 @@ void test_free(void *p) { ++freed; }
 #define free test_free
 void rdx_app_time_to_reset(void) { if(ack==0) ++reset_calls; }
 '''
+code += 'static unsigned char rdx_app_factory_reset_scheduled;\n'
+code += function(read('rdx_app.c'),'rdx_app_factory_reset_commit')
 code += function(read('rdx_app.c'),'rdx_app_factory_reset_on_app_core')
 code += r'''
 int check_callback(void) {
@@ -398,6 +400,11 @@ int check_callback(void) {
     result=0;
     rdx_app_factory_reset_on_app_core(&token);
     CHECK(freed==3 && reset_attempts==2 && ack==0 && reset_calls==1);
+    /* 提交成功后到复位前，重复请求直接 NACK，不再写 VM。 */
+    ack=-1;
+    rdx_app_factory_reset_on_app_core(&token);
+    CHECK(freed==4 && reset_attempts==2 && ack==1 && reset_calls==1);
+    rdx_app_factory_reset_scheduled=0; freed=3;
     download_busy=1; ack=-1;
     rdx_app_factory_reset_on_app_core(&token);
     CHECK(freed==4 && reset_attempts==2 && ack==1 && reset_calls==1);

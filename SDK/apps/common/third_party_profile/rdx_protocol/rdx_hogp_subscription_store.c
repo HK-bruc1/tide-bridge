@@ -332,18 +332,6 @@ int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
     return rdx_hogp_subscription_publish(&candidate);
 }
 
-int rdx_hogp_subscription_store_reset(void)
-{
-    rdx_hogp_subscription_cache_t candidate;
-
-    rdx_hogp_subscription_load();
-    memset(&candidate, 0, sizeof(candidate));
-    candidate.loaded = 1;
-    candidate.active_vm_slot = s_hogp_subscription_cache.active_vm_slot;
-    candidate.revision = s_hogp_subscription_cache.revision;
-    return rdx_hogp_subscription_publish(&candidate);
-}
-
 #else
 
 int rdx_hogp_subscription_store_contains(const u8 *peer_addr)
@@ -356,11 +344,6 @@ int rdx_hogp_subscription_store_set(const u8 *peer_addr, u8 enabled)
 {
     (void)peer_addr;
     (void)enabled;
-    return 0;
-}
-
-int rdx_hogp_subscription_store_reset(void)
-{
     return 0;
 }
 

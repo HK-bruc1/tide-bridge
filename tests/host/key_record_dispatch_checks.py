@@ -75,6 +75,12 @@ static void rdx_protocol_file_cmd_handle(int command) {
 }
 static void rdx_dut_key_mode_handle(void) { ++dut_entries; rdx_dut_mode=!rdx_dut_mode; }
 static int rdx_dut_is_key_dut_disabled(void) { return dut_disabled; }
+static int ble_links, audio_busy, vm_reset_fail, vm_resets, reset_timers;
+static int rdx_ble_server_has_active_link(void) { return ble_links; }
+static int rdx_factory_audio_file_busy(void) { return audio_busy; }
+static int rdx_factory_audio_owned(void) { return 0; }
+static int rdx_vm_reset_defaults_no_poweroff(void) { ++vm_resets; return vm_reset_fail; }
+static void rdx_app_time_to_reset(void) { ++reset_timers; }
 #define KEY_IO_NUM0 65
 #define KEY_IO_NUM1 66
 #define KEY_IO_NUM4 69
@@ -276,6 +282,8 @@ static void reset(void) {
     app_var.goto_poweroff_flag=0; local_epoch=1;
     dut_disabled=dut_entries=0;
     dut_ticket_pending=1; dut_admission_race=0; upload_info.file_send_busy=0;
+    ble_links=audio_busy=vm_reset_fail=vm_resets=reset_timers=0;
+    rdx_app_factory_reset_scheduled=0;
 }
 static rdx_hogp_input_cycle_t cycle(u8 key,u8 usage,u32 id) {
     rdx_hogp_input_cycle_t c={0};
@@ -291,6 +299,10 @@ static void gesture(rdx_hogp_input_cycle_t *c,u8 action) {
     rdx_app_local_key_gesture(&k,c);
 }
 static void down(rdx_hogp_input_cycle_t *c) { rdx_app_local_key_down(c); }
+static int system_ready(rdx_hogp_input_cycle_t *c,u8 action) {
+    struct key_event k={0}; k.type=KEY_DRIVER_TYPE_IO; k.value=c->physical_key; k.event=action;
+    return rdx_app_local_key_system_ready(&k,c);
+}
 static void finish_stop(void) {
     status.run=RECORD_STATE_STOP; status.process_state=0; key_state=RDX_RECORD_KEY_IDLE;
     rdx_app_key_record_pump();
@@ -716,25 +728,25 @@ int test_dut_waits_for_owned_worker_tone_and_retirement(void) {
         down(&c); CHECK(key_record_owner_valid);
         u32 admitted_request=request_generation;
         stop_fail=!online; release_done=!online;
-        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)==0 && !dut_entries);
         if(online) CHECK(request_generation==admitted_request+1 &&
             key_record_request_generation==request_generation);
         stop_fail=0; release_done=1;
-        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)==0 && !dut_entries);
         if(online) {
             CHECK(trigger_stop_pending && retirement_pending);
             rdx_record_stream_only_release_complete();
             rdx_app_key_record_pump();
         }
         key_state=RDX_RECORD_KEY_IDLE; tone_running=1;
-        CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)==0 && !dut_entries);
         gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
         tone_running=0;
         if(online) {
-            CHECK(rdx_app_local_key_dut_ready(&c)==0 && !dut_entries);
+            CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)==0 && !dut_entries);
             retirement_pending=0;
         }
-        CHECK(rdx_app_local_key_dut_ready(&c)==1);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)==1);
         gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(dut_entries==1 && rdx_dut_mode);
         c.mode=RDX_LOCAL_KEY_DUT; down(&c); CHECK(online?online_starts==1:starts==1);
     }
@@ -745,20 +757,20 @@ int test_dut_never_stops_other_owners_or_bypasses_gates(void) {
         reset(); record_kind=kind; status.run=RECORD_STATE_START;
         key_state=RDX_RECORD_KEY_ACTIVE;
         rdx_hogp_input_cycle_t c=cycle(4,0x6e,120);
-        CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops && !release_calls);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)<0 && !stops && !release_calls);
         gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
     }
     reset(); rdx_hogp_input_cycle_t other=cycle(0,0x6e,121), c=cycle(4,0x6e,122);
-    down(&other); CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops);
+    down(&other); CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)<0 && !stops);
     reset(); down(&c); ++generation; status.run=RECORD_STATE_START;
-    CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops);
+    CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)<0 && !stops);
     for(int online=0;online<2;online++) {
         reset(); ready=online; down(&c);
         gesture(&c,KEY_ACTION_UP);
         if(online) rdx_app_key_record_pump();
         if(online) ++request_generation; else ++generation;
         tone_running=1;
-        CHECK(rdx_app_local_key_dut_ready(&c)<0);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)<0);
         CHECK(online?release_calls==1:stops==1);
     }
     for(int gate=0;gate<5;gate++) {
@@ -768,9 +780,44 @@ int test_dut_never_stops_other_owners_or_bypasses_gates(void) {
         if(gate==2) poweroff_ready_flag=1;
         if(gate==3) factory_keys=1;
         if(gate==4) blocked=1;
-        CHECK(rdx_app_local_key_dut_ready(&c)<0 && !stops && !dut_entries);
+        CHECK(system_ready(&c,KEY_ACTION_EIGHTUPLE_CLICK)<0 && !stops && !dut_entries);
     }
     reset(); dut_disabled=1; gesture(&c,KEY_ACTION_EIGHTUPLE_CLICK); CHECK(!dut_entries);
+    return 0;
+}
+int test_key5_five_click_factory_reset_requires_zero_acl(void) {
+    /* 五击是物理系统手势：不受配键与 DUT 禁用影响，只在零 BLE ACL 时提交。 */
+    reset(); ble_links=1;
+    rdx_hogp_input_cycle_t c=cycle(4,0x6e,150);
+    CHECK(system_ready(&c,KEY_ACTION_FIRTH_CLICK)<0 && !stops);
+    gesture(&c,KEY_ACTION_FIRTH_CLICK);
+    CHECK(!vm_resets && !reset_timers && !dut_entries && !local_key_dispatch_cycle);
+    reset(); dut_disabled=1; c=cycle(4,0x68,151);
+    CHECK(system_ready(&c,KEY_ACTION_FIRTH_CLICK)==1);
+    gesture(&c,KEY_ACTION_FIRTH_CLICK);
+    CHECK(vm_resets==1 && reset_timers==1 && !dut_entries && !local_key_dispatch_cycle);
+    gesture(&c,KEY_ACTION_FIRTH_CLICK); CHECK(vm_resets==1 && reset_timers==1);
+    reset(); dut_ticket_pending=0; gesture(&c,KEY_ACTION_FIRTH_CLICK);
+    CHECK(!vm_resets && !reset_timers);
+    for(int gate=0;gate<3;gate++) {
+        reset();
+        if(gate==0) audio_busy=1;
+        if(gate==1) vm_reset_fail=1;
+        if(gate==2) blocked=1;
+        gesture(&c,KEY_ACTION_FIRTH_CLICK);
+        CHECK(!reset_timers && !rdx_app_factory_reset_scheduled);
+    }
+    reset(); c=cycle(4,0x6e,152);
+    CHECK(system_ready(&c,KEY_ACTION_TRIPLE_CLICK)<0);
+    return 0;
+}
+int test_key5_five_click_waits_for_owned_f19_cleanup(void) {
+    reset(); rdx_hogp_input_cycle_t c=cycle(4,0x6e,155);
+    down(&c); CHECK(key_record_owner_valid);
+    stop_fail=1; release_done=0;
+    CHECK(system_ready(&c,KEY_ACTION_FIRTH_CLICK)==0 && !vm_resets);
+    reset(); down(&c); ble_links=1;
+    CHECK(system_ready(&c,KEY_ACTION_FIRTH_CLICK)<0 && !stops && key_record_owner_valid);
     return 0;
 }
 int test_dut_final_ticket_guard_and_existing_direct_exit_paths(void) {
@@ -842,7 +889,8 @@ def main():
         'rdx_app_key_record_retry_cancel', 'rdx_app_key_record_reset',
         'rdx_app_key_record_product_blocked',
         'rdx_app_local_key_cancel', 'rdx_app_local_key_mode', 'rdx_app_record_is_hold_active',
-        'rdx_app_local_key_dut_ready',
+        'rdx_app_factory_reset_commit', 'rdx_app_local_key_reset_admitted',
+        'rdx_app_local_key_factory_reset', 'rdx_app_local_key_system_ready',
         'rdx_app_key_click_cb', 'rdx_app_record_transport_lost',
         'rdx_app_record_receiver_lost', 'rdx_app_key_record_pump',
         'rdx_app_rdx_key_route_ready', 'rdx_app_meeting_record_toggle', 'rdx_app_usage_key_remap',
@@ -872,9 +920,10 @@ def main():
                         'rdx_hogp_key_action_local_usage') +
                'static rdx_hogp_input_cycle_t key_record_owner;\nstatic u8 key_record_owner_valid;\n'
                'static const rdx_hogp_input_cycle_t *local_key_dispatch_cycle;\n'
+               'static u8 rdx_app_factory_reset_scheduled;\n'
                '#define KEY_DRIVER_TYPE_IO 0\n'
                'u8 rdx_hogp_input_cycle_valid(const rdx_hogp_input_cycle_t *c) { return c->epoch==local_epoch; }\n'
-               'u8 rdx_hogp_input_dut_pending(const rdx_hogp_input_cycle_t *c) { return dut_ticket_pending; }\n'
+               'u8 rdx_hogp_input_system_pending(const rdx_hogp_input_cycle_t *c) { return dut_ticket_pending; }\n'
                'static void rdx_app_key_record_pump(void);\n'
                'static int rdx_app_device_record_set(u8,u8,u8,u8);\n' + helpers +
                function(playback, 'rdx_playback_can_start') +
