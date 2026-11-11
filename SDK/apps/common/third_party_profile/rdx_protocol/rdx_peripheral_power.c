@@ -1068,7 +1068,6 @@ void rdx_peripheral_power_vdd_slow_adv_notify(void)
 
 void rdx_peripheral_power_vdd_ble_links_changed_notify(void)
 {
-    rdx_ble_server_conn_param_changed();
     if (rdx_ble_server_get_connected_count()) {
         rdx_peripheral_power_vdd_ensure_on(RDX_SHARED_VDD_WAKE_BLE_LINK);
     } else {

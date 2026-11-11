@@ -142,18 +142,19 @@ Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
      $SendBody -match 'app_ble_att_send_data\s*\(\s*send_hdl') `
     'CCC, MTU and RDX sends must remain bound to the owning connection snapshot'
 
-Assert-Contract 'TRANSFER_CONN_PARAMS_ARE_OWNER_SCOPED' `
+Assert-Contract 'TRANSFER_CONN_PARAMS_ARE_ACL_SCOPED' `
     ($ServerHeader -match 'void\s+rdx_ble_server_request_stream_fast_param\s*\(void\)' -and
      $ServerHeader -match 'void\s+rdx_ble_server_post_transfer_lowpower\s*\(void\)' -and
-     $ConnParamBody -match 'rdx_ble_session_rdx_token_capture\s*\(' -and
-     $ConnParamBody -match 'rdx_ble_session_rdx_token_resolve\s*\(\s*token\s*,\s*1\s*\)' -and
+     $ConnParamBody -match 'rdx_ble_session_link_at\s*\(\s*i\s*\)' -and
+     $ConnParamBody -match 'rdx_ble_session_link_token_resolve\s*\(\s*token\s*\)' -and
+     $ConnParamBody -notmatch 'rdx_ble_session_rdx_token_(capture|resolve)|rdx_ble_session_link_is_(rdx|hid)|rdx_runtime_epoch_get' -and
      $ConnParamBody -match 'RDX_CONN_PARAM_STREAM_FAST_INDEX' -and
      $ConnParamBody -match 'RDX_CONN_PARAM_LEGACY_COUNT' -and
      $ConnParamBody -match '&rdx_fast_conn_param' -and
      $ConnParamBody -notmatch 'RDX_PARAM_IDLE|RDX_TRANSFER_IDLE_MS' -and
      $ConnParamBody -match 'os_taskq_post_type\s*\(\s*"app_core"\s*,\s*Q_CALLBACK' -and
      $ConnParamBody -notmatch 'g_rdx_ble_server_info\.ble_con_handle') `
-    'legacy entries must use owner-scoped fast checks with same-link HID cleanup and no idle downgrade window'
+    'every connected ACL gets the fast+latency target regardless of RDX/HID role, with no idle downgrade window'
 
 $retryArmOrder = Test-TokensInOrder $SendBody @(
     'rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot)',

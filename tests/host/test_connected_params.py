@@ -1,4 +1,4 @@
-"""执行真实 RDX 快档协调器；覆盖停用慢档、旧库入口与链路生命周期。"""
+"""执行真实连接参数协调器：每条物理 ACL 不区分 RDX/HID 角色都收敛到快档+latency；覆盖旧库入口与链路生命周期。"""
 import re
 import tempfile
 from pathlib import Path
@@ -20,13 +20,13 @@ typedef int s32;
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 void *memset(void*,int,unsigned long long);
 typedef struct { u8 slot_index; u32 slot_generation, transport_epoch; } rdx_ble_async_token_t;
-typedef struct { u16 con_handle, conn_interval, conn_latency; u8 hid, pairing, connected; u32 generation; } rdx_ble_link_state_t;
+typedef struct { u16 con_handle, conn_interval, conn_latency; u8 connected; u32 generation; } rdx_ble_link_state_t;
 struct conn_update_param_t { u16 interval_min, interval_max, latency, timeout; };
 typedef struct { int file_send_busy; } ReqFileInfo;
 static rdx_ble_link_state_t links[2];
-static int owner, active, queue_pending, queue_fail, timer_fail, in_core, irq, context_error;
+static int queue_pending, queue_fail, timer_fail, in_core, irq, context_error;
 static int requests, accept_requests, request_result, race;
-static u32 now, epoch, slot_generation, transport_epoch;
+static u32 now, transport_epoch;
 static u16 request_handles[256], request_modes[256];
 static u32 request_times[256];
 static struct { int goto_poweroff_flag; } app_var;
@@ -38,22 +38,14 @@ void rdx_ble_server_post_transfer_lowpower(void);
 void local_irq_disable(void) { ++irq; }
 void local_irq_enable(void) { --irq; }
 u32 sys_timer_get_ms(void) { return now; }
-u32 rdx_ble_session_rdx_runtime_epoch_get(void) {
-    if(race) { race=0; active=0; ++epoch; rdx_ble_server_conn_param_changed(); }
-    return epoch;
-}
-u8 rdx_ble_session_rdx_token_capture(rdx_ble_async_token_t *t,u8 require) {
-    if(!active || owner<0 || !links[owner].connected) return 0;
-    t->slot_index=owner; t->slot_generation=slot_generation; t->transport_epoch=transport_epoch;
-    return 1;
-}
-rdx_ble_link_state_t *rdx_ble_session_rdx_token_resolve(const rdx_ble_async_token_t *t,u8 require) {
-    if(!active || owner<0 || !links[owner].connected || t->slot_index!=owner || t->slot_generation!=slot_generation ||
-       t->transport_epoch!=transport_epoch) return NULL;
-    return &links[owner];
+rdx_ble_link_state_t *rdx_ble_session_link_at(u8 i) {
+    return i<2 && links[i].connected ? &links[i] : NULL;
 }
 rdx_ble_async_token_t rdx_ble_session_token_capture(const rdx_ble_link_state_t *l) {
-    rdx_ble_async_token_t t = {l-links, l->generation, transport_epoch}; return t;
+    rdx_ble_async_token_t t = {l-links, l->generation, transport_epoch};
+    /* 评估途中断链并到来新事件：本轮不得请求，下一轮按最新链路收敛。 */
+    if(race) { race=0; links[0].connected=links[1].connected=0; rdx_ble_server_conn_param_changed(); }
+    return t;
 }
 rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(const rdx_ble_async_token_t *t) {
     if(t->slot_index>=2 || !links[t->slot_index].connected ||
@@ -61,7 +53,6 @@ rdx_ble_link_state_t *rdx_ble_session_link_token_resolve(const rdx_ble_async_tok
     return &links[t->slot_index];
 }
 u8 rdx_ble_session_link_index(rdx_ble_link_state_t *l) { return l-links; }
-u8 rdx_ble_session_link_is_hid(rdx_ble_link_state_t *l) { return l && l->hid; }
 void rdx_ble_session_link_set_conn_param_index(rdx_ble_link_state_t *l,u8 i) { if(i) ++context_error; }
 int ble_op_conn_param_request(u16 handle,struct conn_update_param_t *p) {
     if(!in_core || irq || (handle!=links[0].con_handle && handle!=links[1].con_handle)) ++context_error;
@@ -99,12 +90,13 @@ static void reset(void) {
     memset(g_rdx_transfer_params,0,sizeof(g_rdx_transfer_params));
     memset(&g_rdx_param_events,0,sizeof(g_rdx_param_events));
     memset(timers,0,sizeof(timers)); memset(links,0,sizeof(links));
+    /* 默认单 ACL（产品主场景）；双 ACL 用例自行接入第二条。 */
     links[0].con_handle=0x50; links[1].con_handle=0x51;
-    links[0].connected=links[1].connected=1; links[0].generation=links[1].generation=1;
+    links[0].connected=1; links[0].generation=links[1].generation=1;
     links[0].conn_interval=links[1].conn_interval=24;
     now=next_timer=queue_pending=queue_fail=timer_fail=0;
     requests=context_error=irq=in_core=request_result=race=0;
-    epoch=slot_generation=transport_epoch=1; owner=0; active=accept_requests=1;
+    transport_epoch=1; accept_requests=1;
     app_var.goto_poweroff_flag=0;
 }
 static int drain(void) {
@@ -145,9 +137,9 @@ int check_idle_and_legacy_paths_stay_fast(void) {
         CHECK(requests==1 && request_modes[0]==6);
     }
     reset(); rdx_ble_server_post_transfer_lowpower(); CHECK(drain()); CHECK(requests==1);
-    reset(); active=0; CHECK(changed());
+    reset(); links[0].connected=0; CHECK(changed());
     rdx_ble_server_request_stream_fast_param(); rdx_ble_server_post_transfer_lowpower();
-    CHECK(!requests && !queue_pending && !g_rdx_transfer_params[0].timer);
+    CHECK(drain()); CHECK(!requests && !g_rdx_transfer_params[0].timer);
     return 0;
 }
 int check_actual_fast_range(void) {
@@ -180,8 +172,9 @@ int check_rejection_and_delayed_confirmation(void) {
         }
         CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
         CHECK(advance(19000)); CHECK(requests==3);
-        active=0; ++epoch; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
-        active=1; ++epoch; CHECK(changed()); CHECK(advance(20000));
+        /* 同一 ACL 上的 RDX 释放/重认领不重置有限重试预算。 */
+        rdx_ble_server_transfer_param_cancel(); CHECK(drain());
+        CHECK(changed()); CHECK(advance(20000));
         CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
         links[0].conn_interval=9; links[0].conn_latency=49; CHECK(changed());
         CHECK(advance(1200000)); CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
@@ -200,47 +193,51 @@ int check_confirmed_then_late_slow_is_throttled(void) {
     CHECK(advance(1200000)); CHECK(requests==2 && !g_rdx_transfer_params[0].timer);
     return 0;
 }
-int check_hid_and_owner_isolation(void) {
-    reset(); links[0].hid=1; CHECK(changed()); CHECK(advance(120000));
-    CHECK(requests==1 && !g_rdx_transfer_params[0].timer);
-    reset(); links[0].pairing=1; CHECK(changed()); CHECK(advance(120000)); CHECK(requests==1);
-    reset(); links[1].hid=1; CHECK(changed()); CHECK(advance(120000));
-    CHECK(requests==1 && request_handles[0]==0x50 && links[1].conn_interval==24);
-    reset(); active=0; links[1].hid=1; CHECK(changed()); CHECK(!requests);
+int check_every_acl_is_managed_regardless_of_role(void) {
+    /* 单连接：尚未认领 RDX/HID 的链路（如纯 HID 的 PC 回连）也要请求。 */
+    reset(); links[0].conn_interval=12; links[0].conn_latency=0; CHECK(changed());
+    CHECK(requests==1 && request_handles[0]==0x50 && links[0].conn_latency==49);
+    CHECK(advance(1200000)); CHECK(requests==1 && !g_rdx_transfer_params[0].timer);
+    reset(); links[0].connected=0; links[1].connected=1; CHECK(changed());
+    CHECK(requests==1 && request_handles[0]==0x51 && links[1].conn_latency==49);
+    /* 双连接：两条 ACL 各自独立收敛，互不占用对方预算。 */
+    reset(); links[1].connected=1; CHECK(changed()); CHECK(advance(120000));
+    CHECK(requests==2 && request_handles[0]==0x50 && request_handles[1]==0x51);
+    CHECK(links[0].conn_latency==49 && links[1].conn_latency==49);
+    CHECK(!g_rdx_transfer_params[0].timer && !g_rdx_transfer_params[1].timer);
+    reset(); links[1].connected=1; accept_requests=0; CHECK(changed()); CHECK(advance(6000));
+    CHECK(requests==6 && !g_rdx_transfer_params[0].timer && !g_rdx_transfer_params[1].timer);
     return 0;
 }
-int check_hid_survives_rdx_release_and_handoff(void) {
+int check_role_changes_keep_acl_recovery(void) {
     reset(); CHECK(changed()); CHECK(advance(100));
-    links[0].hid=1; links[0].conn_interval=72; links[0].conn_latency=19;
-    active=0; ++epoch; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
+    /* RDX 逻辑释放后同一 ACL 被对端降档，仍按物理链路恢复。 */
+    links[0].conn_interval=72; links[0].conn_latency=19;
+    rdx_ble_server_transfer_param_cancel(); CHECK(drain());
     CHECK(requests==1); CHECK(advance(1900));
     CHECK(requests==2 && request_handles[1]==0x50 && links[0].conn_interval==6);
-    owner=1; active=1; ++epoch; CHECK(changed());
+    links[1].connected=1; CHECK(changed());
     CHECK(requests==3 && request_handles[2]==0x51);
     CHECK(advance(2000)); links[0].conn_interval=72; CHECK(changed());
     CHECK(requests==4 && request_handles[3]==0x50);
     CHECK(advance(1200000)); CHECK(requests==4);
     CHECK(!g_rdx_transfer_params[0].timer && !g_rdx_transfer_params[1].timer);
-    reset(); CHECK(changed()); active=0; ++epoch;
-    rdx_ble_server_transfer_param_cancel(); CHECK(drain());
-    CHECK(advance(2000)); links[0].conn_interval=72; CHECK(changed()); CHECK(requests==1);
-    links[0].hid=1; CHECK(changed()); CHECK(requests==2 && links[0].conn_interval==6);
     return 0;
 }
 int check_stale_callbacks_and_reconnect(void) {
     reset(); accept_requests=0; CHECK(changed()); CHECK(advance(100));
     u16 old=g_rdx_transfer_params[0].timer; void (*cb)(void*)=timers[old].cb; void *arg=timers[old].arg;
-    active=0; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
+    links[0].connected=0; ++links[0].generation; CHECK(changed());
     int n=requests; in_core=1; cb(arg); in_core=0; CHECK(requests==n);
-    active=1; ++epoch; ++slot_generation; links[1].generation=slot_generation; owner=1; CHECK(changed());
+    links[1].connected=1; CHECK(changed());
     u16 fresh=g_rdx_transfer_params[1].timer;
     in_core=1; cb(arg); in_core=0; CHECK(g_rdx_transfer_params[1].timer==fresh);
     CHECK(advance(6000)); CHECK(request_handles[requests-1]==0x51 && requests==4);
     reset(); accept_requests=0; CHECK(changed()); CHECK(advance(6000)); CHECK(requests==3);
-    active=0; links[0].connected=0; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
-    active=1; links[0].connected=1; ++epoch; ++slot_generation; links[0].generation=slot_generation;
+    links[0].connected=0; CHECK(changed());
+    links[0].connected=1; ++links[0].generation;
     CHECK(changed()); CHECK(advance(6000)); CHECK(requests==6);
-    reset(); rdx_ble_server_request_stream_fast_param(); active=0; ++epoch;
+    reset(); rdx_ble_server_request_stream_fast_param(); links[0].connected=0;
     CHECK(drain()); CHECK(!requests);
     return 0;
 }
@@ -263,8 +260,8 @@ int check_races_and_dispatch_failure(void) {
 }
 int check_same_acl_runtime_throttle(void) {
     reset(); accept_requests=0; CHECK(changed()); CHECK(requests==1);
-    CHECK(advance(100)); active=0; ++epoch; rdx_ble_server_transfer_param_cancel(); CHECK(drain());
-    active=1; CHECK(changed()); CHECK(requests==1);
+    CHECK(advance(100)); rdx_ble_server_transfer_param_cancel(); CHECK(drain());
+    CHECK(changed()); CHECK(requests==1);
     CHECK(advance(1900)); CHECK(requests==2 && request_times[1]==2000);
     CHECK(advance(4000)); CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
     return 0;
@@ -285,6 +282,8 @@ def main():
     end = source.index('static u8 rdx_ble_server_local_name_copy(', start)
     code = STUBS + source[start:end] + TESTS
     assert 'rdx_ble_server_conn_param_changed();' in function(source, 'rdx_ble_server_phase2_rdx_attach')
+    for name in ('rdx_ble_server_phase0a_link_connected', 'rdx_ble_server_phase0a_link_disconnected'):
+        assert 'rdx_ble_server_conn_param_changed();' in function(source, name), name
     update = function(source, 'rdx_ble_server_phase0a_link_conn_params_update')
     assert 'rdx_ble_server_conn_param_changed();' in update and 'transfer_param_run(' not in update
     assert 'rdx_ble_server_transfer_param_cancel();' in function(source, 'rdx_ble_server_rdx_detach_common')
@@ -296,7 +295,8 @@ def main():
                      'rdx_ble_server_conn_param_idle_hint', 'rdx_peripheral_power_connected_busy_mask'):
         assert obsolete not in source
     power = (FOLDER / 'rdx_peripheral_power.c').read_text(encoding='utf-8-sig')
-    assert 'rdx_ble_server_conn_param_changed();' in function(power, 'rdx_peripheral_power_vdd_ble_links_changed_notify')
+    # 参数协调器由 BLE 建链/断链直接驱动，不依赖可裁剪的共享 VDD 模块。
+    assert 'rdx_ble_server_conn_param' not in function(power, 'rdx_peripheral_power_vdd_ble_links_changed_notify')
     assert 'rdx_ble_server_conn_param' not in function(power, 'rdx_peripheral_power_vdd_connected_changed_notify')
     assert 'rdx_ble_server_conn_param' not in function(power, 'rdx_peripheral_power_vdd_idle_hint')
     dip = (FOLDER / 'rdx_dip_switch.c').read_text(encoding='utf-8-sig')

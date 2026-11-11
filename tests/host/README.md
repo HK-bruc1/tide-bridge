@@ -81,7 +81,7 @@ sessions, TX-full control reception, coalesced wakeups and bounded output.
 隔离 SDK 清理命令。退出在 `app_core` 有界排空；未确认的故障保留保护且禁止重开直到重启，
 不能把退出/重新初始化或迟到完成当成恢复证据。此检查不等于执行真实 controller。
 
-单 ACL 第二入口要求：快档、慢档都允许 `system_sleep_block=0`；双 ACL、单 ACL 的广播准备/关闭/重开
+单 ACL 第二入口要求（2026-11-11 起固定 100 ms 快广播常开，不再转慢，`rdx_ble_entry_adv_slow()` 恒为 0）：稳定广播允许 `system_sleep_block=0`；双 ACL、单 ACL 的广播准备/关闭/重开
 在途和故障锁定仍必须阻止睡眠。第二台设备在放行睡眠后接入仍可能触发 controller 低功耗
 计数断言，主机模拟不能证明安全。2026-11-09 板测 `COM3_2026-11-09_14-51-35.log` 与
 `COM3_2026-11-09_15-59-06.log`：新策略快、慢档均出现睡眠轨迹，慢档睡眠期间手机两次

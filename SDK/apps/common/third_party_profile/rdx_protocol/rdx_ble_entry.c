@@ -341,23 +341,11 @@ static void entry_run(void *epoch)
             }
         }
     }
-    if (entry.window && !entry.slow && (s32)(now - entry.deadline) >= 0) {
-        entry.slow = 1;
-        rate_changed = 1;
-        printf("[BLE_ENTRY] second entry slow adv\n");
-    }
-    /* 慢档期间出现真实业务唤醒（业务消息或产品键按下）时给回一轮快广播：
-     * 用户开始使用设备，第二台设备应尽快可被发现。只在新一次活动突发触发，
-     * 快档内不因活动续期，120 秒到期后重新回慢档，避免持续 100 ms 功耗。 */
-    if (wake && links == 1 && entry.slow &&
-        capacity == ENTRY_CAPACITY_AVAILABLE &&
-        (s32)(wake_time - entry.deadline) >= 0 &&
-        !rdx_ble_entry_suppressed()) {
-        entry.slow = 0;
-        entry.deadline = now + ENTRY_WINDOW_MS;
-        rate_changed = 1;
-        printf("[BLE_ENTRY] business wake fast adv\n");
-    }
+    /* 单 ACL 第二入口固定 100 ms 快广播常开：500 ms 慢广播可能让第二台设备
+     * 搜索不到，而板测快广播稳定期不挡睡眠、电流影响不明显，因此不做快慢切换，
+     * 也不挂 120 秒 deadline 定时器。entry.slow 恒为 0，睡眠门禁不变。 */
+    (void)wake;
+    (void)wake_time;
     /* 同一业务占用资源期间，重复数据包或按键报告不能再次触发重开。
      * 业务完成后才重新受理活动，不以 PA4 电平或 CPU 睡眠回调判定。 */
     if (!rdx_ble_entry_business_busy()) {
@@ -388,10 +376,6 @@ static void entry_run(void *epoch)
                                     rate_changed || refresh != entry.consumed_refresh);
     if (!ret) entry.consumed_refresh = refresh;
     now = sys_timer_get_ms();
-    if (entry.window && !entry.slow) {
-        due = entry.deadline;
-        timed = 1;
-    }
     if (entry.rearm_pending &&
         (!timed || (s32)(entry.rearm_deadline - due) < 0)) {
         due = entry.rearm_deadline;
@@ -415,13 +399,6 @@ static void entry_run(void *epoch)
             if (ret < 0) {
                 entry.window = 0;
                 (void)rdx_ble_entry_radio_apply(0, 0);
-            } else if (entry.window && !entry.slow) {
-                rdx_ble_entry_lock();
-                entry.slow = 1;
-                ++entry.refresh;
-                ++entry.revision;
-                entry.dirty = 1;
-                rdx_ble_entry_unlock();
             }
             if (entry.retries++ < ENTRY_RETRY_MAX) entry.dirty = 1;
             else if (entry.rearm_pending)

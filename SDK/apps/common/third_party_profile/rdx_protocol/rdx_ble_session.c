@@ -145,6 +145,14 @@ rdx_ble_link_state_t *rdx_ble_session_find_by_con_handle(u16 con_handle)
     return NULL;
 }
 
+rdx_ble_link_state_t *rdx_ble_session_link_at(u8 index)
+{
+    if (index >= RDX_BLE_LINK_MAX || !s_rdx_ble_links[index].connected) {
+        return NULL;
+    }
+    return &s_rdx_ble_links[index];
+}
+
 rdx_ble_link_state_t *rdx_ble_session_link_accept(void *hdl, u16 con_handle)
 {
     rdx_ble_link_state_t *link = rdx_ble_session_find_by_hdl(hdl);

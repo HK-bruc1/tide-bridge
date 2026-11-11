@@ -75,6 +75,8 @@ rdx_ble_link_state_t *rdx_ble_session_link_release(void *hdl, u16 con_handle);
 rdx_ble_link_state_t *rdx_ble_session_find_by_hdl(void *hdl);
 rdx_ble_link_state_t *rdx_ble_session_find(void *hdl, u16 con_handle);
 rdx_ble_link_state_t *rdx_ble_session_find_by_con_handle(u16 con_handle);
+/* 按槽位取已连接的物理 ACL；未连接返回 NULL。 */
+rdx_ble_link_state_t *rdx_ble_session_link_at(u8 index);
 u8 rdx_ble_session_active_count(void);
 u8 rdx_ble_session_link_index(const rdx_ble_link_state_t *link);
 rdx_ble_claim_result_t rdx_ble_session_claim_rdx(

@@ -210,6 +210,8 @@ static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
 /* 广播参数/数据提交期间保留保护，避免 SDK 等待 HCI 时入睡。 */
 static volatile u8 g_rdx_ble_adv_setup;
+/* 最近一次提交的广播间隔（0.625 ms）：连接/重开日志据此判读第二入口快慢档。 */
+static u16 g_rdx_ble_adv_interval_applied;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
 static u8 g_rdx_ble_exiting;
 /* 控制器确认广播集停止前保留 SDK 广播句柄，
@@ -465,8 +467,9 @@ static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
     if (g_rdx_ble_dual_acl_sleep_blocked != block) {
         g_rdx_ble_dual_acl_sleep_blocked = block;
         r_printf("[RDX_BLE_LP] system_sleep_block=%u connected=%u "
-                 "second_acl_window=%u adv_in_flight=%u reason=%s\n",
-                 block, connected, second_acl_window, adv_in_flight, reason);
+                 "second_acl_window=%u adv_in_flight=%u adv_interval=%u reason=%s\n",
+                 block, connected, second_acl_window, adv_in_flight,
+                 g_rdx_ble_adv_interval_applied, reason);
     }
 }
 
@@ -836,7 +839,7 @@ typedef struct {
     u8 unconfirmed_logged;
 } rdx_conn_param_state_t;
 
-/* 按物理 ACL 保留节流与回调代次；RDX 释放后仍能收尾同链 HID 的快档恢复。 */
+/* 参数目标只属于物理 ACL：不区分 RDX/HID/尚未认领，每条已连接链路独立节流与回调代次。 */
 static rdx_conn_param_state_t g_rdx_transfer_params[RDX_BLE_LINK_MAX];
 
 static void rdx_ble_server_transfer_param_run(void *unused);
@@ -844,15 +847,7 @@ static void rdx_ble_server_transfer_param_run(void *unused);
 static u8 rdx_ble_server_request_connect_parameter_for_token(
     const rdx_ble_async_token_t *token, u8 attempts)
 {
-    rdx_ble_link_state_t *link;
-    if (!token) {
-        return 0;
-    }
-    link = rdx_ble_session_rdx_token_resolve(token, 1);
-    if (!link) {
-        link = rdx_ble_session_link_token_resolve(token);
-        if (!rdx_ble_session_link_is_hid(link)) return 0;
-    }
+    rdx_ble_link_state_t *link = rdx_ble_session_link_token_resolve(token);
     if (!link) {
         return 0;
     }
@@ -963,9 +958,9 @@ static u8 rdx_ble_server_transfer_target_matches(const rdx_ble_link_state_t *lin
 
 static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param,
                                                   rdx_ble_link_state_t *link,
-                                                  u8 rdx, u32 revision)
+                                                  u32 revision)
 {
-    u32 now, epoch, retry;
+    u32 now, retry;
     rdx_ble_async_token_t token = rdx_ble_session_token_capture(link);
 
     now = sys_timer_get_ms();
@@ -978,7 +973,6 @@ static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param
         return;
     }
     rdx_ble_server_transfer_timer_cancel(param);
-    epoch = rdx ? rdx_ble_session_rdx_runtime_epoch_get() : 0;
     if (!param->managed ||
         rdx_ble_session_link_token_resolve(&param->token) != link) {
         param->token = token;
@@ -987,11 +981,7 @@ static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param
         param->request_sent = 0;
         param->unconfirmed_logged = 0;
     }
-    if (revision != g_rdx_param_events.revision ||
-        (rdx && (epoch != rdx_ble_session_rdx_runtime_epoch_get() ||
-                 rdx_ble_session_rdx_token_resolve(&token, 1) != link)) ||
-        (!rdx && (!rdx_ble_session_link_is_hid(link) ||
-                  rdx_ble_session_link_token_resolve(&token) != link))) {
+    if (revision != g_rdx_param_events.revision) {
         rdx_ble_server_conn_param_changed();
         return;
     }
@@ -1025,41 +1015,27 @@ static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param
 
 static void rdx_ble_server_transfer_param_run(void *unused)
 {
-    rdx_ble_async_token_t token;
     u32 revision;
-    u8 rdx;
     (void)unused;
     local_irq_disable();
     revision = g_rdx_param_events.revision;
     g_rdx_param_events.queued = 0;
     g_rdx_param_events.dirty = 0;
     local_irq_enable();
-    rdx = rdx_ble_session_rdx_token_capture(&token, 1);
     for (u8 i = 0; i < RDX_BLE_LINK_MAX; ++i) {
         rdx_conn_param_state_t *param = &g_rdx_transfer_params[i];
-        u8 owner = rdx && token.slot_index == i;
-        rdx_ble_link_state_t *link = owner ?
-            rdx_ble_session_rdx_token_resolve(&token, 1) :
-            (param->managed ? rdx_ble_session_link_token_resolve(&param->token) : NULL);
-        if (app_var.goto_poweroff_flag || !link ||
-            (!owner && !rdx_ble_session_link_is_hid(link))) {
+        rdx_ble_link_state_t *link = rdx_ble_session_link_at(i);
+        if (app_var.goto_poweroff_flag || !link) {
             rdx_ble_server_transfer_timer_cancel(param);
             continue;
         }
-        rdx_ble_server_transfer_param_evaluate(param, link, owner, revision);
+        rdx_ble_server_transfer_param_evaluate(param, link, revision);
     }
 }
 
 static void rdx_ble_server_transfer_param_post(void)
 {
-    rdx_ble_async_token_t token;
-    /* 旧业务入口仅通知检查当前快档，不携带可跨会话生效的参数意图。 */
-    local_irq_disable();
-    if (!rdx_ble_session_rdx_token_capture(&token, 1)) {
-        local_irq_enable();
-        return;
-    }
-    local_irq_enable();
+    /* 旧业务入口仅通知检查各 ACL 的快档，不携带可跨会话生效的参数意图。 */
     rdx_ble_server_conn_param_changed();
 }
 
@@ -2304,9 +2280,8 @@ static void rdx_ble_server_phase0a_link_conn_params_update(
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
              link->supervision_timeout, sys_timer_get_ms());
-    /* 迟到的参数完成事件只通知协调器，不在蓝牙回调中创建定时器。 */
-    if (rdx_ble_session_link_is_rdx(link) || rdx_ble_session_link_is_hid(link))
-        rdx_ble_server_conn_param_changed();
+    /* 任一 ACL 的参数完成事件都只通知协调器，不在蓝牙回调中创建定时器。 */
+    rdx_ble_server_conn_param_changed();
 }
 
 static void rdx_ble_server_conn_tone_reset(void)
@@ -2502,6 +2477,8 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     multi_att_clear_ccc_config(con_handle);
     rdx_ble_server_disconnected_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
+    /* 参数策略按物理 ACL 生效：建链即评估，不依赖 RDX/HID 认领或电源模块。 */
+    rdx_ble_server_conn_param_changed();
     rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_adv_interval_change_timer_stop();
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
@@ -2555,6 +2532,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     if (!rdx_hogp_keyboard_is_ready()) rdx_hogp_input_invalidate();
     rdx_ble_session_link_release(hdl, con_handle);
     if (had_hid_owner) rdx_ble_entry_composite_disconnected();
+    rdx_ble_server_conn_param_changed();
     rdx_peripheral_power_vdd_ble_links_changed_notify();
     rdx_ble_server_phase0b_adv_token_capture(hdl);
     rdx_ble_server_disconnected_adv_restart_schedule();
@@ -3939,6 +3917,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     u8 advData[ADV_RSP_PACKET_MAX] = {0};
     u8 rspData[ADV_RSP_PACKET_MAX] = {0};
     u8 len;
+    u16 interval;
     int ret;
     if (!hdl || !enable || g_rdx_adv_close.waiting || g_rdx_adv_close.fault ||
         !rdx_ble_entry_allowed()) return -1;
@@ -3950,11 +3929,11 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     g_rdx_ble_adv_setup = 1;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_prepare");
     /* 单 ACL 第二入口：前 120 秒快广播，之后切 500 ms 慢广播但保持开放。 */
-    ret = app_ble_set_adv_param(hdl, rdx_ble_entry_adv_slow() ?
-                               RDX_BLE_ADV_INTERVAL_LOW :
-                               g_rdx_ble_server_info.adv_interval_min,
-                               ADV_IND, ADV_CHANNEL_ALL);
+    interval = rdx_ble_entry_adv_slow() ? RDX_BLE_ADV_INTERVAL_LOW :
+               g_rdx_ble_server_info.adv_interval_min;
+    ret = app_ble_set_adv_param(hdl, interval, ADV_IND, ADV_CHANNEL_ALL);
     if (ret) goto not_enabled;
+    g_rdx_ble_adv_interval_applied = interval;
     if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) goto not_enabled;
     len = rdx_ble_server_fill_adv_data(advData);
     ret = len ? app_ble_adv_data_set(hdl, advData, len) : -1;
@@ -3977,8 +3956,9 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
     }
     g_rdx_ble_adv_setup = 0;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_result");
-    r_printf("[BLE_ENTRY] open ret=%d wrapper=%u\n", ret,
-             rdx_ble_server_phase0a_wrapper_index(hdl));
+    r_printf("[BLE_ENTRY] open ret=%d wrapper=%u adv_interval=%u\n", ret,
+             rdx_ble_server_phase0a_wrapper_index(hdl),
+             g_rdx_ble_adv_interval_applied);
     return ret;
 
 not_enabled:
