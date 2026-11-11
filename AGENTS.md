@@ -85,7 +85,7 @@ Notable behavioral harnesses:
 - `test_flashnote.py` — flashnote parser, stream-only state, session ownership, busy responses and release barriers
 - `test_keymap_factory_reset.py` — keymap persistence and factory defaults
 - `test_record_tone.py` — shared `rectone`/`recsave` GET/SET, VM durability, busy gates and token-bound request/ACK; APP/F18 no-file recording is covered by `test_hogp_hold.py`
-- `test_ble_entry.py` — single-ACL always-fast second entry, advertising-close confirmation, fault isolation; pins the reviewed `btstack.a` / `btctrler.a` ABI (re-review on library upgrade, do not just replace hashes)
+- `test_ble_entry.py` — single-ACL always-fast second entry, advertising-close confirmation, fault isolation (an advertising set consumed by a link that dropped before app_core evaluation is not a fault); pins the reviewed `btstack.a` / `btctrler.a` ABI (re-review on library upgrade, do not just replace hashes)
 - `test_cache_flush.py`, `test_record_format.py` — on-demand cache flush and record-format patch library
 - `test_lowpower_lrc.py` — LRC sleep-clock configuration, board init, probe-switch rejection, boot clock refurbish
 

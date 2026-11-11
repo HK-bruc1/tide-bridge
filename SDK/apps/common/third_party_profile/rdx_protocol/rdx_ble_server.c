@@ -208,6 +208,10 @@ static u8 g_syn_data_token_valid;
 static u16 g_disconnected_adv_restart_timer = 0;
 static u8 g_disconnected_adv_restart_retry = 0;
 static void *g_rdx_ble_advertising_hdl = NULL;
+/* btstack 任务在 Connection Complete 中登记：该 wrapper 的广播集已被连接消耗。
+ * app_core 若晚于该连接的断开才评估广播（如回连时同步恢复外设电源），
+ * 据此把"句柄已不存在"识别为正常消耗，而不是广播故障。 */
+static void *volatile g_rdx_ble_adv_consumed_hdl = NULL;
 /* 广播参数/数据提交期间保留保护，避免 SDK 等待 HCI 时入睡。 */
 static volatile u8 g_rdx_ble_adv_setup;
 /* 最近一次提交的广播间隔（0.625 ms）：连接/重开日志据此判读第二入口快慢档。 */
@@ -2474,6 +2478,7 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
         return;
     }
     rdx_ble_server_phase0a_link_state_capture(link, packet, enhanced);
+    if (hdl == g_rdx_ble_advertising_hdl) g_rdx_ble_adv_consumed_hdl = hdl;
     multi_att_clear_ccc_config(con_handle);
     rdx_ble_server_disconnected_adv_restart_cancel();
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
@@ -3925,6 +3930,7 @@ static int rdx_ble_server_adv_enable_on_hdl(void *hdl, u8 enable)
         rdx_peripheral_power_vdd_fast_adv_notify()) return -1;
     /* 恢复 PA4 时可能让出执行权，操作广播前须重新检查准入条件。 */
     if (app_ble_get_hdl_con_handle(hdl) || !rdx_ble_entry_allowed()) return 0;
+    if (g_rdx_ble_adv_consumed_hdl == hdl) g_rdx_ble_adv_consumed_hdl = NULL;
     g_rdx_ble_advertising_hdl = hdl;
     g_rdx_ble_adv_setup = 1;
     rdx_ble_server_dual_acl_sleep_policy_update("advertising_prepare");
@@ -4094,6 +4100,14 @@ int rdx_ble_entry_radio_apply(u8 enable, u8 refresh)
     if (hdl && app_ble_get_hdl_con_handle(hdl)) {
         /* 已接纳连接的 wrapper 不再广播；延迟到 app_core 评估时，
          * SDK 已完成此次事件分发，只清广播跟踪，不断开有效连接。 */
+        g_rdx_ble_advertising_hdl = hdl = NULL;
+    } else if (hdl && hdl == g_rdx_ble_adv_consumed_hdl &&
+               (u32)app_ble_adv_handle_get(hdl) >= RDX_BLE_PHASE0A_WRAPPER_MAX) {
+        /* 连接已消耗广播集，且在 app_core 评估前就已断开（如 0x3e 建链失败）：
+         * 与上一分支同为正常消耗，只清跟踪，随后在空闲 wrapper 上重开。
+         * 未登记消耗的无效句柄仍由关闭流程按故障处理。 */
+        r_printf("[BLE_ENTRY] advertising consumed by released link wrapper=%u\n",
+                 rdx_ble_server_phase0a_wrapper_index(hdl));
         g_rdx_ble_advertising_hdl = hdl = NULL;
     }
     enable = enable && rdx_ble_entry_allowed();
@@ -4839,6 +4853,7 @@ void rdx_ble_server_exit(void)
     }
     g_rdx_ble_server_info.rdx_ble_server_hdl = NULL;
     g_rdx_ble_advertising_hdl = NULL;
+    g_rdx_ble_adv_consumed_hdl = NULL;
     g_rdx_ble_dual_acl_sleep_blocked = g_rdx_adv_close.fault;
 }
 

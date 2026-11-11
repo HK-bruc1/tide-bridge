@@ -60,6 +60,7 @@ static int command_count;
 static struct { void *rdx_ble_server_hdl; u16 adv_interval_min, adv_interval_change_timer;
                 u8 adv_refresh_pending; } g_rdx_ble_server_info;
 static void *g_rdx_ble_advertising_hdl, *g_rdx_ble_phase0a_disconnect_pending_hdl;
+static void *volatile g_rdx_ble_adv_consumed_hdl;
 static void *g_rdx_ble_secondary_hdl;
 static u8 g_rdx_ble_exiting;
 static volatile u8 g_rdx_ble_adv_setup;
@@ -253,6 +254,7 @@ static void reset(void) {
     g_rdx_ble_secondary_hdl=&wrappers[1];
     g_rdx_ble_server_info.adv_interval_min=160;
     g_rdx_ble_advertising_hdl=g_rdx_ble_phase0a_disconnect_pending_hdl=NULL;
+    g_rdx_ble_adv_consumed_hdl=NULL;
     g_rdx_ble_phase0a_connect_adv_timer=g_rdx_ble_dual_acl_sleep_blocked=0;
     g_rdx_ble_adv_setup=0;
     now=next_timer=queue_pending=queue_fail=timer_fail=in_core=context_error=irq=spin_held=0;
@@ -729,6 +731,23 @@ int check_persistent_second_acl_and_return(void) {
     rdx_ble_entry_topology_changed(); CHECK(drain());
     CHECK(fast_idle(2) && rdx_ble_entry_allowed());
     CHECK(advance(600000)); CHECK(fast_idle(2));
+    return 0;
+}
+int check_released_connection_consumed_advertising(void) {
+    u8 packet[34]={62,19,1,0,0x51,0};
+    reset(); CHECK(single()); CHECK(fast_idle(1) && g_rdx_ble_advertising_hdl==&wrappers[1]);
+    /* 连接消耗广播集后、app_core 评估前即断开（如 0x3e）：句柄失效属正常消耗。 */
+    wrappers[1].con=0x51; wrappers[1].adv=0; wrappers[1].handle=0;
+    rdx_ble_server_phase0a_link_connected(&wrappers[1],packet,20,0);
+    CHECK(accepted==1 && links[1].connected && g_rdx_ble_adv_consumed_hdl==&wrappers[1]);
+    wrappers[1].con=0; links[1].connected=0;
+    g_rdx_ble_phase0a_connect_adv_timer=0;
+    rdx_ble_entry_topology_changed(); CHECK(drain());
+    CHECK(!g_rdx_adv_close.fault && !g_rdx_adv_close.waiting && !close_calls);
+    CHECK(fast_idle(2) && g_rdx_ble_advertising_hdl==&wrappers[1] && !g_rdx_ble_adv_consumed_hdl);
+    /* 未登记消耗的失效句柄仍按故障锁定。 */
+    reset(); CHECK(single()); wrappers[1].handle=0;
+    CHECK(refresh()); CHECK(g_rdx_adv_close.fault);
     return 0;
 }
 int check_persistent_fast_accepts_second_acl(void) {
