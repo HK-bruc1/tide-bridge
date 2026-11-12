@@ -1231,20 +1231,42 @@ int rdx_record_format_boot(void)
 }
 
 #if TCFG_T2620_FACTORY_USB_CDC_ENABLE && !TCFG_T2620_FACTORY_USB_CDC_TEST_ENABLE
+/* One diagnostic per rejected open, outside the streaming hot path.
+ * Keep wire error codes/close quarantine unchanged; expose the actual gate. */
+static int rf_open_error(const char *name, const char *stage, int result,
+                         u32 expected, u32 actual)
+{
+    printf("[CDC_OPEN] reject name=%s stage=%s ret=%d expected=%u actual=%u\n",
+           name ? name : "<invalid>", stage, result, expected, actual);
+    return result;
+}
+
 static int rf_read_meta(const char *name, rf_meta *meta)
 {
-    if (!name || !meta || !rf_name_valid(name)) return -1;
+    if (!name || !meta || !rf_name_valid(name))
+        return rf_open_error(NULL, "meta.argument", -1, 0, 0);
     char path[40];
     rf_path(path, name, 1);
     FILE *handle = fopen(path, "r");
-    if (!handle) return -1;
-    int valid = flen(handle) == sizeof(*meta) &&
-                fread(meta, 1, sizeof(*meta), handle) == sizeof(*meta);
-    if (fclose(handle)) return -2;
-    if (!valid || meta->magic != RF_MAGIC || !meta->sn ||
-        meta->ready != 1 || meta->name[sizeof(meta->name) - 1] ||
-        strcmp(meta->name, name) ||
-        meta->hash != rf_hash(meta, sizeof(*meta) - sizeof(meta->hash))) return -1;
+    if (!handle) return rf_open_error(name, "meta.open", -1, 0, 0);
+    u32 length = flen(handle);
+    int read = length == sizeof(*meta) ? fread(meta, 1, sizeof(*meta), handle) : 0;
+    int closed = fclose(handle);
+    if (closed) return rf_open_error(name, "meta.close", -2, 0, closed);
+    if (length != sizeof(*meta))
+        return rf_open_error(name, "meta.length", -1, sizeof(*meta), length);
+    if (read != sizeof(*meta))
+        return rf_open_error(name, "meta.read", -1, sizeof(*meta), read);
+    if (meta->magic != RF_MAGIC)
+        return rf_open_error(name, "meta.magic", -1, RF_MAGIC, meta->magic);
+    if (!meta->sn) return rf_open_error(name, "meta.sn", -1, 1, 0);
+    if (meta->ready != 1)
+        return rf_open_error(name, "meta.ready", -1, 1, meta->ready);
+    if (meta->name[sizeof(meta->name) - 1] || strcmp(meta->name, name))
+        return rf_open_error(name, "meta.name", -1, 0, 0);
+    u32 hash = rf_hash(meta, sizeof(*meta) - sizeof(meta->hash));
+    if (meta->hash != hash)
+        return rf_open_error(name, "meta.hash", -1, meta->hash, hash);
     return 0;
 }
 
@@ -1253,21 +1275,42 @@ static int rf_open_verified_raw(const rf_meta *meta, u32 maximum,
 {
     *handle = NULL;
     *size = 0;
-    if (!meta || !rf_name_valid(meta->name) ||
-        (meta->format != RECORD_FORMATE_OPUS_16K_MONO &&
-         meta->format != RECORD_FORMATE_OPUS_16K_STERO)) return -1;
+    if (!meta || !rf_name_valid(meta->name))
+        return rf_open_error(NULL, "raw.argument", -1, 0, 0);
+    if (meta->format != RECORD_FORMATE_OPUS_16K_MONO &&
+        meta->format != RECORD_FORMATE_OPUS_16K_STERO)
+        return rf_open_error(meta->name, "raw.format", -1, 0, meta->format);
     u32 frame_bytes = rf_frame_bytes(meta->format);
     char path[40];
     u8 first[80];
     rf_path(path, meta->name, 0);
     FILE *opened = fopen(path, "r");
-    if (!opened) return -1;
+    if (!opened) return rf_open_error(meta->name, "raw.open", -1, 0, 0);
     u32 length = flen(opened);
-    int valid = length && length <= maximum && !(length % frame_bytes) &&
-                fread(first, 1, frame_bytes, opened) == frame_bytes &&
-                rf_hash(first, frame_bytes) == meta->first_hash;
-    if (!valid || fseek(opened, 0, SEEK_SET)) {
-        return fclose(opened) ? -2 : -1;
+    const char *reason = NULL;
+    u32 expected = 0, actual = length;
+    if (!length || length > maximum) {
+        reason = "raw.length"; expected = maximum;
+    } else if (length % frame_bytes) {
+        reason = "raw.alignment"; expected = frame_bytes;
+    } else {
+        int read = fread(first, 1, frame_bytes, opened);
+        if (read != frame_bytes) {
+            reason = "raw.read"; expected = frame_bytes; actual = read;
+        } else {
+            u32 hash = rf_hash(first, frame_bytes);
+            if (hash != meta->first_hash) {
+                reason = "raw.first_hash"; expected = meta->first_hash; actual = hash;
+            } else {
+                int seek = fseek(opened, 0, SEEK_SET);
+                if (seek) { reason = "raw.seek"; actual = seek; }
+            }
+        }
+    }
+    if (reason) {
+        int closed = fclose(opened);
+        if (closed) return rf_open_error(meta->name, "raw.close", -2, 0, closed);
+        return rf_open_error(meta->name, reason, -1, expected, actual);
     }
     *handle = opened;
     *size = length;
@@ -1296,22 +1339,30 @@ static int rf_index_u32(cJSON *object, const char *name, u32 *value)
     return 0;
 }
 
-static int rf_read_index_identity(u32 sn, const rf_meta *meta, u32 *size)
+static int rf_read_index_identity(u32 sn, const rf_meta *meta, u32 *size,
+                                   u32 *indexed_start)
 {
     *size = 0;
-    if (!sn || sn > 0x7ffffffeu || !meta || !rf_name_valid(meta->name) ||
-        meta->format != RECORD_FORMATE_OPUS_16K_MONO) return -1;
+    *indexed_start = 0;
+    if (!sn || sn > 0x7ffffffeu || !meta || !rf_name_valid(meta->name))
+        return rf_open_error(NULL, "dat.argument", -1, 0, sn);
+    if (meta->format != RECORD_FORMATE_OPUS_16K_MONO)
+        return rf_open_error(meta->name, "dat.format", -1,
+                             RECORD_FORMATE_OPUS_16K_MONO, meta->format);
     FILE *handle = fopen(RF_DAT, "r");
-    if (!handle) return -1;
+    if (!handle) return rf_open_error(meta->name, "dat.open", -1, 0, 0);
     rf_reader_state reader = {0};
     char object_text[RF_OBJECT_SIZE];
     reader.remaining = flen(handle);
     int valid = reader.remaining && reader.remaining <= RF_MAX_FILES * RF_OBJECT_SIZE &&
                 rf_reader_nonspace(handle, &reader) == '[';
     int character = valid ? rf_reader_nonspace(handle, &reader) : -1;
-    u32 count = 0, matches = 0, fixed_size = 0;
+    const char *reason = valid ? NULL : "dat.header";
+    u32 expected = 0, actual = 0;
+    u32 count = 0, matches = 0, fixed_size = 0, fixed_start = 0;
     while (valid && character == '{') {
         if (++count > RF_MAX_FILES || rf_reader_object(handle, &reader, object_text)) {
+            reason = "dat.object";
             valid = 0;
             break;
         }
@@ -1321,35 +1372,62 @@ static int rf_read_index_identity(u32 sn, const rf_meta *meta, u32 *size)
         if (!cJSON_IsObject(object) || !cJSON_IsString(name) ||
             rf_index_u32(object, "sn", &indexed_sn) ||
             !indexed_sn || indexed_sn > 0x7ffffffeu) {
+            reason = "dat.entry";
             valid = 0;
         } else if (indexed_sn == sn || !strcmp(name->valuestring, meta->name)) {
             u32 start = 0, end = 0, frame = 0, opus = 0;
-            if (++matches != 1 || indexed_sn != sn ||
-                strcmp(name->valuestring, meta->name) ||
-                rf_index_u32(object, "size", &fixed_size) ||
-                rf_index_u32(object, "start_time", &start) ||
-                rf_index_u32(object, "end_time", &end) ||
-                rf_index_u32(object, "frame_size", &frame) ||
-                rf_index_u32(object, "opus", &opus) ||
-                !fixed_size || fixed_size % 40 || start != meta->start || end < start ||
-                frame != 40 || opus != rdx_protocol_calc_opus_format(meta->format)) {
-                valid = 0;
+            if (++matches != 1) {
+                reason = "dat.duplicate"; expected = 1; actual = matches;
+            } else if (indexed_sn != sn) {
+                reason = "dat.sn"; expected = sn; actual = indexed_sn;
+            } else if (strcmp(name->valuestring, meta->name)) {
+                reason = "dat.name";
+            } else if (rf_index_u32(object, "size", &fixed_size)) {
+                reason = "dat.size_field";
+            } else if (rf_index_u32(object, "start_time", &start)) {
+                reason = "dat.start_field";
+            } else if (rf_index_u32(object, "end_time", &end)) {
+                reason = "dat.end_field";
+            } else if (rf_index_u32(object, "frame_size", &frame)) {
+                reason = "dat.frame_field";
+            } else if (rf_index_u32(object, "opus", &opus)) {
+                reason = "dat.opus_field";
+            } else if (!fixed_size || fixed_size % 40) {
+                reason = "dat.size"; expected = 40; actual = fixed_size;
+            } else if (end < start) {
+                reason = "dat.time_order"; expected = start; actual = end;
+            } else if (frame != 40) {
+                reason = "dat.frame"; expected = 40; actual = frame;
+            } else if (opus != rdx_protocol_calc_opus_format(meta->format)) {
+                reason = "dat.opus";
+                expected = rdx_protocol_calc_opus_format(meta->format); actual = opus;
             }
+            /* DAT timestamps can be corrected by RTC sync after MTA is pinned.
+             * Ordinary downloads bind identity by current SN/name and verified
+             * MTA/RAW content; factory_open keeps its strict session timestamp. */
+            fixed_start = start;
+            if (reason) valid = 0;
         }
         cJSON_Delete(object);
         if (!valid) break;
         character = rf_reader_nonspace(handle, &reader);
         if (character != ',') break;
         character = rf_reader_nonspace(handle, &reader);
-        if (character != '{') valid = 0;
+        if (character != '{') { reason = "dat.separator"; valid = 0; }
         wdt_clear();
         rf_cooperate(RF_OBJECT_SIZE);
     }
-    if (character != ']' || rf_reader_nonspace(handle, &reader) != -1 || reader.error) valid = 0;
-    if (fclose(handle)) return -2;
-    if (!valid) return -1;
-    if (!matches) return -3;
+    if (character != ']' || rf_reader_nonspace(handle, &reader) != -1 || reader.error) {
+        if (!reason) reason = "dat.syntax";
+        valid = 0;
+    }
+    if (reader.error) reason = "dat.read";
+    int closed = fclose(handle);
+    if (closed) return rf_open_error(meta->name, "dat.close", -2, 0, closed);
+    if (!valid) return rf_open_error(meta->name, reason, -1, expected, actual);
+    if (!matches) return rf_open_error(meta->name, "dat.not_found", -3, sn, 0);
     *size = fixed_size;
+    *indexed_start = fixed_start;
     return 0;
 }
 
@@ -1362,17 +1440,26 @@ static int rf_open_indexed_raw(u32 sn, const char *name, u32 maximum,
     rf_meta meta = {0};
     int result = rf_read_meta(name, &meta);
     if (result) return result;
-    u32 indexed_size = 0;
-    result = rf_read_index_identity(sn, &meta, &indexed_size);
+    u32 indexed_size = 0, indexed_start = 0;
+    result = rf_read_index_identity(sn, &meta, &indexed_size, &indexed_start);
     if (result) return result;
-    if (indexed_size > maximum) return -1;
+    if (indexed_size > maximum)
+        return rf_open_error(name, "dat.limit", -1, maximum, indexed_size);
     result = rf_open_verified_raw(&meta, maximum, handle, size);
     if (result) return result;
-    if (*size == indexed_size) return 0;
+    if (*size == indexed_size) {
+        if (indexed_start != meta.start) {
+            printf("[CDC_OPEN] time-drift sn=%u name=%s dat_start=%u mta_start=%u size=%u verified=1\n",
+                   sn, name, indexed_start, meta.start, *size);
+        }
+        return 0;
+    }
+    u32 raw_size = *size;
     int closed = fclose(*handle);
     *handle = NULL;
     *size = 0;
-    return closed ? -2 : -1;
+    if (closed) return rf_open_error(name, "raw.close", -2, 0, closed);
+    return rf_open_error(name, "raw.index_size", -1, indexed_size, raw_size);
 }
 
 int rdx_record_format_download_list_open(void **handle, u32 *size)
@@ -1401,11 +1488,13 @@ int rdx_record_format_download_open(u32 sn, const char *name, void **handle, u32
     if (!handle || !size) return -1;
     *handle = NULL;
     *size = 0;
-    if (!rf_download || rf_error || rf_service) return -1;
+    if (!rf_download || rf_error || rf_service)
+        return rf_open_error(name, "download.state", -1, 0,
+                             !rf_download ? 1 : rf_error ? 2 : 3);
     rdx_app_emmc_poweron(0);
     sd_set_power_user(1);
     int snapshot = rdx_uxfile_download_snapshot();
-    if (snapshot) return snapshot;
+    if (snapshot) return rf_open_error(name, "download.snapshot", snapshot, 0, 0);
     FILE *opened = NULL;
     /* 按现有 u32 文件协议的表示范围流式读取合法 RAW，不另设业务大小上限。 */
     int result = rf_open_indexed_raw(sn, name, 0xffffffffu, &opened, size);

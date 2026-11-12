@@ -110,6 +110,8 @@ static void *format_realloc(void *p,size_t n) { return fail_alloc || !p ? NULL :
 static char abort_log[256];
 static char restore_start_log[256], restore_done_log[256], restore_error_log[256];
 static u32 restore_progress_count;
+static char open_error_log[256], open_drift_log[256];
+static u32 open_error_count, open_drift_count;
 #define printf(...) do { \
     char line[256]; sprintf(line,__VA_ARGS__); \
     if(strstr(line,"[REC_FORMAT] abort ")) strcpy(abort_log,line); \
@@ -118,6 +120,8 @@ static u32 restore_progress_count;
     if(strstr(line,"[REC_FORMAT] restore failed ") || \
        strstr(line,"[REC_FORMAT] restore open failed ")) strcpy(restore_error_log,line); \
     if(strstr(line,"[REC_FORMAT] restore progress ")) ++restore_progress_count; \
+    if(strstr(line,"[CDC_OPEN] reject ")) { strcpy(open_error_log,line); ++open_error_count; } \
+    if(strstr(line,"[CDC_OPEN] time-drift ")) { strcpy(open_drift_log,line); ++open_drift_count; } \
 } while(0)
 static mock_file *lookup(const char *name) {
     for (u32 i=0; i<640; ++i) if (files[i].present && !strcmp(files[i].name,name)) return &files[i];
@@ -192,6 +196,7 @@ static void reset(void) {
     memset(vm_abort,0,sizeof(vm_abort));
     vm_abort_present=vm_abort_write_fail=vm_abort_read_fail=vm_abort_writes=0;
     abort_log[0]=0;
+    open_error_log[0]=open_drift_log[0]=0; open_error_count=open_drift_count=0;
     restore_start_log[0]=restore_done_log[0]=restore_error_log[0]=0;
     restore_progress_count=mock_time_ms=read_delay_ms=0;
     vm_read_fail=vm_readback_fail=0;
@@ -466,7 +471,6 @@ int test_indexed_raw_reader(void) {
         "[{\"name\":\"abc123.raw\",\"name\":\"def123.raw\",\"sn\":8}]",
         "[{\"name\":\"abc123.raw\",\"sn\":8.5}]",
         "[{\"name\":\"def123.raw\",\"sn\":8}]",
-        "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":101,\"end_time\":102,\"frame_size\":40,\"opus\":1084752896}]",
         "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":99,\"frame_size\":40,\"opus\":1084752896}]",
         "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":80,\"opus\":1084752896}]",
         "[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":100,\"end_time\":102,\"frame_size\":40,\"opus\":0}]",
@@ -482,12 +486,89 @@ int test_indexed_raw_reader(void) {
         CHECK(!handle && !size && handles==0);
     }
     CHECK(seed_index(valid)==0);
-    fail_read=1; CHECK(rf_read_index_identity(8,&meta,&size)==-1); fail_read=0;
-    fail_close=1; CHECK(rf_read_index_identity(8,&meta,&size)==-2); fail_close=0;
+    u32 indexed_start=0;
+    fail_read=1; CHECK(rf_read_index_identity(8,&meta,&size,&indexed_start)==-1); fail_read=0;
+    CHECK(strstr(open_error_log,"stage=dat.read"));
+    fail_close=1; CHECK(rf_read_index_identity(8,&meta,&size,&indexed_start)==-2); fail_close=0;
+    CHECK(strstr(open_error_log,"stage=dat.close"));
     CHECK(!size && handles==0);
     CHECK(rf_open_indexed_raw(8,"../abc.raw",16777216,&handle,&size)==-1);
     CHECK(rf_open_indexed_raw(8,"abc123.raw",16777216,NULL,&size)==-1);
-    meta.format=2; CHECK(rf_read_index_identity(8,&meta,&size)==-1);
+    meta.format=2; CHECK(rf_read_index_identity(8,&meta,&size,&indexed_start)==-1);
+    return 0;
+}
+int test_download_time_correction(void) {
+    /* RTC may move the DAT timestamp either way after the first-frame MTA.
+     * Download must remain read-only and still verify the actual RAW. */
+    u32 corrected[]={101,90,1794283362u};
+    for(unsigned index=0;index<sizeof(corrected)/sizeof(corrected[0]);++index) {
+        reset(); CHECK(seed_mono()==0); rf_service=0;
+        rf_meta before_meta={0}; CHECK(!rf_read_meta("abc123.raw",&before_meta));
+        current.start_time=corrected[index];
+        CHECK(!rdx_record_format_frame(&current,1,audio+40,40));
+        char json[240];
+        sprintf(json,"[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":%u,\"end_time\":%u,\"frame_size\":40,\"opus\":1084752896}]",
+                corrected[index],corrected[index]+2);
+        CHECK(!seed_index(json));
+        int before_writes=writes;
+        /* Repeated open/release exercises the same saved file, not new data. */
+        for(unsigned attempt=0;attempt<2;++attempt) {
+            CHECK(!rdx_record_format_download_acquire());
+            void *handle=NULL; u32 size=0; u8 received[4000];
+            CHECK(!rdx_record_format_download_open(8,"abc123.raw",&handle,&size));
+            CHECK(size==4000 && handle && handles==1);
+            CHECK(fread(received,1,size,handle)==size && !memcmp(received,audio,size));
+            CHECK(!fclose(handle)); rdx_record_format_download_release();
+            CHECK(!handles && !rf_download && writes==before_writes);
+        }
+        CHECK(open_drift_count==2 && !open_error_count);
+        CHECK(strstr(open_drift_log,"mta_start=100") && strstr(open_drift_log,"verified=1"));
+        rf_meta after_meta={0}; CHECK(!rf_read_meta("abc123.raw",&after_meta));
+        CHECK(!memcmp(&before_meta,&after_meta,sizeof(before_meta)));
+        factory_busy=1; u32 size=0,crc=0;
+        CHECK(!rdx_record_format_factory_open(7,"abc123.raw",corrected[index],&size,&crc));
+        void *factory=rdx_record_format_factory_open(7,"abc123.raw",100,&size,&crc);
+        CHECK(factory && size==4000 && !fclose(factory) && !handles);
+    }
+    return 0;
+}
+int test_download_open_diagnostics(void) {
+    reset(); CHECK(seed_mono()==0); rf_service=0;
+    const char *valid="[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":101,\"end_time\":103,\"frame_size\":40,\"opus\":1084752896}]";
+    CHECK(!seed_index(valid) && !rdx_record_format_download_acquire());
+    void *handle=NULL; u32 size=0;
+    snapshot_result=-2;
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&handle,&size)==-2);
+    CHECK(strstr(open_error_log,"stage=download.snapshot"));
+    snapshot_result=0;
+    CHECK(rdx_record_format_download_open(7,"abc123.raw",&handle,&size)==-1);
+    CHECK(strstr(open_error_log,"stage=dat.sn") &&
+          strstr(open_error_log,"expected=7 actual=8"));
+    FILE *raw=lookup(RF_ROOT "abc123.raw");
+    raw->data[0]^=1;
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&handle,&size)==-1);
+    CHECK(strstr(open_error_log,"stage=raw.first_hash"));
+    raw->data[0]^=1; raw->size=4040;
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&handle,&size)==-1);
+    CHECK(strstr(open_error_log,"stage=raw.index_size") &&
+          strstr(open_error_log,"expected=4000 actual=4040"));
+    raw->size=4000;
+    FILE *metadata=lookup(RF_ROOT "abc123.mta");
+    ((rf_meta *)metadata->data)->hash^=1;
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&handle,&size)==-1);
+    CHECK(strstr(open_error_log,"stage=meta.hash"));
+    ((rf_meta *)metadata->data)->hash^=1;
+    CHECK(!seed_index("[{\"name\":\"abc123.raw\",\"sn\":8,\"size\":4000,\"start_time\":101,\"end_time\":100,\"frame_size\":40,\"opus\":1084752896}]"));
+    CHECK(rdx_record_format_download_open(8,"abc123.raw",&handle,&size)==-1);
+    CHECK(strstr(open_error_log,"stage=dat.time_order") &&
+          strstr(open_error_log,"expected=101 actual=100"));
+    CHECK(!handle && !size && !handles && !open_drift_count && open_error_count==6);
+    CHECK(!seed_index(valid));
+    /* A rejected file must not prevent the next valid GET in this lease. */
+    CHECK(!rdx_record_format_download_open(8,"abc123.raw",&handle,&size));
+    CHECK(size==4000 && !fclose(handle) && open_drift_count==1);
+    rdx_record_format_download_release();
+    CHECK(!rf_download && !handles);
     return 0;
 }
 int test_large_download_open(void) {
@@ -1071,7 +1152,7 @@ double fabs(double);
     path.write_text(libc + header + json_source + vm_enum + STUBS + crc + factory_crc + source + TESTS + AUTO_DELETE_CASES, encoding='utf-8')
     tests = ['test_space_reserve', 'test_explicit_format_recovery',
                         'test_download_admission', 'test_stream_only_storage_query', 'test_power_admission', 'test_factory_file_identity', 'test_verified_raw_reader', 'test_indexed_raw_reader',
-                        'test_large_download_open',
+                        'test_large_download_open', 'test_download_time_correction', 'test_download_open_diagnostics',
                         'test_format_persistence', 'test_format_recovery', 'test_restore_diagnostics',
                         'test_format_fail_closed', 'test_format_replay',
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
