@@ -63,6 +63,7 @@ static int writes;
 static int fail_alloc;
 static u32 vm_sn;
 static int vm_present, vm_write_fail, vm_writes;
+static int vm_absent_result=VM_WRITE_OVERFLOW;
 static int vm_read_fail, vm_readback_fail;
 static u8 vm_abort[64];
 static int vm_abort_present, vm_abort_write_fail, vm_abort_read_fail, vm_abort_writes;
@@ -78,7 +79,7 @@ int syscfg_read(unsigned short id, void *data, unsigned short size) {
     }
     if(id!=147 || size!=sizeof(vm_sn)) return -1;
     if(vm_read_fail) return vm_read_fail==1 ? VM_READ_DATA_ERR : vm_read_fail==2 ? size-1 : 0;
-    if(!vm_present) return VM_INDEX_ERR;
+    if(!vm_present) return vm_absent_result;
     if(vm_readback_fail && vm_writes) {
         if(vm_readback_fail==1) return VM_READ_DATA_ERR;
         u32 different=vm_sn+1; memcpy(data,&different,sizeof(different)); return sizeof(different);
@@ -189,6 +190,7 @@ static void reset(void) {
     power_fail=power_users=power_enters=idle_hints=0;
     snapshot_result=snapshot_calls=0;
     vm_sn=0; vm_present=vm_write_fail=vm_writes=0;
+    vm_absent_result=VM_WRITE_OVERFLOW;
     memset(vm_abort,0,sizeof(vm_abort));
     vm_abort_present=vm_abort_write_fail=vm_abort_read_fail=vm_abort_writes=0;
     abort_log[0]=0;
@@ -825,6 +827,28 @@ int test_sn_reservation_full_index_and_empty(void) {
     CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==901 && vm_sn==901);
     CHECK(handles==0); return 0;
 }
+int test_sn_reservation_virgin_vm(void) {
+    /* 模拟新机缺少 VM147、VM 读取回退 BIN 后返回 -251 的场景，建立首个 SN。
+     * 此桩仅验证兼容分支，不表示 -251 能唯一识别缺项。 */
+    reset(); CHECK(rf_write(RF_DAT,"[]",2)==0);
+    CHECK(recover()==0);
+    CHECK(!vm_present && vm_absent_result==VM_WRITE_OVERFLOW);
+    u32 sn=99;
+    CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==1 && vm_present && vm_sn==1);
+
+    /* 旧路径返回“无索引”时行为不变。 */
+    reset(); CHECK(rf_write(RF_DAT,"[]",2)==0);
+    CHECK(recover()==0);
+    vm_absent_result=VM_INDEX_ERR;
+    sn=99; CHECK(rdx_record_format_reserve_sn(&sn)==0 && sn==1);
+
+    /* 桩直接返回 VM_READ_DATA_ERR 时仍拒绝；不覆盖 SDK 将 VM 错误回退为 -251 的路径。 */
+    reset(); CHECK(rf_write(RF_DAT,"[]",2)==0);
+    CHECK(recover()==0);
+    vm_absent_result=VM_READ_DATA_ERR;
+    sn=99; CHECK(rdx_record_format_reserve_sn(&sn)<0 && !sn && !vm_writes);
+    CHECK(handles==0); return 0;
+}
 int test_sn_reservation_failures_and_limit(void) {
     for(int failure=1;failure<=2;++failure) {
         reset(); CHECK(seed_named(44,"4f24b8.raw")==0);
@@ -1077,6 +1101,7 @@ double fabs(double);
                         'test_allocation_failure', 'test_delete_durable_identity', 'test_delete_interrupted_index',
                         'test_more_than_300_and_duplicate_sn', 'test_dat_mta_collision',
                         'test_sn_reservation_migration', 'test_sn_reservation_full_index_and_empty',
+                        'test_sn_reservation_virgin_vm',
                         'test_sn_reservation_failures_and_limit', 'test_empty_cancel', 'test_short_discard_admission',
                         'test_short_discard_replay', 'test_sn_explicit_format_reset']
     if 'static int rf_abort_load(' in source:
