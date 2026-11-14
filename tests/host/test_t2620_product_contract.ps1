@@ -428,6 +428,14 @@ Assert-Contract 'POWER_RESET_EVIDENCE_IS_NOT_SUPPLY_READY' `
      $StorageLifecycle -match 'storage reconciliation complete; enabling business, supply stability unverified' -and
      $Charge -match '(?s)if \(app_var.goto_poweroff_flag\) \{\s*log_info\("\[CHARGE\] controlled reset: USB inserted during pending poweroff"\);\s*cpu_reset\(\);') `
     'Keep historical reset evidence separate from supply readiness and identify the actual charge-triggered reset branch'
+
+$BoardSdkConfig = Read-RepoFile $RepoRoot 'SDK\apps\earphone\board\sdk_board_config.c'
+Assert-Contract 'VCM_DETECT_ENABLED_AT_BOOT' (
+    $BoardSdkConfig -match '#define\s+VCM_DET_EN\(en\)\s+P33_CON_SET\(P3_ANA_CON2,\s*3,\s*1,\s*en\)' -and
+    $BoardSdkConfig -match '(?s)void board_init\(\)\s*\{\s*board_power_init\(\);.*?VCM_DET_EN\(1\);' -and
+    $BoardSdkConfig -match 'is_reset_source\(P33_VCM_RST\)'
+) 'P33 VCM detection must be enabled after power_init and its reset source reported at boot'
+
 $AppMain = Read-RepoFile $RepoRoot 'SDK\apps\earphone\app_main.c'
 $PcDevice = Read-RepoFile $RepoRoot 'SDK\apps\common\device\usb\device\task_pc.c'
 

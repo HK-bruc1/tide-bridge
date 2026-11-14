@@ -38,6 +38,11 @@
 #include "../iokey_config.c"
 #include "../adkey_config.c"
 
+/* 原厂 p33_app.h 的 VCM 检测使能，本 SDK 头文件未导出，按寄存器定义补在这里。
+ * 置位后 VCM 节点被外部高电平短接，P33 触发 P33_VCM_RST -> P11 -> MSYS 复位。 */
+#define VCM_DET_EN(en)          P33_CON_SET(P3_ANA_CON2, 3, 1, en)
+#define IS_VCM_DET_EN()         ((P33_CON_GET(P3_ANA_CON2) & BIT(3)) ? 1 : 0)
+
 
 //INDEX-OFF
 
@@ -240,6 +245,12 @@ LP_TOUCH_KEY_PLATFORM_DATA_END();
 void board_init()
 {
     board_power_init();
+
+    /* 必须在 power_init() 之后置位：P33 模拟寄存器会由库初始化重配。
+     * 固定产品行为，不做配置开关；每次开机都要恢复，因为 VCM 复位会连同 P33 一起复位。 */
+    VCM_DET_EN(1);
+    printf("[VCM] det_en=%u reset_source=%u\n",
+           (unsigned)IS_VCM_DET_EN(), (unsigned)is_reset_source(P33_VCM_RST));
 
     gpadc_init();
 

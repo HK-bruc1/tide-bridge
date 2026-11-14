@@ -147,6 +147,8 @@ Included by `app_config.h` right after `sdk_config.h`.
 
 Storage/shutdown: `rdx_storage_lifecycle.c` owns file-service admission and PC-return reconciliation; `rdx_dip_switch.c` owns debounced OFF admission and a 3 s reset guard. See section 0 of `docs/7-0.T2620_U盘与BLE及充电共存可行性评估与实施方案.md`.
 
+Hardware recovery: `board_init()` in `SDK/apps/earphone/board/sdk_board_config.c` sets the P33 `VCM_DET_EN` bit (`P3_ANA_CON2` bit 3, macro missing from this SDK and copied from the vendor `p33_app.h`) right after `power_init()`. A high-level short on the VCM test point then resets P33 → P11 → MSYS. It must be re-armed every boot (a VCM reset also resets P33) and logs `[VCM] det_en=... reset_source=...`; no `TCFG_*` switch by design. See section 4 of `docs/10-1.量产产线问题积累.md`.
+
 ### Low power (zero ACL, 500 ms slow advertising)
 
 - Sleep clock and CPU clock are independent: LRC lowers the sleep floor; the system clock sets the per-wake spikes.
