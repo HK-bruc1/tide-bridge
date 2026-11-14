@@ -6,13 +6,27 @@ Run from the repository root (also the VS Code `test: host software` task):
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\host\run_host_tests.ps1
 ```
 
-The entry point runs four source-contract scripts and twenty behavioral suites
-as **24 independent processes**. A failed module does not suppress the others;
+The entry point runs four source-contract scripts and twenty-one behavioral suites
+as **25 independent processes**. A failed module does not suppress the others;
 the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavior`
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
 
 ## Coverage
+
+`test_ble_diag.py` executes the disconnect recorder with dual links, handle reuse,
+missing connection starts, overflow, queue failures, clock wrap and diagnostics
+disabled. Revision 2 also exercises pre-connect supervision state, timer-ID reuse,
+40000 ms period intent/restore and raw modify results, eligible RX/reset tracking,
+hot-path no-work-queue behavior, and frozen timeout/commit snapshots surviving
+cleanup and reconnect. It regenerates the controller diagnostic archive, rejects
+unknown input hashes and in-place writes, checks that the ten selected members
+only gain diagnostic captures, and compares all other members byte for byte. The
+separate BLE entry suite still pins the original controller/stack ABI. These
+checks do not establish ISR/RF timing or reproduce the PC MIC/0x08 faults; firmware
+needs an on-device reproduction with `[BLE_DIAG] rev=2` and `[BLE_SUP*]` output.
+`due_est` is an observed-call estimate, not an OS timer-wheel deadline readback;
+eligible RX is not proof of MIC validation or delivery to the application.
 
 | Source contract | Essential boundary |
 | --- | --- |

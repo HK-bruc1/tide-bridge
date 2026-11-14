@@ -26,6 +26,7 @@ $Behavior = @(
     'test_connected_power.py',
     'test_connected_params.py',
     'test_ble_entry.py',
+    'test_ble_diag.py',
     'test_cache_flush.py',
     'test_lowpower_lrc.py',
     'test_protocol_recv.py',

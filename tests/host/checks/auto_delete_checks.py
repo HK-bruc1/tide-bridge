@@ -24,6 +24,7 @@ typedef _Bool bool;
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define Q_CALLBACK 1
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
+#define TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS 15000
 #define RDX_RECORD_DELETE_REJECTED (-2)
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 void *malloc(size_t); void free(void *);

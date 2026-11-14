@@ -211,12 +211,53 @@
  * 有待发数据时从机可在任一连接事件发送；手机下行最坏多等 (latency+1)×interval。
  * 49 已实测（Android，if=12.5 ms）：连接关窗待机 1.0–1.5 → 0.6–1.3 mA，APP 响应可接受；
  * 设为 4 恢复原快档。上限 49 保证 15 ms×50=750 ms 远小于 6 s 监督超时。
+ * 2026-11-14：实际 latency=0 时仍多次复现 0x08，结束该对照，恢复用户确认功耗通过的 49。
+ * 这不证明全部连接参数/控制器调度无关，也未锁定 PC 或设备责任；保留断链诊断。
+ * interval、6 s 监督超时及其他策略不变；证据与结论边界见 docs/10-13 第 7.8.10 节。
  */
 #ifndef TCFG_T2620_CONN_SLAVE_LATENCY
 #define TCFG_T2620_CONN_SLAVE_LATENCY              49
 #endif
 #if (TCFG_T2620_CONN_SLAVE_LATENCY < 0) || (TCFG_T2620_CONN_SLAVE_LATENCY > 49)
 #error "T2620 connection slave latency must be 0..49"
+#endif
+
+/* -------------------------------------------------------------------------- */
+/* BLE 传输与诊断（docs/10-13 结论 E；兼容性优先，不主动请求 2M PHY）       */
+/* -------------------------------------------------------------------------- */
+
+/* 不主动请求 2M PHY 是固定产品策略，不设置配置开关或实验门禁。 */
+
+/* 本轮 PC 断链诊断：仅缓存异常/生命周期元数据，app_core 输出 [BLE_DIAG]。 */
+#ifndef TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE
+#define TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE      1
+#endif
+
+/*
+ * opusfile 单块同步超时：库原值 5000 ms，短于 PC APP 约 10 s 的同块重试，
+ * 慢 PC 上超时清理后重试只能被静默拒绝。15 s 让第一次重试仍落在会话内，
+ * 由重复请求路径原地重发该块；超时仍发送 *DEV#filecmd#0#。
+ */
+#ifndef TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS
+#define TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS        15000
+#endif
+#if (TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS < 5000) || (TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS > 60000)
+#error "T2620 BLE file sync timeout must be 5000..60000 ms"
+#endif
+
+/* MTU 交换后从机主动请求 DLE 251 字节；实际协商结果与兼容性需板测确认。 */
+#ifndef TCFG_T2620_BLE_DLE_REQUEST_ENABLE
+#define TCFG_T2620_BLE_DLE_REQUEST_ENABLE          0
+#endif
+
+/* 每个 opusfile 块一行提交摘要（耗时/分片/缓冲满/ATT 失败），用于对比 PC 吞吐。 */
+#ifndef TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+#define TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE       1
+#endif
+
+/* ATT 热路径逐包日志（att_write/att_read 匹配、OTA 应答）；0 时只打印异常。 */
+#ifndef TCFG_T2620_BLE_HOT_PATH_LOG_ENABLE
+#define TCFG_T2620_BLE_HOT_PATH_LOG_ENABLE         0
 #endif
 
 /* 连接态触底探针冻结在 freeze/conn-probe-20261029 分支，正常业务构建禁止混入。 */
@@ -294,9 +335,12 @@
 #error "Invalid T2620 shared VDD mode"
 #endif
 
-/* 在 RDX 复合 GATT Profile 中启用 HOGP 键盘。 */
+/* 在 RDX 复合 GATT Profile 中启用 HOGP 键盘。
+ * 2026-11-14 临时对照实验：置 0 彻底移除 HID Service 与广播中的 0x1812，
+ * 只保留 RDX，用于判定 HID+RDX 共存是否为 0x08 监督超时的必要条件。
+ * 实验必须先在 PC 删除配对/清除 GATT 缓存；结论记录后恢复 1（量产值）。 */
 #ifndef TCFG_RDX_HOGP_ENABLE
-#define TCFG_RDX_HOGP_ENABLE                      1
+#define TCFG_RDX_HOGP_ENABLE                      0
 #endif
 
 /* 联调时打印 RDX App 下行 ATT 命令；量产版本可在本覆盖层关闭。 */

@@ -74,6 +74,7 @@
 #include "rdx_peripheral_power.h"
 #include "rdx_adv_policy.h"
 #include "rdx_ble_entry.h"
+#include "rdx_ble_diag.h"
 #include "btctrler_task.h"
 
 /*******************************************************************************
@@ -534,17 +535,20 @@ static u8 rdx_ble_server_phase0a_event_matches(void *hdl,
     u8 wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
     u16 wrapper_con_handle = hdl ? app_ble_get_hdl_con_handle(hdl) : 0;
 
+#if TCFG_T2620_BLE_HOT_PATH_LOG_ENABLE
     r_printf("[RDX_BLE_LINK] %s wrapper=%u cb_hdl=%p event_con=0x%04x wrapper_con=0x%04x\n",
              event_name,
              wrapper_index,
              hdl,
              event_con_handle,
              wrapper_con_handle);
+#endif
 
     if (wrapper_index == RDX_BLE_PHASE0A_INVALID_WRAPPER_INDEX ||
         wrapper_con_handle != event_con_handle) {
-        r_printf("[RDX_BLE_LINK] %s ignored: wrapper/connection mismatch\n",
-                 event_name);
+        /* 关闭热路径日志时，失配仍需完整上下文。 */
+        r_printf("[RDX_BLE_LINK] %s ignored: wrapper=%u event_con=0x%04x wrapper_con=0x%04x\n",
+                 event_name, wrapper_index, event_con_handle, wrapper_con_handle);
         return 0;
     }
     return 1;
@@ -562,13 +566,6 @@ static void rdx_ble_server_phase0a_wrapper_connection_clear(void *hdl,
         app_ble_set_filter_con_handle(hdl, 0);
     }
 }
-
-const char *const rdx_phy_result[] = {
-    "None",
-    "1M",
-    "2M",
-    "Coded",
-};
 
 /*************************************************
                   BLE 相关内容
@@ -1404,6 +1401,8 @@ static int rdx_ble_server_disconnect(void *priv)
         if (BLE_ST_SEND_DISCONN != g_rdx_ble_server_info.ble_work_state) {
             log_info(">>>rdx ble send disconnect\r");
             g_rdx_ble_server_info.ble_work_state = BLE_ST_SEND_DISCONN;
+            rdx_ble_diag_app_request(g_rdx_ble_server_info.ble_con_handle,
+                                     RDX_BLE_DIAG_APP_RDX);
             ble_op_disconnect(g_rdx_ble_server_info.ble_con_handle);
         } else {
             log_info(">>>rdx ble wait disconnect...\n");
@@ -2209,16 +2208,16 @@ u16 rdx_ble_server_get_mtu(void)
  * return (*)
  **************************************************************************/
 
-static void set_connection_data_phy(u16 con_handle, u8 tx_phy, u8 rx_phy)
+/* MTU 交换完成后由从机主动提出 DLE，实际协商结果需由事件/抓包确认。
+ * 不主动请求 2M PHY 是固定产品策略，不提供开关或实验入口。
+ * 保留控制器响应中心 PHY 协商的能力及实际 PHY 结果诊断。 */
+static void rdx_ble_server_link_rate_request(u16 con_handle)
 {
-    if (0 == con_handle) {
-        return;
-    }
-
-    u8 all_phys = 0;
-    u16 phy_options = CONN_SET_PHY_OPTIONS_S8;
-
-    ble_op_set_ext_phy(con_handle, all_phys, tx_phy, rx_phy, phy_options);
+#if TCFG_T2620_BLE_DLE_REQUEST_ENABLE
+    r_printf("[RDX_BLE_RATE] request dle=251/2120us con=0x%04x ret=%d\n",
+             con_handle, ble_op_set_data_length(con_handle, 251, 2120));
+#endif
+    (void)con_handle;
 }
 
 static void rdx_ble_server_phase0a_link_state_capture(
@@ -2493,6 +2492,45 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     rdx_ble_entry_topology_changed();
 }
 
+/* Snapshot before detach clears ownership/parameters. Task-context only: no
+ * timer, per-packet print or controller state change. TX is an ATT submission
+ * window, not an air-ACK count; the last block has no next request to print it. */
+static void rdx_ble_server_disconnect_snapshot(const rdx_ble_link_state_t *link,
+                                               u8 reason)
+{
+#if TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE
+    r_printf("[RDX_BLE_DISC] con=0x%04x gen=%u reason=0x%02x "
+             "links=%u sleep_block=%u rdx=%u hid=%u enc=%u "
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u mtu_payload=%u "
+             "target_latency=%u t=%u\n",
+             link->con_handle, link->slot_generation, reason,
+             rdx_ble_session_active_count(), g_rdx_ble_dual_acl_sleep_blocked,
+             rdx_ble_session_link_is_rdx(link), rdx_ble_session_link_is_hid(link),
+             link->encrypted, link->conn_interval, link->conn_latency,
+             link->supervision_timeout, link->mtu_size,
+             TCFG_T2620_CONN_SLAVE_LATENCY, sys_timer_get_ms());
+#if TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+    /* Another ACL disconnecting must not consume the RDX owner's window. */
+    if (rdx_ble_session_link_is_rdx(link)) {
+        rdx_ble_tx_window_t tx;
+        rdx_ble_server_tx_window_take(&tx);
+        u8 attempted = tx.chunks || tx.buffer_full || tx.att_fail;
+        printf("[RDX_BLE_DISC_TX] con=0x%04x gen=%u "
+               "submitted=%u/%u full=%u fail=%u span=%u attempt_age=%u "
+               "pending=%u retry=%u\n",
+               link->con_handle, link->slot_generation,
+               tx.bytes, tx.chunks, tx.buffer_full, tx.att_fail,
+               attempted ? tx.last_ms - tx.first_ms : 0,
+               attempted ? sys_timer_get_ms() - tx.last_ms : 0,
+               g_rdx_ble_send_pending_count, g_rdx_ble_send_retry_pending);
+    }
+#endif
+#else
+    (void)link;
+    (void)reason;
+#endif
+}
+
 static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
                                                      const u8 *packet,
                                                      u16 size)
@@ -2520,6 +2558,7 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
 
     r_printf("[RDX_BLE_LINK] disconnect accepted status=0x%02x reason=0x%02x\n",
              status, reason);
+    rdx_ble_server_disconnect_snapshot(link, reason);
     had_hid_owner = rdx_ble_session_link_is_hid(link);
 #if TCFG_RDX_HOGP_ENABLE
     if (had_hid_owner) {
@@ -2609,9 +2648,11 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
     case HCI_EVENT_LE_META:
         switch (hci_event_le_meta_get_subevent_code(packet)) {
         case HCI_SUBEVENT_LE_ENHANCED_CONNECTION_COMPLETE:
+            rdx_ble_diag_flush_request();
             rdx_ble_server_phase0a_link_connected(hdl, packet, size, 1);
             break;
         case HCI_SUBEVENT_LE_CONNECTION_COMPLETE:
+            rdx_ble_diag_flush_request();
             rdx_ble_server_phase0a_link_connected(hdl, packet, size, 0);
             break;
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
@@ -2625,11 +2666,31 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
             }
             break;
+        case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
+            if (size >= 13) {
+                r_printf("[RDX_BLE_RATE] dle con=0x%04x tx=%u/%uus rx=%u/%uus\n",
+                         hci_subevent_le_data_length_change_get_connection_handle(packet),
+                         hci_subevent_le_data_length_change_get_max_tx_octets(packet),
+                         hci_subevent_le_data_length_change_get_max_tx_time(packet),
+                         hci_subevent_le_data_length_change_get_max_rx_octets(packet),
+                         hci_subevent_le_data_length_change_get_max_rx_time(packet));
+            }
+            break;
+        case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE:
+            if (size >= 8) {
+                r_printf("[RDX_BLE_RATE] phy con=0x%04x status=0x%02x tx=%u rx=%u\n",
+                         little_endian_read_16(packet, 4),
+                         hci_event_le_meta_get_phy_update_complete_status(packet),
+                         hci_event_le_meta_get_phy_update_complete_tx_phy(packet),
+                         hci_event_le_meta_get_phy_update_complete_rx_phy(packet));
+            }
+            break;
         default:
             break;
         }
         break;
     case HCI_EVENT_DISCONNECTION_COMPLETE:
+        rdx_ble_diag_flush_request();
         rdx_ble_server_phase0a_link_disconnected(hdl, packet, size);
         break;
     case HCI_EVENT_ENCRYPTION_CHANGE:
@@ -2675,6 +2736,7 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 ble_op_multi_att_set_send_mtu(con_handle, mtu);
                 r_printf("[RDX_BLE_LINK] mtu=%u con=0x%04x\n",
                          mtu, con_handle);
+                rdx_ble_server_link_rate_request(con_handle);
             }
         }
         break;
@@ -4270,6 +4332,44 @@ static void rdx_ble_server_tx_probe_log(u8 kind, u32 len, int ret,
              stage ? stage : "unknown", (unsigned)len, ret);
 }
 
+#if TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+/* protocol_send_task 累加，protocol_recv_task 按块取走；只统计 RDX 数据特征值。 */
+static rdx_ble_tx_window_t g_rdx_tx_window;
+
+static void rdx_ble_server_tx_window_note(u32 len, int ret, u8 buffer_full)
+{
+    u32 now = sys_timer_get_ms();
+
+    local_irq_disable();
+    if (!g_rdx_tx_window.chunks && !g_rdx_tx_window.buffer_full &&
+        !g_rdx_tx_window.att_fail) {
+        g_rdx_tx_window.first_ms = now;
+    }
+    g_rdx_tx_window.last_ms = now;
+    if (buffer_full) {
+        g_rdx_tx_window.buffer_full++;
+    } else if (ret) {
+        g_rdx_tx_window.att_fail++;
+    } else {
+        g_rdx_tx_window.chunks++;
+        g_rdx_tx_window.bytes += len;
+    }
+    local_irq_enable();
+}
+
+void rdx_ble_server_tx_window_take(rdx_ble_tx_window_t *out)
+{
+    local_irq_disable();
+    if (out) {
+        *out = g_rdx_tx_window;
+    }
+    memset(&g_rdx_tx_window, 0, sizeof(g_rdx_tx_window));
+    local_irq_enable();
+}
+#else
+#define rdx_ble_server_tx_window_note(len, ret, buffer_full) do { } while (0)
+#endif
+
 u8 rdx_ble_server_get_send_fail_cnt(void)
 {
     return g_ble_send_fail_cnt;
@@ -4338,6 +4438,7 @@ static int rdx_ble_server_send_internal(
     if(app_ble_att_vaild_len_get(send_hdl) < len){
         g_ble_send_fail_cnt++;
         rdx_ble_server_tx_probe_log(probe_kind, len, -1, "buffer");
+        rdx_ble_server_tx_window_note(len, -1, 1);
         rdx_ble_server_rdx_send_retry_arm(&snapshot);
         return -1;
     }
@@ -4355,6 +4456,7 @@ static int rdx_ble_server_send_internal(
     }
     rdx_ble_server_tx_probe_log(probe_kind, len, ret,
                                 ret ? "att-fail" : "att-ok");
+    rdx_ble_server_tx_window_note(len, ret, 0);
 
     return ret;
 }
@@ -4435,9 +4537,11 @@ static int rdx_ble_server_ota_send_internal(
         r_printf("%s --> buf is null \r", __FUNCTION__);
         return 0;
     }
+#if TCFG_T2620_BLE_HOT_PATH_LOG_ENABLE
     if(len < 30){
         g_printf("%s ==> %s \n", __func__, data);
     }
+#endif
 
     if (
         !rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot) ||
@@ -4503,6 +4607,8 @@ int rdx_ble_server_usb_quiesce(void)
     rdx_ble_server_adv_enable(0);
     for (int i = 0; i < 2; ++i) {
         if (handles[i] && app_ble_get_hdl_con_handle(handles[i])) {
+            rdx_ble_diag_app_request(app_ble_get_hdl_con_handle(handles[i]),
+                                     RDX_BLE_DIAG_APP_USB);
             app_ble_disconnect(handles[i]);
             connected = 1;
         }
@@ -4736,6 +4842,7 @@ void rdx_ble_server_init(void)
     log_info("====== %s\n", __func__);
     log_info("edr addr:");
     put_buf((uint8_t *)edr_addr, RDX_MAC_LEN);
+    rdx_ble_diag_init();
 
     // BLE init
     if (g_rdx_ble_server_info.rdx_ble_server_hdl == NULL) {
@@ -4833,10 +4940,15 @@ void rdx_ble_server_exit(void)
     if (g_rdx_ble_server_info.rdx_ble_server_hdl &&
         app_ble_get_hdl_con_handle(
             g_rdx_ble_server_info.rdx_ble_server_hdl)) {
+        rdx_ble_diag_app_request(app_ble_get_hdl_con_handle(
+                                    g_rdx_ble_server_info.rdx_ble_server_hdl),
+                                 RDX_BLE_DIAG_APP_EXIT);
         app_ble_disconnect(g_rdx_ble_server_info.rdx_ble_server_hdl);
     }
     if (g_rdx_ble_secondary_hdl &&
         app_ble_get_hdl_con_handle(g_rdx_ble_secondary_hdl)) {
+        rdx_ble_diag_app_request(app_ble_get_hdl_con_handle(g_rdx_ble_secondary_hdl),
+                                 RDX_BLE_DIAG_APP_EXIT);
         app_ble_disconnect(g_rdx_ble_secondary_hdl);
     }
     

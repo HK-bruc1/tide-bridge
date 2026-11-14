@@ -1,0 +1,911 @@
+[2026-11-14 15:11:01] [00:00:13.691][RDX_RTC][HW] utc=2026-11-14 15:10:18 src=RTC
+[2026-11-14 15:11:15] [00:00:00.126]P11_SYSTEM->MEM_PWR_CON: 0x0, M2P_MEM_CONTROL: 0x3f
+[2026-11-14 15:11:15] [00:00:00.127][T2620_LP] sleep_clock product_lrc=1 cfg=0 default=0 selected=0 (0=LRC 1=BT_OSC)
+[2026-11-14 15:11:15] [00:00:00.165]LDOREF = 273
+[2026-11-14 15:11:15] [00:00:00.165]vbat = 4256 mv
+[2026-11-14 15:11:15] [00:00:00.165]vtemp = 924 mv
+[2026-11-14 15:11:15] [00:00:00.166]audio_init
+[2026-11-14 15:11:15] [00:00:00.166]audio_input_initcall
+[2026-11-14 15:11:15] [00:00:00.166] audio_adc_file_init len 12, sizeof(cfg) 12
+[2026-11-14 15:11:15] [00:00:00.167]audio_dac_initcall
+[2026-11-14 15:11:15] [00:00:00.167][DAC]audio_dac_init
+[2026-11-14 15:11:15] [00:00:00.167][DAC]>>>> buf time:50ms, buf_len : 4800
+[2026-11-14 15:11:15] [00:00:00.168]audio_dut init
+[2026-11-14 15:11:15] [00:00:00.168][CHARGE]charge_init
+[2026-11-14 15:11:15] [00:00:00.168][CHARGE]low charge_trim_val = 11
+[2026-11-14 15:11:15] [00:00:00.169][CHARGE]charge_full_v_val = 11
+[2026-11-14 15:11:15] [00:00:00.169][CHARGE]charge_full_voltage = 4200 mV
+[2026-11-14 15:11:15] [00:00:00.169][CHARGE]full_trim: 3, full_offset: 0, full_aim: 1
+[2026-11-14 15:11:15] [00:00:00.190]iokey:0,prot:103,value:65,c_way:0 long_press_en:0 time:16s
+[2026-11-14 15:11:15] [00:00:00.191]iokey:1,prot:18,value:66,c_way:0 long_press_en:0 time:8s
+[2026-11-14 15:11:15] [00:00:00.191]iokey:2,prot:104,value:67,c_way:0 long_press_en:0 time:8s
+[2026-11-14 15:11:15] [00:00:00.192]iokey:3,prot:20,value:68,c_way:0 long_press_en:0 time:8s
+[2026-11-14 15:11:15] [00:00:00.192]iokey:4,prot:34,value:69,c_way:0 long_press_en:0 time:8s
+[2026-11-14 15:11:15] [00:00:00.193][UPDATE]update module init ok
+[2026-11-14 15:11:15] [00:00:00.193][TEST-UPDATE]testbox msg handle reg:602b97c
+[2026-11-14 15:11:15] [00:00:00.193]audio_online_debug_open
+[2026-11-14 15:11:15] [00:00:00.194]usb_stack_init()
+[2026-11-14 15:11:15] [00:00:00.194]task: usb_stack, tcb @ 0x418eec
+[2026-11-14 15:11:15] [00:00:00.194]create_task usb_stack : stack:(0x402c00,0x4033fc)
+[2026-11-14 15:11:15] [00:00:00.196]task: dev_mg, tcb @ 0x41900c
+[2026-11-14 15:11:15] [00:00:00.196]create_task dev_mg : stack:(0x403400,0x403bfc)
+[2026-11-14 15:11:15] [00:00:00.197]rtc_read_sys_time: 2026-11-14 7:10:33
+[2026-11-14 15:11:15] [00:00:00.198]sd0 add start
+[2026-11-14 15:11:15] [00:00:00.210]sd io init !
+[2026-11-14 15:11:16] [00:00:00.581][SD-FMT] sd0 mount ok; boot format prohibited, data preserved
+[2026-11-14 15:11:16] [00:00:00.582]__dev_manager_add, sd0 add ok, dev->fmnt = 419368,  0
+[2026-11-14 15:11:16] [00:00:00.582]sdfile add start
+[2026-11-14 15:11:16] [00:00:00.582]dev_manager_add can not find logo sdfile
+[2026-11-14 15:11:16] [00:00:00.583][APP-UPDATE]<--------update_result_deal=0x5a00 1082--------->
+[2026-11-14 15:11:16] [00:00:00.584]=================update_param_len:1008
+[2026-11-14 15:11:16] [00:00:00.584]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.584]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.584]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.585]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.586]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.586]vbat: 4256
+[2026-11-14 15:11:16] [00:00:00.586][APP_POWER_ON]power on
+[2026-11-14 15:11:16] [00:00:00.587]tone_player_faild: tone_en/power_on.*
+[2026-11-14 15:11:15] 
+[2026-11-14 15:11:16] [00:00:00.587]<error>:[APP_POWER_ON]power on tone play err!!!
+[2026-11-14 15:11:16] [00:00:00.588][APP_POWER_ON]exit power on mode
+[2026-11-14 15:11:16] [00:00:00.588][EARPHONE]bt mode
+[2026-11-14 15:11:16] [00:00:00.589]tone_player_faild: tone_en/bt.*
+[2026-11-14 15:11:16] [00:00:00.589]<<<<<<<<<<<<<<bt_dual_conn_config=0>>>>>>>>>>
+[2026-11-14 15:11:15] 
+[2026-11-14 15:11:16] [00:00:00.590]-----edr + ble 's address-----
+[2026-11-14 15:11:16] [00:00:00.590]le_support:3 1
+[2026-11-14 15:11:16] [00:00:00.590]le_config:2 1 0 1
+[2026-11-14 15:11:16] [00:00:00.591]task: btctrler, tcb @ 0x419964
+[2026-11-14 15:11:16] [00:00:00.591]create_task btctrler : stack:(0x403c00,0x4043fc)
+[2026-11-14 15:11:16] [00:00:00.591]btadc clock set error, no this option !!!
+[2026-11-14 15:11:16] [00:00:00.626]bredr_bd_init
+[2026-11-14 15:11:16] [00:00:00.626]bredr_bd_init_success
+[2026-11-14 15:11:16] [00:00:00.868]task: btstack, tcb @ 0x41f52c
+[2026-11-14 15:11:16] [00:00:00.868]create_task btstack : stack:(0x404400,0x404ffc)
+[2026-11-14 15:11:16] [00:00:00.869]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:15] 
+[2026-11-14 15:11:16] [00:00:00.870]===== app_charge_event_handler --> msg[0] = 44 
+[2026-11-14 15:11:16] [00:00:00.871][EARPHONE]BT_STATUS_INIT_OK
+[2026-11-14 15:11:16] [00:00:00.871]################# multi_protocol init
+[2026-11-14 15:11:16] [00:00:00.871]multi_protocol_profile_init 0x44000 1 1
+[2026-11-14 15:11:16] [00:00:00.872]att_send need_size >= 6+1+188
+[2026-11-14 15:11:16] [00:00:00.872]spp_file: apps/common/third_party_profile/jieli/online_db/spp_online_db.c
+[2026-11-14 15:11:16] [00:00:00.873]app_spp_recieve_callback_register 421a4c
+[2026-11-14 15:11:16] [00:00:00.873]-----------------------------------------------------------
+[2026-11-14 15:11:16] [00:00:00.874]====== rdx_app_all_init --> protocol version = 23 
+[2026-11-14 15:11:16] [00:00:00.874]-----------------------------------------------------------
+[2026-11-14 15:11:16] [00:00:00.875][USER_CFG]sys_get_auto_off_time ===> auto_off_time: 2160000 s 
+[2026-11-14 15:11:16] [00:00:00.876]rdx_ble_server_auto_shut_down_enable: 1
+[2026-11-14 15:11:16] [00:00:00.876][POWEROFF]sys_auto_shut_down_enable
+[2026-11-14 15:11:16] [00:00:00.877]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-14 15:11:16] [00:00:00.877]===> sys_auto_shut_down_enable --> auto_off_time: 2160000
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.878]rdx_vm_init completed
+[2026-11-14 15:11:16] [00:00:00.878]---------- rdx_vm_auth_info_init 
+[2026-11-14 15:11:16] [00:00:00.879]flash capacity:400000 
+[2026-11-14 15:11:16] 86 6E 36 00 47 53 50 4B 39 37 30 31 34 32 36 39 
+[2026-11-14 15:11:16] 41 31 44 30 30 30 30 30 32 36 33 33 2C 32 38 43 
+[2026-11-14 15:11:16] 44 39 43 46 33 33 46 39 42 2C 42 65 61 6E 73 74 
+[2026-11-14 15:11:16] 61 6C 6B 32 36 31 34 36 30 36 FF FF FF FF FF FF 
+[2026-11-14 15:11:16] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-14 15:11:16] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-14 15:11:16] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-14 15:11:16] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-14 15:11:16] [00:00:00.881]-------- rdx_ptr: 0x63fdf34 
+[2026-11-14 15:11:16] [00:00:00.882]---- read flash success --> temp len: 54, temp: GSPK97014269A1D000002633,28CD9CF33F9B,Beanstalk2614606 
+[2026-11-14 15:11:16] [00:00:00.883]rdx_vm_auth_info_init --> auth_key_part len: 24 
+[2026-11-14 15:11:16] 47 53 50 4B 39 37 30 31 34 32 36 39 41 31 44 30 
+[2026-11-14 15:11:16] 30 30 30 30 32 36 33 33 00 
+[2026-11-14 15:11:16] [00:00:00.884]----- read auth data from flash success, auth key: GSPK97014269A1D000002633 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.884]rdx_vm_auth_info_init --> t_buf: 28CD9CF33F9B 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.885]===> 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:16] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:16] [00:00:00.885]---------- rdx_auth_info.label_sn: Beanstalk2614606 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.886]=== read ep info from vm, result: -251
+[2026-11-14 15:11:16] [00:00:00.886]---------- read ep info fail 
+[2026-11-14 15:11:16] [00:00:00.887]===rdx_app_earphone_pack_readchardata --> readchardata: C,000000000000,000000000000,28CD9CF33F9B,GSPK97014269A1D000002633,Beanstalk2614606,000000000000 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.888]task: rdx_rec_store, tcb @ 0x421a74
+[2026-11-14 15:11:16] [00:00:00.888]create_task rdx_rec_store : stack:(0x405000,0x405bfc)
+[2026-11-14 15:11:16] [00:00:00.889]task: rdx_record_task, tcb @ 0x421ad4
+[2026-11-14 15:11:16] [00:00:00.889]create_task rdx_record_task : stack:(0x405c00,0x4063fc)
+[2026-11-14 15:11:16] [00:00:00.890]$$$$$$ rdx_record_task_create success!!!
+[2026-11-14 15:11:16] [00:00:00.890][rdx_record]rdx_record_task  
+[2026-11-14 15:11:16] [00:00:00.890][RDX_RTC][HW] init: hw=running utc=2026-11-14 15:10:33 src=RTC sync=VM
+[2026-11-14 15:11:16] [00:00:00.896]===> read err reboot flag ok, err_reboot_flag: 0 
+[2026-11-14 15:11:16] [00:00:00.897]LED PT0807: SPI init ok, spi_clk=60000000, baud=8000000
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.898]LED PT0807: Init ok, pixels=1, code_0=0x40, code_1=0x7C
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.898]===== rdx_led_hardware_resume --> LED PT0807 init success
+[2026-11-14 15:11:16] [00:00:00.899]RDX LED Ctrl: Init ok
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.899]===== rdx_led_hardware_resume --> LED Ctrl init success
+[2026-11-14 15:11:16] [00:00:00.900][RDX_LED_BOOT] request BLE advertising indication after LED init
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.900]RDX LED Scene: 0->0 request=1 prev_ms=900 prev_timeout_ms=0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.901]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.902]===== Allocated fixed buffer: 32768 bytes =====
+[2026-11-14 15:11:16] [00:00:00.902]task: uxfile, tcb @ 0x421c54
+[2026-11-14 15:11:16] [00:00:00.903]create_task uxfile : stack:(0x406400,0x40a3fc)
+[2026-11-14 15:11:16] [00:00:00.903]===== uxfile task created: 0 =====
+[2026-11-14 15:11:16] [00:00:00.904][UPGRADE] DAT scan completed before (flag=0xAA), trust existing DAT
+[2026-11-14 15:11:16] [00:00:00.904]===== Schedule sync after 2 seconds =====
+[2026-11-14 15:11:16] [00:00:00.905][rdx_ble]====== rdx_ble_server_init
+[2026-11-14 15:11:16] [00:00:00.905][rdx_ble]edr addr:
+[2026-11-14 15:11:16] B9 6F CC 1A 6A 5B 
+[2026-11-14 15:11:16] [00:00:00.906][BLE_DIAG] enabled=1 rev=1 ctrl=6ecbbd876ea08e6d depth=32 build=Nov 14 2026 15:08:40
+[2026-11-14 15:11:16] [00:00:00.906]le_controller_get_mac success, ble mac: 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:16] [00:00:00.907][RDX_BLE_INIT] wrapper=0 registered hdl=421eb4 adv_handle=255
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.908][RDX_BLE_INIT] wrapper=1 registered hdl=421f74 adv_handle=255
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.908][RDX_BLE_INIT] wrappers registered primary=421eb4 secondary=421f74 profile=60f895d
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.909][HOGP] state conn=0 con=0x0000 ccc=0 enc=0 suspend=0 ready=0 hdl=421eb4
+[2026-11-14 15:11:16] [00:00:00.910][REC_FORMAT] boot start
+[2026-11-14 15:11:16] [00:00:00.910]$$$$$$ rdx_protocol_task_create: app_select: BEANSTALK
+[2026-11-14 15:11:16] 2F 52 46 4D 54 2E 43 4D 54 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.912]task: protocol_send_task, tcb @ 0x43085c
+[2026-11-14 15:11:16] [00:00:00.912]create_task protocol_send_task : stack:(0x40a400,0x40b3fc)
+[2026-11-14 15:11:16] [00:00:00.913]rdx_protocol_send_task  
+[2026-11-14 15:11:16] 2F 52 46 44 52 4F 50 2E 43 4D 54 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.915]$$$$$$ rdx_protocol_send_task success!!!
+[2026-11-14 15:11:16] 2F 52 46 44 45 4C 2E 43 4D 54 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.916]task: protocol_recv_task, tcb @ 0x4310bc
+[2026-11-14 15:11:16] [00:00:00.917]create_task protocol_recv_task : stack:(0x40b400,0x40c3fc)
+[2026-11-14 15:11:16] [00:00:00.918][REC_FORMAT] boot scan result=1 files=0
+[2026-11-14 15:11:16] [00:00:00.918]rdx_protocol_recv_task  
+[2026-11-14 15:11:16] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.920]task: bulk_data_send_task, tcb @ 0x422034
+[2026-11-14 15:11:16] [00:00:00.920]create_task bulk_data_send_task : stack:(0x40c400,0x40d3fc)
+[2026-11-14 15:11:16] [00:00:00.921][REC_FORMAT] boot index check=0
+[2026-11-14 15:11:16] [00:00:00.921]$$$$$$ rdx_protocol_bulk_data_send_task success!!!
+[2026-11-14 15:11:16] [00:00:00.922][REC_FORMAT] boot serial start
+[2026-11-14 15:11:16] [00:00:00.922]$$$$$$ rdx_protocol_recv_task success!!!
+[2026-11-14 15:11:16] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.924][DUT]rdx_dut_init,L1154--> Init: VM read ret=1, vm_value=0xFF
+[2026-11-14 15:11:16] [00:00:00.925][DUT]rdx_dut_init,L1161--> Init: key_dut_disabled = 0 (enabled)
+[2026-11-14 15:11:16] [00:00:00.926][REC_FORMAT] boot reconciled files=0
+[2026-11-14 15:11:16] [00:00:00.927][POWEROFF]sys_auto_shut_down_enable
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:16] [00:00:00.928]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-14 15:11:16] [00:00:00.929]=== total_count:0, total_size:0, uxFileList.cur_num = 0 
+[2026-11-14 15:11:16] ====== rdx_app_bt_status_event_handler event: 3 
+[2026-11-14 15:11:16] [00:00:00.930][REC_FORMAT] file service=0
+[2026-11-14 15:11:16] [00:00:00.931]dual_conn_btstack_event_handler:3
+[2026-11-14 15:11:16] [00:00:00.931]dual_conn BT_STATUS_INIT_OK
+[2026-11-14 15:11:16] [00:00:00.932]page_state: 0, 0
+[2026-11-14 15:11:16] [00:00:00.932]write_scan_conn_enable rets=0x602ea9e
+[2026-11-14 15:11:16] [00:00:00.932]write_scan_conn_enable=1,1
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.932]write_scan_conn_enable=1,1
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.933][PHONECALL] BT STATUS DEFAULT
+[2026-11-14 15:11:16] [00:00:00.933][PWR] stale_business_ignored event_epoch=1 wake_epoch=2
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.934][PWR] stale_business_ignored event_epoch=1 wake_epoch=2
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.935][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:16] [00:00:00.935]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:16] [00:00:00.936]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-14 15:11:16] [00:00:00.937]set_address_for_adv_handle:0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:16] [00:00:00.937]set_address_for_adv_handle:0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:16] [00:00:00.938][BLE_ENTRY] open ret=0 wrapper=0 adv_interval=160
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.940]
+[2026-11-14 15:11:16]  ====== rdx_app_msg_handler event:0xe 
+[2026-11-14 15:11:16] [00:00:00.941]
+[2026-11-14 15:11:16]  ====== rdx_app_msg_handler event:0x1a 
+[2026-11-14 15:11:16] [00:00:00.941][POWEROFF]sys_auto_shut_down_enable
+[2026-11-14 15:11:16] [00:00:00.942]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-14 15:11:16] [00:00:00.942][PWR] wake gen=1 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] [00:00:00.943]inquiry_scan: VoicePad
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] B9 6F CC 1A 6A 5B 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] iqs 34
+[2026-11-14 15:11:16] ide 1000
+[2026-11-14 15:11:16] I
+[2026-11-14 15:11:16] [00:00:00.944]page_scan_enable
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] B9 6F CC 1A 6A 5B 
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] iqs 34
+[2026-11-14 15:11:16] pgs 34
+[2026-11-14 15:11:16] ide 1000
+[2026-11-14 15:11:16] [00:00:00.946]set_address_for_adv_handle:0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:16] [00:00:00.946]set_address_for_adv_handle:0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:16] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:16] [00:00:00.947][ADV_POLICY] state=2 hold=0x0 version=4
+[2026-11-14 15:11:16] [00:00:00.947][PWR] wake gen=2 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-14 15:11:16] PS<>w[]S<>w[]
+[2026-11-14 15:11:16] [00:00:01.259][ADV_POLICY] state=2 hold=0x0 version=5
+[2026-11-14 15:11:17] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]IPS<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:11:17] [00:00:01.930]--------------- rdx_app_bt_shutdown 
+[2026-11-14 15:11:17] [00:00:01.931]clr_device_in_page_list
+[2026-11-14 15:11:17] [00:00:01.931]clr_device_in_page_list
+[2026-11-14 15:11:17] [00:00:01.931]write_scan_conn_enable rets=0x6007b5a
+[2026-11-14 15:11:17] [00:00:01.931]write_scan_conn_enable=0,0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:17] [00:00:01.932]write_scan_conn_enable=0,0
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:17] pgs 34
+[2026-11-14 15:11:17] ide 1000
+[2026-11-14 15:11:17] P
+[2026-11-14 15:11:17] ide 1000
+[2026-11-14 15:11:17] [00:00:01.933]dac analog analog don't need close!!
+[2026-11-14 15:11:17] [00:00:01.933]+++++ off 0
+[2026-11-14 15:11:26] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+
+[2026-11-14 15:11:26] [00:00:10.469][BLE_DIAG] flush dropped=0 post_failed=0 untracked=0
+[2026-11-14 15:11:26] [00:00:10.470]sm_conn init->le public addr:
+[2026-11-14 15:11:26] [00:00:10.470][BLE_DIAG] n=1 t=10460 conn=1 h=0050 src=CTRL_CONNECT reason=00 aux=0 enc=0 proc=0 role=1 began=1
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] 00 00 00 00 00 00 
+[2026-11-14 15:11:26] [00:00:10.472]hci_vendor_LE_ADVERTISING_SET_TERMINATED:50---0 
+[2026-11-14 15:11:26] [00:00:10.472]get_address_for_adv_handle
+[2026-11-14 15:11:26] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:26] [00:00:10.472]get_address_for_adv_handle
+[2026-11-14 15:11:26] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:26] [00:00:10.473]get_address_for_adv_handle
+[2026-11-14 15:11:26] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:26] [00:00:10.474][RDX_BLE_PARAM] initial wrapper=0 con=0x0050 interval_1p25ms=24 latency=0 timeout_10ms=500 t=10470
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.474][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=1 interval=6-12 latency=49 ret=0 t=10470
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.475][RDX_BLE_LINK] connected_count=1; defer idle-wrapper advertising
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.476][PWR] links_changed gen=3 links=1 busy=0x01
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.477][PWR_CONN] armed idle_ms=120000 version=6 epoch=5 links=1
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.477][BLE_ENTRY] topology entry=persistent-{}
+[2026-11-14 15:11:26] [00:00:10.486][RDX_BLE_LINK] connection fan-out done; advertise on idle wrapper
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.487][RDX_BLE_LP] system_sleep_block=1 connected=1 second_acl_window=1 adv_in_flight=1 adv_interval=160 reason=advertising_prepare
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:26] [00:00:10.488][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:26] [00:00:10.489]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:26] [00:00:10.489]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-14 15:11:26] [00:00:10.490]set_address_for_adv_handle:0
+[2026-11-14 15:11:17] 
+[2026-11-14 15:11:26] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:26] [00:00:10.491]set_address_for_adv_handle:0
+[2026-11-14 15:11:17] 
+[2026-11-14 15:11:26] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:26] [00:00:10.491][RDX_BLE_LP] system_sleep_block=0 connected=1 second_acl_window=1 adv_in_flight=0 adv_interval=160 reason=advertising_result
+[2026-11-14 15:11:17] 
+[2026-11-14 15:11:26] [00:00:10.492][BLE_ENTRY] open ret=0 wrapper=1 adv_interval=160
+[2026-11-14 15:11:26] S<>w[]{}S<>w[]{}S<>w[]{}{}{V}{}
+[2026-11-14 15:11:26] [00:00:10.646]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:17] 
+[2026-11-14 15:11:26] {}S<>w[]{}S<>w[]{}S<>w[]{V}{}S<>w[]{}S<>w[]{}S<>w[]{}0] = 44 
+[2026-11-14 15:11:26] [00:00:10.841][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=10 latency=49 timeout_10ms=600 t=10840
+[2026-11-14 15:11:26] #{V}{}{}{}{}{}
+[2026-11-14 15:11:26] [00:00:10.926][clock-manager]cpu0: 1% cpu1: 2% jlstream: 0% curr_clk:160000000  min_clk:24000000 dest_clk:24000000, 1
+[2026-11-14 15:11:27] {}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}{}{}{}{}{}{V}{}{}
+[2026-11-14 15:11:27] [00:00:11.790][RDX_BLE_LINK] mtu=514 con=0x0050
+[2026-11-14 15:11:27] {}{}
+[2026-11-14 15:11:27] [00:00:11.817]====== rdx_protocol_send_buffer_reinit ======
+[2026-11-14 15:11:27] [00:00:11.818]====== rdx_ble_server_start_force_disconnect_timer 
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.819][RDX_BLE_SESSION] runtime ACTIVE con=0x0050 hdl=421eb4 epoch=2
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.820][RDX_BLE_TONE] post service=RDX con=0x0050 gen=2 epoch=2 ticket=2
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.823][PWR_CONN] armed idle_ms=120000 version=6 epoch=6 links=1
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.824]RDX LED Scene: 0->2 request=2 prev_ms=10920 prev_timeout_ms=0
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.825]RDX LED effect: id=2 mode=2 rgb=0,0,255 cycle=0 on_ms=5000 timeout_ms=5000
+[2026-11-14 15:11:27] {}
+[2026-11-14 15:11:27] [00:00:11.828]tone_player: tone_en/conn.*
+[2026-11-14 15:11:27] [00:00:11.828]pipeline_uuid: 7674
+[2026-11-14 15:11:16] 
+[2026-11-14 15:11:27] [00:00:11.829][JLSTREAM]create_stream: 431b84, 0
+[2026-11-14 15:11:27] [00:00:11.830][RDX_BLE_TONE] start service=RDX ticket=2
+[2026-11-14 15:11:26] 
+[2026-11-14 15:11:27] [00:00:11.831]demuxer_not_match: conn.mp3
+[2026-11-14 15:11:27] [00:00:11.832][JLSTREAM]jlstream_multi_thread create:jlstream_0
+[2026-11-14 15:11:27] [00:00:11.833][DAC]sample 24000
+[2026-11-14 15:11:27] [00:00:11.834][STREAM]format negotiation: suss
+[2026-11-14 15:11:27]   { source,             24000, 1 ch, 16bit }
+[2026-11-14 15:11:27]   { decoder,            24000, 1 ch, 16bit }
+[2026-11-14 15:11:27]   { dac,                24000, 1 ch, 16bit }
+[2026-11-14 15:11:27] [00:00:11.835]task: jlstream_0, tcb @ 0x43205c
+[2026-11-14 15:11:27] [00:00:11.835]create_task jlstream_0 : stack:(0x40d400,0x40dffc)
+[2026-11-14 15:11:27] [00:00:11.836][JLSTREAM]frame_time: 8, 80,frame_len:384
+[2026-11-14 15:11:27] [00:00:11.837]vol_dB :10, -18
+[2026-11-14 15:11:27] [00:00:11.838]vol_2_gain: 10, 16, 2063
+[2026-11-14 15:11:27] {}
+[2026-11-14 15:11:27] [00:00:11.838]audio_state:idle->tone,max_vol:16
+[2026-11-14 15:11:27] [00:00:11.838]set_vol[tone]:tone=10
+[2026-11-14 15:11:27] [00:00:11.839]vol_dB :10, -18
+[2026-11-14 15:11:27] [00:00:11.839]vol_2_gain: 10, 16, 2063
+[2026-11-14 15:11:27] [00:00:11.839][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-14 15:11:27] [00:00:11.839]set_vol[tone]:=10
+[2026-11-14 15:11:27] [00:00:11.840][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-14 15:11:27] [00:00:11.840]convert_data_ioc_start bit_wide, 0 0 15
+[2026-11-14 15:11:27] [00:00:11.841][JLSTREAM]send_callback: app_core, event 8, err 0
+[2026-11-14 15:11:27] [00:00:11.841]tone_callback: 8, 0
+[2026-11-14 15:11:27] [00:00:11.844][DAC]__audio_dac_try_power_on
+[2026-11-14 15:11:27] {}
+[2026-11-14 15:11:27] [00:00:11.851][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:27] [00:00:11.851][RDX_APP_RX] ASCII: *APP#battery#
+[2026-11-14 15:11:27] [00:00:11.852]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4262 
+[2026-11-14 15:11:27] {}{}00:11.853][APP CMD] battery (L=100, R=0, C=0)
+[2026-11-14 15:11:27] [00:00:11.876][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:27] [00:00:11.877][RDX_APP_RX] ASCII: *APP#version#
+[2026-11-14 15:11:27] {V}{}{}11.877][APP CMD] version (fw=1.2.1, hw=0.0.1)
+[2026-11-14 15:11:27] [00:00:11.901][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=45
+[2026-11-14 15:11:27] [00:00:11.902][RDX_APP_RX] ASCII: *APP#appkey#sQ.J.)......F|.TP*.....D..B..H.M#
+[2026-11-14 15:11:27] [00:00:11.903][APP CMD] appkey (verify, len=45)
+[2026-11-14 15:11:27] [00:00:11.904]====== rdx_ble_server_stop_force_disconnect_timer 
+[2026-11-14 15:11:27] {}{}
+[2026-11-14 15:11:27] [00:00:11.926][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=20
+[2026-11-14 15:11:27] [00:00:11.927][RDX_APP_RX] ASCII: *APP#rtc#1794640288#
+[2026-11-14 15:11:27] [00:00:11.928][RDX_RTC][HW] utc=2026-11-14 15:10:44 src=RTC
+[2026-11-14 15:11:27] [00:00:11.928][RDX_RTC][HW] set: utc=2026-11-14 15:11:28
+[2026-11-14 15:11:27] [00:00:11.934][RDX_RTC] verify hw: utc=2026-11-14 15:11:28 OK
+[2026-11-14 15:11:27] {}{}00:11.934][RDX_RTC] verify vm: expected=1794640288 read=1794640288 OK
+[2026-11-14 15:11:27] [00:00:11.951][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=14
+[2026-11-14 15:11:27] [00:00:11.952][RDX_APP_RX] ASCII: *APP#ostype#0#
+[2026-11-14 15:11:27] [00:00:11.953][APP CMD] os_type = 0
+[2026-11-14 15:11:27] [00:00:11.953][RDX_BLE_LINK] compact_fragment=1 con=0x0050
+[2026-11-14 15:11:27] {}{}{}
+[2026-11-14 15:11:27] [00:00:11.989]dac analog init!!! 0
+[2026-11-14 15:11:27] [00:00:11.989][DAC]delay set : 1200, 60, 480
+[2026-11-14 15:11:27] [00:00:11.989][DAC]audio_dac_fifo_start : 0x0, 10, DAC_CON = 0x821e1b8
+[2026-11-14 15:11:27] U
+[2026-11-14 15:11:27] [00:00:11.990][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-14 15:11:27] [00:00:11.990][AMP] pe5=1 ev=DAC_START analog=1 output=1 seq=1 t=11990
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:27] [00:00:11.991]set_vol[tone]:=10
+[2026-11-14 15:11:27] [00:00:11.991][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-14 15:11:27] [00:00:11.997][JLSTREAM]dst_delay: 450, 499
+[2026-11-14 15:11:28] {V}{}{V}{}
+[2026-11-14 15:11:28] [00:00:12.821]====== rdx_ble_server_syn_data_after_ble_write_ready --> rp->run: 3, rp->mode: 0, rp->orig_mode: 0 
+[2026-11-14 15:11:28] [00:00:12.822]====== rdx_ble_server_syn_data_after_ble_write_ready --> record not running, skip sync. rp->run: 3 
+[2026-11-14 15:11:28] {V}{}{}{}{}23][FLASHNOTE] offline sync unavailable; no active local session
+[2026-11-14 15:11:28] [00:00:13.042][JLSTREAM]dec_err: 48
+[2026-11-14 15:11:28] [00:00:13.062][JLSTREAM]dec_end: 0
+[2026-11-14 15:11:28] U
+[2026-11-14 15:11:28] [00:00:13.080][DAC]DAV VOL0 : 0x40004000
+[2026-11-14 15:11:28] [00:00:13.130][DAC]Audio DAC Stop
+[2026-11-14 15:11:28] [00:00:13.131][AMP] pe5=0 ev=DAC_STOP analog=1 output=0 seq=2 t=13130
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:28] [00:00:13.131][JLSTREAM]send_callback: app_core, event 10, err 0
+[2026-11-14 15:11:28] [00:00:13.132]tone_callback: a, 0
+[2026-11-14 15:11:28] [00:00:13.132][JLSTREAM]free_stream: 431b84
+[2026-11-14 15:11:28] [00:00:13.132][JLSTREAM]decoder_release: 431c40
+[2026-11-14 15:11:28] [00:00:13.133][JLSTREAM]release: jlstream 20
+[2026-11-14 15:11:28] [00:00:13.323][BLE] Stream TX ready=1 (delayed after sync data)
+[2026-11-14 15:11:29] [00:00:13.431]dac analog analog close!!{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>+w[]S<>w[]-{V}
+[2026-11-14 15:11:29] [00:00:14.077][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=6 latency=0 timeout_10ms=500 t=14070
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:29] [00:00:14.078][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=1 interval=6-12 latency=49 ret=0 t=14070
+[2026-11-14 15:11:29] {}#{}{}{}{}{}{}{}{}{}{}{}#{}{V}{}{}{}{}{}{}{}{}{}{}{}#{}{}{}{V}{}{}{}{}{}{}{}
+[2026-11-14 15:11:29] [00:00:14.332][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=10 latency=49 timeout_10ms=600 t=14330
+[2026-11-14 15:11:32] #{}{}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:11:32] [00:00:16.828]RDX LED timeout: scene=2 elapsed_ms=5000 timeout_ms=5000
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:32] [00:00:16.828]RDX LED Scene: 2->0 request=0 prev_ms=5000 prev_timeout_ms=5000
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:32] [00:00:16.829]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-14 15:11:32] S<>+w[]
+[2026-11-14 15:11:32] [00:00:16.843][APP_AUDIO]VOL_SAVE 16
+[2026-11-14 15:11:35] S<>w[]S<>w[]S<>w[]S<>w[]-{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}
+[2026-11-14 15:11:35] [00:00:20.008][BLE_DIAG] flush dropped=0 post_failed=0 untracked=0
+[2026-11-14 15:11:35] [00:00:20.008]att disconn
+[2026-11-14 15:11:35] [00:00:20.008][BLE_DIAG] n=2 t=20000 conn=1 h=0050 src=REMOTE_TERMINATE reason=13 aux=0 enc=0 proc=6 role=1 began=1
+[2026-11-14 15:11:35] [00:00:20.009][RDX_BLE_LINK] disconnect accepted status=0x00 reason=0x13
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] [00:00:20.010][BLE_DIAG] n=3 t=20000 conn=1 h=0050 src=DISCONNECT_COMMIT reason=13 aux=0 enc=0 proc=6 role=1 began=1
+[2026-11-14 15:11:35] [00:00:20.011]====== rdx_ble_server_stop_force_disconnect_timer 
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] [00:00:20.011][BLE_DIAG] n=4 t=20000 conn=1 h=0050 src=CTRL_DISCONNECTED reason=13 aux=0 enc=0 proc=0 role=0 began=1
+[2026-11-14 15:11:35] [00:00:20.012]====== rdx_record_stream_interrupt --> rp->run: 3, rp->stream_discont: 0 
+[2026-11-14 15:11:35] [00:00:20.013][BLE]--->_rdx_protocol_ble_send:no connection. 
+[2026-11-14 15:11:35] [00:00:20.013][RDX_BLE_SESSION] runtime QUIESCING con=0x0050 hdl=421eb4 epoch=3; drain barrier queued
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] [00:00:20.014]rdx_protocol_handle_custom_cmd --> *APP#custom#__rdxlc#07cd6d140f9ada28# 
+[2026-11-14 15:11:35] [00:00:20.015][PWR] links_changed gen=4 links=0 busy=0x00
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] [00:00:20.015][RDX_BLE_SESSION] receive FIFO drain barrier reached
+[2026-11-14 15:11:35] [00:00:20.016][rdx_record]rdx_record_process_is_busy_check --> record_status.process_state = 0 
+[2026-11-14 15:11:35] [00:00:20.016]--------> [rdx_protocol_prepared_data_clean]
+[2026-11-14 15:11:35] [00:00:20.017]====== rdx_protocol_uploadFileInfo_clean ====== 
+[2026-11-14 15:11:35] [00:00:20.017]=== rdx_uxfile_datFileInfo_sendBuf_free 
+[2026-11-14 15:11:35] [00:00:20.018]====== rdx_protocol_send_buffer_reinit ======
+[2026-11-14 15:11:35] [00:00:20.018][RDX_BLE_SESSION] runtime READY: FIFO drained and workers idle
+[2026-11-14 15:11:35] [00:00:20.025][RDX_BLE_LINK] advertising restart on released wrapper
+[2026-11-14 15:11:28] 
+[2026-11-14 15:11:35] [00:00:20.027][BLE_ENTRY] close confirmed status=0x42
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] [00:00:20.028][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:35] [00:00:20.028]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:35] [00:00:20.029]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-14 15:11:35] [00:00:20.030]set_address_for_adv_handle:0
+[2026-11-14 15:11:28] 
+[2026-11-14 15:11:35] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:35] [00:00:20.030]set_address_for_adv_handle:0
+[2026-11-14 15:11:29] 
+[2026-11-14 15:11:35] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:35] [00:00:20.031][BLE_ENTRY] open ret=0 wrapper=0 adv_interval=160
+[2026-11-14 15:11:29] 
+[2026-11-14 15:11:35] [00:00:20.031][PWR] wake gen=5 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-14 15:11:32] 
+[2026-11-14 15:11:35] [00:00:20.032]set_address_for_adv_handle:0
+[2026-11-14 15:11:27] 
+[2026-11-14 15:11:35] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:35] [00:00:20.032]set_address_for_adv_handle:0
+[2026-11-14 15:11:32] 
+[2026-11-14 15:11:35] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:35] [00:00:20.033][ADV_POLICY] state=2 hold=0x0 version=7
+[2026-11-14 15:11:35] [00:00:20.033][PWR] wake gen=6 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-14 15:11:36] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:11:36] [00:00:20.648]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+
+[2026-11-14 15:11:43] [00:00:27.587][BLE_DIAG] flush dropped=0 post_failed=0 untracked=0
+[2026-11-14 15:11:43] [00:00:27.588]sm_conn init->le public addr:
+[2026-11-14 15:11:43] [00:00:27.588][BLE_DIAG] n=5 t=27580 conn=2 h=0050 src=CTRL_CONNECT reason=00 aux=0 enc=0 proc=0 role=1 began=1
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] F3 3A 26 2C D2 BC 
+[2026-11-14 15:11:43] [00:00:27.589]hci_vendor_LE_ADVERTISING_SET_TERMINATED:50---0 
+[2026-11-14 15:11:43] [00:00:27.590]get_address_for_adv_handle
+[2026-11-14 15:11:43] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:43] [00:00:27.590]get_address_for_adv_handle
+[2026-11-14 15:11:43] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:43] [00:00:27.591]get_address_for_adv_handle
+[2026-11-14 15:11:43] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:43] [00:00:27.591][RDX_BLE_PARAM] initial wrapper=0 con=0x0050 interval_1p25ms=12 latency=49 timeout_10ms=600 t=27590
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.592][RDX_BLE_LINK] connected_count=1; defer idle-wrapper advertising
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.593][PWR] links_changed gen=7 links=1 busy=0x01
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.594][PWR_CONN] armed idle_ms=120000 version=8 epoch=10 links=1
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.594][BLE_ENTRY] topology entry=persistent-{}
+[2026-11-14 15:11:43] [00:00:27.596][RDX_BLE_LINK] mtu=514 con=0x0050
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.603][RDX_BLE_LINK] connection fan-out done; advertise on idle wrapper
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.604][RDX_BLE_LP] system_sleep_block=1 connected=1 second_acl_window=1 adv_in_flight=1 adv_interval=160 reason=advertising_prepare
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.605][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:43] [00:00:27.606]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:9B 
+[2026-11-14 15:11:43] [00:00:27.606]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-14 15:11:43] [00:00:27.607]set_address_for_adv_handle:0
+[2026-11-14 15:11:29] 
+[2026-11-14 15:11:43] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:43] [00:00:27.608]set_address_for_adv_handle:0
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:43] [00:00:27.608][RDX_BLE_LP] system_sleep_block=0 connected=1 second_acl_window=1 adv_in_flight=0 adv_interval=160 reason=advertising_result
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:43] [00:00:27.609][BLE_ENTRY] open ret=0 wrapper=1 adv_interval=160
+[2026-11-14 15:11:43] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}{}S<>w[]c0+{}S<>w[]-{}
+[2026-11-14 15:11:43] [00:00:27.777][RDX_BLE_SEC] Just Works confirmed for provisional HID candidate con=0x0050 capability=0x00
+[2026-11-14 15:11:43] S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}{}{}{}{}{V}{}{}
+[2026-11-14 15:11:43] [00:00:28.046]<-------------read_callback, handle= 0x0003,buffer= 00000000 
+[2026-11-14 15:11:43] [00:00:28.046][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:43] [00:00:28.047][rdx_ble]
+[2026-11-14 15:11:43] att_value_len = 13 
+[2026-11-14 15:11:43] [00:00:28.047]<-------------read_callback, handle= 0x0003,buffer= 001106fd 
+[2026-11-14 15:11:43] [00:00:28.048][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 2633 
+[2026-11-14 15:11:43] [00:00:28.049][rdx_ble]
+[2026-11-14 15:11:43] ------read gap_name: VoicePad 2633 
+[2026-11-14 15:11:43] [00:00:28.049][rdx_ble]
+[2026-11-14 15:11:44] S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}#{}S<>w[]{}
+[2026-11-14 15:11:44] [00:00:29.252]===PH2:sm_ltk:
+[2026-11-14 15:11:44] 5F E7 60 5E 3D 0F 97 06 6D 0F 20 56 2A 76 29 F4 
+[2026-11-14 15:11:44] S<>w[]{V}{}{}S<>w[]{}
+[2026-11-14 15:11:44] [00:00:29.297][HOGP] peer identity hdl=0x0050 f3:3a:26:2c:d2:bc
+[2026-11-14 15:11:44] [00:00:29.298][HOGP] subscription restored hdl=0x0050
+[2026-11-14 15:11:44] [00:00:29.298][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-14 15:11:44] [00:00:29.299][HOGP] conn complete hdl=0x0050 restored_ccc=0x0001
+[2026-11-14 15:11:44] [00:00:29.299][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-14 15:11:44] [00:00:29.300][RDX_BLE_HID] owner attached con=0x0050 hdl=421eb4
+[2026-11-14 15:11:35] 
+[2026-11-14 15:11:44] [00:00:29.300][HOGP] encryption_change hdl=0x0050 enabled=1 status=0
+[2026-11-14 15:11:44] [00:00:29.301][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-14 15:11:44] [00:00:29.301][RDX_BLE_SEC] encryption=1 con=0x0050
+[2026-11-14 15:11:44] {}S<>w[]
+[2026-11-14 15:11:44] [00:00:29.327]get_address_for_adv_handle{}
+[2026-11-14 15:11:44] 9B 3F F3 9C CD 28 
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]{}S<>w[]{V}
+[2026-11-14 15:11:45] [00:00:29.372][RDX_BLE_SEC] sm_event wrapper=0 type=0xde size=19 observed
+[2026-11-14 15:11:45] {}{}
+[2026-11-14 15:11:45] [00:00:29.393][RDX_BLE_SEC] sm_event wrapper=0 type=0xdf size=16 observed
+[2026-11-14 15:11:45] {}{}S<>w[]{}#{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}
+[2026-11-14 15:11:45] [00:00:29.582]<-------------read_callback, handle= 0x0024,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.582][HOGP] read hdl=0x0024 offset=0 len=1
+[2026-11-14 15:11:45] [00:00:29.583][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 1 
+[2026-11-14 15:11:45] [00:00:29.583]<-------------read_callback, handle= 0x0024,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.584][HOGP] read hdl=0x0024 offset=0 len=1
+[2026-11-14 15:11:45] [00:00:29.584][rdx_ble]
+[2026-11-14 15:11:45] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-14 15:11:45] [00:00:29.672]<-------------read_callback, handle= 0x0020,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.672][HOGP] read hdl=0x0020 offset=0 len=4
+[2026-11-14 15:11:45] [00:00:29.673][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 4 
+[2026-11-14 15:11:45] [00:00:29.673]<-------------read_callback, handle= 0x0020,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.674][HOGP] read hdl=0x0020 offset=0 len=4
+[2026-11-14 15:11:45] [00:00:29.674][rdx_ble]
+[2026-11-14 15:11:45] {V}{}{}ue_len = 4 
+[2026-11-14 15:11:45] [00:00:29.702]<-------------read_callback, handle= 0x001e,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.702][HOGP] read hdl=0x001e offset=0 len=70
+[2026-11-14 15:11:45] [00:00:29.703][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 70 
+[2026-11-14 15:11:45] [00:00:29.703]<-------------read_callback, handle= 0x001e,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.704][HOGP] read hdl=0x001e offset=0 len=70
+[2026-11-14 15:11:45] [00:00:29.704][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}{}len = 70 
+[2026-11-14 15:11:45] [00:00:29.732]<-------------read_callback, handle= 0x001a,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.732][HOGP] read hdl=0x001a offset=0 len=8
+[2026-11-14 15:11:45] [00:00:29.733][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 8 
+[2026-11-14 15:11:45] [00:00:29.733]<-------------read_callback, handle= 0x001a,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.734][HOGP] read hdl=0x001a offset=0 len=8
+[2026-11-14 15:11:45] [00:00:29.734][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}
+[2026-11-14 15:11:45] [00:00:29.822]<-------------read_callback, handle= 0x001b,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.822][HOGP] read hdl=0x001b offset=0 len=2
+[2026-11-14 15:11:45] [00:00:29.823][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 2 
+[2026-11-14 15:11:45] [00:00:29.823]<-------------read_callback, handle= 0x001b,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.824][HOGP] read hdl=0x001b offset=0 len=2
+[2026-11-14 15:11:45] [00:00:29.824][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]{}2 
+[2026-11-14 15:11:45] [00:00:29.852]<-------------read_callback, handle= 0x0018,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.853][HOGP] read hdl=0x0018 offset=0 len=1
+[2026-11-14 15:11:45] [00:00:29.853][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 1 
+[2026-11-14 15:11:45] [00:00:29.853]<-------------read_callback, handle= 0x0018,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.854][HOGP] read hdl=0x0018 offset=0 len=1
+[2026-11-14 15:11:45] [00:00:29.854][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]{}S<>w[]{V}{}{}
+[2026-11-14 15:11:45] [00:00:29.912]<-------------read_callback, handle= 0x0015,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.913][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-14 15:11:45] [00:00:29.972]<-------------read_callback, handle= 0x000e,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:29.973]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4252 
+[2026-11-14 15:11:45] [00:00:29.973]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-14 15:11:45] [00:00:29.974][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 1 
+[2026-11-14 15:11:45] [00:00:29.974]<-------------read_callback, handle= 0x000e,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:29.975]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4252 
+[2026-11-14 15:11:45] [00:00:29.975]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-14 15:11:45] [00:00:29.976][rdx_ble]
+[2026-11-14 15:11:45] S<>w[]{}S<>w[]q0{V}{}{}
+[2026-11-14 15:11:45] [00:00:30.017]<-------------read_callback, handle= 0x000f,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:30.018][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 0 
+[2026-11-14 15:11:45] [00:00:30.018][clock-manager]cpu0: 3% cpu1: 1% jlstream: 0% curr_clk:160000000  min_clk:24000000 dest_clk:24000000, 1
+[2026-11-14 15:11:45] {}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-14 15:11:45] [00:00:30.080]<-------------read_callback, handle= 0x000b,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:30.081][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 95 
+[2026-11-14 15:11:45] [00:00:30.082]<-------------read_callback, handle= 0x000b,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:30.083]rdx_ble_server_att_read_callback --> readchardata: C,000000000000,000000000000,28CD9CF33F9B,GSPK97014269A1D000002633,Beanstalk2614606,000000000000 
+[2026-11-14 15:11:45] [00:00:30.085][rdx_ble]
+[2026-11-14 15:11:45] {}S<>w[]{V}{} = 95 
+[2026-11-14 15:11:45] [00:00:30.112]<-------------read_callback, handle= 0x0009,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:30.113][rdx_ble]
+[2026-11-14 15:11:45] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-14 15:11:45] [00:00:30.275][RDX_BLE_GATT] Battery CCC cfg=0x0001 con=0x0050
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:45] [00:00:30.276]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4252 
+[2026-11-14 15:11:45] [00:00:30.278][RDX_BLE_GATT] Battery test notify con=0x0050 ret=0
+[2026-11-14 15:11:45] {}S<>w[]q0{}S<>w[]{V}{}
+[2026-11-14 15:11:45] [00:00:30.322]<-------------read_callback, handle= 0x000e,buffer= 00000000 
+[2026-11-14 15:11:45] [00:00:30.323]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4252 
+[2026-11-14 15:11:45] [00:00:30.324]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-14 15:11:45] [00:00:30.325][rdx_ble]
+[2026-11-14 15:11:45] att_value_len = 1 
+[2026-11-14 15:11:45] [00:00:30.326]<-------------read_callback, handle= 0x000e,buffer= 001106fd 
+[2026-11-14 15:11:45] [00:00:30.327]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4252 
+[2026-11-14 15:11:45] [00:00:30.328]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-14 15:11:45] [00:00:30.329][rdx_ble]
+[2026-11-14 15:11:46] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{V}{}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{V}{}{}S<>w[]{}S<>w[]{}{}
+[2026-11-14 15:11:46] {}S<>w[]{}{V}{}HOGP] output report LED=0x01
+[2026-11-14 15:11:46] [00:00:30.649]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{V}{}{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{V}{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}{}S<>w[]{}{V}{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{V}{}{}S<>w[]{}S<>w[]{}#{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}
+[2026-11-14 15:11:49] [00:00:33.956]====== rdx_protocol_send_buffer_reinit ======
+[2026-11-14 15:11:49] [00:00:33.957]====== rdx_ble_server_start_force_disconnect_timer 
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.958][RDX_BLE_SESSION] composite owner slot=0 con=0x0050 order=HID+RDX
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.959][RDX_BLE_SESSION] runtime ACTIVE con=0x0050 hdl=421eb4 epoch=4
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.961][RDX_BLE_TONE] post service=RDX con=0x0050 gen=4 epoch=4 ticket=4
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.964][RDX_BLE_LP] system_sleep_block=1 connected=1 second_acl_window=1 adv_in_flight=1 adv_interval=160 reason=advertising_closing
+[2026-11-14 15:11:49] {}
+[2026-11-14 15:11:49] [00:00:33.967][PWR_CONN] armed idle_ms=120000 version=8 epoch=11 links=1
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.970]RDX LED Scene: 0->2 request=2 prev_ms=17140 prev_timeout_ms=0
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.971]RDX LED effect: id=2 mode=2 rgb=0,0,255 cycle=0 on_ms=5000 timeout_ms=5000
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.974]tone_player: tone_en/conn.*
+[2026-11-14 15:11:49] [00:00:33.975]pipeline_uuid: 7674
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.976][JLSTREAM]create_stream: 43159c, 0
+[2026-11-14 15:11:49] [00:00:33.977][RDX_BLE_TONE] start service=RDX ticket=4
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.978]demuxer_not_match: conn.mp3
+[2026-11-14 15:11:49] [00:00:33.979][JLSTREAM]jlstream_multi_thread create:jlstream_0
+[2026-11-14 15:11:49] {}
+[2026-11-14 15:11:49] [00:00:33.981][STREAM]format negotiation: suss
+[2026-11-14 15:11:49]   { source,             24000, 1 ch, 16bit }
+[2026-11-14 15:11:49]   { decoder,            24000, 1 ch, 16bit }
+[2026-11-14 15:11:49]   { dac,                24000, 1 ch, 16bit }
+[2026-11-14 15:11:49] [00:00:33.982][RDX_BLE_LP] system_sleep_block=0 connected=1 second_acl_window=0 adv_in_flight=0 adv_interval=160 reason=advertising_closed
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.983]task: jlstream_0, tcb @ 0x435cb4
+[2026-11-14 15:11:49] [00:00:33.984][BLE_ENTRY] close confirmed status=0x42
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:33.984]create_task jlstream_0 : stack:(0x40d400,0x40dffc)
+[2026-11-14 15:11:49] [00:00:33.985][JLSTREAM]frame_time: 8, 80,frame_len:384
+[2026-11-14 15:11:49] [00:00:33.986]vol_dB :10, -18
+[2026-11-14 15:11:49] [00:00:33.986]vol_2_gain: 10, 16, 2063
+[2026-11-14 15:11:49] [00:00:33.987]audio_state:idle->tone,max_vol:16
+[2026-11-14 15:11:49] [00:00:33.987]set_vol[tone]:tone=10
+[2026-11-14 15:11:49] [00:00:33.987]vol_dB :10, -18
+[2026-11-14 15:11:49] [00:00:33.987]vol_2_gain: 10, 16, 2063
+[2026-11-14 15:11:49] [00:00:33.988][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-14 15:11:49] [00:00:33.988]set_vol[tone]:=10
+[2026-11-14 15:11:49] [00:00:33.988][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-14 15:11:49] [00:00:33.989]convert_data_ioc_start bit_wide, 0 0 15
+[2026-11-14 15:11:49] [00:00:33.989][JLSTREAM]send_callback: app_core, event 8, err 0
+[2026-11-14 15:11:49] [00:00:33.990]tone_callback: 8, 1
+[2026-11-14 15:11:49] [00:00:33.992][DAC]__audio_dac_try_power_on
+[2026-11-14 15:11:49] {}{}
+[2026-11-14 15:11:49] [00:00:34.012][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=14
+[2026-11-14 15:11:49] [00:00:34.012][RDX_APP_RX] ASCII: *APP#ostype#3#
+[2026-11-14 15:11:49] [00:00:34.013][APP CMD] os_type = 3
+[2026-11-14 15:11:49] [00:00:34.014][RDX_BLE_LINK] compact_fragment=0 con=0x0050
+[2026-11-14 15:11:49] {}
+[2026-11-14 15:11:49] [00:00:34.026][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=20
+[2026-11-14 15:11:49] [00:00:34.027][RDX_APP_RX] ASCII: *APP#rtc#1794640309#
+[2026-11-14 15:11:49] [00:00:34.028][RDX_RTC][HW] utc=2026-11-14 15:11:50 src=RTC
+[2026-11-14 15:11:49] [00:00:34.029][RDX_RTC][HW] set: utc=2026-11-14 15:11:49
+[2026-11-14 15:11:49] [00:00:34.034][RDX_RTC] verify hw: utc=2026-11-14 15:11:49 OK
+[2026-11-14 15:11:49] {}{}00:34.035][RDX_RTC] verify vm: expected=1794640309 read=1794640309 OK
+[2026-11-14 15:11:49] [00:00:34.056][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:49] [00:00:34.057][RDX_APP_RX] ASCII: *APP#version#
+[2026-11-14 15:11:49] {}{}00:34.058][APP CMD] version (fw=1.2.1, hw=0.0.1)
+[2026-11-14 15:11:49] [00:00:34.086][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:49] [00:00:34.087][RDX_APP_RX] ASCII: *APP#battery#
+[2026-11-14 15:11:49] [00:00:34.088]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4256 
+[2026-11-14 15:11:49] {}{}00:34.088][APP CMD] battery (L=100, R=0, C=0)
+[2026-11-14 15:11:49] [00:00:34.116][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=14
+[2026-11-14 15:11:49] [00:00:34.117][RDX_APP_RX] ASCII: *APP#incharge#
+[2026-11-14 15:11:49] [00:00:34.118]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4256 
+[2026-11-14 15:11:49] [00:00:34.118][APP CMD] incharge state=0 (C=0, R=0, L=100)
+[2026-11-14 15:11:49] {}0:00:34.119]incharge notify --> charge_state: 0, left: 0, right: 0, chargebox: 100 
+[2026-11-14 15:11:49] [00:00:34.137]dac analog init!!! 0
+[2026-11-14 15:11:49] [00:00:34.138][DAC]delay set : 1200, 60, 480
+[2026-11-14 15:11:49] [00:00:34.138][DAC]audio_dac_fifo_start : 0x0, 10, DAC_CON = 0x821e1b8
+[2026-11-14 15:11:49] U
+[2026-11-14 15:11:49] [00:00:34.138][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-14 15:11:49] [00:00:34.139][AMP] pe5=1 ev=DAC_START analog=1 output=1 seq=3 t=34130
+[2026-11-14 15:11:45] 
+[2026-11-14 15:11:49] [00:00:34.139]set_vol[tone]:=10
+[2026-11-14 15:11:49] [00:00:34.140][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-14 15:11:49] [00:00:34.145][JLSTREAM]dst_delay: 450, 499
+[2026-11-14 15:11:49] {}
+[2026-11-14 15:11:49] [00:00:34.147][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=9
+[2026-11-14 15:11:49] [00:00:34.147][RDX_APP_RX] ASCII: *APP#mem#
+[2026-11-14 15:11:49] [00:00:34.148]rdx_protocol_sd_mem_indicate --> *DEV#mem#0#0# 
+[2026-11-14 15:11:49] [00:00:34.149]======== sd_mem_check --> root_path: storage/sd0/C/ 
+[2026-11-14 15:11:49] [00:00:34.151][PWR_CONN] wait busy=0x340 reason=RGB_REQUIRED timer=OFF
+[2026-11-14 15:11:49] {}{}{}{}
+[2026-11-14 15:11:49] [00:00:34.255]======== sd free space: 121856, flash_capacity = 121866, clust_size = 2048 
+[2026-11-14 15:11:49] [00:00:34.256]rdx_protocol_sd_mem_indicate --> *DEV#mem#121856#121866# 
+[2026-11-14 15:11:49] [00:00:34.258][PWR_CONN] wait busy=0x040 reason=RGB_REQUIRED timer=OFF
+[2026-11-14 15:11:50] {}{}
+[2026-11-14 15:11:50] [00:00:34.282]<-------------read_callback, handle= 0x000b,buffer= 00000000 
+[2026-11-14 15:11:50] [00:00:34.282][rdx_ble]
+[2026-11-14 15:11:50] att_value_len = 95 
+[2026-11-14 15:11:50] [00:00:34.283]<-------------read_callback, handle= 0x000b,buffer= 001106fd 
+[2026-11-14 15:11:50] [00:00:34.283]rdx_ble_server_att_read_callback --> readchardata: C,000000000000,000000000000,28CD9CF33F9B,GSPK97014269A1D000002633,Beanstalk2614606,000000000000 
+[2026-11-14 15:11:50] [00:00:34.284][rdx_ble]
+[2026-11-14 15:11:50] {}{}value_len = 95 
+[2026-11-14 15:11:50] [00:00:34.311][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=26
+[2026-11-14 15:11:50] [00:00:34.312][RDX_APP_RX] ASCII: *APP#custom#rectone#get,2#
+[2026-11-14 15:11:50] {}{}00:34.313]rdx_protocol_handle_custom_cmd --> *APP#custom#rectone#get,2# 
+[2026-11-14 15:11:50] [00:00:34.342][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=26
+[2026-11-14 15:11:50] [00:00:34.342][RDX_APP_RX] ASCII: *APP#custom#recsave#get,2#
+[2026-11-14 15:11:50] {}{}00:34.343]rdx_protocol_handle_custom_cmd --> *APP#custom#recsave#get,2# 
+[2026-11-14 15:11:50] [00:00:34.372][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=22
+[2026-11-14 15:11:50] [00:00:34.372][RDX_APP_RX] ASCII: *APP#custom#vol#get,2#
+[2026-11-14 15:11:50] {}{}{}{}4.373]rdx_protocol_handle_custom_cmd --> *APP#custom#vol#get,2# 
+[2026-11-14 15:11:50] [00:00:34.962]====== rdx_ble_server_syn_data_after_ble_write_ready --> rp->run: 3, rp->mode: 0, rp->orig_mode: 0 
+[2026-11-14 15:11:50] [00:00:34.963]====== rdx_ble_server_syn_data_after_ble_write_ready --> record not running, skip sync. rp->run: 3 
+[2026-11-14 15:11:50] {}{}{}{}4.963][FLASHNOTE] offline sync unavailable; no active local session
+[2026-11-14 15:11:50] [00:00:35.190][JLSTREAM]dec_err: 48
+[2026-11-14 15:11:50] [00:00:35.211][JLSTREAM]dec_end: 0
+[2026-11-14 15:11:50] U
+[2026-11-14 15:11:50] [00:00:35.230][DAC]DAV VOL0 : 0x40004000
+[2026-11-14 15:11:50] [00:00:35.280][DAC]Audio DAC Stop
+[2026-11-14 15:11:50] [00:00:35.281][AMP] pe5=0 ev=DAC_STOP analog=1 output=0 seq=4 t=35280
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:50] [00:00:35.281][JLSTREAM]send_callback: app_core, event 10, err 0
+[2026-11-14 15:11:50] [00:00:35.282]tone_callback: a, 1
+[2026-11-14 15:11:50] [00:00:35.282][JLSTREAM]free_stream: 43159c
+[2026-11-14 15:11:50] [00:00:35.283][JLSTREAM]decoder_release: 431624
+[2026-11-14 15:11:50] [00:00:35.283][JLSTREAM]release: jlstream 20
+[2026-11-14 15:11:54] {}{}{}+{}-{}4][BLE] Stream TX ready=1 (delayed after sync data)
+[2026-11-14 15:11:54] [00:00:38.973]RDX LED timeout: scene=2 elapsed_ms=5000 timeout_ms=5000
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:54] [00:00:38.974]RDX LED Scene: 2->0 request=0 prev_ms=5000 prev_timeout_ms=5000
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:54] [00:00:38.974]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:54] [00:00:38.975][PWR_CONN] armed idle_ms=120000 version=12 epoch=11 links=1
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:54] [00:00:38.989][APP_AUDIO]VOL_SAVE 16
+[2026-11-14 15:11:56] {}{}
+[2026-11-14 15:11:56] [00:00:40.647]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:49] 
+[2026-11-14 15:11:59] {}{}{}{}{}{}{}#{}{} app_charge_event_handler --> msg[0] = 44 
+[2026-11-14 15:11:59] [00:00:43.357][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:59] [00:00:43.358][RDX_APP_RX] ASCII: *APP#getlist#
+[2026-11-14 15:11:59] [00:00:43.359]rdx_protocol_file_list_ack_indicate 
+[2026-11-14 15:11:59] [00:00:43.359]=== rdx_uxfile_datFileInfo_sendBuf_free 
+[2026-11-14 15:11:59] [00:00:43.360][GETLIST] New request received, reset previous transfer state
+[2026-11-14 15:11:59] [00:00:43.361][PWR_CONN] wait busy=0x300 reason=BUSINESS timer=OFF
+[2026-11-14 15:11:50] 
+[2026-11-14 15:11:59] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:11:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:11:59] [00:00:43.365]rdx_protocol_record_file_info_indicate 
+[2026-11-14 15:11:59] [00:00:43.366][PWR_CONN] wait busy=0x008 reason=FILE_OP timer=OFF
+[2026-11-14 15:11:59] {}
+[2026-11-14 15:11:59] {}0:00:43.386][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-14 15:11:59] [00:00:43.387][RDX_APP_RX] ASCII: *APP#flist#0#
+[2026-11-14 15:11:59] [00:00:43.388][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=17
+[2026-11-14 15:11:59] [00:00:43.388][RDX_APP_RX] ASCII: *APP#listreq#0#1#
+[2026-11-14 15:11:59] [00:00:43.389]
+[2026-11-14 15:11:59]  =====_rdx_protocol_handle_recordDatInfo_req --> ack = 0, req_num = 1 
+[2026-11-14 15:11:59] [00:00:43.390][PWR_CONN] wait busy=0x208 reason=FILE_OP timer=OFF
+[2026-11-14 15:11:50] 
+[2026-11-14 15:11:59] [00:00:43.391]rdx_protocol_recordDatFileInfo_indicateByRequestNum --> num = 1, ack = 0, divpack = 1, data_len = 2, left_len = 0 
+[2026-11-14 15:11:59] [00:00:43.392]rdx_protocol_recordDatFileInfo_indicateByRequestNum --> p->sent_size = dat_size = 2 
+[2026-11-14 15:11:59] [00:00:43.392] --> cal_crc = 223132457 , total = 27, *DEV#listreq#1#2#223132457#
+[2026-11-14 15:11:59] [00:00:43.393]rdx_protocol_recordDatFileInfo_indicateByRequestNum 
+[2026-11-14 15:11:59] [00:00:43.393][PWR_CONN] wait busy=0x008 reason=FILE_OP timer=OFF
+[2026-11-14 15:11:59] {}q0{}{}
+[2026-11-14 15:11:59] [00:00:43.432][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=17
+[2026-11-14 15:11:59] [00:00:43.432][RDX_APP_RX] ASCII: *APP#listreq#0#0#
+[2026-11-14 15:11:59] [00:00:43.433]
+[2026-11-14 15:11:59]  =====_rdx_protocol_handle_recordDatInfo_req --> ack = 0, req_num = 0 
+[2026-11-14 15:11:59] [00:00:43.434][PWR_CONN] wait busy=0x208 reason=FILE_OP timer=OFF
+[2026-11-14 15:11:50] 
+[2026-11-14 15:11:59] [00:00:43.434]=====> record dat file send finish! 
+[2026-11-14 15:11:59] [00:00:43.434]=== rdx_uxfile_datFileInfo_sendBuf_free 
+[2026-11-14 15:11:59] [00:00:43.435]=== rdx_uxfile_datFileInfo_sendBuf_free --> DO data free 
+[2026-11-14 15:11:59] [00:00:43.436][PWR_CONN] armed idle_ms=120000 version=32 epoch=11 links=1
+[2026-11-14 15:11:59] {}{}{}
+[2026-11-14 15:12:04] [00:00:43.985]dac analog analog close!!S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}
+[2026-11-14 15:12:04] [00:00:48.773][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=48
+[2026-11-14 15:12:04] [00:00:48.774][RDX_APP_RX] ASCII: *APP#custom#hogpkm#010303000000000000006E384ABB#
+[2026-11-14 15:12:04] [00:00:48.775]rdx_protocol_handle_custom_cmd --> *APP#custom#hogpkm#010303000000000000006E384ABB# 
+[2026-11-14 15:12:04] #{}S<>w[]{}75]rdx_app_custom_command_parse --> cmd: hogpkm, value: 010303000000000000006E384ABB 
+[2026-11-14 15:12:04] [00:00:48.803][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=48
+[2026-11-14 15:12:04] [00:00:48.804][RDX_APP_RX] ASCII: *APP#custom#hogpkm#010204000000000000003425F4A6#
+[2026-11-14 15:12:04] [00:00:48.804]rdx_protocol_handle_custom_cmd --> *APP#custom#hogpkm#010204000000000000003425F4A6# 
+[2026-11-14 15:12:06] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>+w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:12:06] [00:00:50.649]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:59] 
+[2026-11-14 15:12:09] S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>+w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:12:09] [00:00:53.959]---- rdx_ble_server_force_disconnect_timer_cb ----> temp return 
+[2026-11-14 15:12:11] S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{}
+[2026-11-14 15:12:11] [00:00:55.605][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=48
+[2026-11-14 15:12:11] [00:00:55.605][RDX_APP_RX] ASCII: *APP#custom#hogpkm#010405001C0000000000C09E506D#
+[2026-11-14 15:12:11] [00:00:55.606]rdx_protocol_handle_custom_cmd --> *APP#custom#hogpkm#010405001C0000000000C09E506D# 
+[2026-11-14 15:12:11] {}S<>w[]{}607]rdx_app_custom_command_parse --> cmd: hogpkm, value: 010405001C0000000000C09E506D 
+[2026-11-14 15:12:11] [00:00:55.635][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=48
+[2026-11-14 15:12:11] [00:00:55.635][RDX_APP_RX] ASCII: *APP#custom#hogpkm#010206000000000000004922D1E4#
+[2026-11-14 15:12:11] [00:00:55.636]rdx_protocol_handle_custom_cmd --> *APP#custom#hogpkm#010206000000000000004922D1E4# 
+[2026-11-14 15:12:11] {}S<>w[]{}637]rdx_app_custom_command_parse --> cmd: hogpkm, value: 010206000000000000004922D1E4 
+[2026-11-14 15:12:11] [00:00:55.664][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=48
+[2026-11-14 15:12:11] [00:00:55.665][RDX_APP_RX] ASCII: *APP#custom#hogpkm#01020700000000000000D7227B28#
+[2026-11-14 15:12:11] [00:00:55.666]rdx_protocol_handle_custom_cmd --> *APP#custom#hogpkm#01020700000000000000D7227B28# 
+[2026-11-14 15:12:16] {}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:12:16] [00:01:00.647]rdx_app_battery_msg_handler :0x2c
+[2026-11-14 15:11:59] 
+[2026-11-14 15:12:17] S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]{}{}{}{}dler --> msg[0] = 44 
+[2026-11-14 15:12:17] [00:01:01.446][rdx_record]rdx_record_process_is_busy_check --> record_status.process_state = 0 
+[2026-11-14 15:12:17] [00:01:01.447]
+[2026-11-14 15:12:17]  ====== rdx_app_msg_handler event:0x92 
+[2026-11-14 15:12:17] [00:01:01.447][rdx_app]=== rdx_app_msg_handler ---> APP_MSG_REC_PREV 
+[2026-11-14 15:12:17] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:12:17] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:17] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:17] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:17] [00:01:01.451][PB]no files in cache (cnt=0, max_sn=0)
+[2026-11-14 15:12:17] [00:01:01.451]RDX LED Scene: 0->19 request=19 prev_ms=22480 prev_timeout_ms=0
+[2026-11-14 15:11:59] 
+[2026-11-14 15:12:17] [00:01:01.452]RDX LED effect: id=11 mode=1 rgb=0,255,0 cycle=0 on_ms=0 timeout_ms=2000
+[2026-11-14 15:11:50] 
+[2026-11-14 15:12:17] [00:01:01.453][PWR_CONN] wait busy=0x040 reason=RGB_REQUIRED timer=OFF
+[2026-11-14 15:12:19] {}{}{}{}S<>w[]S<>w[]S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]{}S<>w[]
+[2026-11-14 15:12:19] [00:01:03.453]RDX LED timeout: scene=19 elapsed_ms=2000 timeout_ms=2000
+[2026-11-14 15:11:59] 
+[2026-11-14 15:12:19] [00:01:03.453]RDX LED Scene: 0->0 request=0 prev_ms=2000 prev_timeout_ms=2000
+[2026-11-14 15:12:02] 
+[2026-11-14 15:12:19] [00:01:03.454]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-14 15:12:04] 
+[2026-11-14 15:12:19] [00:01:03.455][PWR_CONN] armed idle_ms=120000 version=37 epoch=12 links=1
+[2026-11-14 15:12:20] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}+{}+{}-{}
+[2026-11-14 15:12:20] [00:01:04.974][rdx_record]rdx_record_process_is_busy_check --> record_status.process_state = 0 
+[2026-11-14 15:12:20] [00:01:04.975]
+[2026-11-14 15:12:20]  ====== rdx_app_msg_handler event:0x93 
+[2026-11-14 15:12:20] [00:01:04.975][rdx_app]=== rdx_app_msg_handler ---> APP_MSG_REC_NEXT 
+[2026-11-14 15:12:20] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-14 15:12:20] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:20] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:20] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-14 15:12:20] [00:01:04.979][PB]no files in cache (cnt=0, max_sn=0)
+[2026-11-14 15:12:20] [00:01:04.979]RDX LED Scene: 0->19 request=19 prev_ms=1520 prev_timeout_ms=0
+[2026-11-14 15:12:11] 
+[2026-11-14 15:12:20] [00:01:04.980]RDX LED effect: id=11 mode=1 rgb=0,255,0 cycle=0 on_ms=0 timeout_ms=2000
+[2026-11-14 15:12:11] 
+[2026-11-14 15:12:20] [00:01:04.981][PWR_CONN] wait busy=0x040 reason=RGB_REQUIRED timer=OFF
+[2026-11-14 15:12:21] {}{}{}{}S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:12:21] [00:01:05.662][clock-manager]cpu0: 1% cpu1: 1% jlstream: 0% curr_clk:160000000  min_clk:24000000 dest_clk:24000000, 1
+[2026-11-14 15:12:22] S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-14 15:12:22] [00:01:06.982]RDX LED timeout: scene=19 elapsed_ms=2000 timeout_ms=2000
+[2026-11-14 15:12:11] 
+[2026-11-14 15:12:22] [00:01:06.983]RDX LED Scene: 0->0 request=0 prev_ms=2000 prev_timeout_ms=2000
+[2026-11-14 15:12:11] 
+[2026-11-14 15:12:22] [00:01:06.983]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-14 15:12:16] 
+[2026-11-14 15:12:22] [00:01:06.985][PWR_CONN] armed idle_ms=120000 version=42 epoch=13 links=1
+[2026-11-14 15:12:25] S<>w[]S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>+w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]S<>w[]S<>w[]S<

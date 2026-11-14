@@ -1,0 +1,1212 @@
+[2026-11-11 17:16:24] ���
+[2026-11-11 17:16:24] [00:00:00.127]P11_SYSTEM->MEM_PWR_CON: 0x0, M2P_MEM_CONTROL: 0x3f
+[2026-11-11 17:16:24] [00:00:00.127][T2620_LP] sleep_clock product_lrc=1 cfg=0 default=0 selected=0 (0=LRC 1=BT_OSC)
+[2026-11-11 17:16:24] [00:00:00.165]LDOREF = 270
+[2026-11-11 17:16:24] [00:00:00.166]vbat = 4248 mv
+[2026-11-11 17:16:24] [00:00:00.166]vtemp = 881 mv
+[2026-11-11 17:16:24] [00:00:00.166]audio_init
+[2026-11-11 17:16:24] [00:00:00.166]audio_input_initcall
+[2026-11-11 17:16:24] [00:00:00.167] audio_adc_file_init len 12, sizeof(cfg) 12
+[2026-11-11 17:16:24] [00:00:00.167]audio_dac_initcall
+[2026-11-11 17:16:24] [00:00:00.167][DAC]audio_dac_init
+[2026-11-11 17:16:24] [00:00:00.168][DAC]>>>> buf time:50ms, buf_len : 4800
+[2026-11-11 17:16:24] [00:00:00.168]audio_dut init
+[2026-11-11 17:16:24] [00:00:00.169][CHARGE]charge_init
+[2026-11-11 17:16:24] [00:00:00.169][CHARGE]low charge_trim_val = 9
+[2026-11-11 17:16:24] [00:00:00.169][CHARGE]charge_full_v_val = 9
+[2026-11-11 17:16:24] [00:00:00.170][CHARGE]charge_full_voltage = 4200 mV
+[2026-11-11 17:16:24] [00:00:00.170][CHARGE]full_trim: 3, full_offset: 0, full_aim: 1
+[2026-11-11 17:16:24] [00:00:00.191]iokey:0,prot:103,value:65,c_way:0 long_press_en:0 time:16s
+[2026-11-11 17:16:24] [00:00:00.191]iokey:1,prot:18,value:66,c_way:0 long_press_en:0 time:8s
+[2026-11-11 17:16:24] [00:00:00.192]iokey:2,prot:104,value:67,c_way:0 long_press_en:0 time:8s
+[2026-11-11 17:16:24] [00:00:00.192]iokey:3,prot:20,value:68,c_way:0 long_press_en:0 time:8s
+[2026-11-11 17:16:24] [00:00:00.193]iokey:4,prot:34,value:69,c_way:0 long_press_en:0 time:8s
+[2026-11-11 17:16:24] [00:00:00.193][UPDATE]update module init ok
+[2026-11-11 17:16:24] [00:00:00.193][TEST-UPDATE]testbox msg handle reg:602b206
+[2026-11-11 17:16:24] [00:00:00.194]audio_online_debug_open
+[2026-11-11 17:16:24] [00:00:00.194]usb_stack_init()
+[2026-11-11 17:16:24] [00:00:00.194]task: usb_stack, tcb @ 0x418eec
+[2026-11-11 17:16:24] [00:00:00.195]create_task usb_stack : stack:(0x402c00,0x4033fc)
+[2026-11-11 17:16:24] [00:00:00.196]task: dev_mg, tcb @ 0x41900c
+[2026-11-11 17:16:24] [00:00:00.197]create_task dev_mg : stack:(0x403400,0x403bfc)
+[2026-11-11 17:16:24] [00:00:00.198]rtc_read_sys_time: 2000-1-1 0:0:47
+[2026-11-11 17:16:24] [00:00:00.198]sd0 add start
+[2026-11-11 17:16:24] [00:00:00.210]sd io init !
+[2026-11-11 17:16:25] [00:00:00.601][SD-FMT] sd0 mount ok; boot format prohibited, data preserved
+[2026-11-11 17:16:25] [00:00:00.602]__dev_manager_add, sd0 add ok, dev->fmnt = 419368,  0
+[2026-11-11 17:16:25] [00:00:00.602]sdfile add start
+[2026-11-11 17:16:25] [00:00:00.602]dev_manager_add can not find logo sdfile
+[2026-11-11 17:16:25] [00:00:00.603][APP-UPDATE]<--------update_result_deal=0x5a00 4f8--------->
+[2026-11-11 17:16:25] [00:00:00.603]=================update_param_len:1008
+[2026-11-11 17:16:25] [00:00:00.604]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.604]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.604]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.604]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.605]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.605]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.605]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.605]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.605]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.606]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.606]vbat: 4248
+[2026-11-11 17:16:25] [00:00:00.606][APP_POWER_ON]power on
+[2026-11-11 17:16:25] [00:00:00.607]tone_player_faild: tone_en/power_on.*
+[2026-11-11 17:16:24] 
+[2026-11-11 17:16:25] [00:00:00.607]<error>:[APP_POWER_ON]power on tone play err!!!
+[2026-11-11 17:16:25] [00:00:00.608][APP_POWER_ON]exit power on mode
+[2026-11-11 17:16:25] [00:00:00.608][EARPHONE]bt mode
+[2026-11-11 17:16:25] [00:00:00.609]tone_player_faild: tone_en/bt.*
+[2026-11-11 17:16:25] [00:00:00.609]<<<<<<<<<<<<<<bt_dual_conn_config=0>>>>>>>>>>
+[2026-11-11 17:16:24] 
+[2026-11-11 17:16:25] [00:00:00.610]-----edr + ble 's address-----
+[2026-11-11 17:16:25] [00:00:00.610]le_support:3 1
+[2026-11-11 17:16:25] [00:00:00.610]le_config:2 1 0 1
+[2026-11-11 17:16:25] [00:00:00.611]task: btctrler, tcb @ 0x419964
+[2026-11-11 17:16:25] [00:00:00.611]create_task btctrler : stack:(0x403c00,0x4043fc)
+[2026-11-11 17:16:25] [00:00:00.611]btadc clock set error, no this option !!!
+[2026-11-11 17:16:25] [00:00:00.644]bredr_bd_init
+[2026-11-11 17:16:25] [00:00:00.645]bredr_bd_init_success
+[2026-11-11 17:16:25] [00:00:00.887]task: btstack, tcb @ 0x41f52c
+[2026-11-11 17:16:25] [00:00:00.887]create_task btstack : stack:(0x404400,0x404ffc)
+[2026-11-11 17:16:25] [00:00:00.888]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:16:24] 
+[2026-11-11 17:16:25] [00:00:00.889]===== app_charge_event_handler --> msg[0] = 44 
+[2026-11-11 17:16:25] [00:00:00.889][EARPHONE]BT_STATUS_INIT_OK
+[2026-11-11 17:16:25] [00:00:00.890]################# multi_protocol init
+[2026-11-11 17:16:25] [00:00:00.890]multi_protocol_profile_init 0x44000 1 1
+[2026-11-11 17:16:25] [00:00:00.891]att_send need_size >= 6+1+188
+[2026-11-11 17:16:25] [00:00:00.891]spp_file: apps/common/third_party_profile/jieli/online_db/spp_online_db.c
+[2026-11-11 17:16:25] [00:00:00.892]app_spp_recieve_callback_register 421a4c
+[2026-11-11 17:16:25] [00:00:00.892]-----------------------------------------------------------
+[2026-11-11 17:16:25] [00:00:00.893]====== rdx_app_all_init --> protocol version = 23 
+[2026-11-11 17:16:25] [00:00:00.893]-----------------------------------------------------------
+[2026-11-11 17:16:25] [00:00:00.894][USER_CFG]sys_get_auto_off_time ===> auto_off_time: 2160000 s 
+[2026-11-11 17:16:25] [00:00:00.895]rdx_ble_server_auto_shut_down_enable: 1
+[2026-11-11 17:16:25] [00:00:00.895][POWEROFF]sys_auto_shut_down_enable
+[2026-11-11 17:16:25] [00:00:00.895]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-11 17:16:25] [00:00:00.896]===> sys_auto_shut_down_enable --> auto_off_time: 2160000
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.897]rdx_vm_init completed
+[2026-11-11 17:16:25] [00:00:00.897]---------- rdx_vm_auth_info_init 
+[2026-11-11 17:16:25] [00:00:00.898]flash capacity:400000 
+[2026-11-11 17:16:25] 65 AB 36 00 47 53 50 4B 39 37 30 31 34 32 36 39 
+[2026-11-11 17:16:25] 41 31 44 30 30 30 30 30 39 30 36 32 2C 32 38 43 
+[2026-11-11 17:16:25] 44 39 43 46 33 33 46 44 42 2C 42 65 61 6E 73 74 
+[2026-11-11 17:16:25] 61 6C 6B 32 36 31 34 36 37 30 FF FF FF FF FF FF 
+[2026-11-11 17:16:25] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-11 17:16:25] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-11 17:16:25] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-11 17:16:25] FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF FF 
+[2026-11-11 17:16:25] [00:00:00.900]-------- rdx_ptr: 0x63fdf34 
+[2026-11-11 17:16:25] [00:00:00.901]---- read flash success --> temp len: 54, temp: GSPK97014269A1D000009062,28CD9CF33FDB,Beanstalk2614670 
+[2026-11-11 17:16:25] [00:00:00.901]rdx_vm_auth_info_init --> auth_key_part len: 24 
+[2026-11-11 17:16:25] 47 53 50 4B 39 37 30 31 34 32 36 39 41 31 44 30 
+[2026-11-11 17:16:25] 30 30 30 30 39 30 36 32 00 
+[2026-11-11 17:16:25] [00:00:00.902]----- read auth data from flash success, auth key: GSPK97014269A1D000009062 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.903]rdx_vm_auth_info_init --> t_buf: 28CD9CF33FDB 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.904]===> 28:CD:9C:F3:3F:DB 
+[2026-11-11 17:16:25] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:25] [00:00:00.904]---------- rdx_auth_info.label_sn: Beanstalk2614670 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.905]=== read ep info from vm, result: -251
+[2026-11-11 17:16:25] [00:00:00.905]---------- read ep info fail 
+[2026-11-11 17:16:25] [00:00:00.906]===rdx_app_earphone_pack_readchardata --> readchardata: C,000000000000,000000000000,28CD9CF33FDB,GSPK97014269A1D000009062,Beanstalk2614670,000000000000 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.907]task: rdx_rec_store, tcb @ 0x421a74
+[2026-11-11 17:16:25] [00:00:00.907]create_task rdx_rec_store : stack:(0x405000,0x405bfc)
+[2026-11-11 17:16:25] [00:00:00.908]task: rdx_record_task, tcb @ 0x421ad4
+[2026-11-11 17:16:25] [00:00:00.908]create_task rdx_record_task : stack:(0x405c00,0x4063fc)
+[2026-11-11 17:16:25] [00:00:00.908]$$$$$$ rdx_record_task_create success!!!
+[2026-11-11 17:16:25] [00:00:00.909][rdx_record]rdx_record_task  
+[2026-11-11 17:16:25] [00:00:00.909][RDX_RTC][HW] init: hw=default utc=2026-11-11 17:15:08 src=VM
+[2026-11-11 17:16:25] [00:00:00.910][RDX_RTC][HW] set: utc=2026-11-11 17:15:08
+[2026-11-11 17:16:25] [00:00:00.911][RDX_RTC] verify hw: utc=2026-11-11 17:15:08 OK
+[2026-11-11 17:16:25] [00:00:00.911][RDX_RTC] verify vm: expected=1794388508 read=1794388508 OK
+[2026-11-11 17:16:25] [00:00:00.912]===> read err reboot flag ok, err_reboot_flag: 0 
+[2026-11-11 17:16:25] [00:00:00.913]LED PT0807: SPI init ok, spi_clk=60000000, baud=8000000
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.914]LED PT0807: Init ok, pixels=1, code_0=0x40, code_1=0x7C
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.914]===== rdx_led_hardware_resume --> LED PT0807 init success
+[2026-11-11 17:16:25] [00:00:00.915]RDX LED Ctrl: Init ok
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.915]===== rdx_led_hardware_resume --> LED Ctrl init success
+[2026-11-11 17:16:25] [00:00:00.916][RDX_LED_BOOT] request BLE advertising indication after LED init
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.916]RDX LED Scene: 0->0 request=1 prev_ms=910 prev_timeout_ms=0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.917]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.918]===== Allocated fixed buffer: 32768 bytes =====
+[2026-11-11 17:16:25] [00:00:00.918]task: uxfile, tcb @ 0x421c54
+[2026-11-11 17:16:25] [00:00:00.919]create_task uxfile : stack:(0x406400,0x40a3fc)
+[2026-11-11 17:16:25] [00:00:00.919]===== uxfile task created: 0 =====
+[2026-11-11 17:16:25] [00:00:00.920][UPGRADE] DAT scan completed before (flag=0xAA), trust existing DAT
+[2026-11-11 17:16:25] [00:00:00.921]===== Schedule sync after 2 seconds =====
+[2026-11-11 17:16:25] [00:00:00.921][rdx_ble]====== rdx_ble_server_init
+[2026-11-11 17:16:25] [00:00:00.921][rdx_ble]edr addr:
+[2026-11-11 17:16:25] FF 88 C0 44 38 C4 
+[2026-11-11 17:16:25] [00:00:00.922]le_controller_get_mac success, ble mac: 28:CD:9C:F3:3F:DB 
+[2026-11-11 17:16:25] [00:00:00.922][RDX_BLE_INIT] wrapper=0 registered hdl=421eb4 adv_handle=255
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.923][RDX_BLE_INIT] wrapper=1 registered hdl=421f74 adv_handle=255
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.924][RDX_BLE_INIT] wrappers registered primary=421eb4 secondary=421f74 profile=60f7b4d
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.924][HOGP] state conn=0 con=0x0000 ccc=0 enc=0 suspend=0 ready=0 hdl=421eb4
+[2026-11-11 17:16:25] [00:00:00.925]$$$$$$ rdx_protocol_task_create: app_select: BEANSTALK
+[2026-11-11 17:16:25] [00:00:00.926]task: protocol_send_task, tcb @ 0x43054c
+[2026-11-11 17:16:25] [00:00:00.926]create_task protocol_send_task : stack:(0x40a400,0x40b3fc)
+[2026-11-11 17:16:25] [00:00:00.927]$$$$$$ rdx_protocol_send_task success!!!
+[2026-11-11 17:16:25] [00:00:00.927]rdx_protocol_send_task  
+[2026-11-11 17:16:25] [00:00:00.928]task: protocol_recv_task, tcb @ 0x422034
+[2026-11-11 17:16:25] [00:00:00.928]create_task protocol_recv_task : stack:(0x40b400,0x40c3fc)
+[2026-11-11 17:16:25] [00:00:00.929]rdx_protocol_recv_task  
+[2026-11-11 17:16:25] [00:00:00.929]task: bulk_data_send_task, tcb @ 0x430dac
+[2026-11-11 17:16:25] [00:00:00.930][REC_FORMAT] boot start
+[2026-11-11 17:16:25] [00:00:00.930]create_task bulk_data_send_task : stack:(0x40c400,0x40d3fc)
+[2026-11-11 17:16:25] 2F 52 46 4D 54 2E 43 4D 54 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.932]$$$$$$ rdx_protocol_bulk_data_send_task success!!!
+[2026-11-11 17:16:25] [00:00:00.932]$$$$$$ rdx_protocol_recv_task success!!!
+[2026-11-11 17:16:25] [00:00:00.933][DUT]rdx_dut_init,L1154--> Init: VM read ret=-251, vm_value=0xFF
+[2026-11-11 17:16:25] 2F 52 46 44 52 4F 50 2E 43 4D 54 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.935][DUT]rdx_dut_init,L1161--> Init: key_dut_disabled = 0 (enabled)
+[2026-11-11 17:16:25] 2F 52 46 44 45 4C 2E 43 4D 54 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.937][POWEROFF]sys_auto_shut_down_enable
+[2026-11-11 17:16:25] [00:00:00.938]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-11 17:16:25] 2F 31 41 44 46 31 46 2E 4D 54 41 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] ====== rdx_app_bt_status_event_handler event: 3 
+[2026-11-11 17:16:25] [00:00:00.940]dual_conn_btstack_event_handler:3
+[2026-11-11 17:16:25] [00:00:00.941]dual_conn BT_STATUS_INIT_OK
+[2026-11-11 17:16:25] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.942]page_state: 0, 0
+[2026-11-11 17:16:25] [00:00:00.942]write_scan_conn_enable rets=0x602e318
+[2026-11-11 17:16:25] [00:00:00.943]write_scan_conn_enable=1,1
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.943]write_scan_conn_enable=1,1
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.944][PHONECALL] BT STATUS DEFAULT
+[2026-11-11 17:16:25] [00:00:00.944][PWR] stale_business_ignored event_epoch=1 wake_epoch=2
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.945][PWR] stale_business_ignored event_epoch=1 wake_epoch=2
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.946][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 9062 
+[2026-11-11 17:16:25] [00:00:00.946]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:DB 
+[2026-11-11 17:16:25] [00:00:00.947]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-11 17:16:25] [00:00:00.948]set_address_for_adv_handle:0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:25] [00:00:00.948]set_address_for_adv_handle:0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:25] [00:00:00.949][BLE_ENTRY] open ret=0 wrapper=0 adv_interval=160
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.954]inquiry_scan: VoicePad
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] FF 88 C0 44 38 C4 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] iqs 34
+[2026-11-11 17:16:25] ide 1000
+[2026-11-11 17:16:25] I
+[2026-11-11 17:16:25] [00:00:00.955]page_scan_enable
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] FF 88 C0 44 38 C4 
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] iqs 34
+[2026-11-11 17:16:25] pgs 34
+[2026-11-11 17:16:25] ide 1000
+[2026-11-11 17:16:25] [00:00:00.956][REC_FORMAT] boot scan result=1 files=1
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.958]
+[2026-11-11 17:16:25]  ====== rdx_app_msg_handler event:0xe 
+[2026-11-11 17:16:25] [00:00:00.960][REC_FORMAT] boot index check=0
+[2026-11-11 17:16:25] [00:00:00.961][REC_FORMAT] boot serial start
+[2026-11-11 17:16:25] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.962]
+[2026-11-11 17:16:25]  ====== rdx_app_msg_handler event:0x1a 
+[2026-11-11 17:16:25] [00:00:00.964][REC_FORMAT] boot reconciled files=1
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:25] [00:00:00.966][POWEROFF]sys_auto_shut_down_enable
+[2026-11-11 17:16:25] [00:00:00.967]=== Stream loading DAT (167 bytes) ===
+[2026-11-11 17:16:25] [00:00:00.968]sys_auto_shut_down_enable --> ble_conn: 0, k->conn_state: 0, rdx_app_get_dut_status: 0, rp->run: 3
+[2026-11-11 17:16:25] [00:00:00.970]=== DAT cache loaded: 1 records ===
+[2026-11-11 17:16:25] [00:00:00.970]=== total_count:1, total_size:123727920, uxFileList.cur_num = 2 
+[2026-11-11 17:16:25] [00:00:00.971][REC_FORMAT] file service=0
+[2026-11-11 17:16:25] [00:00:00.971][PWR] wake gen=1 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] [00:00:00.974]set_address_for_adv_handle:0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:25] [00:00:00.974]set_address_for_adv_handle:0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:25] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:25] [00:00:00.975][ADV_POLICY] state=2 hold=0x0 version=4
+[2026-11-11 17:16:25] [00:00:00.976][PWR] wake gen=2 reason=FAST_ADV pa4=1 busy=0x00
+[2026-11-11 17:16:25] PS<>w[]
+[2026-11-11 17:16:25] [00:00:01.282][ADV_POLICY] state=2 hold=0x0 version=5
+[2026-11-11 17:16:26] S<>w[]S<>w[]S<>w[]S<>w[]IPS<>w[]S<>w[]S<>w[]
+[2026-11-11 17:16:26] [00:00:01.940]--------------- rdx_app_bt_shutdown 
+[2026-11-11 17:16:26] [00:00:01.940]clr_device_in_page_list
+[2026-11-11 17:16:26] [00:00:01.940]clr_device_in_page_list
+[2026-11-11 17:16:26] [00:00:01.941]write_scan_conn_enable rets=0x6007b3c
+[2026-11-11 17:16:26] [00:00:01.941]write_scan_conn_enable=0,0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:26] [00:00:01.941]write_scan_conn_enable=0,0
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:26] pgs 34
+[2026-11-11 17:16:26] ide 1000
+[2026-11-11 17:16:26] P
+[2026-11-11 17:16:26] ide 1000
+[2026-11-11 17:16:26] [00:00:01.942]+++++ off 0
+[2026-11-11 17:16:26] [00:00:01.943]dac analog analog don't need close!!
+[2026-11-11 17:16:35] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-11 17:16:35] [00:00:10.666]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:35] S<>w[]S<>w[]S<>w[]S<>w[]charge_event_handler --> msg[0] = 44 
+[2026-11-11 17:16:35] [00:00:10.936][clock-manager]cpu0: 1% cpu1: 2% jlstream: 0% curr_clk:160000000  min_clk:24000000 dest_clk:24000000, 1
+[2026-11-11 17:16:42] S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]+
+[2026-11-11 17:16:42] [00:00:18.205]sm_conn init->le public addr:-{}
+[2026-11-11 17:16:42] 15 64 3E B9 09 BC 
+[2026-11-11 17:16:42] [00:00:18.209]hci_vendor_LE_ADVERTISING_SET_TERMINATED:50---0 
+[2026-11-11 17:16:42] [00:00:18.210]get_address_for_adv_handle
+[2026-11-11 17:16:42] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:42] [00:00:18.211]get_address_for_adv_handle
+[2026-11-11 17:16:42] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:42] [00:00:18.211]get_address_for_adv_handle
+[2026-11-11 17:16:42] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:42] [00:00:18.214][RDX_BLE_LINK] connect wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.215][RDX_BLE_PARAM] initial wrapper=0 con=0x0050 interval_1p25ms=9 latency=49 timeout_10ms=600 t=18210
+[2026-11-11 17:16:42] {}
+[2026-11-11 17:16:42] [00:00:18.219][RDX_BLE_LINK] connected_count=1; defer idle-wrapper advertising
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.221][PWR] links_changed gen=3 links=1 busy=0x01
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.223][PWR_CONN] armed idle_ms=120000 version=6 epoch=5 links=1
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.224][RDX_BLE_LINK] mtu_exchange wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.225][RDX_BLE_LINK] mtu=514 con=0x0050
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:42] [00:00:18.227][BLE_ENTRY] topology entry=persistent{}
+[2026-11-11 17:16:42] [00:00:18.231][RDX_BLE_LINK] connection fan-out done; advertise on idle wrapper
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:42] [00:00:18.233][RDX_BLE_LP] system_sleep_block=1 connected=1 second_acl_window=1 adv_in_flight=1 adv_interval=160 reason=advertising_prepare
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:42] [00:00:18.236][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 9062 
+[2026-11-11 17:16:42] [00:00:18.237]rdx_ble_server_fill_rsp_data -->ble mac: 28:CD:9C:F3:3F:DB 
+[2026-11-11 17:16:42] {}0:00:18.238]****** bd = 1, manu_data[len] = 0x00, manu_len = 17, ability = 00000EA2 
+[2026-11-11 17:16:42] [00:00:18.246]set_address_for_adv_handle:0
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:42] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:42] [00:00:18.246]set_address_for_adv_handle:0
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:42] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:42] [00:00:18.249][RDX_BLE_LP] system_sleep_block=0 connected=1 second_acl_window=1 adv_in_flight=0 adv_interval=160 reason=advertising_result
+[2026-11-11 17:16:31] 
+[2026-11-11 17:16:42] [00:00:18.251][BLE_ENTRY] open ret=0 wrapper=1 adv_interval=160
+[2026-11-11 17:16:42] {}{}{}{}{}
+[2026-11-11 17:16:42] [00:00:18.299][RDX_BLE_LINK] sm_just_works wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:42] [00:00:18.301][RDX_BLE_SEC] Just Works confirmed for provisional HID candidate con=0x0050 capability=0x00
+[2026-11-11 17:16:44] {}{}{}{}{V}{}{}{}{}{}{}{}{V}{}+{V}{}-{}{}{}{V}{}{}{}{}{}
+[2026-11-11 17:16:44] [00:00:19.693][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:39] 
+[2026-11-11 17:16:44] [00:00:19.694]<-------------read_callback, handle= 0x0003,buffer= 00000000 
+[2026-11-11 17:16:44] [00:00:19.696][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 9062 
+[2026-11-11 17:16:44] [00:00:19.697][rdx_ble]
+[2026-11-11 17:16:44] att_value_len = 13 
+[2026-11-11 17:16:44] [00:00:19.698][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:42] 
+[2026-11-11 17:16:44] [00:00:19.699]<-------------read_callback, handle= 0x0003,buffer= 001106ed 
+[2026-11-11 17:16:44] [00:00:19.700][rdx_ble]===> rdx_ble_server_get_local_name --> read local name success, current name: VoicePad 9062 
+[2026-11-11 17:16:44] [00:00:19.702][rdx_ble]
+[2026-11-11 17:16:44] {}----read gap_name: VoicePad 9062 
+[2026-11-11 17:16:44] [00:00:19.703][rdx_ble]
+[2026-11-11 17:16:45] {}{}{}{V}{}S<>w[]S<>w[]S<>+w[]S<>w[]S<>w[]-{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-11 17:16:45] [00:00:20.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:16:42] 
+[2026-11-11 17:16:45] S<>w[]S<>w[]{V}{}{}{}{}{}S<>w[]event_handler --> msg[0] = 44 
+[2026-11-11 17:16:45] [00:00:20.951][clock-manager]cpu0: 14% cpu1: 2% jlstream: 0% curr_clk:24000000  min_clk:24000000 dest_clk:24000000, 1
+[2026-11-11 17:16:46] S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]{V}
+[2026-11-11 17:16:46] [00:00:21.593][RDX_BLE_LINK] connection_update wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] {}
+[2026-11-11 17:16:46] [00:00:21.595][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=11 latency=0 timeout_10ms=960 t=21590
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:46] [00:00:21.597][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=1 interval=6-12 latency=49 ret=0 t=21590
+[2026-11-11 17:16:46] #{}{}
+[2026-11-11 17:16:46] [00:00:21.624]===PH2:sm_ltk:
+[2026-11-11 17:16:46] 49 35 F3 AC 0A 86 C5 9E EF EC 1E D4 E3 F5 FD C7 
+[2026-11-11 17:16:46] {}S<>w[]{}S<>w[]{}
+[2026-11-11 17:16:46] [00:00:21.666][RDX_BLE_LINK] encryption_change wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:46] [00:00:21.667][HOGP] peer identity hdl=0x0050 15:64:3e:b9:09:bc
+[2026-11-11 17:16:46] [00:00:21.671][HOGP] subscription restored hdl=0x0050
+[2026-11-11 17:16:46] [00:00:21.672][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-11 17:16:46] [00:00:21.673][HOGP] conn complete hdl=0x0050 restored_ccc=0x0001
+[2026-11-11 17:16:46] {}0:00:21.673][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-11 17:16:46] [00:00:21.676][RDX_BLE_HID] owner attached con=0x0050 hdl=421eb4
+[2026-11-11 17:16:26] 
+[2026-11-11 17:16:46] [00:00:21.677][HOGP] encryption_change hdl=0x0050 enabled=1 status=0
+[2026-11-11 17:16:46] [00:00:21.678][HOGP] state conn=1 con=0x0050 ccc=1 enc=1 suspend=0 ready=1 hdl=421eb4
+[2026-11-11 17:16:46] [00:00:21.679][RDX_BLE_SEC] encryption=1 con=0x0050
+[2026-11-11 17:16:46] {}{V}{}{}
+[2026-11-11 17:16:46] [00:00:21.718]get_address_for_adv_handle
+[2026-11-11 17:16:46] DB 3F F3 9C CD 28 
+[2026-11-11 17:16:46] {}S<>w[]{}
+[2026-11-11 17:16:46] [00:00:21.747][RDX_BLE_SEC] sm_event wrapper=0 type=0xde size=19 observed
+[2026-11-11 17:16:46] {}q0{}
+[2026-11-11 17:16:46] [00:00:21.778][RDX_BLE_SEC] sm_event wrapper=0 type=0xdf size=16 observed
+[2026-11-11 17:16:42] 
+[2026-11-11 17:16:46] [00:00:21.782][RDX_BLE_LINK] connection_update wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:44] 
+[2026-11-11 17:16:46] [00:00:21.784][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=9 latency=49 timeout_10ms=600 t=21780
+[2026-11-11 17:16:46] #{}{}{V}{}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}
+[2026-11-11 17:16:46] [00:00:21.963][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:44] 
+[2026-11-11 17:16:46] [00:00:21.965]<-------------read_callback, handle= 0x0024,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:21.966][HOGP] read hdl=0x0024 offset=0 len=1
+[2026-11-11 17:16:46] [00:00:21.966][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 1 
+[2026-11-11 17:16:46] [00:00:21.967][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:44] 
+[2026-11-11 17:16:46] [00:00:21.968]<-------------read_callback, handle= 0x0024,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:21.969][HOGP] read hdl=0x0024 offset=0 len=1
+[2026-11-11 17:16:46] [00:00:21.970][rdx_ble]
+[2026-11-11 17:16:46] {}{}{}{}{}{}{V} 1 
+[2026-11-11 17:16:46] [00:00:22.042][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] {}
+[2026-11-11 17:16:46] [00:00:22.044]<-------------read_callback, handle= 0x0020,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.045][HOGP] read hdl=0x0020 offset=0 len=4
+[2026-11-11 17:16:46] [00:00:22.046][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 4 
+[2026-11-11 17:16:46] [00:00:22.047][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:25] 
+[2026-11-11 17:16:46] [00:00:22.048]<-------------read_callback, handle= 0x0020,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.049][HOGP] read hdl=0x0020 offset=0 len=4
+[2026-11-11 17:16:46] [00:00:22.049][rdx_ble]
+[2026-11-11 17:16:46] {}{}{}lue_len = 4 
+[2026-11-11 17:16:46] [00:00:22.075][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.077]<-------------read_callback, handle= 0x001e,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.077][HOGP] read hdl=0x001e offset=0 len=70
+[2026-11-11 17:16:46] [00:00:22.078][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 70 
+[2026-11-11 17:16:46] [00:00:22.079][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.080]<-------------read_callback, handle= 0x001e,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.081][HOGP] read hdl=0x001e offset=0 len=70
+[2026-11-11 17:16:46] [00:00:22.082][rdx_ble]
+[2026-11-11 17:16:46] {}{}value_len = 70 
+[2026-11-11 17:16:46] [00:00:22.098][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.099]<-------------read_callback, handle= 0x001a,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.100][HOGP] read hdl=0x001a offset=0 len=8
+[2026-11-11 17:16:46] [00:00:22.100][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 8 
+[2026-11-11 17:16:46] [00:00:22.101][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.102]<-------------read_callback, handle= 0x001a,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.103][HOGP] read hdl=0x001a offset=0 len=8
+[2026-11-11 17:16:46] [00:00:22.104][rdx_ble]
+[2026-11-11 17:16:46] {}{}{}{}{V}{}{} 8 
+[2026-11-11 17:16:46] [00:00:22.165][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.166]<-------------read_callback, handle= 0x001b,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.167][HOGP] read hdl=0x001b offset=0 len=2
+[2026-11-11 17:16:46] [00:00:22.168][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 2 
+[2026-11-11 17:16:46] [00:00:22.169][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.170]<-------------read_callback, handle= 0x001b,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.171][HOGP] read hdl=0x001b offset=0 len=2
+[2026-11-11 17:16:46] [00:00:22.172][rdx_ble]
+[2026-11-11 17:16:46] {}{}value_len = 2 
+[2026-11-11 17:16:46] [00:00:22.187][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.189]<-------------read_callback, handle= 0x0018,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.190][HOGP] read hdl=0x0018 offset=0 len=1
+[2026-11-11 17:16:46] [00:00:22.191][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 1 
+[2026-11-11 17:16:46] [00:00:22.192][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.193]<-------------read_callback, handle= 0x0018,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.194][HOGP] read hdl=0x0018 offset=0 len=1
+[2026-11-11 17:16:46] [00:00:22.194][rdx_ble]
+[2026-11-11 17:16:46] {}{}{}{}{}{}{V}{}{}{}{}
+[2026-11-11 17:16:46] [00:00:22.300][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.301]<-------------read_callback, handle= 0x0015,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.302][rdx_ble]
+[2026-11-11 17:16:46] {}{}{}{}{}{V}{}{}{}
+[2026-11-11 17:16:46] [00:00:22.390][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.391]<-------------read_callback, handle= 0x000e,buffer= 00000000 
+[2026-11-11 17:16:46] [00:00:22.392]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:46] [00:00:22.393]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-11 17:16:46] [00:00:22.394][rdx_ble]
+[2026-11-11 17:16:46] att_value_len = 1 
+[2026-11-11 17:16:46] [00:00:22.395][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:46] [00:00:22.396]<-------------read_callback, handle= 0x000e,buffer= 001106ed 
+[2026-11-11 17:16:46] [00:00:22.397]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:46] {}0:00:22.398]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-11 17:16:46] [00:00:22.400][rdx_ble]
+[2026-11-11 17:16:47] {}{}{}{}e_len = 1 
+[2026-11-11 17:16:47] [00:00:22.446][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:22.447]<-------------read_callback, handle= 0x000f,buffer= 00000000 
+[2026-11-11 17:16:47] [00:00:22.448][rdx_ble]
+[2026-11-11 17:16:47] {}{}{V}{}{}{}{}{}{}{}{}{}
+[2026-11-11 17:16:47] [00:00:22.570][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:22.571]<-------------read_callback, handle= 0x000b,buffer= 00000000 
+[2026-11-11 17:16:47] [00:00:22.572][rdx_ble]
+[2026-11-11 17:16:47] att_value_len = 95 
+[2026-11-11 17:16:47] [00:00:22.573][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:22.574]<-------------read_callback, handle= 0x000b,buffer= 001106ed 
+[2026-11-11 17:16:47] [00:00:22.575]rdx_ble_server_att_read_callback --> readchardata: C,000000000000,000000000000,28CD9CF33FDB,GSPK97014269A1D000009062,Beanstalk2614670,000000000000 
+[2026-11-11 17:16:47] [00:00:22.577][rdx_ble]
+[2026-11-11 17:16:47] q0{V}{}{}{}{}{}{}{}
+[2026-11-11 17:16:47] [00:00:22.648][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:22.650]<-------------read_callback, handle= 0x0009,buffer= 00000000 
+[2026-11-11 17:16:47] [00:00:22.651][rdx_ble]
+[2026-11-11 17:16:47] {}{}+{}-{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}
+[2026-11-11 17:16:47] [00:00:23.248][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:47] {}
+[2026-11-11 17:16:47] [00:00:23.251][RDX_BLE_GATT] Battery CCC cfg=0x0001 con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:23.252]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:47] [00:00:23.253][RDX_BLE_GATT] Battery test notify con=0x0050 ret=0
+[2026-11-11 17:16:47] {}{}
+[2026-11-11 17:16:47] [00:00:23.270][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:23.271]<-------------read_callback, handle= 0x000e,buffer= 00000000 
+[2026-11-11 17:16:47] [00:00:23.272]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:47] [00:00:23.273]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-11 17:16:47] [00:00:23.274][rdx_ble]
+[2026-11-11 17:16:47] att_value_len = 1 
+[2026-11-11 17:16:47] [00:00:23.275][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:47] [00:00:23.276]<-------------read_callback, handle= 0x000e,buffer= 001106ed 
+[2026-11-11 17:16:47] [00:00:23.277]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:47] {}0:00:23.278]rdx_ble_server_att_read_callback --> master_bat: 100 
+[2026-11-11 17:16:47] [00:00:23.280][rdx_ble]
+[2026-11-11 17:16:48] {}{}{}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}
+[2026-11-11 17:16:48] [00:00:23.890][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:48] {}
+[2026-11-11 17:16:51] {}{}{}S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}{}{}{}{}{}{}{}{}{V}{}{}{}{}#{}{}{}{}{}{V}{}{}S<>w[]{}#{}{}{}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{V}{}S<>w[]S<>w[]S<>w[]S<>w[]+{V}{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]-{V}
+[2026-11-11 17:16:51] [00:00:27.031][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.035]====== rdx_protocol_send_buffer_reinit ======
+[2026-11-11 17:16:51] [00:00:27.036]====== rdx_ble_server_start_force_disconnect_timer 
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:51] [00:00:27.037][RDX_BLE_SESSION] composite owner slot=0 con=0x0050 order=HID+RDX
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.038][RDX_BLE_SESSION] runtime ACTIVE con=0x0050 hdl=421eb4 epoch=2
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.040][RDX_BLE_TONE] post service=RDX con=0x0050 gen=2 epoch=2 ticket=2
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.044][RDX_BLE_LP] system_sleep_block=1 connected=1 second_acl_window=1 adv_in_flight=1 adv_interval=160 reason=advertising_closing
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.047][PWR_CONN] armed idle_ms=120000 version=6 epoch=6 links=1
+[2026-11-11 17:16:46] 
+[2026-11-11 17:16:51] [00:00:27.050]RDX LED Scene: 0->2 request=2 prev_ms=26140 prev_timeout_ms=0
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.052]RDX LED effect: id=2 mode=2 rgb=0,0,255 cycle=0 on_ms=5000 timeout_ms=5000
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.055]tone_player: tone_en/conn.*
+[2026-11-11 17:16:51] [00:00:27.056]pipeline_uuid: 7674
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.057][JLSTREAM]create_stream: 431238, 0
+[2026-11-11 17:16:51] [00:00:27.058][RDX_BLE_TONE] start service=RDX ticket=2
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.058]demuxer_not_match: conn.mp3
+[2026-11-11 17:16:51] [00:00:27.059][JLSTREAM]jlstream_multi_thread create:jlstream_0
+[2026-11-11 17:16:51] [00:00:27.061][DAC]sample 24000
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.062][STREAM]format negotiation: suss
+[2026-11-11 17:16:51]   { source,             24000, 1 ch, 16bit }
+[2026-11-11 17:16:51]   { decoder,            24000, 1 ch, 16bit }
+[2026-11-11 17:16:51]   { dac,                24000, 1 ch, 16bit }
+[2026-11-11 17:16:51] [00:00:27.063][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.064]task: jlstream_0, tcb @ 0x431fac
+[2026-11-11 17:16:51] [00:00:27.064]create_task jlstream_0 : stack:(0x40d400,0x40dffc)
+[2026-11-11 17:16:51] [00:00:27.065][RDX_BLE_LP] system_sleep_block=0 connected=1 second_acl_window=0 adv_in_flight=0 adv_interval=160 reason=advertising_closed
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.066][JLSTREAM]frame_time: 8, 80,frame_len:384
+[2026-11-11 17:16:51] [00:00:27.066][BLE_ENTRY] close confirmed status=0x42
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.067]vol_dB :10, -18
+[2026-11-11 17:16:51] [00:00:27.068]vol_2_gain: 10, 16, 2063
+[2026-11-11 17:16:51] [00:00:27.068]audio_state:idle->tone,max_vol:16
+[2026-11-11 17:16:51] [00:00:27.068]set_vol[tone]:tone=10
+[2026-11-11 17:16:51] [00:00:27.068]vol_dB :10, -18
+[2026-11-11 17:16:51] [00:00:27.069]vol_2_gain: 10, 16, 2063
+[2026-11-11 17:16:51] [00:00:27.069][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-11 17:16:51] [00:00:27.069]set_vol[tone]:=10
+[2026-11-11 17:16:51] [00:00:27.069][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-11 17:16:51] [00:00:27.070]convert_data_ioc_start bit_wide, 0 0 15
+[2026-11-11 17:16:51] [00:00:27.071][JLSTREAM]send_callback: app_core, event 8, err 0
+[2026-11-11 17:16:51] [00:00:27.071]tone_callback: 8, 0
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.074][DAC]__audio_dac_try_power_on
+[2026-11-11 17:16:51] {}
+[2026-11-11 17:16:51] [00:00:27.085][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:51] [00:00:27.086][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=14
+[2026-11-11 17:16:51] [00:00:27.086][RDX_APP_RX] ASCII: *APP#ostype#3#
+[2026-11-11 17:16:51] [00:00:27.087][APP CMD] os_type = 3
+[2026-11-11 17:16:51] [00:00:27.088][RDX_BLE_LINK] compact_fragment=0 con=0x0050
+[2026-11-11 17:16:51] {}{}{}{}
+[2026-11-11 17:16:51] [00:00:27.214]dac analog init!!! 0
+[2026-11-11 17:16:51] [00:00:27.215][DAC]delay set : 1200, 60, 480
+[2026-11-11 17:16:51] [00:00:27.215][DAC]audio_dac_fifo_start : 0x0, 10, DAC_CON = 0x821e1b8
+[2026-11-11 17:16:51] U
+[2026-11-11 17:16:51] [00:00:27.215][fade]state:tone,max_volume:16,cur:10,10
+[2026-11-11 17:16:51] [00:00:27.216][AMP] pe5=1 ev=DAC_START analog=1 output=1 seq=1 t=27210
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:51] [00:00:27.216]set_vol[tone]:=10
+[2026-11-11 17:16:51] [00:00:27.217][SW_DVOL]Gain:10,AVOL:3,DVOL:16384
+[2026-11-11 17:16:51] [00:00:27.222][JLSTREAM]dst_delay: 450, 499
+[2026-11-11 17:16:52] +{}
+[2026-11-11 17:16:52] [00:00:28.042]====== rdx_ble_server_syn_data_after_ble_write_ready --> rp->run: 3, rp->mode: 0, rp->orig_mode: 0 
+[2026-11-11 17:16:52] [00:00:28.043]====== rdx_ble_server_syn_data_after_ble_write_ready --> record not running, skip sync. rp->run: 3 
+[2026-11-11 17:16:52] -{}:00:28.044][FLASHNOTE] offline sync unavailable; no active local session
+[2026-11-11 17:16:52] [00:00:28.052][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.053][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=20
+[2026-11-11 17:16:52] [00:00:28.054][RDX_APP_RX] ASCII: *APP#rtc#1794388612#
+[2026-11-11 17:16:52] [00:00:28.055][RDX_RTC][HW] utc=2026-11-11 17:15:35 src=RTC
+[2026-11-11 17:16:52] [00:00:28.055][RDX_RTC][HW] set: utc=2026-11-11 17:16:52
+[2026-11-11 17:16:52] [00:00:28.061][RDX_RTC] verify hw: utc=2026-11-11 17:16:52 OK
+[2026-11-11 17:16:52] {}{}{}:28.061][RDX_RTC] verify vm: expected=1794388612 read=1794388612 OK
+[2026-11-11 17:16:52] [00:00:28.086][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:47] 
+[2026-11-11 17:16:52] [00:00:28.087][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-11 17:16:52] [00:00:28.087][RDX_APP_RX] ASCII: *APP#version#
+[2026-11-11 17:16:52] {}{}00:28.088][APP CMD] version (fw=1.2.1, hw=0.0.1)
+[2026-11-11 17:16:52] [00:00:28.108][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.109][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-11 17:16:52] [00:00:28.110][RDX_APP_RX] ASCII: *APP#battery#
+[2026-11-11 17:16:52] [00:00:28.110]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:52] {}q0{}{}{}111][APP CMD] battery (L=100, R=0, C=0)
+[2026-11-11 17:16:52] [00:00:28.153][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.154][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=14
+[2026-11-11 17:16:52] [00:00:28.155][RDX_APP_RX] ASCII: *APP#incharge#
+[2026-11-11 17:16:52] [00:00:28.156]===> rdx_battery_get_percent--> chr_state: 0, voltage = 4260 
+[2026-11-11 17:16:52] [00:00:28.156][APP CMD] incharge state=0 (C=0, R=0, L=100)
+[2026-11-11 17:16:52] {}{}00:28.157]incharge notify --> charge_state: 0, left: 0, right: 0, chargebox: 100 
+[2026-11-11 17:16:52] [00:00:28.176][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.177][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=9
+[2026-11-11 17:16:52] [00:00:28.177][RDX_APP_RX] ASCII: *APP#mem#
+[2026-11-11 17:16:52] [00:00:28.178]rdx_protocol_sd_mem_indicate --> *DEV#mem#0#0# 
+[2026-11-11 17:16:52] [00:00:28.180]======== sd_mem_check --> root_path: storage/sd0/C/ 
+[2026-11-11 17:16:52] [00:00:28.181][PWR_CONN] wait busy=0x340 reason=RGB_REQUIRED timer=OFF
+[2026-11-11 17:16:52] {}{}{}{}
+[2026-11-11 17:16:52] [00:00:28.268][JLSTREAM]dec_err: 48
+[2026-11-11 17:16:52] [00:00:28.287]======== sd free space: 1024, flash_capacity = 121866, clust_size = 2048 
+[2026-11-11 17:16:52] [00:00:28.287]rdx_protocol_sd_mem_indicate --> *DEV#mem#1024#121866# 
+[2026-11-11 17:16:52] [00:00:28.289][PWR_CONN] wait busy=0x040 reason=RGB_REQUIRED timer=OFF
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.290][JLSTREAM]dec_end: 0
+[2026-11-11 17:16:52] {}U
+[2026-11-11 17:16:52] [00:00:28.310][DAC]DAV VOL0 : 0x40004000
+[2026-11-11 17:16:52] {}
+[2026-11-11 17:16:52] [00:00:28.311][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.312]<-------------read_callback, handle= 0x000b,buffer= 00000000 
+[2026-11-11 17:16:52] [00:00:28.312][rdx_ble]
+[2026-11-11 17:16:52] att_value_len = 95 
+[2026-11-11 17:16:52] [00:00:28.313][RDX_BLE_LINK] att_read wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:52] [00:00:28.313]<-------------read_callback, handle= 0x000b,buffer= 001106ed 
+[2026-11-11 17:16:52] [00:00:28.314]rdx_ble_server_att_read_callback --> readchardata: C,000000000000,000000000000,28CD9CF33FDB,GSPK97014269A1D000009062,Beanstalk2614670,000000000000 
+[2026-11-11 17:16:52] [00:00:28.315][rdx_ble]
+[2026-11-11 17:16:52] {}{}{}{}e_len = 95 
+[2026-11-11 17:16:52] [00:00:28.360][DAC]Audio DAC Stop
+[2026-11-11 17:16:52] [00:00:28.361][AMP] pe5=0 ev=DAC_STOP analog=1 output=0 seq=2 t=28360
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:52] [00:00:28.361][JLSTREAM]send_callback: app_core, event 10, err 0
+[2026-11-11 17:16:52] [00:00:28.362]tone_callback: a, 0
+[2026-11-11 17:16:52] [00:00:28.362][JLSTREAM]free_stream: 431238
+[2026-11-11 17:16:52] [00:00:28.362][JLSTREAM]decoder_release: 4316fc
+[2026-11-11 17:16:52] [00:00:28.363][JLSTREAM]release: jlstream 20
+[2026-11-11 17:16:52] {}
+[2026-11-11 17:16:52] [00:00:28.367][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:52] [00:00:28.368][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=26
+[2026-11-11 17:16:52] [00:00:28.368][RDX_APP_RX] ASCII: *APP#custom#rectone#get,1#
+[2026-11-11 17:16:52] {}{}{}:28.369]rdx_protocol_handle_custom_cmd --> *APP#custom#rectone#get,1# 
+[2026-11-11 17:16:52] [00:00:28.401][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:51] 
+[2026-11-11 17:16:52] [00:00:28.401][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=26
+[2026-11-11 17:16:52] [00:00:28.402][RDX_APP_RX] ASCII: *APP#custom#recsave#get,1#
+[2026-11-11 17:16:52] {}{}{}:28.403]rdx_protocol_handle_custom_cmd --> *APP#custom#recsave#get,1# 
+[2026-11-11 17:16:52] [00:00:28.434][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:52] [00:00:28.435][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=22
+[2026-11-11 17:16:52] [00:00:28.435][RDX_APP_RX] ASCII: *APP#custom#vol#get,1#
+[2026-11-11 17:16:52] {}{}{}{}{}436]rdx_protocol_handle_custom_cmd --> *APP#custom#vol#get,1# 
+[2026-11-11 17:16:53] [00:00:28.544][BLE] Stream TX ready=1 (delayed after sync data)
+[2026-11-11 17:16:55] [00:00:28.661]dac analog analog close!!{}#+{}S<>w[]S<>w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}
+[2026-11-11 17:16:55] [00:00:30.428][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.428][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-11 17:16:55] [00:00:30.429][RDX_APP_RX] ASCII: *APP#getlist#
+[2026-11-11 17:16:55] [00:00:30.430]rdx_protocol_file_list_ack_indicate 
+[2026-11-11 17:16:55] [00:00:30.430]=== rdx_uxfile_datFileInfo_sendBuf_free 
+[2026-11-11 17:16:55] [00:00:30.431][GETLIST] New request received, reset previous transfer state
+[2026-11-11 17:16:55] 2F 55 58 46 49 4C 45 2E 44 41 54 00 00 00 00 00 
+[2026-11-11 17:16:55] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:55] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:55] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:55] [00:00:30.433][PWR_CONN] wait busy=0x340 reason=RGB_REQUIRED timer=OFF
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.436]rdx_protocol_record_file_info_indicate 
+[2026-11-11 17:16:55] [00:00:30.437][PWR_CONN] wait busy=0x048 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] {}+{}
+[2026-11-11 17:16:55] [00:00:30.461][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:55] -{}
+[2026-11-11 17:16:55] [00:00:30.462][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=13
+[2026-11-11 17:16:55] [00:00:30.463][RDX_APP_RX] ASCII: *APP#flist#0#
+[2026-11-11 17:16:55] [00:00:30.463][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.464][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=17
+[2026-11-11 17:16:55] [00:00:30.465][RDX_APP_RX] ASCII: *APP#listreq#0#1#
+[2026-11-11 17:16:55] [00:00:30.466][PWR_CONN] wait busy=0x248 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.466]
+[2026-11-11 17:16:55]  =====_rdx_protocol_handle_recordDatInfo_req --> ack = 0, req_num = 1 
+[2026-11-11 17:16:55] [00:00:30.467]rdx_protocol_recordDatFileInfo_indicateByRequestNum --> num = 1, ack = 0, divpack = 1, data_len = 167, left_len = 0 
+[2026-11-11 17:16:55] [00:00:30.468]rdx_protocol_recordDatFileInfo_indicateByRequestNum --> p->sent_size = dat_size = 167 
+[2026-11-11 17:16:55] [00:00:30.468] --> cal_crc = 3240290079 , total = 30, *DEV#listreq#1#167#3240290079#
+[2026-11-11 17:16:55] [00:00:30.469]rdx_protocol_recordDatFileInfo_indicateByRequestNum 
+[2026-11-11 17:16:55] [00:00:30.470][PWR_CONN] wait busy=0x048 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] {}{}S<>w[]{}{}S<>w[]{}
+[2026-11-11 17:16:55] [00:00:30.517][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.518][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=17
+[2026-11-11 17:16:55] [00:00:30.519][RDX_APP_RX] ASCII: *APP#listreq#0#0#
+[2026-11-11 17:16:55] [00:00:30.520]
+[2026-11-11 17:16:55]  =====_rdx_protocol_handle_recordDatInfo_req --> ack = 0, req_num = 0 
+[2026-11-11 17:16:55] [00:00:30.520][PWR_CONN] wait busy=0x248 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:55] [00:00:30.521]=====> record dat file send finish! 
+[2026-11-11 17:16:55] [00:00:30.521]=== rdx_uxfile_datFileInfo_sendBuf_free 
+[2026-11-11 17:16:55] [00:00:30.522]=== rdx_uxfile_datFileInfo_sendBuf_free --> DO data free 
+[2026-11-11 17:16:55] [00:00:30.522][PWR_CONN] wait busy=0x040 reason=RGB_REQUIRED timer=OFF
+[2026-11-11 17:16:55] {}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-11 17:16:55] [00:00:30.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:56] S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]
+[2026-11-11 17:16:56] [00:00:32.053]RDX LED timeout: scene=2 elapsed_ms=5000 timeout_ms=5000
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:56] [00:00:32.054]RDX LED Scene: 2->0 request=0 prev_ms=5000 prev_timeout_ms=5000
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:56] [00:00:32.054]RDX LED effect: id=0 mode=0 rgb=0,0,0 cycle=0 on_ms=0 timeout_ms=0
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:56] [00:00:32.055][PWR_CONN] armed idle_ms=120000 version=30 epoch=6 links=1
+[2026-11-11 17:16:56] S<>w[]
+[2026-11-11 17:16:56] [00:00:32.072][APP_AUDIO]VOL_SAVE 14
+[2026-11-11 17:16:59] S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]{}S<>w[]#{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]{}{}
+[2026-11-11 17:16:59] [00:00:34.943][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:52] 
+[2026-11-11 17:16:59] [00:00:34.944][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:16:59] [00:00:34.944][RDX_APP_RX] ASCII: *APP#opusfile#0#2#1#0#0#
+[2026-11-11 17:16:59]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 1, auto_del = 0, file_offset = 0 
+[2026-11-11 17:16:59] [00:00:34.946]rdx_protocol_handle_recordFileData_req --> file_send_busy: 0, last_file_num: 0, last_pack_num: 0 
+[2026-11-11 17:16:59] [00:00:34.947]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 0 
+[2026-11-11 17:16:59] [00:00:34.948]rdx_protocol_file_sync_busy_timer_start --> Created new timer, rdx_file_sync_busy_timer: 641, timeout: 5000 ms 
+[2026-11-11 17:16:59] [00:00:34.949][PWR_CONN] wait busy=0x308 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:59] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] [00:00:34.952]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 1, p->divpack: 5055, rf_info->orig_pack_num: 0, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:16:59] [00:00:34.953][PWR_CONN] wait busy=0x208 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:59] [00:00:34.954]===> Setting total_pack from divpack: 5055
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:59] {}0:00:34.954]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 641 
+[2026-11-11 17:16:59] [00:00:34.955]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 641 
+[2026-11-11 17:16:59] [00:00:34.955]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123727920, orig_pack_num = 0, rf_info->sent_size = 24480 
+[2026-11-11 17:16:59] [00:00:34.957][UXFILE] Read buffer allocated: 49152 bytes
+[2026-11-11 17:16:59] [00:00:34.958][PWR_CONN] wait busy=0x308 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:59] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:16:59] {}{}00:34.959][UXFILE] Opened file with persistent handle
+[2026-11-11 17:16:59] [00:00:34.977][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:55] 
+[2026-11-11 17:16:59] [00:00:34.979]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 0, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:16:59] [00:00:34.979]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:16:59] [00:00:34.982][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:01] {}{}{}{}{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}q0{}S<>w[]{}{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}+{}S<>w[]-{}q0{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}q0{}{}S<>w[]{}q0{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}q0{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}+{}S<>w[]c0+{}-{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:01] [00:00:36.958][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:55] 
+[2026-11-11 17:17:01] [00:00:36.958][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:01] [00:00:36.959][RDX_APP_RX] ASCII: *APP#opusfile#0#2#2#0#0#
+[2026-11-11 17:17:01]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 2, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:01] [00:00:36.961]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 1 
+[2026-11-11 17:17:01] [00:00:36.961]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 641 
+[2026-11-11 17:17:01] [00:00:36.962]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 641 
+[2026-11-11 17:17:01] [00:00:36.963]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:01] [00:00:36.964][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:01] [00:00:36.964]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 2, p->divpack: 5055, rf_info->orig_pack_num: 0, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:01] [00:00:36.965][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:01] [00:00:36.966]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:01] [00:00:36.966]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123703440, orig_pack_num = 2, rf_info->sent_size = 24480 
+[2026-11-11 17:17:01] [00:00:36.968][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:01] {}{}
+[2026-11-11 17:17:01] [00:00:36.982][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:01] [00:00:36.984]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 24480, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:01] [00:00:36.985]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:01] [00:00:36.988][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:03] {}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}q0{}{}{}{}q0{}{}{}q0{}{}{}q0{}{}q0{}{}{}q0{}{}{}q0{}{}+{}-{}q0{}{}q0{}q0{}{}q0q0{}q0{}q0{}{}q0{}{}{}q0{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}q0{}S<>w[]q0{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}q0{}{}{}S<>w[]{}{}{}S<>w[]{}
+[2026-11-11 17:17:03] [00:00:38.444][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:03] [00:00:38.445][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:03] [00:00:38.446][RDX_APP_RX] ASCII: *APP#opusfile#0#2#3#0#0#
+[2026-11-11 17:17:03]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 3, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:03] [00:00:38.447]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 2 
+[2026-11-11 17:17:03] [00:00:38.448]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 641 
+[2026-11-11 17:17:03] [00:00:38.449]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 641 
+[2026-11-11 17:17:03] [00:00:38.450]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:03] [00:00:38.450][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:03] [00:00:38.451]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 3, p->divpack: 5055, rf_info->orig_pack_num: 2, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:03] [00:00:38.452][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:03] [00:00:38.453]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:03] [00:00:38.453]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123678960, orig_pack_num = 3, rf_info->sent_size = 24480 
+[2026-11-11 17:17:03] [00:00:38.455][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:03] {}{}
+[2026-11-11 17:17:03] [00:00:38.469][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:01] 
+[2026-11-11 17:17:03] [00:00:38.471]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 48960, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:03] [00:00:38.472]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:03] [00:00:38.475][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:05] {}S<>w[]{}+{}-{}{}{}{}{}S<>w[]{}{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}q0{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}c0+{}-{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}S<>w[]{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}{}{}q0{}+{}-{}q0{}{}+{}-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]c0+{}-{}{}+{}-{}{}{}S<>w[]{}q0{}{}{}{}{}{}S<>w[]q0{}{}{}+{}-{}{}{}S<>w[]q0{}{}{}+{}-{}{}q0{}{}{}{}+{}-{}
+[2026-11-11 17:17:05] [00:00:40.668]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:01] 
+[2026-11-11 17:17:05] {}{}S<>w[]{}{}{}+{}-{}{}S<>w[]q0{}S<>w[]{}er --> msg[0] = 44 
+[2026-11-11 17:17:05] [00:00:40.774][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:05] [00:00:40.775][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:05] [00:00:40.775][RDX_APP_RX] ASCII: *APP#opusfile#0#2#4#0#0#
+[2026-11-11 17:17:05]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 4, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:05] [00:00:40.777]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 3 
+[2026-11-11 17:17:05] [00:00:40.778]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 641 
+[2026-11-11 17:17:05] [00:00:40.778]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 641 
+[2026-11-11 17:17:05] [00:00:40.779]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:05] [00:00:40.780][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:01] 
+[2026-11-11 17:17:05] [00:00:40.780]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 4, p->divpack: 5055, rf_info->orig_pack_num: 3, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:05] [00:00:40.782][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:01] 
+[2026-11-11 17:17:05] [00:00:40.782]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:05] [00:00:40.783]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123654480, orig_pack_num = 4, rf_info->sent_size = 24480 
+[2026-11-11 17:17:05] [00:00:40.784][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:05] {}{}
+[2026-11-11 17:17:05] [00:00:40.799][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:03] 
+[2026-11-11 17:17:05] [00:00:40.800]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 73440, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:05] [00:00:40.801]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:05] [00:00:40.804][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:05] +{}-{}{}{}S<>w[]q0{}q0{}{}{}q0{}{}{}S<>w[]{}{}{}+{}S<>w[]-{}{}{}S<>w[]{}{}{}+{}S<>w[]-{}{}{}S<>w[]{}{}
+[2026-11-11 17:17:05] [00:00:41.110][RDX_BLE_LINK] connection_update wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:03] 
+[2026-11-11 17:17:05] [00:00:41.111][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=12 latency=0 timeout_10ms=200 t=41110
+[2026-11-11 17:16:59] 
+[2026-11-11 17:17:05] [00:00:41.112][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=1 interval=6-12 latency=49 ret=0 t=41110
+[2026-11-11 17:17:07] q0#{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}#{}{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}{}S<>w[]{}{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:07] [00:00:43.114][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=2 interval=6-12 latency=49 ret=0 t=43110
+[2026-11-11 17:17:09] +{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}#+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]
+[2026-11-11 17:17:09] [00:00:45.114][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=3 interval=6-12 latency=49 ret=0 t=45110
+[2026-11-11 17:17:10] +{}S<>w[]-{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]#-{}S<>w[]{}S<>w[]{}S<>w[]{}{}
+[2026-11-11 17:17:10] [00:00:45.783]╔═════════════════════════════════� ��══════════════════╗
+[2026-11-11 17:17:10] [00:00:45.784]║  [BLE] FILE TRANSFER TIMEOUT CALLBACK TRIGGERED!   ║
+[2026-11-11 17:17:10] [00:00:45.784]╚═════════════════════════�
+[2026-11-11 17:17:10]                                          ��════════════════════���═════╝
+[2026-11-11 17:17:10] [00:00:45.786][UXFILE] Close persistent file handle
+[2026-11-11 17:17:10] [00:00:45.786]--------> [rdx_protocol_prepared_data_clean]
+[2026-11-11 17:17:10] [00:00:45.786]====== rdx_protocol_uploadFileInfo_clean ====== 
+[2026-11-11 17:17:10] [00:00:45.787][BLE] Transfer timeout, stop indication sent!
+[2026-11-11 17:17:05] 
+[2026-11-11 17:17:05] 
+[2026-11-11 17:17:10] [00:00:45.789][PWR_CONN] armed idle_ms=120000 version=54 epoch=6 links=1
+[2026-11-11 17:17:05] 
+[2026-11-11 17:17:10] [00:00:45.789][RDX_CONN_POLICY] unconfirmed slot=0 mode=FAST interval=12 latency=0; wait parameter event
+[2026-11-11 17:17:11] {}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]
+[2026-11-11 17:17:11] [00:00:47.037]---- rdx_ble_server_force_disconnect_timer_cb ----> temp return 
+[2026-11-11 17:17:15] {}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]#-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}{}
+[2026-11-11 17:17:15] [00:00:50.669]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:05] 
+[2026-11-11 17:17:15] {}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}0] = 44 
+[2026-11-11 17:17:15] [00:00:50.788][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:06] 
+[2026-11-11 17:17:15] [00:00:50.789][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:25] S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}c0+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]+{}-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]#-{}{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:25] [00:01:00.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:11] 
+[2026-11-11 17:17:25] {}S<>w[]+{}S<>w[]-{}S<>w[]{}ge_event_handler --> msg[0] = 44 
+[2026-11-11 17:17:25] [00:01:00.724][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:12] 
+[2026-11-11 17:17:25] [00:01:00.725][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:35] S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]#{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}q0{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]c0+{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]#{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]#+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]#{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}
+[2026-11-11 17:17:35] [00:01:10.626][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:21] 
+[2026-11-11 17:17:35] [00:01:10.627][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=15
+[2026-11-11 17:17:35] [00:01:10.627][RDX_APP_RX] ASCII: *APP#filecmd#0#
+[2026-11-11 17:17:35] [00:01:10.628]
+[2026-11-11 17:17:35]  ===== rdx_protocol_handle_file_cmd --> file cmd: type = 0 
+[2026-11-11 17:17:35] [00:01:10.629]=====> rdx_protocol_file_cmd_handle 
+[2026-11-11 17:17:35] {}S<>w[]{}629]=====> no file is sending! (busy=0, loop=0)
+[2026-11-11 17:17:35] [00:01:10.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:35] {}
+[2026-11-11 17:17:35] S<>w[]{}S<>w[]{}=== app_charge_event_handler --> msg[0] = 44 
+[2026-11-11 17:17:35] [00:01:10.701][RDX_BLE_LINK] connection_update wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:25] 
+[2026-11-11 17:17:35] [00:01:10.701][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=9 latency=49 timeout_10ms=600 t=70700
+[2026-11-11 17:17:44] #{}{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}#{}S<>w[]S<>w[]S<>w[]{}{}{}S<>w[]{}S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]+{}S<>w[]S<>w[]S<>w[]S<>w[]-{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}#{}S<>w[]S<>w[]S<>w[]S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]S<>w[]S<>w[]S<>w[]S<>w[]{}{}
+[2026-11-11 17:17:44] [00:01:19.840][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:25] 
+[2026-11-11 17:17:44] [00:01:19.840][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:44] [00:01:19.841][RDX_APP_RX] ASCII: *APP#opusfile#0#2#1#0#0#
+[2026-11-11 17:17:44]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 1, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:44] [00:01:19.843]rdx_protocol_handle_recordFileData_req --> file_send_busy: 0, last_file_num: 0, last_pack_num: 0 
+[2026-11-11 17:17:44] [00:01:19.844]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 0 
+[2026-11-11 17:17:44] [00:01:19.844]rdx_protocol_file_sync_busy_timer_start --> Created new timer, rdx_file_sync_busy_timer: 1076, timeout: 5000 ms 
+[2026-11-11 17:17:44] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] [00:01:19.847][PWR_CONN] wait busy=0x308 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:29] 
+[2026-11-11 17:17:44] [00:01:19.848]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 1, p->divpack: 5055, rf_info->orig_pack_num: 0, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:44] [00:01:19.849][PWR_CONN] wait busy=0x208 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:30] 
+[2026-11-11 17:17:44] [00:01:19.850]===> Setting total_pack from divpack: 5055
+[2026-11-11 17:17:31] 
+[2026-11-11 17:17:44] {}0:01:19.850]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:44] [00:01:19.851]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:44] [00:01:19.852]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123727920, orig_pack_num = 0, rf_info->sent_size = 24480 
+[2026-11-11 17:17:44] [00:01:19.853][PWR_CONN] wait busy=0x308 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:33] 
+[2026-11-11 17:17:44] 2F 31 41 44 46 31 46 2E 52 41 57 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 
+[2026-11-11 17:17:44] {}0:01:19.855][UXFILE] Opened file with persistent handle
+[2026-11-11 17:17:44] [00:01:19.872][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] {}
+[2026-11-11 17:17:44] [00:01:19.874]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 0, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:44] [00:01:19.875]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:44] [00:01:19.878][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:45] {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}q0{}q0{}{}{}{}{}S<>w[]{}{}{}q0{}q0{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}
+[2026-11-11 17:17:45] [00:01:20.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:35] 
+[2026-11-11 17:17:46] {}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:46] [00:01:21.823][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:35] 
+[2026-11-11 17:17:46] [00:01:21.824][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:46] [00:01:21.824][RDX_APP_RX] ASCII: *APP#opusfile#0#2#2#0#0#
+[2026-11-11 17:17:46]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 2, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:46] [00:01:21.826]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 1 
+[2026-11-11 17:17:46] [00:01:21.827]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:46] [00:01:21.827]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:46] [00:01:21.828]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:46] [00:01:21.829][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:46] [00:01:21.829]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 2, p->divpack: 5055, rf_info->orig_pack_num: 0, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:46] [00:01:21.831][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:46] [00:01:21.831]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:46] [00:01:21.832]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123703440, orig_pack_num = 2, rf_info->sent_size = 24480 
+[2026-11-11 17:17:46] [00:01:21.833][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:46] {}{}
+[2026-11-11 17:17:46] [00:01:21.848][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:46] [00:01:21.849]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 24480, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:46] [00:01:21.850]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:46] [00:01:21.853][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:48] {}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}S<>w[]{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}{}q0{}{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}q0{}{}q0{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}S<>w[]{}
+[2026-11-11 17:17:48] [00:01:23.186][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:31] 
+[2026-11-11 17:17:48] [00:01:23.186][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:48] [00:01:23.187][RDX_APP_RX] ASCII: *APP#opusfile#0#2#3#0#0#
+[2026-11-11 17:17:48]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 3, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:48] [00:01:23.189]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 2 
+[2026-11-11 17:17:48] [00:01:23.190]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:48] [00:01:23.190]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:48] [00:01:23.191]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:48] [00:01:23.192][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:48] [00:01:23.192]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 3, p->divpack: 5055, rf_info->orig_pack_num: 2, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:48] [00:01:23.193][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:48] [00:01:23.194]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:48] [00:01:23.194]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123678960, orig_pack_num = 3, rf_info->sent_size = 24480 
+[2026-11-11 17:17:48] [00:01:23.196][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:48] {}{}
+[2026-11-11 17:17:48] [00:01:23.210][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:35] 
+[2026-11-11 17:17:48] [00:01:23.212]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 48960, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:48] [00:01:23.213]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:48] [00:01:23.216][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] {}S<>w[]{}{}{}{}q0{}{}{}S<>w[]{}{}{}{}{}q0{}q0{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]q0{}{}{}+{}S<>w[]-{}{}S<>w[]{}
+[2026-11-11 17:17:50] [00:01:25.179][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:46] 
+[2026-11-11 17:17:50] [00:01:25.180][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:50] [00:01:25.180][RDX_APP_RX] ASCII: *APP#opusfile#0#2#4#0#0#
+[2026-11-11 17:17:50]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 4, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:50] [00:01:25.182]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 3 
+[2026-11-11 17:17:50] [00:01:25.183]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:50] [00:01:25.183]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:50] [00:01:25.184]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:50] [00:01:25.185][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:44] 
+[2026-11-11 17:17:50] [00:01:25.185]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 4, p->divpack: 5055, rf_info->orig_pack_num: 3, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:50] [00:01:25.187][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:46] 
+[2026-11-11 17:17:50] [00:01:25.187]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:50] [00:01:25.188]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123654480, orig_pack_num = 4, rf_info->sent_size = 24480 
+[2026-11-11 17:17:50] [00:01:25.189][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] {}{}
+[2026-11-11 17:17:50] [00:01:25.203][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:47] 
+[2026-11-11 17:17:50] [00:01:25.205]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 73440, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:50] [00:01:25.206]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:50] [00:01:25.209][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] {}+{}S<>w[]-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}+{}S<>w[]-{}{}{}S<>w[]{}{}{}{}{}{}{}S<>w[]{}q0{}{}{}{}{}{}S<>w[]{}{}{}+{}S<>w[]-{}{}{}S<>w[]{}{}{}+{}S<>w[]-{}{}{}S<>w[]{}{}q0{}+{}S<>w[]-{}{}{}S<>w[]{}{}{}+{}-{}{}{}S<>w[]{}{}{}{}{}{}{}
+[2026-11-11 17:17:50] [00:01:25.966][RDX_BLE_LINK] connection_update wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:48] 
+[2026-11-11 17:17:50] [00:01:25.967][RDX_BLE_PARAM] update wrapper=0 con=0x0050 interval_1p25ms=12 latency=0 timeout_10ms=200 t=85960
+[2026-11-11 17:17:48] 
+[2026-11-11 17:17:50] [00:01:25.968][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=1 interval=6-12 latency=49 ret=0 t=85960
+[2026-11-11 17:17:52] #{}{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]q0{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}+{}S<>w[]q0-{}S<>w[]{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]
+[2026-11-11 17:17:52] [00:01:27.970][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=2 interval=6-12 latency=49 ret=0 t=87970
+[2026-11-11 17:17:52] {}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}
+[2026-11-11 17:17:52] [00:01:28.081][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:48] 
+[2026-11-11 17:17:52] [00:01:28.082][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:52] [00:01:28.083][RDX_APP_RX] ASCII: *APP#opusfile#0#2#5#0#0#
+[2026-11-11 17:17:52]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 5, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:52] [00:01:28.084]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 4 
+[2026-11-11 17:17:52] [00:01:28.085]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:52] [00:01:28.086]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:52] [00:01:28.087]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:52] [00:01:28.087][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] 
+[2026-11-11 17:17:52] [00:01:28.088]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 5, p->divpack: 5055, rf_info->orig_pack_num: 4, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:52] [00:01:28.089][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] 
+[2026-11-11 17:17:52] [00:01:28.090]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:52] [00:01:28.090]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123630000, orig_pack_num = 5, rf_info->sent_size = 24480 
+[2026-11-11 17:17:52] [00:01:28.092][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:52] {}
+[2026-11-11 17:17:52] [00:01:28.106][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:50] 
+[2026-11-11 17:17:52] [00:01:28.108]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 97920, total = 24519, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:52] {}0:01:28.109]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24519, queue size: 1/15 
+[2026-11-11 17:17:52] [00:01:28.112][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:54] S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]
+[2026-11-11 17:17:54] [00:01:29.971][RDX_CONN_POLICY] request slot=0 con=0x0050 mode=FAST attempt=3 interval=6-12 latency=49 ret=0 t=89970
+[2026-11-11 17:17:55] {}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]q0{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}#+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}{}{}S<>w[]{}{}{}
+[2026-11-11 17:17:55] [00:01:30.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:50] 
+[2026-11-11 17:17:56] {}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]q0{}S<>w[]q0{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:56] [00:01:31.330][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:50] 
+[2026-11-11 17:17:56] [00:01:31.331][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:56] [00:01:31.331][RDX_APP_RX] ASCII: *APP#opusfile#0#2#6#0#0#
+[2026-11-11 17:17:56]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 6, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:56] [00:01:31.333]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 5 
+[2026-11-11 17:17:56] [00:01:31.334]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:56] [00:01:31.334]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:56] [00:01:31.335]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:56] [00:01:31.336][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:52] 
+[2026-11-11 17:17:56] [00:01:31.336]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 6, p->divpack: 5055, rf_info->orig_pack_num: 5, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:56] [00:01:31.338][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:48] 
+[2026-11-11 17:17:56] [00:01:31.338]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:56] [00:01:31.339]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123605520, orig_pack_num = 6, rf_info->sent_size = 24480 
+[2026-11-11 17:17:56] [00:01:31.340][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:56] {}
+[2026-11-11 17:17:56] [00:01:31.354][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:52] 
+[2026-11-11 17:17:56] [00:01:31.356]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 122400, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:56] [00:01:31.357]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:56] [00:01:31.360][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:56] {}+{}S<>w[]-{}S<>w[]{}S<>w[]{}#{}{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]
+[2026-11-11 17:17:56] [00:01:31.973][RDX_CONN_POLICY] unconfirmed slot=0 mode=FAST interval=12 latency=0; wait parameter event
+[2026-11-11 17:17:59] {}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]q0{}S<>w[]q0{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}{}S<>w[]{}{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}#+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}#{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}#+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:17:59] [00:01:34.668][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:52] 
+[2026-11-11 17:17:59] [00:01:34.669][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:17:59] [00:01:34.670][RDX_APP_RX] ASCII: *APP#opusfile#0#2#7#0#0#
+[2026-11-11 17:17:59]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 7, auto_del = 0, file_offset = 0 
+[2026-11-11 17:17:59] [00:01:34.671]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 6 
+[2026-11-11 17:17:59] [00:01:34.672]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:17:59] [00:01:34.673]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:17:59] [00:01:34.674]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:17:59] [00:01:34.674][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:55] 
+[2026-11-11 17:17:59] [00:01:34.675]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 7, p->divpack: 5055, rf_info->orig_pack_num: 6, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:17:59] [00:01:34.676][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:56] 
+[2026-11-11 17:17:59] [00:01:34.677]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:17:59] [00:01:34.677]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123581040, orig_pack_num = 7, rf_info->sent_size = 24480 
+[2026-11-11 17:17:59] [00:01:34.679][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:59] {}
+[2026-11-11 17:17:59] [00:01:34.693][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:56] 
+[2026-11-11 17:17:59] [00:01:34.695]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 146880, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:17:59] [00:01:34.695]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:17:59] [00:01:34.698][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:03] {}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]q0q0{}S<>w[]q0{}S<>w[]{}{}{}{}S<>w[]+{}S<>w[]-{}S<>w[]q0{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}+{}S<>w[]-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}#{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]q0{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]#-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}S<>w[]+{}S<>w[]q0-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}#{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:18:03] [00:01:38.032][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:56] 
+[2026-11-11 17:18:03] [00:01:38.033][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:18:03] [00:01:38.033][RDX_APP_RX] ASCII: *APP#opusfile#0#2#8#0#0#
+[2026-11-11 17:18:03]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 8, auto_del = 0, file_offset = 0 
+[2026-11-11 17:18:03] [00:01:38.035]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 7 
+[2026-11-11 17:18:03] [00:01:38.036]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:18:03] [00:01:38.036]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:18:03] [00:01:38.037]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:18:03] [00:01:38.038][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:57] 
+[2026-11-11 17:18:03] [00:01:38.038]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 8, p->divpack: 5055, rf_info->orig_pack_num: 7, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:18:03] [00:01:38.040][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:59] 
+[2026-11-11 17:18:03] [00:01:38.040]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:18:03] [00:01:38.041]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123556560, orig_pack_num = 8, rf_info->sent_size = 24480 
+[2026-11-11 17:18:03] [00:01:38.042][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:03] {}
+[2026-11-11 17:18:03] [00:01:38.056][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:59] 
+[2026-11-11 17:18:03] [00:01:38.058]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 171360, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:18:03] +{}:01:38.059]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:18:03] [00:01:38.062][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:05] S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]#-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}q0{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}#{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]q0-{}S<>w[]q0{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]#-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]
+[2026-11-11 17:18:05] [00:01:40.670]rdx_app_battery_msg_handler :0x2c
+[2026-11-11 17:17:59] 
+[2026-11-11 17:18:06] -{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}
+[2026-11-11 17:18:06] [00:01:41.290][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:17:56] 
+[2026-11-11 17:18:06] [00:01:41.291][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=24
+[2026-11-11 17:18:06] [00:01:41.291][RDX_APP_RX] ASCII: *APP#opusfile#0#2#9#0#0#
+[2026-11-11 17:18:06]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 9, auto_del = 0, file_offset = 0 
+[2026-11-11 17:18:06] [00:01:41.293]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 8 
+[2026-11-11 17:18:06] [00:01:41.294]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:18:06] [00:01:41.295]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:18:06] [00:01:41.295]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:18:06] [00:01:41.296][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:02] 
+[2026-11-11 17:18:06] [00:01:41.297]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 9, p->divpack: 5055, rf_info->orig_pack_num: 8, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:18:06] [00:01:41.298][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:03] 
+[2026-11-11 17:18:06] [00:01:41.299]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:18:06] [00:01:41.299]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123532080, orig_pack_num = 9, rf_info->sent_size = 24480 
+[2026-11-11 17:18:06] [00:01:41.301][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:06] {}
+[2026-11-11 17:18:06] [00:01:41.315][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:03] 
+[2026-11-11 17:18:06] [00:01:41.317]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 195840, total = 24520, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:18:06] [00:01:41.318]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24520, queue size: 1/15 
+[2026-11-11 17:18:06] [00:01:41.320][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:09] {}S<>w[]{}{}S<>w[]#{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}-{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}#{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]c0+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}#{}{}S<>w[]{}S<>w[]q0{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}
+[2026-11-11 17:18:09] [00:01:44.549][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:18:03] 
+[2026-11-11 17:18:09] [00:01:44.549][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=25
+[2026-11-11 17:18:09] [00:01:44.550][RDX_APP_RX] ASCII: *APP#opusfile#0#2#10#0#0#
+[2026-11-11 17:18:09]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 10, auto_del = 0, file_offset = 0 
+[2026-11-11 17:18:09] [00:01:44.552]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 9 
+[2026-11-11 17:18:09] [00:01:44.552]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:18:09] [00:01:44.553]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:18:09] [00:01:44.554]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:18:09] [00:01:44.555][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:05] 
+[2026-11-11 17:18:09] [00:01:44.555]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 10, p->divpack: 5055, rf_info->orig_pack_num: 9, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:18:09] [00:01:44.556][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:17:59] 
+[2026-11-11 17:18:09] [00:01:44.557]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:18:09] [00:01:44.557]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123507600, orig_pack_num = 10, rf_info->sent_size = 24480 
+[2026-11-11 17:18:09] [00:01:44.559][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:09] {}
+[2026-11-11 17:18:09] [00:01:44.573][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:06] 
+[2026-11-11 17:18:09] [00:01:44.575]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 220320, total = 24521, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:18:09] {}0:01:44.576]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24521, queue size: 1/15 
+[2026-11-11 17:18:09] [00:01:44.579][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:12] S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]c0+{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]q0{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]#{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}S<>w[]q0{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]#{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}
+[2026-11-11 17:18:12] [00:01:47.857][RDX_BLE_LINK] att_write wrapper=0 cb_hdl=421eb4 event_con=0x0050 wrapper_con=0x0050
+[2026-11-11 17:18:06] 
+[2026-11-11 17:18:12] [00:01:47.858][RDX_APP_RX] con=0x0050 hdl=421eb4 att=0x0006 mode=0 offset=0 len=25
+[2026-11-11 17:18:12] [00:01:47.858][RDX_APP_RX] ASCII: *APP#opusfile#0#2#11#0#0#
+[2026-11-11 17:18:12]  =====rdx_protocol_handle_recordFileData_req --> ack = 0, req_file_num = 2, req_num = 11, auto_del = 0, file_offset = 0 
+[2026-11-11 17:18:12] [00:01:47.860]rdx_protocol_handle_recordFileData_req --> file_send_busy: 1, last_file_num: 2, last_pack_num: 10 
+[2026-11-11 17:18:12] [00:01:47.861]rdx_protocol_file_sync_busy_timer_start --> rdx_file_sync_busy_timer: 1076 
+[2026-11-11 17:18:12] [00:01:47.862]rdx_protocol_file_sync_busy_timer_start --> Timer already exists, rerun timer: 1076 
+[2026-11-11 17:18:12] [00:01:47.862]rdx_uxfile_get_file_data_by_sn--> request file num is the same as the current file num! 
+[2026-11-11 17:18:12] [00:01:47.863][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:07] 
+[2026-11-11 17:18:12] [00:01:47.864]rdx_protocol_recordFileData_indicateByRequestNum_ble --> file_num: 2, pack_num: 11, p->divpack: 5055, rf_info->orig_pack_num: 10, rf_info->file_offset: 0, p->data_len: 123727920 
+[2026-11-11 17:18:12] [00:01:47.865][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:09] 
+[2026-11-11 17:18:12] [00:01:47.866]rdx_protocol_file_sync_busy_timer_rerun... 
+[2026-11-11 17:18:12] [00:01:47.866]rdx_protocol_recordFileData_indicateByRequestNum_ble --> p->data_len = 123727920, p->left_len = 123483120, orig_pack_num = 11, rf_info->sent_size = 24480 
+[2026-11-11 17:18:12] [00:01:47.868][PWR_CONN] wait busy=0x708 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:12] {}
+[2026-11-11 17:18:12] [00:01:47.881][PWR_CONN] wait busy=0x608 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:09] 
+[2026-11-11 17:18:12] [00:01:47.883]rdx_protocol_recordFileData_indicateByRequestNum_ble --> offset = 244800, total = 24521, k->conn_state = 0, data_size = 24480 
+[2026-11-11 17:18:12] [00:01:47.884]rdx_protocol_send_bulk_data --> enqueue bulk data success, len: 24521, queue size: 1/15 
+[2026-11-11 17:18:12] [00:01:47.887][PWR_CONN] wait busy=0x408 reason=FILE_OP timer=OFF
+[2026-11-11 17:18:14] {}{}S<>w[]{}{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}{}{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}#{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]q0-{}S<>w[]{}S<>w[]{}{}S<>w[]{}{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]+{}S<>w[]-{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}S<>w[]+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}#+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]q0{}+{}S<>w[]-{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}{}{}S<>w[]{}S<>w[]{}{}S<>w[]{}S<>w[]{}

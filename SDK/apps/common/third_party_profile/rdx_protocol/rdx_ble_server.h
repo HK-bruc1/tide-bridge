@@ -135,6 +135,17 @@ void rdx_ble_server_rdx_lifecycle_barrier_complete(void);
 void rdx_ble_server_stop_force_disconnect_timer(void);
 void rdx_ble_server_fast_adv_restart(void);  // 按键唤醒时重新进入快速广播并点亮 LED
 
+/* RDX 数据特征值的发送窗口统计，取走即清零（TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE）。 */
+typedef struct {
+    u32 bytes;
+    u32 chunks;
+    u32 buffer_full;
+    u32 att_fail;
+    u32 first_ms;
+    u32 last_ms;
+} rdx_ble_tx_window_t;
+void rdx_ble_server_tx_window_take(rdx_ble_tx_window_t *out);
+
 u8 rdx_ble_server_get_send_fail_cnt(void);
 void rdx_ble_server_reset_send_fail_cnt(void);
 

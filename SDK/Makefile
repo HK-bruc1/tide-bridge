@@ -510,6 +510,7 @@ c_SRC_FILES := \
 	apps/common/third_party_profile/rdx_protocol/rdx_peripheral_power.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_adv_policy.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_ble_entry.c \
+	apps/common/third_party_profile/rdx_protocol/rdx_ble_diag.c \
 	apps/common/third_party_profile/rdx_protocol/rdx_cache_flush.c \
 	apps/common/third_party_profile/dma_protocol/dma_protocol.c \
 	apps/common/third_party_profile/dma_protocol/dma_use_lib/dma_le_port.c \
@@ -1093,7 +1094,7 @@ LFLAGS := \
 	cpu/br28/liba/swift_pair.a \
 	cpu/br28/liba/libdma-protocol.a \
 	cpu/br28/liba/libdma-device-ota.a \
-	cpu/br28/liba/btctrler.a \
+	$(BUILD_DIR)/btctrler_diag.a \
 	cpu/br28/liba/aec.a \
 	cpu/br28/liba/media.a \
 	cpu/br28/liba/libepmotion.a \
@@ -1306,6 +1307,11 @@ clean:
 # Updating the checked-in RDX patch must relink even if no C object changed.
 # pre_build regenerates sdk.ld: never run the linker while it is being replaced.
 $(OUT_ELF): apps/common/third_party_profile/rdx_protocol/librdxApp_patched.a Makefile | pre_build
+$(OUT_ELF): $(BUILD_DIR)/btctrler_diag.a
+
+# Generate an instrumented copy; never patch the vendor archive in place.
+$(BUILD_DIR)/btctrler_diag.a: cpu/br28/liba/btctrler.a ../tools/ble_diag/patch_btctrler.ps1
+	$(QUITE) powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/ble_diag/patch_btctrler.ps1 -OutputArchive "$@"
 
 ifeq ($(LINK_AT), 1)
 $(OUT_ELF): $(OBJS)

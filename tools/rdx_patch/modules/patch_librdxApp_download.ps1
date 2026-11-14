@@ -128,8 +128,23 @@ function Update-RdxDownloadProtocolIr {
     $new = Replace-ExactlyOnce $new $anchor ($anchor + "`n  call void @rdx_file_download_abort()") 'stop invalidates transfer before early return'
     $Ir = Replace-ExactlyOnce $Ir $old $new 'stop download generation'
 
+    # The archive's fixed 5000 ms per-block window is shorter than the APP's
+    # ~10 s same-block retry; a slow PC then sees its retry refused silently
+    # after cleanup. The product timeout (C getter) keeps the retry in-session.
+    $old = Get-RdxDownloadFunction $Ir 'rdx_protocol_file_sync_busy_timer_start'
+    $new = Clear-RdxDownloadMetadata $old
+    $anchor = [regex]::Match($new, '(?m)^  %6 = tail call zeroext i16 @sys_timeout_add_2_task\([^\n]*$').Value
+    if (!$anchor) { throw 'Missing download sync timer producer' }
+    $timer = Replace-ExactlyOnce $anchor '@rdx_protocol_file_sync_busy_timer_cb, i32 5000,' `
+        '@rdx_protocol_file_sync_busy_timer_cb, i32 %sync_timeout,' 'sync timer period'
+    $new = Replace-ExactlyOnce $new $anchor `
+        ("  %sync_timeout = call i32 @rdx_file_download_sync_timeout_ms()`n" + $timer) 'configurable sync timeout'
+    $new = Replace-ExactlyOnce $new 'i32 %7, i32 5000)' 'i32 %7, i32 %sync_timeout)' 'sync timer log period'
+    $Ir = Replace-ExactlyOnce $Ir $old $new 'download sync timeout'
+
     $Ir += @'
 
+declare i32 @rdx_file_download_sync_timeout_ms()
 declare void @rdx_file_download_abort()
 declare i32 @rdx_file_download_generation()
 declare void @rdx_file_download_interrupt_notify()

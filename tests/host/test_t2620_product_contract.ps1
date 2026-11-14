@@ -80,7 +80,7 @@ $SharedT2620ProductDefines = @{
     HARDWARE_VERSION_HEX = '0x00000001'
 }
 foreach ($profile in @(
-    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.1.9"'; VersionHex = '0x00010109' },
+    @{ Name = 'BEANSTALK'; Source = $BeanstalkT2620Config; DeviceName = '"VoicePad"'; NameSuffix = '(1)'; Version = '"1.2.1"'; VersionHex = '0x00010201' },
     @{ Name = 'CUSTOM_TEST'; Source = $CustomTestAppConfig; DeviceName = '"GensparkVoicePad"'; NameSuffix = '(0)'; Version = '"1.1.2"'; VersionHex = '0x00010102' }
 )) {
     $ExpectedProductDefines = $SharedT2620ProductDefines.Clone()
@@ -291,9 +291,10 @@ Assert-Contract 'RDX_STREAM_ONLY_LIFECYCLE_WIRING' (
     $RdxApp -match '\(u32\)priv != record_state_upload_generation'
 ) 'stream-only STOP/disconnect must not fall back to storage; stale upload timers cannot restart a request'
 
+# Reproduced with patch_librdxApp.ps1; includes the configurable BLE download timeout.
 $uxfileStartupRecoveryOk = $Makefile -match '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp_patched\.a\s*\\\s*$' -and
                            $Makefile -notmatch '(?m)^\s*apps/common/third_party_profile/rdx_protocol/librdxApp\.a\s*\\\s*$' -and
-                           $PatchedRdxArchiveHash -eq 'DE24AE1C7F7772F669FACEFAD3C0601CB29B0E06B89098D5E14E1D6D4B265099' -and
+                           $PatchedRdxArchiveHash -eq '37E1C3324C86A9D754E5012087D78F0AFE0E0083740A87F932AF4DB596328B4C' -and
                            $RdxLibraryPatch -match '4289EC0F6D923EC9337A5DBE57F8D720BCC4946601B7D8393F9E2878B16F5C7D' -and
                            $RdxLibraryPatch -match '(?s)rdx_patch_scan_succeeded.*?syscfg_write\(i16 zeroext 159.*?rdx_patch_vm_written' -and
                            $RdxLibraryPatch -match '(?s)define zeroext i8 @rdx_uxfile_is_scan_active.*?@g_sync_state.*?@g_dat_need_upgrade_rebuild.*?rdx_patch_scan_active_u8' -and

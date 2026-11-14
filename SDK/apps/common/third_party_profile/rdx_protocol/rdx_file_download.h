@@ -7,6 +7,8 @@
 /* Fixed-archive hooks. Generic finish/cancel is never deletion authority. */
 void rdx_file_download_abort(void);
 u32 rdx_file_download_generation(void);
+/* Per-block sync timeout used by the patched archive timer. */
+u32 rdx_file_download_sync_timeout_ms(void);
 void rdx_file_download_interrupt_notify(void);
 u8 rdx_file_download_take_interrupt(void);
 /* app_core: a local recording admission stops an active BLE opusfile transfer

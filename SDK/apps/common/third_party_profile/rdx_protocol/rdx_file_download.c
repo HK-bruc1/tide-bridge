@@ -4,6 +4,9 @@
 #include "rdx_ble_session.h"
 #include "rdx_record_format.h"
 #include "rdx_playback.h"
+#if TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+#include "rdx_ble_server.h"
+#endif
 
 #define DOWNLOAD_BLOCK_BYTES 24480u
 #define DOWNLOAD_TASK "protocol_send_task"
@@ -58,6 +61,39 @@ u8 rdx_file_download_take_interrupt(void)
     download_interrupted = 0;
     return value;
 }
+
+/* Fixed-archive hook: per-block sync timeout (archive default 5000 ms). It
+ * must outlast the APP's ~10 s same-block retry so the retry still reaches a
+ * live transfer and is answered by the duplicate-request resend. */
+u32 rdx_file_download_sync_timeout_ms(void)
+{
+    return TCFG_T2620_BLE_FILE_SYNC_TIMEOUT_MS;
+}
+
+#if TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+/* One line per enqueued block. The TX window covers the previous block's
+ * ATT submissions, because the APP requests the next block only after it has
+ * received the previous one; gap is enqueue-to-enqueue. */
+static void download_block_trace(const ReqFileInfo *request, u32 offset,
+                                 u32 length, int send_result)
+{
+    static u32 last_enqueue_ms;
+    rdx_ble_tx_window_t tx;
+    u32 now = sys_timer_get_ms();
+    /* pack=1 starts or resumes a transfer: no previous block to measure. */
+    u32 gap = last_enqueue_ms && request && request->pack_num > 1 ?
+              now - last_enqueue_ms : 0;
+
+    last_enqueue_ms = now;
+    rdx_ble_server_tx_window_take(&tx);
+    printf("[RDX_DL_BLK] sn=%u pack=%u off=%u len=%u enq=%d gap=%u "
+           "prev_tx=%u/%u full=%u fail=%u span=%u\n",
+           request ? (u32)request->file_num : 0,
+           request ? (u32)request->pack_num : 0, offset, length, send_result,
+           gap, tx.bytes, tx.chunks, tx.buffer_full, tx.att_fail,
+           tx.chunks ? tx.last_ms - tx.first_ms : 0);
+}
+#endif
 
 u32 rdx_file_download_generation(void)
 {
@@ -122,6 +158,9 @@ void rdx_file_download_sent(u32 generation, const ReqFileInfo *request,
                             const uxfile_data_t *file, u32 offset,
                             u32 length, int read_result, int send_result)
 {
+#if TCFG_T2620_BLE_TX_BLOCK_TRACE_ENABLE
+    download_block_trace(request, offset, length, send_result);
+#endif
     local_irq_disable();
     if (!download.active || !generation || generation != download.generation) {
         local_irq_enable();

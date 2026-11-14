@@ -33,6 +33,8 @@ typedef int s32;
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 void *memset(void*,int,unsigned long long);
 static u32 now;
+/* Recorder/IR behavior is exercised by test_ble_diag.py. */
+void rdx_ble_diag_app_request(u16 handle, u8 site) {}
 static int queue_pending, queue_fail, timer_fail, in_core, context_error, irq;
 typedef struct { int locked; } spinlock_t;
 #define DEFINE_SPINLOCK(name) spinlock_t name={0}
@@ -820,7 +822,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='ble-entry-') as directory:
         path = Path(directory) / 'entry.c'
         checks = CHECKS + CHECKS_PERSISTENT
-        path.write_text(STUBS + body + checks, encoding='utf-8')
+        diag_header = re.sub(r'^#include[^\n]*\n', '',
+                             (FOLDER / 'rdx_ble_diag.h').read_text(), flags=re.M)
+        path.write_text(STUBS + diag_header + body + checks, encoding='utf-8')
         run_c_checks(path, re.findall(r'int (check_\w+)\(void\)', checks), native=True)
     # 实际调用方必须发布事件，不得绕过协调器独立操作广播。
     assert 'rdx_ble_entry_request(1, 1)' in function(server, 'rdx_ble_server_adv_data_changed')
