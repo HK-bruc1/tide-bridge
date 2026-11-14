@@ -619,7 +619,12 @@ int rdx_record_format_reserve_sn(u32 *sn)
     if (!rf_serial_ready || rf_error) return -1;
     u32 saved = 0;
     int read = syscfg_read(VM_RDX_RECORD_FILE_NUM, &saved, sizeof(saved));
-    if (read != sizeof(saved) && read != VM_INDEX_ERR && read != VM_READ_NO_INDEX) {
+    /* 本 SDK 的 VM 读取失败后会回退 BIN，最终可能返回 -251。
+     * 为兼容新机缺少 VM147，以完整 DAT 的最大 SN 保底，写入并回读后再发布。
+     * 此返回值无法区分缺项和部分 VM 读异常；若已有 VM 高水位损坏且 DAT 较低，
+     * 仍可能复用历史删除或仅预留的编号，不能保证所有真实读错误均被拒绝。 */
+    if (read != sizeof(saved) && read != VM_INDEX_ERR &&
+        read != VM_READ_NO_INDEX && read != VM_WRITE_OVERFLOW) {
         printf("[SN_RESERVE] VM read failed result=%d\n", read);
         return -1;
     }
