@@ -149,6 +149,8 @@ void rdx_ble_server_request_stream_fast_param(void);
 void rdx_ble_server_set_compact_fragment(u8 enable);
 /* 兼容旧库下载结束入口；当前只检查快档，不启动慢档窗口。 */
 void rdx_ble_server_post_transfer_lowpower(void);
+/* Long BLE file transfer/sync blocks system sleep until it ends. */
+void rdx_ble_server_file_transfer_changed(void);
 /* 快档按链路事件协调；service 仅供 app_core 的失败恢复桥接调用。 */
 void rdx_ble_server_conn_param_changed(void);
 u8 rdx_ble_server_conn_param_needs_service(void);

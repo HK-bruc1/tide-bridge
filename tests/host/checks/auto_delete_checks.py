@@ -61,6 +61,7 @@ static int committed, drop_after_commit, raw_exists=1, mta_exists=1, dat_count=1
 static int cache_invalidations, list_invalidations, read_open, sends;
 static int playback_notifications, stop_indications;
 static int preempt_posts, preempt_post_fail;
+static int sleep_refresh;
 static u32 preempt_generation;
 static u32 loaded_sn=13, loaded_size=4000, last_offset, last_length;
 static char loaded_name[64]="f5062.raw";
@@ -125,6 +126,7 @@ void rdx_app_emmc_poweroff_check(void) {}
 int xxp_wifi_tcp_file_stop_indicate(void) { return 0; }
 void rdx_ble_server_request_stream_fast_param(void) {}
 void rdx_ble_server_post_transfer_lowpower(void) {}
+void rdx_ble_server_file_transfer_changed(void) { ++sleep_refresh; }
 int get_ota_status(void) { return ota; }
 void *rdx_record_get_status(void) { static u8 s[128]; s[0]=record_run; return s; }
 void *rdx_app_get_wifi_info(void) { static u8 s[2]; return s; }
@@ -211,6 +213,7 @@ static void reset(void) {
     committed=delete_calls=cache_invalidations=list_invalidations=sends=0;
     complete_post_fail=1; playback_notifications=stop_indications=0;
     preempt_posts=preempt_post_fail=0; preempt_generation=0;
+    sleep_refresh=0;
     raw_exists=mta_exists=dat_count=1;
     alloc_size_fail=alloc_fail_once=0;
 }
@@ -220,6 +223,7 @@ int test_auto_success_and_duplicates(void) {
     CHECK(!cmd(13,1,1,0,2) && sends==2 && last_length==4000);
     CHECK(!cmd(13,0,1,0,0) && pending && power==1 && rf_service==1);
     CHECK(!timer && !clock_hold && !read_open && !download.active);
+    CHECK(sleep_refresh>=3);
     CHECK(!cmd(13,0,1,0,2) && !delete_calls);
     CHECK(cmd(14,1,1,0,0)==3);
     worker();
@@ -514,6 +518,8 @@ define void @test_cache_loaded() {
     # Use the production layouts; omit the SDK-only function declarations.
     header = header[header.index('#define RECORD_FILE_NAME_SIZE'):header.index('void rdx_uxfile_init')]
     source = re.sub(r'^#include.*\n', '', (DIRECTORY / 'rdx_file_download.c').read_text(), flags=re.M)
+    assert 'rdx_ble_server_file_transfer_changed();' in function(source, 'rdx_file_download_abort')
+    assert 'rdx_ble_server_file_transfer_changed();' in function(source, 'rdx_file_download_request')
     storage = (DIRECTORY / 'rdx_record_format.c').read_text(encoding='utf-8')
     storage_functions = ''.join(function(storage, n) for n in
                                 ('rdx_record_format_io_leave', 'rdx_record_format_delete_acquire',

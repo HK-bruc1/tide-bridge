@@ -217,6 +217,8 @@ static volatile u8 g_rdx_ble_adv_setup;
 /* 最近一次提交的广播间隔（0.625 ms）：连接/重开日志据此判读第二入口快慢档。 */
 static u16 g_rdx_ble_adv_interval_applied;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
+static volatile u8 g_rdx_ble_topology_sleep_blocked;
+static volatile u8 g_rdx_ble_sleep_link_present;
 static u8 g_rdx_ble_exiting;
 /* 控制器确认广播集停止前保留 SDK 广播句柄，
  * 在途连接完成和广播集终止事件仍需依靠它确定归属。 */
@@ -463,23 +465,39 @@ static void rdx_ble_server_dual_acl_sleep_policy_update(const char *reason)
     u8 second_acl_window = g_rdx_ble_advertising_hdl ||
                           g_rdx_adv_close.waiting || g_rdx_adv_close.fault;
     u8 adv_in_flight = g_rdx_ble_adv_setup || g_rdx_adv_close.waiting;
-    u8 block;
+    u8 file_busy = connected &&
+                   (rdx_is_file_transfer_active() ||
+                    rdx_is_file_sync_busy());
+    u8 topology_block = g_rdx_adv_close.fault ||
+                        (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
+                        (connected == 1 && adv_in_flight);
+    u8 block = topology_block || file_busy;
 
-    block = g_rdx_adv_close.fault ||
-            (connected >= RDX_BLE_PHASE0A_WRAPPER_MAX) ||
-            (connected == 1 && adv_in_flight);
+    g_rdx_ble_sleep_link_present = connected ? 1 : 0;
+    g_rdx_ble_topology_sleep_blocked = topology_block;
     if (g_rdx_ble_dual_acl_sleep_blocked != block) {
         g_rdx_ble_dual_acl_sleep_blocked = block;
         r_printf("[RDX_BLE_LP] system_sleep_block=%u connected=%u "
-                 "second_acl_window=%u adv_in_flight=%u adv_interval=%u reason=%s\n",
+                 "second_acl_window=%u adv_in_flight=%u adv_interval=%u "
+                 "file_busy=%u reason=%s\n",
                  block, connected, second_acl_window, adv_in_flight,
-                 g_rdx_ble_adv_interval_applied, reason);
+                 g_rdx_ble_adv_interval_applied, file_busy, reason);
     }
+}
+
+void rdx_ble_server_file_transfer_changed(void)
+{
+    rdx_ble_server_dual_acl_sleep_policy_update("file_transfer");
 }
 
 static u8 rdx_ble_server_dual_acl_lp_idle_query(void)
 {
-    return g_rdx_ble_dual_acl_sleep_blocked ? 0 : 1;
+    u8 block = g_rdx_ble_topology_sleep_blocked ||
+               (g_rdx_ble_sleep_link_present &&
+                (rdx_is_file_transfer_active() ||
+                 rdx_is_file_sync_busy()));
+
+    return block ? 0 : 1;
 }
 
 REGISTER_LP_TARGET(rdx_ble_dual_acl_lp_target) = {
@@ -4855,6 +4873,8 @@ void rdx_ble_server_exit(void)
     g_rdx_ble_advertising_hdl = NULL;
     g_rdx_ble_adv_consumed_hdl = NULL;
     g_rdx_ble_dual_acl_sleep_blocked = g_rdx_adv_close.fault;
+    g_rdx_ble_topology_sleep_blocked = g_rdx_adv_close.fault;
+    g_rdx_ble_sleep_link_present = 0;
 }
 
 u8 rdx_ble_server_is_stream_tx_ready(void)
