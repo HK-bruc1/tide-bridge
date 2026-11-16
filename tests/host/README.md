@@ -12,6 +12,17 @@ the exit code is 1 if any module fails. Use `-Suite contracts` or `-Suite behavi
 for focused runs; the default `all` remains the complete check. Each file can also
 run directly. Individual PowerShell scripts accept `-Verbose` for assertion names.
 
+The CDC tool's Python-only checks can also run on Windows or macOS with just
+Python's standard library (use `python3` if that is your Python 3 command):
+
+```text
+cd tests/host
+python -X utf8 -m unittest -b test_factory_station test_cdc_file
+```
+
+This runs only the Python test classes, not the C/LLVM checks in the full Windows
+suite. No serial device or `llvmlite` is needed for this focused run.
+
 ## Coverage
 
 | Source contract | Essential boundary |
@@ -280,9 +291,10 @@ spellings. LED mark colour/duration, default recording scene and boot prompt
 layout are no longer daily source assertions; verify these product interactions
 on device. No C behavior scenario was removed.
 
-PowerShell assertions use `host_test_lib.ps1`; Python harnesses use
-`host_c_test_lib.py`. Do not nest test entry points inside contract scripts or add
-another framework. The shared C extractor skips declarations/comments/literals;
+PowerShell assertions use `host_test_lib.ps1`; C/LLVM harnesses use
+`host_c_test_lib.py`, and CDC Python checks share `cdc_test_support.py`. Do not
+nest test entry points inside contract scripts or add another framework. The shared
+C extractor skips declarations/comments/literals;
 it is not a C preprocessor. Failed C assertions retain their generated source in
 `cache/host-test-failures/` for diagnosis.
 
@@ -328,7 +340,7 @@ See [HOGP plan](../../docs/2-6.HOGP长按持续输入实施方案.md),
 ## Optional board check
 
 正式 CDC 协议终端工具见 [board README](../board/README.md)，其唯一源码为仓库根目录的
-单文件 `CDC-test.bat`，由 `host_c_test_lib.load_cdc_tool()` 加载后测试。提供基础检查、受固件能力
+单文件 `CDC-test.bat`，由 `cdc_test_support.load_cdc_tool()` 加载后测试。提供基础检查、受固件能力
 门控的交互控制流程和完整身份 JSON 报告。`test_factory_station.py`
 由 factory USB 组调用，覆盖旧固件阻断、超时不重发、LAST 覆盖、AUTH 完整显示/保存及控制顺序；
 使用模拟串口，不打开硬件。工具已接入录音、文件和独立包装流程；本段的主机模拟覆盖不等于完整实板验收，业务证据及剩余回归见 board README 和关联 CDC 文档。

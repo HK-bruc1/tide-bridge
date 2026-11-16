@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from host_c_test_lib import load_cdc_tool
+from cdc_test_support import load_cdc_tool
 
 _cdc = load_cdc_tool()
 Station, StationError = _cdc.Station, _cdc.StationError
@@ -32,14 +32,19 @@ def status(n, command, state='DONE', active='NONE', dut='1'):
             f'LAST_STATE={state};LAST_ERR=NONE\r\n').encode()
 
 
+def serial_modules():
+    serial = types.ModuleType('serial')
+    serial.tools = types.ModuleType('serial.tools')
+    serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+    return serial, {'serial': serial, 'serial.tools': serial.tools,
+                    'serial.tools.list_ports': serial.tools.list_ports}
+
+
 class StationTests(unittest.TestCase):
     def test_file_menu_routing_without_opening_port(self):
-        serial = types.ModuleType('serial')
-        serial.tools = types.ModuleType('serial.tools')
-        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial, modules = serial_modules()
         serial.tools.list_ports.comports = lambda: [types.SimpleNamespace(device='COM6', description='CDC')]
         serial.Serial = mock.Mock(side_effect=AssertionError('launcher must not open port'))
-        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
         for kind, selection, mode, repeat in (
                 ('', '', 'file-download', '1'), ('1', '2', 'file-download', '10'),
                 ('2', '1', 'file-bench', '1'), ('2', '2', 'file-bench', '10')):
@@ -74,11 +79,8 @@ class StationTests(unittest.TestCase):
         self.assertEqual(module.main.call_args.args[0][-2:], ['--cancel-after', '1048576'])
 
     def test_key_dut_enable_menu_routing(self):
-        serial = types.ModuleType('serial')
-        serial.tools = types.ModuleType('serial.tools')
-        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial, modules = serial_modules()
         serial.tools.list_ports.comports = lambda: [types.SimpleNamespace(device='COM6', description='CDC')]
-        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
         with mock.patch.dict('sys.modules', modules), \
                 mock.patch('builtins.input', side_effect=['4', '6']), \
                 mock.patch.object(_cdc, 'main', return_value=0) as entry:
@@ -86,12 +88,9 @@ class StationTests(unittest.TestCase):
         entry.assert_called_once_with(['--port', 'COM6', '--mode', 'key-dut-enable'])
 
     def test_key_dut_enable_cli_report_scope(self):
-        serial = types.ModuleType('serial')
-        serial.tools = types.ModuleType('serial.tools')
-        serial.tools.list_ports = types.ModuleType('serial.tools.list_ports')
+        serial, modules = serial_modules()
         serial.SerialException = OSError
         serial.Serial = mock.MagicMock()
-        modules = {'serial': serial, 'serial.tools': serial.tools, 'serial.tools.list_ports': serial.tools.list_ports}
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict('sys.modules', modules), \
                 mock.patch.object(_cdc, 'Station') as factory, mock.patch.object(_cdc, 'prepare') as audio:
             station = factory.return_value
