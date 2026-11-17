@@ -222,6 +222,21 @@
 #error "T2620 connection slave latency must be 0..49"
 #endif
 
+/*
+ * 临时单路 BLE（2026-11-16）：
+ * 0 = 只允许一条 ACL，任意 ACL 建立后关闭第二入口；
+ * 1 = 恢复单 ACL 期间的第二入口广播。
+ * 该开关用于隔离 BLE 一拖二对 PC 兼容性的影响，便于 A/B 后回退。
+ */
+#ifndef TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
+#define TCFG_T2620_BLE_SECOND_ENTRY_ENABLE          0
+#endif
+#if (TCFG_T2620_BLE_SECOND_ENTRY_ENABLE != 0) && (TCFG_T2620_BLE_SECOND_ENTRY_ENABLE != 1)
+#error "T2620 BLE second-entry switch must be 0 or 1"
+#endif
+
+
+
 /* -------------------------------------------------------------------------- */
 /* BLE 传输与诊断（docs/10-13 结论 E；兼容性优先，不主动请求 2M PHY）       */
 /* -------------------------------------------------------------------------- */
@@ -230,7 +245,7 @@
 
 /* 本轮 PC 断链诊断：仅缓存异常/生命周期元数据，app_core 输出 [BLE_DIAG]。 */
 #ifndef TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE
-#define TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE      1
+#define TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE      0
 #endif
 
 /*

@@ -23,6 +23,12 @@ typedef int s32;
 #define RDX_BLE_PHASE0A_WRAPPER_MAX 2
 #define RDX_BLE_ADV_INTERVAL_LOW 800
 #define RDX_LED_SCENE_BLE_ADV_START 1
+#ifndef TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
+#define TCFG_T2620_BLE_SECOND_ENTRY_ENABLE 1
+#endif
+#ifndef TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE
+#define TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE 0
+#endif
 #define RDX_LE_CONNECTION_COMPLETE_MIN_SIZE 20
 #define RDX_LE_ENHANCED_CONNECTION_COMPLETE_MIN_SIZE 32
 #define RDX_BLE_LINK_INVALID_INDEX 255
@@ -43,7 +49,8 @@ static u32 queue_args[512];
 static int queue_read, queue_write;
 static int suppressed, busy, power_calls, led_calls, opens, sdk_stops, close_calls;
 static int sdk_fail, submit_fail, auto_notification, open_race, setup_fail, close_race;
-static int exit_ack, exit_delays, free_calls;
+static int exit_ack, exit_delays, free_calls, disconnect_calls;
+static int disconnect_cleanup_calls;
 static u16 last_adv_interval;
 enum { RDX_BLE_RUNTIME_READY, RDX_BLE_RUNTIME_ACTIVE, RDX_BLE_RUNTIME_QUIESCING,
        RDX_BLE_RUNTIME_RESETTING, RDX_BLE_RUNTIME_FAILED };
@@ -227,6 +234,8 @@ void os_time_dly(int ticks) {
 void rdx_ble_server_transfer_param_cancel(void) {}
 void rdx_ble_server_syn_data_timers_cancel(void) {}
 void rdx_ble_server_phase0a_connect_adv_restart_cancel(void) { g_rdx_ble_phase0a_connect_adv_timer=0; }
+void rdx_ble_server_phase0b_adv_token_capture(void *h) {}
+void rdx_ble_server_disconnected_adv_restart_schedule(void) { ++disconnect_cleanup_calls; }
 void rdx_ble_server_rdx_send_pending_reset(void) {}
 void rdx_session_control_reset(void) {}
 void rdx_ble_session_transport_deinit(void) {}
@@ -234,7 +243,7 @@ int rdx_app_rdx_rebind_is_idle(void) { return !workers_busy; }
 void rdx_hogp_key_action_deinit(void) {}
 void rdx_hogp_deinit(void) {}
 void rdx_ble_session_reset(void) { memset(links,0,sizeof(links)); }
-void app_ble_disconnect(void *h) { ((wrapper_t*)h)->con=0; }
+void app_ble_disconnect(void *h) { ++disconnect_calls; ((wrapper_t*)h)->con=0; }
 void app_ble_hdl_free(void *h) {
     wrapper_t *w=h;
     if(w->freed || w->adv || w->con) ++context_error;
@@ -263,7 +272,8 @@ static void reset(void) {
     entry_state_lock.locked=0;
     suppressed=busy=power_calls=led_calls=opens=sdk_stops=close_calls=0;
     sdk_fail=submit_fail=auto_notification=open_race=command_count=accepted=rejected=0;
-    setup_fail=close_race=exit_ack=exit_delays=free_calls=queue_read=queue_write=0;
+    setup_fail=close_race=exit_ack=exit_delays=free_calls=disconnect_calls=queue_read=queue_write=0;
+    disconnect_cleanup_calls=0;
     last_adv_interval=0;
     g_rdx_ble_exiting=0;
     runtime=RDX_BLE_RUNTIME_READY; runtime_epoch=1;
@@ -793,14 +803,80 @@ int check_persistent_suppression_and_composite(void) {
 }
 '''
 
+SINGLE_LINK_CHECKS = HELPERS + r'''
+int check_single_link_zero_acl_advertises(void) {
+    reset();
+    rdx_ble_entry_request(1,0); CHECK(drain());
+    CHECK(opens==1 && wrappers[0].adv && entry.window);
+    CHECK(rdx_ble_entry_allowed() && !rdx_ble_entry_adv_slow());
+    return 0;
+}
+
+int check_single_link_with_acl_stays_closed(void) {
+    reset();
+    wrappers[0].con=0x50;
+    links[0].connected=1; links[0].con_handle=0x50; links[0].ble_hdl=&wrappers[0];
+    rdx_ble_entry_topology_changed(); rdx_ble_entry_request(1,1); CHECK(drain());
+    CHECK(!entry.window && !rdx_ble_entry_allowed() && !opens);
+    CHECK(!g_rdx_ble_advertising_hdl && !g_rdx_adv_close.waiting && !g_rdx_adv_close.fault);
+    rdx_ble_server_dual_acl_sleep_policy_update("single_link_stable");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+
+int check_single_link_rejects_second_acl(void) {
+    u8 packet[34]={62,19,1,0,0x51,0};
+    reset();
+    wrappers[0].con=0x50;
+    links[0].connected=1; links[0].con_handle=0x50; links[0].ble_hdl=&wrappers[0];
+    wrappers[1].con=0x51; wrappers[1].adv=1; wrappers[1].handle=1;
+    g_rdx_ble_advertising_hdl=&wrappers[1];
+    rdx_ble_server_phase0a_link_connected(&wrappers[1],packet,20,0);
+    CHECK(!accepted && !links[1].connected && disconnect_calls==1);
+    CHECK(!wrappers[1].con && g_rdx_ble_adv_consumed_hdl==&wrappers[1]);
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    /* A successful Connection Complete consumes/removes the controller adv set. */
+    wrappers[1].adv=0; wrappers[1].handle=0;
+    rdx_ble_server_phase0a_unregistered_disconnect_cleanup(&wrappers[1]);
+    CHECK(drain());
+    CHECK(disconnect_cleanup_calls==1 && g_rdx_ble_dual_acl_sleep_blocked &&
+          !g_rdx_ble_advertising_hdl);
+    CHECK(!entry.window && !opens);
+    wrappers[0].con=0;
+    rdx_ble_server_dual_acl_sleep_policy_update("last_acl_disconnected");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+
+int check_connected_sleep_block_boundaries(void) {
+    reset();
+    rdx_ble_server_dual_acl_sleep_policy_update("zero_acl");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[0].con=0x50;
+    rdx_ble_server_dual_acl_sleep_policy_update("one_acl");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[0].con=0;
+    rdx_ble_server_dual_acl_sleep_policy_update("last_acl_disconnected");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[1].con=0x51;
+    rdx_ble_server_dual_acl_sleep_policy_update("other_single_acl");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    wrappers[1].con=0;
+    g_rdx_adv_close.fault=1;
+    rdx_ble_server_dual_acl_sleep_policy_update("fault");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    return 0;
+}
+'''
+
 
 def main():
     # 已审阅的 SDK ABI：公共句柄从 0 开始，0xff 表示不存在；命令保留缓冲引用；
     # 0x203c 返回 Command Complete，其 size 不包含事件码字节。
     # SDK 升级必须重新审阅，不能直接沿用模拟结果。
     for name, expected in {
-        'btstack.a': '03d1626fac16289ab5c3011fbd154748f562786cec6fc336fd367b30c1fbc5c5',
-        'btctrler.a': '6ecbbd876ea08e6d260fbcd1c8c7b8cd214bfde70edf1145e3f7d02eccfabc50',
+        'btstack.a': '3c11aa984ee4153a1ecf80af1ef7ca0cf7c0b1b9f9b673be8ea9312e14d5215c',
+        'btctrler.a': '261d687e0b5b2a247a855d93c00e28aaae9b906878d340c372c5e67f154bbd9a',
     }.items():
         actual = hashlib.sha256((ROOT / 'SDK/cpu/br28/liba' / name).read_bytes()).hexdigest()
         assert actual == expected, f'{name} changed: re-audit the BLE entry controller boundary'
@@ -815,6 +891,7 @@ def main():
              'rdx_ble_server_adv_enable_on_hdl', 'rdx_ble_entry_radio_deadline',
              'rdx_ble_server_adv_close_begin', 'rdx_ble_server_adv_close_event',
              'rdx_ble_entry_radio_apply', 'rdx_ble_server_phase0a_link_connected',
+             'rdx_ble_server_phase0a_unregistered_disconnect_cleanup',
              'rdx_ble_server_entry_stop', 'rdx_ble_server_exit',
              'rdx_ble_server_adv_enable', 'rdx_ble_entry_rearm_service',
              'rdx_ble_server_rdx_runtime_try_rearm', 'rdx_ble_server_usb_quiesce']
@@ -826,6 +903,19 @@ def main():
                              (FOLDER / 'rdx_ble_diag.h').read_text(), flags=re.M)
         path.write_text(STUBS + diag_header + body + checks, encoding='utf-8')
         run_c_checks(path, re.findall(r'int (check_\w+)\(void\)', checks), native=True)
+        single_stubs = STUBS.replace(
+            '#define TCFG_T2620_BLE_SECOND_ENTRY_ENABLE 1',
+            '#define TCFG_T2620_BLE_SECOND_ENTRY_ENABLE 0', 1)
+        single_stubs = single_stubs.replace(
+            '#define TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE 0',
+            '#define TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE 1', 1)
+        single_path = Path(directory) / 'entry-single.c'
+        single_path.write_text(single_stubs + diag_header + body + SINGLE_LINK_CHECKS,
+                               encoding='utf-8')
+        run_c_checks(
+            single_path,
+            re.findall(r'int (check_\w+)\(void\)', SINGLE_LINK_CHECKS),
+            native=True)
     # 实际调用方必须发布事件，不得绕过协调器独立操作广播。
     assert 'rdx_ble_entry_request(1, 1)' in function(server, 'rdx_ble_server_adv_data_changed')
     assert 'rdx_ble_entry_request(enable, 0)' in function(server, 'rdx_ble_server_adv_enable')
@@ -874,11 +964,21 @@ def main():
     assert 'g_rdx_ble_adv_setup' in sleep
     assert 'g_rdx_adv_close.waiting' in sleep
     assert 'connected == 1 && adv_in_flight' in sleep
+    assert 'TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE' in sleep
+    assert 'connected > 0' in sleep
     assert 'rdx_ble_entry_adv_slow()' not in sleep
     assert 'app_ble_adv_state_get(' not in sleep
     assert 'composite' not in sleep and 'capacity' not in sleep
     assert 'TCFG_T2620_BLE_SECOND_ENTRY_SLEEP' not in server
     assert 'TCFG_T2620_BLE_SECOND_ENTRY_ALWAYS' not in policy
+    config = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(
+        encoding='utf-8-sig')
+    assert re.search(
+        r'#define\s+TCFG_T2620_BLE_SECOND_ENTRY_ENABLE\s+0',
+        config)
+    assert re.search(
+        r'#define\s+TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE\s+1',
+        config)
     ordered(function(policy, 'rdx_ble_entry_lock'), 'spinlock_t *lock = &entry_state_lock',
             'local_irq_disable()', 'arch_spin_lock(lock)')
     ordered(function(policy, 'rdx_ble_entry_unlock'), 'spinlock_t *lock = &entry_state_lock',

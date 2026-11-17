@@ -279,16 +279,25 @@ u8 rdx_ble_entry_allowed(void)
     u8 links;
     if (!entry.running || !entry.requested) return 0;
     links = rdx_ble_server_get_connected_count();
+#if !TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
+    /* Temporary single-link policy: advertising only before the first ACL. */
+    return !links && !rdx_ble_entry_suppressed();
+#else
     if (links >= 2 || rdx_ble_entry_suppressed()) return 0;
     if (links && entry.capacity != ENTRY_CAPACITY_AVAILABLE) return 0;
     return !links || (entry.window && entry.topology == entry.consumed_topology);
+#endif
 }
 
 u8 rdx_ble_entry_adv_slow(void)
 {
+#if !TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
+    return 0;
+#else
     return entry.running && entry.requested && entry.slow && entry.window &&
            entry.capacity == ENTRY_CAPACITY_AVAILABLE &&
            rdx_ble_server_get_connected_count() == 1;
+#endif
 }
 
 static void entry_run(void *epoch)
@@ -320,7 +329,11 @@ static void entry_run(void *epoch)
     if (links != entry.links || topology != entry.consumed_topology) {
         entry.links = links;
         entry.consumed_topology = topology;
+#if TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
         entry.window = links == 1 && capacity == ENTRY_CAPACITY_AVAILABLE;
+#else
+        entry.window = !links && capacity == ENTRY_CAPACITY_AVAILABLE;
+#endif
         entry.slow = 0;
         entry.deadline = now + ENTRY_WINDOW_MS;
         entry.retries = 0;
@@ -331,7 +344,11 @@ static void entry_run(void *epoch)
     if (capacity != ENTRY_CAPACITY_AVAILABLE) entry.window = 0;
     if (release != entry.consumed_release) {
         entry.consumed_release = release;
+#if TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
         if (links == 1 && capacity == ENTRY_CAPACITY_AVAILABLE) {
+#else
+        if (!links && capacity == ENTRY_CAPACITY_AVAILABLE) {
+#endif
             entry.deadline = release_time + ENTRY_WINDOW_MS;
             entry.window = 1;
             entry.slow = 0;
@@ -341,9 +358,8 @@ static void entry_run(void *epoch)
             }
         }
     }
-    /* 单 ACL 第二入口固定 100 ms 快广播常开：500 ms 慢广播可能让第二台设备
-     * 搜索不到，而板测快广播稳定期不挡睡眠、电流影响不明显，因此不做快慢切换，
-     * 也不挂 120 秒 deadline 定时器。entry.slow 恒为 0，睡眠门禁不变。 */
+    /* Temporary product policy keeps the second entry shut after any ACL.
+     * The historical second-entry branch remains available for A/B. */
     (void)wake;
     (void)wake_time;
     /* 同一业务占用资源期间，重复数据包或按键报告不能再次触发重开。

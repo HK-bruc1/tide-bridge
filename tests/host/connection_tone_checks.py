@@ -120,6 +120,10 @@ static void rdx_hogp_on_disconnected(u16 con) {
 }
 static void multi_att_clear_ccc_config(u16 con) { (void)con; }
 static void rdx_ble_server_phase0a_connect_adv_restart_cancel(void) {}
+static void rdx_ble_server_phase0a_unregistered_disconnect_cleanup(void *hdl) { (void)hdl; }
+static void rdx_ble_server_disconnect_snapshot(const rdx_ble_link_state_t *link, u8 reason) {
+    (void)link; (void)reason;
+}
 static void rdx_hogp_input_invalidate(void) {}
 static void rdx_peripheral_power_vdd_ble_links_changed_notify(void) {}
 static void rdx_ble_server_phase0b_adv_token_capture(void *hdl) { (void)hdl; }

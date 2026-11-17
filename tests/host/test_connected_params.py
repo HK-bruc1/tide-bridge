@@ -20,7 +20,7 @@ typedef int s32;
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
 void *memset(void*,int,unsigned long long);
 typedef struct { u8 slot_index; u32 slot_generation, transport_epoch; } rdx_ble_async_token_t;
-typedef struct { u16 con_handle, conn_interval, conn_latency; u8 connected; u32 generation; } rdx_ble_link_state_t;
+typedef struct { u16 con_handle, conn_interval, conn_latency, supervision_timeout; u8 connected; u32 generation; } rdx_ble_link_state_t;
 struct conn_update_param_t { u16 interval_min, interval_max, latency, timeout; };
 typedef struct { int file_send_busy; } ReqFileInfo;
 static rdx_ble_link_state_t links[2];
@@ -63,6 +63,7 @@ int ble_op_conn_param_request(u16 handle,struct conn_update_param_t *p) {
         int index=handle==0x50 ? 0 : 1;
         links[index].conn_interval=p->interval_min;
         links[index].conn_latency=p->latency;
+        links[index].supervision_timeout=p->timeout;
         rdx_ble_server_conn_param_changed();
     }
     return request_result;
@@ -94,6 +95,7 @@ static void reset(void) {
     links[0].con_handle=0x50; links[1].con_handle=0x51;
     links[0].connected=1; links[0].generation=links[1].generation=1;
     links[0].conn_interval=links[1].conn_interval=24;
+    links[0].supervision_timeout=links[1].supervision_timeout=600;
     now=next_timer=queue_pending=queue_fail=timer_fail=0;
     requests=context_error=irq=in_core=request_result=race=0;
     transport_epoch=1; accept_requests=1;
@@ -159,6 +161,34 @@ int check_actual_fast_range(void) {
     reset(); links[0].conn_interval=13; CHECK(changed()); CHECK(requests==1);
     reset(); links[0].conn_interval=9; links[0].conn_latency=5;
     CHECK(changed()); CHECK(requests==1);
+    return 0;
+}
+int check_supervision_timeout_update(void) {
+    reset(); links[0].conn_interval=12; links[0].conn_latency=49;
+    CHECK(changed()); CHECK(!requests && !g_rdx_transfer_params[0].timer);
+
+    links[0].supervision_timeout=500;
+    CHECK(changed());
+    CHECK(requests==1 && links[0].supervision_timeout==600);
+    CHECK(advance(120000)); CHECK(requests==1 && !g_rdx_transfer_params[0].timer);
+
+    for(int result=-1;result<=0;++result) {
+        reset(); links[0].conn_interval=12; links[0].conn_latency=49;
+        links[0].supervision_timeout=500; accept_requests=0; request_result=result;
+        CHECK(changed()); CHECK(requests==1 && request_times[0]==0);
+        CHECK(advance(1999)); CHECK(requests==1);
+        CHECK(advance(1)); CHECK(requests==2 && request_times[1]==2000);
+        CHECK(advance(2000)); CHECK(requests==3 && request_times[2]==4000);
+        CHECK(advance(2000)); CHECK(requests==3 && !g_rdx_transfer_params[0].timer);
+        CHECK(g_rdx_transfer_params[0].unconfirmed_logged);
+        CHECK(advance(120000)); CHECK(requests==3);
+
+        links[0].supervision_timeout=600;
+        CHECK(changed()); CHECK(!g_rdx_transfer_params[0].attempts);
+        accept_requests=1; request_result=0; links[0].supervision_timeout=500;
+        CHECK(changed()); CHECK(requests==4 && links[0].supervision_timeout==600);
+        CHECK(advance(120000)); CHECK(requests==4 && !g_rdx_transfer_params[0].timer);
+    }
     return 0;
 }
 int check_rejection_and_delayed_confirmation(void) {

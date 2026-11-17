@@ -856,11 +856,11 @@ static u8 rdx_ble_server_request_connect_parameter_for_token(
     int ret = ble_op_conn_param_request(link->con_handle,
                                        (struct conn_update_param_t *)&rdx_fast_conn_param);
     r_printf("[RDX_CONN_POLICY] request slot=%u con=0x%04x mode=FAST "
-             "attempt=%u interval=%u-%u latency=%u ret=%d t=%u\n",
+             "attempt=%u interval=%u-%u latency=%u timeout_10ms=%u ret=%d t=%u\n",
              rdx_ble_session_link_index(link), link->con_handle,
              attempts, rdx_fast_conn_param.interval_min,
-             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency, ret,
-             sys_timer_get_ms());
+             rdx_fast_conn_param.interval_max, rdx_fast_conn_param.latency,
+             rdx_fast_conn_param.timeout, ret, sys_timer_get_ms());
     return ret == 0;
 }
 
@@ -950,11 +950,12 @@ static void rdx_ble_server_transfer_param_arm(rdx_conn_param_state_t *param, u32
 
 static u8 rdx_ble_server_transfer_target_matches(const rdx_ble_link_state_t *link)
 {
-    /* 手机可在 7.5–15 ms 内任选 interval；latency 由从机提出，必须等于目标，
-     * 否则手机自行改回 latency 0（如 APP 切换连接优先级）后空闲功耗回不去。 */
+    /* 对端可在 7.5–15 ms 内任选 interval；latency 和监督超时须等于目标，
+     * 否则只修改目标超时时，已有连接不会发起参数更新请求。 */
     return link->conn_interval >= rdx_fast_conn_param.interval_min &&
            link->conn_interval <= rdx_fast_conn_param.interval_max &&
-           link->conn_latency == rdx_fast_conn_param.latency;
+           link->conn_latency == rdx_fast_conn_param.latency &&
+           link->supervision_timeout == rdx_fast_conn_param.timeout;
 }
 
 static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param,
@@ -996,9 +997,11 @@ static void rdx_ble_server_transfer_param_evaluate(rdx_conn_param_state_t *param
         if (!param->unconfirmed_logged) {
             param->unconfirmed_logged = 1;
             r_printf("[RDX_CONN_POLICY] unconfirmed slot=%u mode=FAST "
-                     "interval=%u latency=%u; wait parameter event\n",
+                     "interval=%u latency=%u timeout_10ms=%u target_timeout_10ms=%u; "
+                     "wait parameter event\n",
                      rdx_ble_session_link_index(link),
-                     link->conn_interval, link->conn_latency);
+                     link->conn_interval, link->conn_latency,
+                     link->supervision_timeout, rdx_fast_conn_param.timeout);
         }
         return;
     }
@@ -1796,8 +1799,12 @@ static void rdx_ble_server_phase0a_connect_adv_restart_deferred(void *priv)
         r_printf("[RDX_BLE_LINK] stale connect ADV timer ignored\n");
         return;
     }
+#if TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
     if (rdx_ble_server_phase0a_connected_count() >=
             RDX_BLE_PHASE0A_WRAPPER_MAX ||
+#else
+    if (rdx_ble_server_phase0a_connected_count() != 0 ||
+#endif
         !rdx_ble_server_phase0a_idle_wrapper_get() ||
         rdx_ble_server_broadcast_suppressed()) {
         r_printf("[RDX_BLE_LINK] delayed advertiser skipped connected=%u idle=%p suppressed=%u\n",
@@ -1874,8 +1881,12 @@ static void rdx_ble_server_disconnected_adv_restart_deferred(void *priv)
     g_rdx_ble_phase0a_disconnect_pending_hdl = NULL;
     rdx_ble_entry_topology_changed();
     g_rdx_ble_server_info.adv_refresh_pending = FALSE;
+#if TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
     if (rdx_ble_server_phase0a_connected_count() <
             RDX_BLE_PHASE0A_WRAPPER_MAX &&
+#else
+    if (rdx_ble_server_phase0a_connected_count() == 0 &&
+#endif
         !rdx_ble_server_broadcast_suppressed()) {
         r_printf("[RDX_BLE_LINK] advertising restart on released wrapper\n");
         rdx_ble_entry_request(1, 1);
@@ -2467,6 +2478,18 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     if (!rdx_ble_server_phase0a_event_matches(hdl, con_handle, "connect")) {
         return;
     }
+#if !TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
+    if (rdx_ble_server_phase0a_connected_count() > 1) {
+        r_printf("[RDX_BLE_LINK] second ACL rejected by single-link policy wrapper=%u con=0x%04x\n",
+                 rdx_ble_server_phase0a_wrapper_index(hdl), con_handle);
+        if (hdl == g_rdx_ble_advertising_hdl || hdl == g_rdx_adv_close.hdl) {
+            g_rdx_ble_adv_consumed_hdl = hdl;
+        }
+        rdx_ble_server_dual_acl_sleep_policy_update("single_link_reject");
+        app_ble_disconnect(hdl);
+        return;
+    }
+#endif
 
     wrapper_index = rdx_ble_server_phase0a_wrapper_index(hdl);
     if (!rdx_hogp_keyboard_is_ready()) rdx_hogp_input_invalidate();
@@ -2488,7 +2511,9 @@ static void rdx_ble_server_phase0a_link_connected(void *hdl,
     r_printf("[RDX_BLE_LINK] connected_count=%u; defer idle-wrapper advertising\n",
              rdx_ble_server_phase0a_connected_count());
     rdx_ble_server_dual_acl_sleep_policy_update("connect");
+#if TCFG_T2620_BLE_SECOND_ENTRY_ENABLE
     rdx_ble_server_phase0a_connect_adv_restart_schedule();
+#endif
     rdx_ble_entry_topology_changed();
 }
 
@@ -2531,6 +2556,18 @@ static void rdx_ble_server_disconnect_snapshot(const rdx_ble_link_state_t *link,
 #endif
 }
 
+static void rdx_ble_server_phase0a_unregistered_disconnect_cleanup(void *hdl)
+{
+    r_printf("[RDX_BLE_LINK] unregistered ACL disconnected wrapper=%u; reconcile entry\n",
+             rdx_ble_server_phase0a_wrapper_index(hdl));
+    rdx_ble_server_phase0a_connect_adv_restart_cancel();
+    g_rdx_ble_phase0a_disconnect_pending_hdl = hdl;
+    rdx_ble_server_phase0b_adv_token_capture(hdl);
+    rdx_ble_server_disconnected_adv_restart_schedule();
+    rdx_ble_server_dual_acl_sleep_policy_update("unregistered_disconnect");
+    rdx_ble_entry_topology_changed();
+}
+
 static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
                                                      const u8 *packet,
                                                      u16 size)
@@ -2553,6 +2590,11 @@ static void rdx_ble_server_phase0a_link_disconnected(void *hdl,
     }
     link = rdx_ble_server_phase0b_link_find(hdl, con_handle);
     if (!link) {
+        /* A second ACL rejected during the advertising-close race has a
+         * wrapper-side connection handle but no accepted RDX session. Its
+         * Disconnection Complete must still release deferred advertising,
+         * refresh the idle gate and publish the new physical topology. */
+        rdx_ble_server_phase0a_unregistered_disconnect_cleanup(hdl);
         return;
     }
 
@@ -2658,11 +2700,16 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
         case HCI_SUBEVENT_LE_CONNECTION_UPDATE_COMPLETE:
             if (size >= 11) {
                 con_handle = hci_subevent_le_connection_update_complete_get_connection_handle(packet);
-                if (hci_subevent_le_connection_update_complete_get_status(packet) == 0 &&
-                    rdx_ble_server_phase0a_event_matches(hdl, con_handle,
+                if (rdx_ble_server_phase0a_event_matches(hdl, con_handle,
                                                          "connection_update")) {
-                    rdx_ble_server_phase0a_link_conn_params_update(
-                        rdx_ble_server_phase0b_link_find(hdl, con_handle), packet);
+                    u8 status = hci_subevent_le_connection_update_complete_get_status(packet);
+                    if (status == 0) {
+                        rdx_ble_server_phase0a_link_conn_params_update(
+                            rdx_ble_server_phase0b_link_find(hdl, con_handle), packet);
+                    } else {
+                        r_printf("[RDX_CONN_POLICY] update_failed con=0x%04x status=0x%02x t=%u\n",
+                                 con_handle, status, sys_timer_get_ms());
+                    }
                 }
             }
             break;
@@ -2687,6 +2734,18 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
             break;
         default:
             break;
+        }
+        break;
+    case L2CAP_EVENT_CONNECTION_PARAMETER_UPDATE_RESPONSE:
+        if (size >= 6) {
+            con_handle = l2cap_event_connection_parameter_update_response_get_handle(packet);
+            if (rdx_ble_server_phase0a_event_matches(hdl, con_handle,
+                                                     "connection_parameter_response")) {
+                r_printf("[RDX_CONN_POLICY] response con=0x%04x result=0x%04x t=%u\n",
+                         con_handle,
+                         l2cap_event_connection_parameter_update_response_get_result(packet),
+                         sys_timer_get_ms());
+            }
         }
         break;
     case HCI_EVENT_DISCONNECTION_COMPLETE:

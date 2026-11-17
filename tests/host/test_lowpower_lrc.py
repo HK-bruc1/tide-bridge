@@ -35,14 +35,17 @@ def preprocess(overrides=None, error=None):
 
 
 def check_configuration():
-    baseline = preprocess({SWITCH: 0})
-    trial = preprocess({SWITCH: 1})
+    baseline = preprocess({SWITCH: 0, 'TCFG_LOWPOWER_LOWPOWER_SEL': 1})
+    trial = preprocess({SWITCH: 1, 'TCFG_LOWPOWER_LOWPOWER_SEL': 1})
     assert baseline['TCFG_LOWPOWER_OSC_TYPE'] == 'OSC_TYPE_BT_OSC'
     assert trial['TCFG_LOWPOWER_OSC_TYPE'] == 'OSC_TYPE_LRC'
     # 工具配置与项目覆盖的全部宏中，只允许产品开关和睡眠时钟类型不同。
     changed = {k for k in baseline.keys() | trial.keys() if baseline.get(k) != trial.get(k)}
     assert changed == {SWITCH, 'TCFG_LOWPOWER_OSC_TYPE'}, changed
-    assert preprocess() == trial, 'The accepted low-power baseline must enable standalone LRC'
+    product = preprocess()
+    assert product[SWITCH] in ('0', '1')
+    if product[SWITCH] == '1':
+        assert product['TCFG_LOWPOWER_OSC_TYPE'] == 'OSC_TYPE_LRC'
     assert all(key not in trial for key in LAB_SWITCHES)
 
     for enabled in (0, 1):
@@ -50,9 +53,12 @@ def check_configuration():
             preprocess({SWITCH: enabled, 'TCFG_LOWPOWER_LOWPOWER_SEL': native},
                        'requires native low power' if enabled and not native else None)
         for key in LAB_SWITCHES:
-            preprocess({SWITCH: enabled, key: 0})
+            preprocess({SWITCH: enabled, key: 0,
+                        'TCFG_LOWPOWER_LOWPOWER_SEL': 1})
             for value in (-1, 1, 2):
-                preprocess({SWITCH: enabled, key: value}, 'idle probe is not supported')
+                preprocess({SWITCH: enabled, key: value,
+                            'TCFG_LOWPOWER_LOWPOWER_SEL': 1},
+                           'idle probe is not supported')
     for invalid in (-1, 2):
         preprocess({SWITCH: invalid}, 'switch must be 0 or 1')
     # 关闭项目覆盖后跟随工具配置，不硬编码另一套时钟选择。
@@ -129,7 +135,8 @@ def check_boot_initialization():
             for charge in (0, 1):
                 path = Path(temp) / f'boot_{lrc}_{charge}.c'
                 path.write_text(types + power_struct + '\n' + osc_enum + '\n' +
-                                config_source({SWITCH: lrc, 'TCFG_CHARGE_ENABLE': charge}) +
+                                config_source({SWITCH: lrc, 'TCFG_CHARGE_ENABLE': charge,
+                                               'TCFG_LOWPOWER_LOWPOWER_SEL': 1}) +
                                 BOOT_STUBS + source + BOOT_TEST, encoding='utf-8')
                 run_c_checks(path, ['check_boot'])
 

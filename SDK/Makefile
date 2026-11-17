@@ -65,6 +65,15 @@ OBJ_FILE  := $(OUT_ELF).objs.txt
 # 编译路径设置
 BUILD_DIR := objs
 
+# Temporary diagnostic gate for the replaced controller archive. The current
+# patch has not been re-audited against the new controller ABI, so keep it off
+# unless an explicitly reviewed diagnostic build requests it.
+RDX_BLE_DISCONNECT_DIAG_ENABLE ?= 0
+RDX_BLE_CONTROLLER_ARCHIVE := cpu/br28/liba/btctrler.a
+ifeq ($(RDX_BLE_DISCONNECT_DIAG_ENABLE),1)
+RDX_BLE_CONTROLLER_ARCHIVE := $(BUILD_DIR)/btctrler_diag.a
+endif
+
 # 编译参数设置
 CFLAGS := \
 	-target pi32v2 \
@@ -1094,7 +1103,7 @@ LFLAGS := \
 	cpu/br28/liba/swift_pair.a \
 	cpu/br28/liba/libdma-protocol.a \
 	cpu/br28/liba/libdma-device-ota.a \
-	$(BUILD_DIR)/btctrler_diag.a \
+	$(RDX_BLE_CONTROLLER_ARCHIVE) \
 	cpu/br28/liba/aec.a \
 	cpu/br28/liba/media.a \
 	cpu/br28/liba/libepmotion.a \
@@ -1307,11 +1316,13 @@ clean:
 # Updating the checked-in RDX patch must relink even if no C object changed.
 # pre_build regenerates sdk.ld: never run the linker while it is being replaced.
 $(OUT_ELF): apps/common/third_party_profile/rdx_protocol/librdxApp_patched.a Makefile | pre_build
+ifeq ($(RDX_BLE_DISCONNECT_DIAG_ENABLE),1)
 $(OUT_ELF): $(BUILD_DIR)/btctrler_diag.a
 
 # Generate an instrumented copy; never patch the vendor archive in place.
 $(BUILD_DIR)/btctrler_diag.a: cpu/br28/liba/btctrler.a ../tools/ble_diag/patch_btctrler.ps1
 	$(QUITE) powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/ble_diag/patch_btctrler.ps1 -OutputArchive "$@"
+endif
 
 ifeq ($(LINK_AT), 1)
 $(OUT_ELF): $(OBJS)

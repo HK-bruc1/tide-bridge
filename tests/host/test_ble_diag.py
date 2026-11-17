@@ -473,8 +473,17 @@ def main():
         directory = Path(name)
         check_recorder(directory)
         check_disconnect_snapshot(directory)
-        check_patch(directory)
-    print('BLE diagnostic recorder, disconnect snapshot and controller patch checks passed.')
+        config = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(
+            encoding='utf-8-sig')
+        enabled = re.search(
+            r'^\s*#define\s+TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE\s+1\b',
+            config, re.M)
+        if enabled:
+            check_patch(directory)
+        else:
+            print('Controller diagnostic patch skipped: '
+                  'TCFG_T2620_BLE_DISCONNECT_DIAG_ENABLE is disabled.')
+    print('BLE diagnostic recorder and disconnect snapshot checks passed.')
 
 
 if __name__ == '__main__':

@@ -31,6 +31,12 @@ $ConnectBody = Get-SourceSlice $Server `
 $DisconnectBody = Get-SourceSlice $Server `
     'static void rdx_ble_server_phase0a_link_disconnected(' `
     'static void rdx_ble_server_phase0a_packet_handler('
+$UnregisteredDisconnectBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_phase0a_unregistered_disconnect_cleanup(' `
+    'static void rdx_ble_server_phase0a_link_disconnected('
+$SleepPolicyBody = Get-SourceSlice $Server `
+    'static void rdx_ble_server_dual_acl_sleep_policy_update(' `
+    'static u8 rdx_ble_server_dual_acl_lp_idle_query('
 $AdvRestartBody = Get-SourceSlice $Server `
     'static void rdx_ble_server_phase0a_connect_adv_restart_deferred(' `
     'static void rdx_ble_server_disconnected_idle_policy_resume('
@@ -215,10 +221,37 @@ Assert-Contract 'UNIFIED_ADVERTISING_PACKET' $advertisingOk `
 
 Assert-Contract 'ADVERTISING_RESTART_REVALIDATES_SLOT' `
     ($AdvRestartBody -match 'rdx_ble_server_phase0b_adv_token_is_current\s*\(\s*\)' -and
-     $AdvRestartBody -match 'rdx_ble_server_phase0a_connected_count\s*\(\s*\)\s*>=\s*RDX_BLE_PHASE0A_WRAPPER_MAX' -and
+     $AdvRestartBody -match 'TCFG_T2620_BLE_SECOND_ENTRY_ENABLE' -and
+     $AdvRestartBody -match 'rdx_ble_server_phase0a_connected_count\s*\(\s*\)\s*!=\s*0' -and
      $AdvRestartBody -match 'rdx_ble_server_phase0a_idle_wrapper_get\s*\(\s*\)' -and
      $AdvRestartBody -match 'rdx_ble_server_broadcast_suppressed\s*\(\s*\)') `
-    'a delayed advertiser may start only for a current idle slot while capacity remains'
+    'a delayed advertiser must revalidate the idle slot and temporary single-link policy'
+
+Assert-Contract 'SINGLE_LINK_SECOND_ACL_REJECTION' `
+    ($ConnectBody -match '#if\s+!TCFG_T2620_BLE_SECOND_ENTRY_ENABLE' -and
+     $ConnectBody -match 'rdx_ble_server_phase0a_connected_count\s*\(\s*\)\s*>\s*1' -and
+     $ConnectBody -match 'g_rdx_ble_adv_consumed_hdl\s*=\s*hdl' -and
+     $ConnectBody -match 'app_ble_disconnect\s*\(\s*hdl\s*\)') `
+    'temporary single-link mode must mark a consumed advertiser and close a racing second ACL'
+
+Assert-Contract 'UNREGISTERED_ACL_DISCONNECT_RECONCILES' `
+    ($DisconnectBody -match 'if\s*\(\s*!link\s*\)' -and
+     $DisconnectBody -match 'rdx_ble_server_phase0a_unregistered_disconnect_cleanup\s*\(\s*hdl\s*\)' -and
+     $UnregisteredDisconnectBody -match 'rdx_ble_server_disconnected_adv_restart_schedule\s*\(\s*\)' -and
+     $UnregisteredDisconnectBody -match 'rdx_ble_server_dual_acl_sleep_policy_update\s*\(\s*"unregistered_disconnect"\s*\)' -and
+     $UnregisteredDisconnectBody -match 'rdx_ble_entry_topology_changed\s*\(\s*\)') `
+    'a rejected second ACL must refresh cleanup, topology and the sleep gate when it disconnects'
+
+Assert-Contract 'CONNECTED_SLEEP_BLOCK_EXPERIMENT' `
+    ($ProjectConfig -match '(?s)#ifndef\s+TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE\s*#define\s+TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE\s+1\s*#endif' -and
+     $ProjectConfig -match 'TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE\s*!=\s*0' -and
+     $ProjectConfig -match 'TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE\s*!=\s*1' -and
+     $SleepPolicyBody -match '#if\s+TCFG_T2620_BLE_CONNECTED_SLEEP_BLOCK_ENABLE' -and
+     $SleepPolicyBody -match 'connected\s*>\s*0' -and
+     $SleepPolicyBody -match 'connected\s*==\s*1\s*&&\s*adv_in_flight' -and
+     $SleepPolicyBody -match 'connected\s*>=\s*RDX_BLE_PHASE0A_WRAPPER_MAX' -and
+     $SleepPolicyBody -match 'g_rdx_adv_close\.fault') `
+    'the temporary connected-sleep experiment must block every non-zero ACL while preserving original protections'
 
 $SmBody = Get-SourceSlice $Server `
     'static void rdx_ble_server_sm_event_callback(' `
