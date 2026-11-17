@@ -532,10 +532,10 @@ const char log_tag_const_w_LINK   = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_LINK   = CONFIG_DEBUG_LIB(0);
 
 //LE part
-const char log_tag_const_v_LE_BB  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_i_LE_BB  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_d_LE_BB  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_w_LE_BB  = CONFIG_DEBUG_LIB(0);
+const char log_tag_const_v_LE_BB  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_i_LE_BB  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_d_LE_BB  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_w_LE_BB  = CONFIG_DEBUG_LIB(1);
 const char log_tag_const_e_LE_BB  = CONFIG_DEBUG_LIB(1);
 
 const char log_tag_const_v_LE5_BB  = CONFIG_DEBUG_LIB(0);
@@ -550,10 +550,10 @@ const char log_tag_const_d_HCI_LL  = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_w_HCI_LL  = CONFIG_DEBUG_LIB(0);
 const char log_tag_const_e_HCI_LL  = CONFIG_DEBUG_LIB(1);
 
-const char log_tag_const_v_LL  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_i_LL  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_d_LL  = CONFIG_DEBUG_LIB(0);
-const char log_tag_const_w_LL  = CONFIG_DEBUG_LIB(0);
+const char log_tag_const_v_LL  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_i_LL  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_d_LL  = CONFIG_DEBUG_LIB(1);
+const char log_tag_const_w_LL  = CONFIG_DEBUG_LIB(1);
 const char log_tag_const_e_LL  = CONFIG_DEBUG_LIB(1);
 
 const char log_tag_const_v_LL_E  = CONFIG_DEBUG_LIB(0);

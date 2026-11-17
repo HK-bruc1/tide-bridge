@@ -205,15 +205,15 @@ void key_driver_init(void)
  *         1：可进
  */
 /* ----------------------------------------------------------------------------*/
-static u8 key_idle_query(void)
-{
-    if (g_key_idle_query_en) {
-        return !g_is_key_active;
-    } else {
-        return 1;
-    }
-}
-REGISTER_LP_TARGET(key_driver_target) = {
-    .name = "key",
-    .is_idle = key_idle_query,
-};
+// static u8 key_idle_query(void)
+// {
+//     if (g_key_idle_query_en) {
+//         return !g_is_key_active;
+//     } else {
+//         return 1;
+//     }
+// }
+// REGISTER_LP_TARGET(key_driver_target) = {
+//     .name = "key",
+//     .is_idle = key_idle_query,
+// };
