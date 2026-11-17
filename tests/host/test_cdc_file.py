@@ -13,16 +13,11 @@ import types
 import unittest
 from unittest import mock
 import zlib
-from llvmlite import binding as llvm
 
-from host_c_test_lib import ROOT, run_c_checks
+from cdc_test_support import ROOT, load_cdc_tool
 
-VECTORS = json.loads((ROOT / 'tests/host/fixtures/cdc_file_v1.json').read_text())
-launcher = types.ModuleType('cdc_launcher')
-launcher.__file__ = str(ROOT / 'CDC-test.bat')
-exec(compile((ROOT / 'CDC-test.bat').read_text(encoding='utf-8').split('\n', 1)[1],
-             launcher.__file__, 'exec'), launcher.__dict__)
-tool = launcher
+VECTORS = json.loads((ROOT / 'tests/host/fixtures/cdc_file_v1.json').read_text(encoding='utf-8'))
+tool = load_cdc_tool('cdc_launcher')
 
 
 class OpusExportTests(unittest.TestCase):
@@ -32,7 +27,7 @@ class OpusExportTests(unittest.TestCase):
             payload = bytes(range(40)) * 3
             raw.write_bytes(payload)
             expected = Path(directory) / 'expected.opus'
-            launcher.write_opus(payload, expected)
+            tool.write_opus(payload, expected)
             result = tool.export_opus(raw)
             self.assertEqual(result.name, 'recording.raw.opus')
             self.assertEqual(result.read_bytes(), expected.read_bytes())
@@ -68,15 +63,15 @@ class MenuTests(unittest.TestCase):
         for kind, mode in (('1', 'file-download'), ('2', 'file-bench')):
             for choice, repeat in (('1', '1'), ('2', '10')):
                 with self.subTest(kind=kind, choice=choice), contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=[kind, choice])),
+                    self.assertEqual(tool.file_test_menu(mock.Mock(side_effect=[kind, choice])),
                                      (mode, ['--bench-repeat', repeat]))
 
     def test_defaults_back_and_invalid_input(self):
         with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=['', ''])),
+            self.assertEqual(tool.file_test_menu(mock.Mock(side_effect=['', ''])),
                              ('file-download', ['--bench-repeat', '1']))
-            self.assertIsNone(launcher.file_test_menu(mock.Mock(side_effect=['1', 'q', 'q'])))
-            self.assertEqual(launcher.file_test_menu(mock.Mock(side_effect=['bad', '2', 'bad', '2'])),
+            self.assertIsNone(tool.file_test_menu(mock.Mock(side_effect=['1', 'q', 'q'])))
+            self.assertEqual(tool.file_test_menu(mock.Mock(side_effect=['bad', '2', 'bad', '2'])),
                              ('file-bench', ['--bench-repeat', '10']))
 
 
@@ -426,10 +421,7 @@ class ReceiverTests(unittest.TestCase):
     def test_deferred_verification(self):
         payload = (bytes(range(256)) * 40)[:10001]
         for block in (1024, 2048, 4096, 8192):
-            wire = b'*DEV#file#accepted#1#1#\r\n'
-            for offset in range(0, len(payload), block):
-                wire += frame(1, offset, payload[offset:offset + block])
-            wire += frame(2, len(payload), struct.pack('<II', len(payload), zlib.crc32(payload)))
+            wire = self.recording_wire(payload, block)
             for chunk in (63, 16384):
                 port = Port(wire, chunk)
                 result = tool.receive_bench(port, len(payload), block, receive_mode='deferred')
@@ -553,10 +545,7 @@ class ReceiverTests(unittest.TestCase):
     def test_multiple_blocks_and_truncated_tail(self):
         payload = (bytes(range(256)) * 40)[:10001]
         for block in (1024, 2048, 4096, 8192):
-            wire = b'*DEV#file#accepted#1#1#\r\n'
-            for offset in range(0, len(payload), block):
-                wire += frame(1, offset, payload[offset:offset + block])
-            wire += frame(2, len(payload), struct.pack('<II', len(payload), zlib.crc32(payload)))
+            wire = self.recording_wire(payload, block)
             self.assertTrue(tool.receive_bench(Port(wire, 63), len(payload), block)['complete'])
             with self.assertRaises(tool.ProtocolError):
                 tool.receive_bench(Port(wire[:-1]), len(payload), block)
@@ -809,6 +798,9 @@ int test_recording_large_offsets(void) {
 
 
 def check_firmware():
+    from llvmlite import binding as llvm
+    from host_c_test_lib import run_c_checks
+
     config = (ROOT / 'SDK/apps/earphone/include/t2620_project_config.h').read_text(encoding='utf-8')
     assert re.search(r'#define\s+TCFG_T2620_CDC_FILE_BENCH_ENABLE\s+[01]\b', config)
     runtime = ctypes.CDLL('msvcrt')
@@ -852,6 +844,8 @@ int test_bench_disabled(void) {
 
 
 def check_transport():
+    from host_c_test_lib import run_c_checks
+
     from test_factory_usb import CDC_STUBS, CDC_TESTS
     folder = ROOT / 'SDK/apps/common/device/usb/device'
     strip = lambda text: re.sub(r'^#include.*$', '', text, flags=re.M)
@@ -1070,6 +1064,8 @@ int jiffies_usec2offset(u32 begin, u32 end) { return test_clock_invalid ? -1 : (
 
 
 def check_irq_driver():
+    from host_c_test_lib import run_c_checks
+
     from test_factory_usb import CDC_DRIVER_STUBS, CDC_DRIVER_TESTS
     folder = ROOT / 'SDK/apps/common/device/usb/device'
     headers = '\n'.join((folder / name).read_text(encoding='utf-8') for name in
@@ -1112,6 +1108,8 @@ int test_irq_driver(void) {
 
 
 def check_parser_integration():
+    from llvmlite import binding as llvm
+    from host_c_test_lib import run_c_checks
     from test_factory_protocol import STUBS as parser_stubs, TESTS as parser_tests
     parser_stubs = re.sub(r'int printf\(.*?\n}',
                          'int printf(const char *format, ...) { if (irq) log_in_irq=1; return 0; }',

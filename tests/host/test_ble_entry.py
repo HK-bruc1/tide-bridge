@@ -53,6 +53,9 @@ static wrapper_t wrappers[2];
 typedef struct { u8 connected; u16 con_handle; void *ble_hdl; } rdx_ble_link_state_t;
 static rdx_ble_link_state_t links[2];
 static int accepted, rejected;
+static int file_transfer, file_sync;
+u8 rdx_is_file_transfer_active(void) { return file_transfer; }
+u8 rdx_is_file_sync_busy(void) { return file_sync; }
 static struct { void (*cb)(void*); void *arg; u32 due; int active; } timers[256];
 static u16 next_timer;
 static struct { int opcode; u8 *data; u32 size; } commands[64];
@@ -68,6 +71,8 @@ static u16 g_rdx_ble_adv_interval_applied;
 static struct { u8 slot_index; } g_rdx_ble_adv_token;
 static u16 g_rdx_ble_phase0a_connect_adv_timer;
 static volatile u8 g_rdx_ble_dual_acl_sleep_blocked;
+static volatile u8 g_rdx_ble_topology_sleep_blocked;
+static volatile u8 g_rdx_ble_sleep_link_present;
 void rdx_ble_entry_changed(void);
 void rdx_ble_entry_start(void);
 void rdx_ble_entry_stop(void);
@@ -256,12 +261,14 @@ static void reset(void) {
     g_rdx_ble_advertising_hdl=g_rdx_ble_phase0a_disconnect_pending_hdl=NULL;
     g_rdx_ble_adv_consumed_hdl=NULL;
     g_rdx_ble_phase0a_connect_adv_timer=g_rdx_ble_dual_acl_sleep_blocked=0;
+    g_rdx_ble_topology_sleep_blocked=g_rdx_ble_sleep_link_present=0;
     g_rdx_ble_adv_setup=0;
     now=next_timer=queue_pending=queue_fail=timer_fail=in_core=context_error=irq=spin_held=0;
     entry_state_lock.locked=0;
     suppressed=busy=power_calls=led_calls=opens=sdk_stops=close_calls=0;
     sdk_fail=submit_fail=auto_notification=open_race=command_count=accepted=rejected=0;
     setup_fail=close_race=exit_ack=exit_delays=free_calls=queue_read=queue_write=0;
+    file_transfer=file_sync=0;
     last_adv_interval=0;
     g_rdx_ble_exiting=0;
     runtime=RDX_BLE_RUNTIME_READY; runtime_epoch=1;
@@ -666,18 +673,33 @@ int check_lifecycle_pending_and_faulted_exit(void) {
 '''
 
 CHECKS_PERSISTENT = r'''
-/* 单 ACL 入口快广播常开时允许睡眠；双 ACL、广播在途与故障仍阻止。 */
+/* 单 ACL 入口快广播常开时允许睡眠；双 ACL、广播在途、故障和文件业务仍阻止。 */
 int check_sleep_policy_boundaries(void) {
     reset();
     g_rdx_ble_adv_setup=1; rdx_ble_server_dual_acl_sleep_policy_update("test");
     CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
     wrappers[0].con=0x50; rdx_ble_server_dual_acl_sleep_policy_update("test");
     CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(rdx_ble_server_dual_acl_lp_idle_query()==0);
     g_rdx_ble_adv_setup=0; g_rdx_adv_close.waiting=1;
     rdx_ble_server_dual_acl_sleep_policy_update("test");
     CHECK(g_rdx_ble_dual_acl_sleep_blocked);
     g_rdx_adv_close.waiting=0; rdx_ble_server_dual_acl_sleep_policy_update("test");
     CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(rdx_ble_server_dual_acl_lp_idle_query()==1);
+    file_transfer=1; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(rdx_ble_server_dual_acl_lp_idle_query()==0);
+    file_transfer=0; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    file_sync=1; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(g_rdx_ble_dual_acl_sleep_blocked);
+    CHECK(rdx_ble_server_dual_acl_lp_idle_query()==0);
+    file_sync=0; rdx_ble_server_dual_acl_sleep_policy_update("test");
+    CHECK(!g_rdx_ble_dual_acl_sleep_blocked);
+    /* 动态查询不依赖最后一次事件刷新，传输状态消失后立即放行睡眠。 */
+    file_transfer=1; CHECK(rdx_ble_server_dual_acl_lp_idle_query()==0);
+    file_transfer=0; CHECK(rdx_ble_server_dual_acl_lp_idle_query()==1);
     wrappers[1].con=0x51; rdx_ble_server_dual_acl_sleep_policy_update("test");
     CHECK(g_rdx_ble_dual_acl_sleep_blocked);
     wrappers[0].con=wrappers[1].con=0; g_rdx_adv_close.fault=1;
@@ -807,7 +829,9 @@ def main():
     policy = re.sub(r'^#include[^\n]*\n', '', policy, flags=re.M)
     state = re.search(r'static struct \{\n    void \*hdl;.*?#define RDX_HCI_REMOVE_ADV_SET[^\n]*',
                       server, re.S)[0]
-    names = ['rdx_ble_server_dual_acl_sleep_policy_update', 'rdx_ble_server_adv_fault',
+    names = ['rdx_ble_server_dual_acl_sleep_policy_update',
+             'rdx_ble_server_dual_acl_lp_idle_query',
+             'rdx_ble_server_adv_fault',
              'rdx_ble_server_adv_interval_change_timer_stop',
              'rdx_ble_server_adv_interval_change_timer_start',
              'rdx_ble_server_adv_enable_on_hdl', 'rdx_ble_entry_radio_deadline',
@@ -870,9 +894,19 @@ def main():
     assert 'g_rdx_ble_adv_setup' in sleep
     assert 'g_rdx_adv_close.waiting' in sleep
     assert 'connected == 1 && adv_in_flight' in sleep
+    assert 'rdx_is_file_transfer_active()' in sleep
+    assert 'rdx_is_file_sync_busy()' in sleep
+    assert 'g_rdx_ble_topology_sleep_blocked' in sleep
+    assert 'g_rdx_ble_sleep_link_present' in sleep
     assert 'rdx_ble_entry_adv_slow()' not in sleep
     assert 'app_ble_adv_state_get(' not in sleep
     assert 'composite' not in sleep and 'capacity' not in sleep
+    query = function(server, 'rdx_ble_server_dual_acl_lp_idle_query')
+    assert 'g_rdx_ble_topology_sleep_blocked' in query
+    assert 'g_rdx_ble_sleep_link_present' in query
+    assert 'rdx_is_file_transfer_active()' in query
+    assert 'rdx_is_file_sync_busy()' in query
+    assert 'rdx_ble_server_phase0a_connected_count()' not in query
     assert 'TCFG_T2620_BLE_SECOND_ENTRY_SLEEP' not in server
     assert 'TCFG_T2620_BLE_SECOND_ENTRY_ALWAYS' not in policy
     ordered(function(policy, 'rdx_ble_entry_lock'), 'spinlock_t *lock = &entry_state_lock',

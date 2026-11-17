@@ -50,7 +50,7 @@
 // ------------电源配置.json------------
 
 // ------------板级配置.json------------
-#define TCFG_DEBUG_UART_ENABLE                    1                // 调试串口
+#define TCFG_DEBUG_UART_ENABLE                    0                // 调试串口
 #if TCFG_DEBUG_UART_ENABLE
 #define TCFG_DEBUG_UART_TX_PIN                    IO_PORTA_03      // 输出IO
 #define TCFG_DEBUG_UART_BAUDRATE                  2000000          // 波特率

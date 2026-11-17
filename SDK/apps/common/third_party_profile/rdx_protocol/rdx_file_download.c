@@ -2,6 +2,7 @@
 #include "system/includes.h"
 #include "rdx_file_download.h"
 #include "rdx_ble_session.h"
+#include "rdx_ble_server.h"
 #include "rdx_record_format.h"
 #include "rdx_playback.h"
 
@@ -45,6 +46,7 @@ void rdx_file_download_abort(void)
     download.active = 0;
     if (!++download.generation) ++download.generation;
     local_irq_enable();
+    rdx_ble_server_file_transfer_changed();
 }
 
 void rdx_file_download_interrupt_notify(void)
@@ -229,6 +231,7 @@ int rdx_file_download_request(u8 *data, u16 length)
                    completed.sn, completed.next, completed.size, completed.failed);
         }
         rdx_protocol_download_cleanup();
+        rdx_ble_server_file_transfer_changed();
         if (request && rdx_uxfile_auto_delete_submit(request)) {
             printf("[AUTO_DELETE] sn=%u queue rejected; file retained\n", request->sn);
             rdx_record_format_delete_release(RDX_RECORD_DELETE_REJECTED);
@@ -258,5 +261,6 @@ int rdx_file_download_request(u8 *data, u16 length)
     }
     int result = rdx_protocol_handle_recordFileData_req_legacy(data, length);
     if (result) rdx_protocol_download_cleanup();
+    rdx_ble_server_file_transfer_changed();
     return result;
 }
