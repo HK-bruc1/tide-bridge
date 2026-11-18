@@ -49,6 +49,9 @@ $ConnParamBody = Get-SourceSlice $Server `
 $PlebindCallbackBody = Get-SourceSlice $App `
     'static int rdx_app_poweron_bind_tone_callback(' `
     'static void rdx_app_poweron_bind_tone_check('
+$PlebindCheckBody = Get-SourceSlice $App `
+    'static void rdx_app_poweron_bind_tone_check(' `
+    'void rdx_app_all_init(void)'
 $RuntimeText = $Server + $Session + $SessionHeader + $HogpConfig + $ProjectConfig
 Assert-Contract 'FIXED_DUAL_LINK_TOPOLOGY' `
     ($RuntimeText -notmatch 'TCFG_RDX_HOGP_DUAL_LINK_ENABLE' -and
@@ -101,20 +104,18 @@ $BoundWriteBody = Get-SourceSlice $Vm `
     'int rdx_vm_set_bound_status(' 'void rdx_vm_bound_status_check('
 $BoundCommandBody = Get-SourceSlice $App `
     'case PROTOCOL_EVENT_CMD_BOUND:' 'case PROTOCOL_EVENT_CMD_UNBOUND:'
-$BoundToneBody = Get-SourceSlice $App `
-    'static int rdx_app_bound_tone_callback(' 'static void rdx_app_protocol_handle('
+$BoundLedBody = Get-SourceSlice $App `
+    'static void rdx_app_bound_led_show(' 'static void rdx_app_factory_reset_on_app_core('
 Assert-Contract 'BINDING_SUCCESS_REQUIRES_PERSISTENCE' `
     (($BoundWriteBody -match '(?s)syscfg_write\([^;]+!= sizeof\(d\)\)\s*\{.*?return -1;') -and
      (Test-TokensInOrder $BoundWriteBody @('syscfg_write(', 'return -1;', 'rdx_bound_info.bound_state = d;', 'return 0;')) -and
      ($BoundCommandBody -match '(?s)if \(!was_bound && rdx_vm_set_bound_status\(1, 1\)\)\s*\{\s*ops->bound_result_ack_indicate\(1\);\s*break;')) `
-    'failed writes must preserve cached state and reject binding before success acknowledgement or tone'
-Assert-Contract 'BINDING_PROMPT_FOLLOWS_PERSISTED_TRANSITION' `
-    ((Test-TokensInOrder $BoundCommandBody @('u8 was_bound = rdx_vm_get_bound_status();', 'rdx_vm_set_bound_status(1, 1)', 'ops->bound_result_ack_indicate(0);', 'if (!was_bound)', 'rdx_app_bound_tone_play', 'os_taskq_post_type("app_core"')) -and
-     $BoundToneBody -match 'get_tone_files\(\)->conn' -and
-     $BoundToneBody -match 'STREAM_EVENT_INIT' -and
-     $BoundToneBody -match 'app_var.goto_poweroff_flag \|\| !rdx_vm_get_bound_status\(\)' -and
-     $BoundToneBody -notmatch 'rdx_ble_session_active_count') `
-    'repeated binding must skip writes and tones; clearing persisted state rearms the next successful bind'
+    'failed writes must preserve cached state and reject binding before success acknowledgement or feedback'
+Assert-Contract 'BINDING_SUCCESS_FEEDBACK_IS_LED_ONLY' `
+    ((Test-TokensInOrder $BoundCommandBody @('u8 was_bound = rdx_vm_get_bound_status();', 'rdx_vm_set_bound_status(1, 1)', 'ops->bound_result_ack_indicate(0);', 'if (!was_bound)', 'rdx_app_bound_led_show', 'os_taskq_post_type("app_core"')) -and
+     (Test-TokensInOrder $BoundLedBody @('app_var.goto_poweroff_flag || !rdx_vm_get_bound_status()', 'return;', 'rdx_led_ctrl_set_scene(RDX_LED_SCENE_BIND_SUCCESS)')) -and
+     ($BoundCommandBody + $BoundLedBody) -notmatch 'tone') `
+    'only a newly persisted binding posts the LED; binding must not replay the RDX connection tone'
 
 $PlayerCallbackBody = Get-SourceSlice $TonePlayer `
     'static void tone_player_callback(' 'static int tone_file_read('
@@ -128,8 +129,10 @@ Assert-Contract 'BIND_PROMPT_COMPLETION_AND_START_VALIDATION' `
      $PlebindCallbackBody -match 'event\s*==\s*STREAM_EVENT_INIT' -and
      $PlebindCallbackBody -match 'app_var.goto_poweroff_flag' -and
      $PlebindCallbackBody -match 'rdx_vm_get_bound_status\s*\(\s*\)' -and
-     $PlebindCallbackBody -match 'return -1') `
-    'only normal completion runs completion hooks; boot reminders reject shutdown or completed binding'
+     $PlebindCallbackBody -match 'return -1' -and
+     (Test-TokensInOrder $PlebindCheckBody @('app_var.goto_poweroff_flag || rdx_vm_get_bound_status()', 'return;', 'get_tone_files()->plebind', 'play_tone_file_callback(', 'rdx_app_poweron_bind_tone_callback')) -and
+     $App -match 'sys_timeout_add\(NULL,\s*rdx_app_poweron_bind_tone_check,\s*1\)') `
+    'only normal completion runs completion hooks; the unbound boot reminder still plays and rejects shutdown or completed binding'
 
 Assert-Contract 'CCC_MTU_AND_SEND_ARE_OWNER_SCOPED' `
     (($Server + $Keyboard) -notmatch '(?m)^\s*(?!//)[^/\r\n]*\batt_(?:get|set)_ccc_config\s*\(' -and

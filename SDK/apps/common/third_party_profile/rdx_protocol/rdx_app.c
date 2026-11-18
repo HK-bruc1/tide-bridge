@@ -4059,26 +4059,12 @@ static void rdx_app_file_delete_on_app_core(rdx_app_file_delete_request_t *reque
     }
 }
 
-static int rdx_app_bound_tone_callback(void *priv, enum stream_event event)
-{
-    if (event == STREAM_EVENT_INIT &&
-        (app_var.goto_poweroff_flag || !rdx_vm_get_bound_status())) {
-        return -1;
-    }
-    return 0;
-}
-
-static void rdx_app_bound_tone_play(void)
+static void rdx_app_bound_led_show(void)
 {
     if (app_var.goto_poweroff_flag || !rdx_vm_get_bound_status()) {
         return;
     }
     rdx_led_ctrl_set_scene(RDX_LED_SCENE_BIND_SUCCESS);
-    const char *tone_file = get_tone_files()->conn;
-    if (tone_file && play_tone_file_callback(tone_file, NULL,
-                                            rdx_app_bound_tone_callback)) {
-        r_printf("[RDX_APP] binding success tone play failed\n");
-    }
 }
 
 /* Acknowledge factory reset only after the persistent defaults are committed. */
@@ -4292,13 +4278,12 @@ static void rdx_app_protocol_handle(ProtocolEvents event, void* data, u32 len)
                     break;
                 }
                 ops->bound_result_ack_indicate(0);
-                /* Best-effort prompt for persisted 0 -> 1 only; no retry. */
                 if (!was_bound) {
                     int msg[2];
-                    msg[0] = (int)rdx_app_bound_tone_play;
+                    msg[0] = (int)rdx_app_bound_led_show;
                     msg[1] = 0;
                     if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
-                        r_printf("[RDX_APP] binding success tone taskq post failed\n");
+                        r_printf("[RDX_APP] binding success LED taskq post failed\n");
                     }
                 }
             }else{
