@@ -692,8 +692,8 @@
 #define WIFI_AP_PASSWORD                       "88888888"
 
 //固件与硬件版本。
-#define FIRMWARE_VERSION                       "1.2.3"
-#define FIRMWARE_VERSION_HEX                   0x00010203
+#define FIRMWARE_VERSION                       "1.2.4"
+#define FIRMWARE_VERSION_HEX                   0x00010204
 #define HARDWARE_VERSION                       "0.0.1"
 #define HARDWARE_VERSION_HEX                   0x00000001
 
