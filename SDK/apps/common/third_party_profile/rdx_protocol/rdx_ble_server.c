@@ -2278,8 +2278,9 @@ static void rdx_ble_server_phase0a_link_state_capture(
     rdx_ble_session_link_set_peer(link, peer_addr_type, peer_addr);
     rdx_ble_session_link_set_conn_params(link, conn_interval, conn_latency,
                                          supervision_timeout);
+    /* 本端只用 legacy ADV_IND 广播，规范规定连接建立在 LE 1M；之后仅 PC 发起 PHY 更新才会改变。 */
     r_printf("[RDX_BLE_PARAM] initial wrapper=%u con=0x%04x "
-             "interval_1p25ms=%u latency=%u timeout_10ms=%u t=%u\n",
+             "interval_1p25ms=%u latency=%u timeout_10ms=%u phy=1M t=%u\n",
              rdx_ble_session_link_index(link), link->con_handle,
              link->conn_interval, link->conn_latency,
              link->supervision_timeout, sys_timer_get_ms());
@@ -2643,6 +2644,29 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
                 }
             }
             break;
+        /* 诊断：DLE 与 PHY 均由 Central 发起，本端只记录协商结果。 */
+        case HCI_SUBEVENT_LE_DATA_LENGTH_CHANGE:
+            r_printf("[RDX_BLE_PARAM] dle con=0x%04x tx=%uB/%uus rx=%uB/%uus t=%u\n",
+                     hci_subevent_le_data_length_change_get_connection_handle(packet),
+                     hci_subevent_le_data_length_change_get_max_tx_octets(packet),
+                     hci_subevent_le_data_length_change_get_max_tx_time(packet),
+                     hci_subevent_le_data_length_change_get_max_rx_octets(packet),
+                     hci_subevent_le_data_length_change_get_max_rx_time(packet),
+                     sys_timer_get_ms());
+            break;
+        case HCI_SUBEVENT_LE_PHY_UPDATE_COMPLETE: {
+            /* 失败时 PHY 保持原值；从未出现本行即保持连接建立时的 1M。 */
+            u8 status = hci_event_le_meta_get_phy_update_complete_status(packet);
+            u8 tx_phy = hci_event_le_meta_get_phy_update_complete_tx_phy(packet);
+            u8 rx_phy = hci_event_le_meta_get_phy_update_complete_rx_phy(packet);
+
+            r_printf("[RDX_BLE_PARAM] phy con=0x%04x status=0x%02x tx=%s rx=%s t=%u\n",
+                     little_endian_read_16(packet, 4), status,
+                     status ? "unchanged" : rdx_phy_result[tx_phy & 3],
+                     status ? "unchanged" : rdx_phy_result[rx_phy & 3],
+                     sys_timer_get_ms());
+            break;
+        }
         default:
             break;
         }
