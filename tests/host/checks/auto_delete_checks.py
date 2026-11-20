@@ -120,6 +120,55 @@ u16 sys_timeout_add_2_task(void *context,void (*callback)(void*),u32 delay,const
 void sys_timeout_del(u16 id) { timer=0; }
 void sys_timer_re_run(u16 id) { timer=1; }
 void rdx_protocol_fileTransfer_stop_indicate(void) { ++stop_indications; }
+/* Preemption stop and deferred direct sends go straight to ATT through the
+ * production gate; tx_log records their order ('S' = stop). */
+static int stop_sends, direct_sends, att_fail, kicks;
+static char tx_log[64];
+int rdx_file_download_tx_gate(const u8 *data,u32 len,const rdx_ble_async_token_t *token);
+int rdx_ble_server_send_for_token(u8 *data,u32 len,const rdx_ble_async_token_t *t) {
+    if(!t || irq || len<2 || strlen(tx_log)>=sizeof(tx_log)-1) ++invalid;
+    if(!owner || t->transport_epoch!=(u32)owner) return -1;
+    if(rdx_file_download_tx_gate(data,len,t)) ++invalid;
+    if(att_fail) return -1;
+    u32 n=strlen(tx_log);
+    if(len==15 && !memcmp(data,"*DEV#filecmd#0#",15)) { ++stop_sends; tx_log[n]='S'; }
+    else { ++direct_sends; tx_log[n]=data[len-2]; }
+    tx_log[n+1]=0;
+    return 0;
+}
+/* The frame in flight (archive g_send_ctx) and the cleanup's tick wait. */
+void test_frame_set(void *buffer,u32 sent,u32 total);
+void test_frame_finish(void);
+static int ticks, frame_end_tick;
+void os_time_dly(int n) {
+    if(n!=1 || irq) ++invalid;
+    if(++ticks==frame_end_tick) test_frame_finish();
+}
+/* Library send queue behind the archive's rdx_queue_* calls. */
+static void *queue_data[16];
+static u32 queue_len[16], queue_count;
+u32 test_queue_size(void) { return queue_count; }
+int test_queue_pop(void *packet) {
+    if(!queue_count) return 0;
+    memcpy(packet,&queue_data[0],sizeof(void*));
+    memcpy((u8*)packet+sizeof(void*),&queue_len[0],4);
+    --queue_count;
+    memmove(queue_data,queue_data+1,queue_count*sizeof(void*));
+    memmove(queue_len,queue_len+1,queue_count*4);
+    return 1;
+}
+int test_queue_push(void *packet) {
+    void *data; u32 len;
+    memcpy(&data,packet,sizeof(void*));
+    memcpy(&len,(u8*)packet+sizeof(void*),4);
+    if(queue_count>=16) return 0;
+    void *copy=test_malloc(len);
+    if(!copy) return 0;
+    memcpy(copy,data,len);
+    queue_data[queue_count]=copy; queue_len[queue_count++]=len;
+    return 1;
+}
+void rdx_ble_server_rdx_send_kick(void) { if(irq) ++invalid; ++kicks; }
 void rdx_record_mode_active_check(bool active) {}
 void rdx_app_wifi_handle(u8 active) {}
 void rdx_app_emmc_poweroff_check(void) {}
@@ -213,6 +262,9 @@ static void reset(void) {
     committed=delete_calls=cache_invalidations=list_invalidations=sends=0;
     complete_post_fail=1; playback_notifications=stop_indications=0;
     preempt_posts=preempt_post_fail=0; preempt_generation=0;
+    stop_sends=direct_sends=att_fail=kicks=0; memset(&fence,0,sizeof(fence));
+    tx_log[0]=0; ticks=frame_end_tick=0;
+    while(queue_count) test_free(queue_data[--queue_count]);
     sleep_refresh=0;
     raw_exists=mta_exists=dat_count=1;
     alloc_size_fail=alloc_fail_once=0;
@@ -390,46 +442,196 @@ int test_auto_record_interrupt_notifies_stop(void) {
     CHECK(!invalid && !timer && !clock_hold);
     return 0;
 }
+static int gate(const char *text,u32 len) {
+    return rdx_file_download_tx_gate((const u8*)text,len,NULL);
+}
+/* A direct (token-bound) send such as the F19 flashnote. */
+static int direct(const char *text) {
+    rdx_ble_async_token_t token=download.token;
+    return rdx_file_download_tx_gate((const u8*)text,strlen(text),&token);
+}
+#define FRAME "*DEV#filect#13#1#0#24480#"
+#define BINARY "\x01\x02\x03\x04"
+#define STATUS "*DEV#flashnote#1#"
 int test_auto_record_admission_preempts_download(void) {
     /* Idle admission queues nothing and says nothing. */
-    reset(); CHECK(!rdx_file_download_preempt("F19") && !preempt_posts);
+    reset(); CHECK(!rdx_file_download_preempt("F19") && !preempt_posts && !stop_sends);
+    CHECK(!gate(FRAME,25) && !gate(STATUS,17));
     loaded_size=60000;
     CHECK(!cmd(13,1,1,0,0) && sends==1 && timer && clock_hold && read_open);
     u32 generation=download.generation;
-    /* F18/F19 admission stops the live transfer at once: resources released
-     * and exactly one stop indication, before any further chunk request. */
+    /* F18/F19 admission answers the APP at once, straight to ATT, before the
+     * recording starts; the cleanup itself is queued. */
     CHECK(!rdx_file_download_preempt("F19") && preempt_posts==1 &&
-          preempt_generation==generation && !stop_indications && download.active);
+          preempt_generation==generation && stop_sends==1 && !stop_indications &&
+          download.active && fence.state==FENCE_SENT);
+    /* Until the cleanup ran, frames already queued never follow the stop;
+     * control packets (recording status) pass. */
+    CHECK(gate(FRAME,25) && gate(BINARY,4) && !gate(STATUS,17));
     rdx_protocol_download_preempt(preempt_generation);
-    CHECK(stop_indications==1 && !download.active);
-    CHECK(!timer && !clock_hold && !read_open && !allocations);
+    CHECK(stop_sends==1 && !stop_indications && !download.active && fence.state==FENCE_IDLE);
+    CHECK(!timer && !clock_hold && !read_open && !allocations && kicks);
+    CHECK(!gate(FRAME,25) && !gate(STATUS,17));
     /* The recording now owns the device: the APP's in-flight chunk request is
-     * refused silently (already notified), a fresh request once more. */
+     * refused silently (already notified), a fresh request is told again. */
     record_run=0;
-    CHECK(cmd(13,2,1,0,0)==3 && stop_indications==1 && sends==1);
-    CHECK(cmd(13,1,1,24480,0)==3 && stop_indications==2 && !download.active);
+    CHECK(cmd(13,2,1,0,0)==3 && !stop_indications && sends==1);
+    CHECK(cmd(13,1,1,24480,0)==3 && stop_indications==1 && !download.active);
     /* A duplicate or stale preemption never stops a newer transfer. */
     record_run=1;
     rdx_protocol_download_preempt(generation);
-    CHECK(stop_indications==2);
+    CHECK(stop_indications==1 && stop_sends==1 && fence.state==FENCE_IDLE);
     CHECK(!cmd(13,1,1,24480,0) && sends==2 && last_offset==24480);
     rdx_protocol_download_preempt(generation);
-    CHECK(stop_indications==2 && download.active && timer && clock_hold);
+    CHECK(stop_indications==1 && stop_sends==1 && download.active && timer && clock_hold);
+    CHECK(!gate(FRAME,25));
     CHECK(cmd(13,0,1,0,0)==0 && !pending && raw_exists && !delete_calls);
-    /* A transfer that finished before the queued stop ran is left alone. */
+    /* A transfer that finished before the queued cleanup ran is left alone
+     * and its fence opens again. */
     CHECK(!cmd(13,1,0,0,0) && download.active);
-    CHECK(!rdx_file_download_preempt("F18") && preempt_posts==2);
+    CHECK(!rdx_file_download_preempt("F18") && preempt_posts==2 && stop_sends==2);
     CHECK(cmd(13,0,0,0,0)==0 && !download.active);
     rdx_protocol_download_preempt(preempt_generation);
-    CHECK(stop_indications==2);
-    /* If the stop cannot be queued, the parser conflict branch still stops
-     * and notifies on the APP's next chunk request. */
+    CHECK(stop_indications==1 && fence.state==FENCE_IDLE && !gate(FRAME,25));
+    /* If the cleanup cannot be queued, nothing is fenced; the parser conflict
+     * branch still stops and notifies on the APP's next chunk request. */
     CHECK(!cmd(13,1,0,0,0) && download.active);
     preempt_post_fail=1;
-    CHECK(rdx_file_download_preempt("F19") && download.active);
+    CHECK(rdx_file_download_preempt("F19") && download.active &&
+          stop_sends==2 && fence.state==FENCE_IDLE && !gate(FRAME,25));
     record_run=0;
-    CHECK(cmd(13,2,0,0,0)==3 && stop_indications==3 && !download.active);
+    CHECK(cmd(13,2,0,0,0)==3 && stop_indications==2 && !download.active);
     CHECK(!timer && !clock_hold && !read_open && !allocations && !invalid);
+    return 0;
+}
+int test_auto_record_preempt_stop_ordering(void) {
+    /* ATT full at admission: the stop is owed. Nothing, not even the
+     * recording status, overtakes it; CAN_SEND_NOW flushes it first. */
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0));
+    att_fail=1;
+    CHECK(!rdx_file_download_preempt("F19") && !stop_sends && fence.state==FENCE_ARMED);
+    CHECK(gate(STATUS,17) && gate(FRAME,25) && !stop_sends);
+    att_fail=0; kicks=0;
+    rdx_file_download_tx_ready();
+    CHECK(stop_sends==1 && fence.state==FENCE_SENT && kicks==1);
+    CHECK(!gate(STATUS,17) && gate(BINARY,4));
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(fence.state==FENCE_IDLE && !download.active && stop_sends==1);
+    /* Still full after the cleanup: owed until the next packet or event,
+     * which sends the stop and only then itself. */
+    CHECK(!cmd(13,1,1,0,0));
+    att_fail=1;
+    CHECK(!rdx_file_download_preempt("F18") && stop_sends==1);
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(fence.state==FENCE_PENDING && !download.active && gate(STATUS,17));
+    att_fail=0;
+    CHECK(!gate(STATUS,17) && stop_sends==2 && fence.state==FENCE_IDLE);
+    CHECK(!gate(FRAME,25));
+    /* A disconnected or replaced owner gets no stop and blocks nothing. */
+    CHECK(!cmd(13,1,1,0,0));
+    att_fail=1;
+    CHECK(!rdx_file_download_preempt("F19") && fence.state==FENCE_ARMED);
+    owner=2;
+    CHECK(!gate(STATUS,17) && fence.state==FENCE_IDLE && stop_sends==2);
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(fence.state==FENCE_IDLE && !download.active);
+    /* A new transfer supersedes a stop still owed for the old one. */
+    owner=1; CHECK(!cmd(13,1,1,0,0));
+    CHECK(!rdx_file_download_preempt("F19") && fence.state==FENCE_ARMED);
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(fence.state==FENCE_PENDING);
+    CHECK(!cmd(13,1,1,0,0) && fence.state==FENCE_IDLE && !gate(FRAME,25));
+    att_fail=0;
+    CHECK(stop_sends==2 && !stop_indications && !invalid && !irq);
+    return 0;
+}
+int test_auto_record_preempt_frame_boundary(void) {
+    /* A frame is one length-prefixed APP message: the one in flight ends
+     * first, then the stop, then the deferred flashnote and statuses. */
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),10,64);
+    CHECK(rdx_protocol_bulk_frame_busy());
+    CHECK(!rdx_file_download_preempt("F19") && !stop_sends && fence.state==FENCE_ARMED);
+    CHECK(!gate(BINARY,4) && gate(STATUS,17) && gate(FRAME,25) && !stop_sends);
+    CHECK(direct("*DEV#flashnote#1#")==1 && direct("*DEV#record#2#")==1 &&
+          fence.count==2 && rdx_file_download_tx_held() && !direct_sends);
+    test_frame_finish();
+    kicks=0;
+    rdx_file_download_tx_ready();
+    CHECK(!strcmp(tx_log,"S12") && fence.state==FENCE_SENT && !fence.count && kicks==1);
+    CHECK(gate(BINARY,4) && gate(FRAME,25) && !gate(STATUS,17) && !rdx_file_download_tx_held());
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(fence.state==FENCE_IDLE && !download.active && !allocations);
+    /* ATT full while draining: the rest keeps its order behind the head. */
+    CHECK(!cmd(13,1,1,0,0));
+    att_fail=1;
+    CHECK(!rdx_file_download_preempt("F18") && fence.state==FENCE_ARMED);
+    CHECK(direct("*DEV#flashnote#3#")==1 && direct("*DEV#record#4#")==1);
+    att_fail=0;
+    CHECK(!gate(STATUS,17) && !strcmp(tx_log,"S12S34") && fence.state==FENCE_SENT);
+    /* A not yet started frame never holds the stop back. */
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),0,64);
+    CHECK(!rdx_protocol_bulk_frame_busy() && !rdx_file_download_preempt("F19") &&
+          fence.state==FENCE_SENT && stop_sends==3);
+    rdx_protocol_download_preempt(preempt_generation);
+    /* The owner left: deferred sends are dropped, nothing stays held. */
+    CHECK(!cmd(13,1,1,0,0));
+    att_fail=1;
+    CHECK(!rdx_file_download_preempt("F19") && direct("*DEV#flashnote#5#")==1);
+    owner=2; att_fail=0;
+    rdx_file_download_tx_ready();
+    CHECK(!fence.count && fence.state==FENCE_IDLE && !rdx_file_download_tx_held());
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(!strcmp(tx_log,"S12S34S") && !download.active && !allocations && !invalid && !irq);
+    return 0;
+}
+int test_auto_record_preempt_waits_frame(void) {
+    /* The cleanup waits for the frame in flight, then stops at its end. */
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),10,64);
+    CHECK(!rdx_file_download_preempt("F18") && !stop_sends);
+    frame_end_tick=3;
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(ticks==3 && stop_sends==1 && fence.state==FENCE_IDLE);
+    CHECK(!download.active && !rdx_protocol_bulk_frame_busy() && !allocations);
+    /* A stalled link does not hold the recording's stop forever. */
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),10,64);
+    CHECK(!rdx_file_download_preempt("F19") && stop_sends==1);
+    ticks=0; frame_end_tick=0;
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(ticks==200 && stop_sends==2 && fence.state==FENCE_IDLE && !allocations);
+    /* Without a frame in flight nothing waits. */
+    CHECK(!cmd(13,1,1,0,0));
+    CHECK(!rdx_file_download_preempt("F19") && stop_sends==3);
+    ticks=0;
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(!ticks && !invalid);
+    return 0;
+}
+int test_auto_cleanup_keeps_queued_packets(void) {
+    /* The cleanup drops queued download frames only; a status queued just
+     * before it still goes out, in order. */
+    reset(); CHECK(!cmd(13,1,1,0,0));
+    int base=allocations;
+    struct { void *data; u32 len; } packet;
+    u8 descriptor[16]={1}; void *frame=test_malloc(32);
+    memcpy(descriptor+4,&frame,sizeof(frame));
+    packet.data="*DEV#record#1#"; packet.len=14; CHECK(test_queue_push(&packet));
+    packet.data=descriptor; packet.len=16; CHECK(test_queue_push(&packet));
+    packet.data="*DEV#stream#2#"; packet.len=14; CHECK(test_queue_push(&packet));
+    CHECK(allocations==base+4);
+    rdx_protocol_download_cleanup();
+    CHECK(queue_count==2 && allocations==2);
+    CHECK(queue_len[0]==14 && !memcmp(queue_data[0],"*DEV#record#1#",14));
+    CHECK(queue_len[1]==14 && !memcmp(queue_data[1],"*DEV#stream#2#",14));
+    while(queue_count) test_free(queue_data[--queue_count]);
+    CHECK(!allocations && !invalid);
     return 0;
 }
 int test_auto_malformed_finish(void) {
@@ -484,7 +686,9 @@ def run_auto_delete_checks():
                      'rdx_protocol_file_sync_busy_timer_start', 'rdx_protocol_file_sync_busy_timer_stop',
                      'rdx_protocol_file_sync_busy_timer_rerun', 'rdx_protocol_file_sync_busy_timer_cb',
                      'rdx_protocol_file_cmd_handle', 'rdx_protocol_uploadFileInfo_clean',
-                     'rdx_protocol_download_preempt'],
+                     'rdx_protocol_download_preempt', 'rdx_protocol_bulk_frame_busy',
+                     'rdx_protocol_download_purge_frames',
+                     'rdx_protocol_free_send_queue_packet'],
         'uxfile': ['rdx_uxfile_recordFileData_send_finish', 'rdx_uxfile_delete_checked_guarded'],
     }
     bodies = '\n'.join(extract(actual[k], n) for k, names in selected.items() for n in names)
@@ -492,7 +696,9 @@ def run_auto_delete_checks():
     types = {}
     for line in re.findall(r'^%[\w.]+ = type .+$', all_ir, re.M):
         types.setdefault(line.split(' =')[0], line)
-    defined = set(sum(selected.values(), []))
+    # The library queue and the frame context are driven by the tests below.
+    queue = ('rdx_queue_getQueueSize', 'rdx_queue_dequeue', 'rdx_queue_enqueue')
+    defined = set(sum(selected.values(), [])) | set(queue)
     globals_, declarations = [], []
     for name in sorted(set(re.findall(r'@([\w.]+)', bodies)) - defined):
         global_ = re.search(r'^@' + re.escape(name) + r' = .+$', all_ir, re.M)
@@ -511,8 +717,41 @@ define void @test_cache_loaded() {
   store i1 true, i1* @g_dat_cache.3
   ret void
 }
+define void @test_frame_set(i8* %buffer, i32 %sent, i32 %total) {
+  store i1 true, i1* @g_send_ctx.0
+  store i8* %buffer, i8** @g_send_ctx.1
+  store i32 %total, i32* @g_send_ctx.2
+  store i32 %sent, i32* @g_send_ctx.3
+  ret void
+}
+define void @test_frame_finish() {
+  %total = load i32, i32* @g_send_ctx.2
+  store i32 %total, i32* @g_send_ctx.3
+  ret void
+}
+declare i32 @test_queue_size()
+declare i32 @test_queue_pop(i8*)
+declare i32 @test_queue_push(i8*)
+define i32 @rdx_queue_getQueueSize(%struct.Queue* %queue) {
+  %size = call i32 @test_queue_size()
+  ret i32 %size
+}
+define zeroext i1 @rdx_queue_dequeue(%struct.Queue* %queue, %struct.DataPacket* %packet) {
+  %raw = bitcast %struct.DataPacket* %packet to i8*
+  %ok = call i32 @test_queue_pop(i8* %raw)
+  %taken = icmp ne i32 %ok, 0
+  ret i1 %taken
+}
+define zeroext i1 @rdx_queue_enqueue(%struct.Queue* %queue, %struct.DataPacket* byval align 4 %packet) {
+  %raw = bitcast %struct.DataPacket* %packet to i8*
+  %ok = call i32 @test_queue_push(i8* %raw)
+  %kept = icmp ne i32 %ok, 0
+  ret i1 %kept
+}
 '''
     ir = ir.replace('fastcc ', '').replace('@malloc(', '@test_malloc(').replace('@free(', '@test_free(')
+    # Host LLVM spells the byval type out (target bitcode predates that).
+    ir = re.sub(r'(%[\w.]+)\* byval(?!\()', lambda m: f'{m[1]}* byval({m[1]})', ir)
 
     header = (DIRECTORY / 'rdx_uxfile.h').read_text(encoding='utf-8')
     # Use the production layouts; omit the SDK-only function declarations.
@@ -520,6 +759,24 @@ define void @test_cache_loaded() {
     source = re.sub(r'^#include.*\n', '', (DIRECTORY / 'rdx_file_download.c').read_text(), flags=re.M)
     assert 'rdx_ble_server_file_transfer_changed();' in function(source, 'rdx_file_download_abort')
     assert 'rdx_ble_server_file_transfer_changed();' in function(source, 'rdx_file_download_request')
+    # Every RDX characteristic send passes the preemption fence before ATT.
+    server = (DIRECTORY / 'rdx_ble_server.c').read_text(encoding='utf-8')
+    send = function(server, 'rdx_ble_server_send_internal')
+    assert (send.index('rdx_file_download_tx_gate(data, len, expected_token)') <
+            send.index('app_ble_att_send_data('))
+    # Stream audio leaves queue room to the statuses held behind the stop.
+    assert 'rdx_file_download_tx_held()' in function(server, 'rdx_ble_server_is_stream_tx_ready')
+    assert 'rdx_file_download_tx_ready();' in server
+    preempt = extract(actual['protocol'], 'rdx_protocol_download_preempt')
+    assert '@rdx_file_download_preempt_done' in preempt
+    assert '@rdx_protocol_fileTransfer_stop_indicate' not in preempt
+    assert preempt.index('@rdx_file_download_preempt_wait') < preempt.index('@os_mutex_pend')
+    cleanup = extract(actual['protocol'], 'rdx_protocol_download_cleanup')
+    assert '@rdx_protocol_download_purge_frames' in cleanup
+    assert '@rdx_protocol_clear_send_queue' not in cleanup
+    # Once a frame starts, queued packets wait for its end.
+    sender = extract(actual['protocol'], '_rdx_protocol_ble_send')
+    assert not re.search(r'br i1 %23, label %26, label %24', sender)
     storage = (DIRECTORY / 'rdx_record_format.c').read_text(encoding='utf-8')
     storage_functions = ''.join(function(storage, n) for n in
                                 ('rdx_record_format_io_leave', 'rdx_record_format_delete_acquire',

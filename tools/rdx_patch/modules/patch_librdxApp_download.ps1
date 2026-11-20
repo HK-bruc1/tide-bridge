@@ -128,6 +128,16 @@ function Update-RdxDownloadProtocolIr {
     $new = Replace-ExactlyOnce $new $anchor ($anchor + "`n  call void @rdx_file_download_abort()") 'stop invalidates transfer before early return'
     $Ir = Replace-ExactlyOnce $Ir $old $new 'stop download generation'
 
+    # A bulk frame is one length-prefixed APP message (*DEV#filect# header plus
+    # payload). The sender used to slip queued packets between its chunks, which
+    # the APP's length parser swallows as payload. Once a frame starts it now
+    # runs to its end; queued packets follow the frame.
+    $old = Get-RdxDownloadFunction $Ir '_rdx_protocol_ble_send'
+    $branch = [regex]::Match($old, '(?m)^  br i1 %23, label %26, label %24(, !dbg !\d+)?$')
+    if (!$branch.Success) { throw 'Missing bulk frame interleave branch' }
+    $new = Replace-ExactlyOnce $old $branch.Value ('  br label %31' + $branch.Groups[1].Value) 'frames are never interleaved'
+    $Ir = Replace-ExactlyOnce $Ir $old $new 'bulk frame integrity'
+
     $Ir += @'
 
 declare void @rdx_file_download_abort()
@@ -137,6 +147,8 @@ declare zeroext i8 @rdx_file_download_take_interrupt()
 declare i32 @rdx_file_download_request(i8*, i16 zeroext)
 declare i32 @rdx_file_download_chunk(%struct.ReqFileInfo*, %struct.uxfile_data_t*)
 declare void @rdx_file_download_sent(i32, %struct.ReqFileInfo*, %struct.uxfile_data_t*, i32, i32, i32, i32)
+declare void @rdx_file_download_preempt_done(i32)
+declare void @rdx_file_download_preempt_wait()
 
 define i32 @rdx_protocol_handle_recordFileData_req(i8* %data, i16 zeroext %length) {
   %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @file_trans_mutex, i32 0)
@@ -156,7 +168,13 @@ done:
 ; protocol_send_task (the busy timer's task) so app_core never waits behind an
 ; SD read. Only the generation seen at admission is stopped: a transfer that
 ; already ended, or a newer one, is left to the parser's conflict branch.
+; The stop indication is not queued here: the C fence sends it straight to ATT
+; at the first frame boundary and keeps it ahead of every later packet. The
+; prologue lets the frame in flight finish (bounded) so cleanup never cuts a
+; frame the APP is already counting; the epilogue reports whether this
+; callback cleaned up.
 define void @rdx_protocol_download_preempt(i32 %generation) {
+  call void @rdx_file_download_preempt_wait()
   %lock = call i32 @os_mutex_pend(%struct.OS_SEM* @file_trans_mutex, i32 0)
   %current = call i32 @rdx_file_download_generation()
   %live = icmp ne i32 %current, 0
@@ -168,11 +186,8 @@ cleanup:
   br label %release
 release:
   %unlock = call i32 @os_mutex_post(%struct.OS_SEM* @file_trans_mutex)
-  br i1 %stop, label %notify, label %exit
-notify:
-  call void @rdx_protocol_fileTransfer_stop_indicate()
-  br label %exit
-exit:
+  %stopped = zext i1 %stop to i32
+  call void @rdx_file_download_preempt_done(i32 %stopped)
   ret void
 }
 
@@ -196,13 +211,81 @@ clear:
   store i1 false, i1* @g_send_ctx.10, align 4
   store i1 false, i1* @g_send_ctx.11, align 4
   store i8 0, i8* getelementptr inbounds (%struct.BleBulkSendData, %struct.BleBulkSendData* @bulk_send_data, i32 0, i32 10), align 1
-  call fastcc void @rdx_protocol_clear_send_queue()
+  call void @rdx_protocol_download_purge_frames()
   store i8 0, i8* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 2), align 4
   call void @rdx_uxfile_recordFileData_send_finish(%struct.ReqFileInfo* @r_file_info)
   call void @rdx_protocol_prepared_data_clean()
   call fastcc void @rdx_protocol_file_transfer_track_reset()
   %clock = call i32 @clock_free(i8* getelementptr inbounds ([12 x i8], [12 x i8]* @.str.32, i32 0, i32 0))
   call void @rdx_ble_server_post_transfer_lowpower()
+  ret void
+}
+
+; Nonzero while a started bulk frame still has bytes to send.
+define i32 @rdx_protocol_bulk_frame_busy() {
+  %active = load i1, i1* @g_send_ctx.0, align 4
+  %buffer = load i8*, i8** @g_send_ctx.1, align 4
+  %allocated = icmp ne i8* %buffer, null
+  %sent = load i32, i32* @g_send_ctx.3, align 4
+  %total = load i32, i32* @g_send_ctx.2, align 4
+  %remaining = icmp ult i32 %sent, %total
+  %started = icmp ne i32 %sent, 0
+  %owned = and i1 %active, %allocated
+  %partial = and i1 %started, %remaining
+  %busy = and i1 %owned, %partial
+  %result = zext i1 %busy to i32
+  ret i32 %result
+}
+
+; Drop download frames that never started; keep every other queued packet
+; (recording status, stream, stop) in order. Clearing the whole queue lost a
+; status that was enqueued just before cleanup. The sender restarts on the
+; semaphore if anything is left.
+define void @rdx_protocol_download_purge_frames() {
+entry:
+  %packet = alloca %struct.DataPacket, align 4
+  %count = call i32 @rdx_queue_getQueueSize(%struct.Queue* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 0))
+  br label %loop
+loop:
+  %index = phi i32 [ 0, %entry ], [ %next, %advance ]
+  %more = icmp ult i32 %index, %count
+  br i1 %more, label %take, label %done
+take:
+  %taken = call zeroext i1 @rdx_queue_dequeue(%struct.Queue* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 0), %struct.DataPacket* %packet)
+  br i1 %taken, label %inspect, label %done
+inspect:
+  %data_field = getelementptr inbounds %struct.DataPacket, %struct.DataPacket* %packet, i32 0, i32 0
+  %data = load i8*, i8** %data_field, align 4
+  %length_field = getelementptr inbounds %struct.DataPacket, %struct.DataPacket* %packet, i32 0, i32 1
+  %length = load i32, i32* %length_field, align 4
+  %empty = icmp eq i8* %data, null
+  br i1 %empty, label %advance, label %sized
+sized:
+  %descriptor_sized = icmp eq i32 %length, 16
+  br i1 %descriptor_sized, label %kind, label %keep
+kind:
+  %word = bitcast i8* %data to i32*
+  %tag = load i32, i32* %word, align 4
+  %bulk = icmp eq i32 %tag, 1
+  br i1 %bulk, label %drop, label %keep
+drop:
+  call void @rdx_protocol_free_send_queue_packet(%struct.DataPacket* %packet)
+  br label %advance
+keep:
+  %kept = call zeroext i1 @rdx_queue_enqueue(%struct.Queue* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 0), %struct.DataPacket* byval align 4 %packet)
+  call void @free(i8* %data)
+  br label %advance
+advance:
+  %next = add i32 %index, 1
+  br label %loop
+done:
+  %left = call i32 @rdx_queue_getQueueSize(%struct.Queue* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 0))
+  %idle = icmp eq i32 %left, 0
+  br i1 %idle, label %finish, label %wake
+wake:
+  %posted = call i32 @os_sem_post(%struct.OS_SEM* getelementptr inbounds (%struct.BLE_SendData, %struct.BLE_SendData* @ble_send_data, i32 0, i32 1))
+  br label %finish
+finish:
   ret void
 }
 '@

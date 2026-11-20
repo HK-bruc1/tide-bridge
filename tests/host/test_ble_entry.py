@@ -819,8 +819,8 @@ def main():
     # 0x203c 返回 Command Complete，其 size 不包含事件码字节。
     # SDK 升级必须重新审阅，不能直接沿用模拟结果。
     for name, expected in {
-        'btstack.a': '03d1626fac16289ab5c3011fbd154748f562786cec6fc336fd367b30c1fbc5c5',
-        'btctrler.a': '6ecbbd876ea08e6d260fbcd1c8c7b8cd214bfde70edf1145e3f7d02eccfabc50',
+        'btstack.a': '3c11aa984ee4153a1ecf80af1ef7ca0cf7c0b1b9f9b673be8ea9312e14d5215c',
+        'btctrler.a': '5993513eec938d442c1b7b8d5d77f7469e820201e3b5a4ab47ea035a4c764872',
     }.items():
         actual = hashlib.sha256((ROOT / 'SDK/cpu/br28/liba' / name).read_bytes()).hexdigest()
         assert actual == expected, f'{name} changed: re-audit the BLE entry controller boundary'

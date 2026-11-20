@@ -66,24 +66,263 @@ u32 rdx_file_download_generation(void)
     return download.active ? download.generation : 0;
 }
 
-/* Recording outranks file transfer. The stop runs on protocol_send_task under
- * file_trans_mutex (see rdx_protocol_download_preempt): app_core never blocks
- * behind an SD read, and the APP gets one stop indication right away instead
- * of after its next chunk request. If the post fails, the parser's recording
- * conflict branch still stops and notifies on that next request. */
+static int download_owner_valid(const rdx_ble_async_token_t *token)
+{
+    return rdx_ble_session_rdx_token_resolve(token, 1) != NULL;
+}
+
+/* Preemption stop fence.
+ *
+ * Every RDX characteristic send funnels through rdx_ble_server_send_internal
+ * (queued packets, bulk download frames, F18 status, F19 flashnote), so the
+ * order the APP observes is fixed there:
+ *   whole last download frame -> *DEV#filecmd#0# -> recording status.
+ * The APP parses a frame by the length in its *DEV#filect# header and treats
+ * every notify until then as payload, so the stop must wait for the frame in
+ * flight to end (the patched sender no longer interleaves queued packets).
+ * ARMED:   admission accepted, transfer not yet cleaned, stop still owed; the
+ *          started frame may finish, no new frame may start.
+ * SENT:    stop accepted by ATT, cleanup still pending; frames are blocked.
+ * PENDING: cleanup done, stop still owed (ATT full or sender busy).
+ * While a stop is owed, queued library packets are refused (the library parks
+ * them at its queue head) and direct sends such as the F19 flashnote are kept
+ * in a small FIFO, reported as sent, and released right after the stop. The
+ * stop goes straight to ATT: a priority status would overtake a queued one. */
+#define DOWNLOAD_STOP_TEXT "*DEV#filecmd#0#"
+#define DOWNLOAD_STOP_LEN (sizeof(DOWNLOAD_STOP_TEXT) - 1)
+#define DOWNLOAD_FRAME_TEXT "*DEV#filect#"
+#define DOWNLOAD_CONTROL_TEXT "*DEV#"
+#define DOWNLOAD_DEFER_SLOTS 4u
+#define DOWNLOAD_DEFER_BYTES 160u
+/* Upper bound for the frame in flight: 24.5 KB needs ~0.5 s at 53 KB/s. */
+#define DOWNLOAD_PREEMPT_WAIT_TICKS 200u
+
+/* Supplied by the archive patch: a started frame still has bytes to send. */
+extern int rdx_protocol_bulk_frame_busy(void);
+
+enum { FENCE_IDLE, FENCE_ARMED, FENCE_SENT, FENCE_PENDING };
+
+typedef struct {
+    rdx_ble_async_token_t token;
+    u32 len;
+    u8 data[DOWNLOAD_DEFER_BYTES];
+} fence_defer_t;
+
+static struct {
+    rdx_ble_async_token_t token;
+    u8 state, busy, queued, blocked;
+    u8 head, count, draining;
+    fence_defer_t defer[DOWNLOAD_DEFER_SLOTS];
+} fence;
+
+static u8 fence_owed(u8 state)
+{
+    return state == FENCE_ARMED || state == FENCE_PENDING;
+}
+
+/* Resume packets the gate refused: the library parks them at the queue head
+ * and only restarts on ATT_EVENT_CAN_SEND_NOW, which may never come once the
+ * link is idle. Caller must not hold local_irq. */
+static void fence_kick(void)
+{
+    local_irq_disable();
+    u8 blocked = fence.blocked;
+    fence.blocked = 0;
+    local_irq_enable();
+    if (blocked) rdx_ble_server_rdx_send_kick();
+}
+
+/* Release deferred direct sends in order. Caller owns fence.busy. Entries
+ * whose owner link is gone are dropped: nothing would reach it. */
+static int fence_drain(void)
+{
+    for (;;) {
+        local_irq_disable();
+        if (!fence.count) {
+            local_irq_enable();
+            return 0;
+        }
+        fence_defer_t *slot = &fence.defer[fence.head];
+        fence.draining = 1;
+        local_irq_enable();
+        int ret = rdx_ble_server_send_for_token(slot->data, slot->len, &slot->token);
+        u8 gone = ret && !download_owner_valid(&slot->token);
+        local_irq_disable();
+        fence.draining = 0;
+        if (!ret || gone) {
+            fence.head = (fence.head + 1) % DOWNLOAD_DEFER_SLOTS;
+            --fence.count;
+        }
+        local_irq_enable();
+        if (ret && !gone) return -1;
+    }
+}
+
+/* Returns 0 once no stop is owed (sent, or the owner link is gone) and every
+ * deferred send reached ATT. */
+static int fence_flush(void)
+{
+    local_irq_disable();
+    u8 state = fence.state;
+    if (fence.busy) {
+        int ret = fence_owed(state) || fence.count ? -1 : 0;
+        local_irq_enable();
+        return ret;
+    }
+    if (!fence_owed(state) && !fence.count) {
+        local_irq_enable();
+        return 0;
+    }
+    fence.busy = 1;
+    rdx_ble_async_token_t token = fence.token;
+    local_irq_enable();
+
+    int ret = 0;
+    if (fence_owed(state)) {
+        /* The last frame first: the stop may not cut it. */
+        ret = state == FENCE_ARMED && rdx_protocol_bulk_frame_busy() ? -1 :
+              rdx_ble_server_send_for_token((u8 *)DOWNLOAD_STOP_TEXT,
+                                            DOWNLOAD_STOP_LEN, &token);
+        u8 gone = ret && !download_owner_valid(&token);
+        local_irq_disable();
+        state = fence.state;
+        if (fence_owed(state) && (!ret || gone)) {
+            fence.state = state == FENCE_ARMED && !gone ? FENCE_SENT : FENCE_IDLE;
+            ret = 0;
+            local_irq_enable();
+            printf("[DL_PREEMPT] stop %s state=%u\n", gone ? "dropped" : "sent", fence.state);
+        } else {
+            local_irq_enable();
+        }
+    }
+    if (!ret) ret = fence_drain();
+    local_irq_disable();
+    fence.busy = 0;
+    local_irq_enable();
+    if (ret) return -1;
+    fence_kick();
+    return 0;
+}
+
+/* Caller holds local_irq. Nonzero: no room, the sender sees a full buffer. */
+static int fence_defer(const u8 *data, u32 len, const rdx_ble_async_token_t *token)
+{
+    if (!data || !len || len > DOWNLOAD_DEFER_BYTES ||
+        fence.count >= DOWNLOAD_DEFER_SLOTS) return -1;
+    fence_defer_t *slot = &fence.defer[(fence.head + fence.count) % DOWNLOAD_DEFER_SLOTS];
+    slot->token = *token;
+    slot->len = len;
+    memcpy(slot->data, data, len);
+    ++fence.count;
+    return 0;
+}
+
+/* rdx_ble_server_send_internal: negative refuses this packet for now,
+ * positive means it was taken over and reaches ATT right after the stop.
+ * token is NULL for library (queued) sends. */
+int rdx_file_download_tx_gate(const u8 *data, u32 len,
+                              const rdx_ble_async_token_t *token)
+{
+    if (fence.state == FENCE_IDLE && !fence.count) return 0;
+    if (data && len == DOWNLOAD_STOP_LEN &&
+        !memcmp(data, DOWNLOAD_STOP_TEXT, DOWNLOAD_STOP_LEN)) return 0;
+    if (fence.draining && data == fence.defer[fence.head].data) return 0;
+    u8 control = data && len >= sizeof(DOWNLOAD_CONTROL_TEXT) - 1 &&
+                 !memcmp(data, DOWNLOAD_CONTROL_TEXT, sizeof(DOWNLOAD_CONTROL_TEXT) - 1);
+    u8 start = control && len >= sizeof(DOWNLOAD_FRAME_TEXT) - 1 &&
+               !memcmp(data, DOWNLOAD_FRAME_TEXT, sizeof(DOWNLOAD_FRAME_TEXT) - 1);
+    fence_flush();
+    /* Decide and record under irq: whoever opens the fence afterwards sees
+     * blocked and resumes the library queue. */
+    local_irq_disable();
+    u8 state = fence.state;
+    int verdict = 0;
+    if (start) {
+        verdict = state != FENCE_IDLE ? -1 : 0;
+    } else if (!control) {
+        /* Continuation of the frame in flight: only before the stop. */
+        verdict = state == FENCE_IDLE || state == FENCE_ARMED ? 0 : -1;
+    } else if (fence_owed(state) || fence.count) {
+        verdict = token && !fence_defer(data, len, token) ? 1 : -1;
+    }
+    if (verdict < 0) fence.blocked = 1;
+    local_irq_enable();
+    return verdict;
+}
+
+/* ATT_EVENT_CAN_SEND_NOW on the RDX link: room for an owed stop. */
+void rdx_file_download_tx_ready(void)
+{
+    if (fence_owed(fence.state) || fence.count) fence_flush();
+}
+
+/* Stream audio yields queue room to statuses while the stop is owed: the
+ * library queue holds 15 packets and drops new ones when full. */
+u8 rdx_file_download_tx_held(void)
+{
+    return fence_owed(fence.state) || fence.count;
+}
+
+/* protocol_send_task, rdx_protocol_download_preempt prologue (no mutex held):
+ * the frame in flight finishes before cleanup, bounded for a stalled link. */
+void rdx_file_download_preempt_wait(void)
+{
+    u32 ticks = 0;
+    while (fence.state == FENCE_ARMED && rdx_protocol_bulk_frame_busy() &&
+           download_owner_valid(&fence.token) &&
+           ticks < DOWNLOAD_PREEMPT_WAIT_TICKS) {
+        os_time_dly(1);
+        ++ticks;
+    }
+    printf("[DL_PREEMPT] frame wait=%u busy=%d\n", ticks, rdx_protocol_bulk_frame_busy());
+}
+
+/* protocol_send_task, after rdx_protocol_download_preempt released
+ * file_trans_mutex. stopped: this callback cleaned the transfer up. */
+void rdx_file_download_preempt_done(u32 stopped)
+{
+    local_irq_disable();
+    if (fence.queued) --fence.queued;
+    if (stopped) {
+        if (fence.state == FENCE_SENT) fence.state = FENCE_IDLE;
+        else if (fence.state == FENCE_ARMED) fence.state = FENCE_PENDING;
+    } else if (!fence.queued && fence.state != FENCE_PENDING) {
+        /* The transfer ended (or was replaced) before this callback ran:
+         * it is not ours to stop and its frames must flow again. */
+        fence.state = FENCE_IDLE;
+    }
+    local_irq_enable();
+    fence_flush();
+    fence_kick();
+}
+
+/* Recording outranks file transfer. Admission (app_core) fences the link; the
+ * stop goes out at the first frame boundary, before any recording status. The
+ * cleanup runs on protocol_send_task under file_trans_mutex (see
+ * rdx_protocol_download_preempt): app_core never blocks behind an SD read or a
+ * frame. If the post fails the fence is dropped and the parser's recording
+ * conflict branch still stops and notifies on the next request. */
 int rdx_file_download_preempt(const char *who)
 {
     u32 generation = rdx_file_download_generation();
     if (!generation) return 0;
+    local_irq_disable();
+    if (fence.state == FENCE_IDLE || fence.state == FENCE_PENDING) {
+        fence.token = download.token;
+        fence.state = FENCE_ARMED;
+    }
+    local_irq_enable();
     int msg[3] = { (int)rdx_protocol_download_preempt, 1, (int)generation };
     int ret = os_taskq_post_type(DOWNLOAD_TASK, Q_CALLBACK, 3, msg);
-    printf("[DL_PREEMPT] %s sn=%u gen=%u post=%d\n", who, download.sn, generation, ret);
+    printf("[DL_PREEMPT] %s sn=%u gen=%u post=%d frame=%d\n", who, download.sn,
+           generation, ret, rdx_protocol_bulk_frame_busy());
+    local_irq_disable();
+    if (!ret) ++fence.queued;
+    else if (!fence.queued) fence.state = FENCE_IDLE;
+    local_irq_enable();
+    fence_flush();
+    fence_kick();
     return ret;
-}
-
-static int download_owner_valid(const rdx_ble_async_token_t *token)
-{
-    return rdx_ble_session_rdx_token_resolve(token, 1) != NULL;
 }
 
 /* Parse without touching the library's shared r_file_info. In particular, a
@@ -257,6 +496,9 @@ int rdx_file_download_request(u8 *data, u16 length)
         download.offset = download.next = values[4];
         download.auto_delete = values[3];
         download.active = 1;
+        /* A new transfer supersedes any stop still owed for the old one;
+         * deferred direct sends still drain in order. */
+        fence.state = FENCE_IDLE;
         local_irq_enable();
     }
     int result = rdx_protocol_handle_recordFileData_req_legacy(data, length);

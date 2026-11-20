@@ -165,11 +165,26 @@ $retryArmOrder = Test-TokensInOrder $SendBody @(
     'rdx_ble_server_rdx_send_retry_arm(&snapshot)',
     'return -1'
 )
-$retryWakeOrder = Test-TokensInOrder $PacketHandlerBody @(
+$KickBody = Get-SourceSlice $Server `
+    'void rdx_ble_server_rdx_send_kick(void)' `
+    'int rdx_ble_server_send('
+# CAN_SEND_NOW: an owed preemption stop (*DEV#filecmd#0#) goes out first,
+# then the library queue resumes through the shared kick.
+$retryWakeOrder = (Test-TokensInOrder $PacketHandlerBody @(
+    'rdx_file_download_tx_ready()',
     'rdx_ble_server_rdx_send_pending_consume(link)',
+    'rdx_ble_server_rdx_send_kick()'
+)) -and (Test-TokensInOrder $KickBody @(
+    'rdx_protocol_set_ble_sent(0)',
     'rdx_protocol_clear_send_confirm_flag()',
     'os_sem_post(&ble_send_data->send_sem)'
-)
+)) -and (Test-TokensInOrder $SendBody @(
+    'rdx_ble_server_rdx_transport_snapshot_is_current(&snapshot)',
+    'rdx_file_download_tx_gate(data, len, expected_token)',
+    'rdx_ble_server_rdx_send_retry_arm(&snapshot)',
+    'app_ble_att_vaild_len_get(send_hdl) < len',
+    'app_ble_att_send_data(send_hdl'
+))
 Assert-Contract 'RDX_CAN_SEND_NOW_RETRY_IS_OWNER_SCOPED' `
     ($PendingBody -match 'g_rdx_ble_send_retry_pending\s*=\s*1' -and
      $PendingBody -match 'rdx_ble_server_rdx_transport_snapshot_is_current\s*\(\s*snapshot\s*\)' -and

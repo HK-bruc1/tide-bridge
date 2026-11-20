@@ -58,6 +58,7 @@
 #include "rdx_hogp_profile.h"
 #include "rdx_hogp_key_action.h"
 #include "rdx_protocol.h"
+#include "rdx_file_download.h"
 #include "poweroff.h"
 #include "rdx_record.h"
 #include "rdx_flashnote.h"
@@ -2606,23 +2607,13 @@ static void rdx_ble_server_phase0a_packet_handler(void *hdl,
             if (!link || !rdx_ble_session_link_is_rdx(link)) {
                 break;
             }
+            /* An owed preemption stop goes out before the queue resumes. */
+            rdx_file_download_tx_ready();
             if (!rdx_ble_server_rdx_send_pending_consume(link)) {
                 break;
             }
-            {
-                BleBulkSendData *bulk_send_data =
-                    rdx_protocol_get_bulk_send_data();
-                BLE_SendData *ble_send_data =
-                    rdx_protocol_get_ble_send_data();
-
-                rdx_protocol_set_ble_sent(0);
-                rdx_protocol_clear_send_confirm_flag();
-                if (bulk_send_data->bulk_flag == true) {
-                    bulk_send_data->bulk_flag = false;
-                }
-                os_sem_post(&ble_send_data->send_sem);
-                /* Normal high-rate success path; log rejected events only. */
-            }
+            /* Normal high-rate success path; log rejected events only. */
+            rdx_ble_server_rdx_send_kick();
         }
         break;
     case HCI_EVENT_LE_META:
@@ -4342,6 +4333,7 @@ static int rdx_ble_server_send_internal(
     /* Local Variables												  */
     /*----------------------------------------------------------------*/
     int ret = 0;
+    int gate;
     void *send_hdl = NULL;
     rdx_ble_rdx_transport_snapshot_t snapshot;
     u8 probe_kind = rdx_ble_server_tx_probe_kind(data, len);
@@ -4376,6 +4368,19 @@ static int rdx_ble_server_send_internal(
         return -1;
     }
 
+    /* Preemption: the frame in flight, then *DEV#filecmd#0#, then every
+     * later RDX packet. Direct sends are held and released after the stop. */
+    gate = rdx_file_download_tx_gate(data, len, expected_token);
+    if (gate < 0) {
+        rdx_ble_server_tx_probe_log(probe_kind, len, -1, "fence");
+        rdx_ble_server_rdx_send_retry_arm(&snapshot);
+        return -1;
+    }
+    if (gate > 0) {
+        rdx_ble_server_tx_probe_log(probe_kind, len, 0, "deferred");
+        return 0;
+    }
+
     //ble send buffer is full?
     if(app_ble_att_vaild_len_get(send_hdl) < len){
         g_ble_send_fail_cnt++;
@@ -4399,6 +4404,19 @@ static int rdx_ble_server_send_internal(
                                 ret ? "att-fail" : "att-ok");
 
     return ret;
+}
+
+void rdx_ble_server_rdx_send_kick(void)
+{
+    BleBulkSendData *bulk_send_data = rdx_protocol_get_bulk_send_data();
+    BLE_SendData *ble_send_data = rdx_protocol_get_ble_send_data();
+
+    rdx_protocol_set_ble_sent(0);
+    rdx_protocol_clear_send_confirm_flag();
+    if (bulk_send_data->bulk_flag == true) {
+        bulk_send_data->bulk_flag = false;
+    }
+    os_sem_post(&ble_send_data->send_sem);
 }
 
 int rdx_ble_server_send(u8 *data, u32 len)
@@ -4901,6 +4919,9 @@ void rdx_ble_server_exit(void)
     g_rdx_ble_sleep_link_present = 0;
 }
 
+/* Library send queue holds 15 packets; above this audio waits. */
+#define RDX_STREAM_HOLD_QUEUE_DEPTH 8
+
 u8 rdx_ble_server_is_stream_tx_ready(void)
 {
     rdx_ble_async_token_t token;
@@ -4910,8 +4931,17 @@ u8 rdx_ble_server_is_stream_tx_ready(void)
         return 0;
     }
     link = rdx_ble_session_rdx_token_resolve(&token, 1);
-    return (link && link->rdx_ccc_configured &&
-            link->rdx_stream_tx_ready) ? 1 : 0;
+    if (!link || !link->rdx_ccc_configured || !link->rdx_stream_tx_ready) {
+        return 0;
+    }
+    /* A download preemption holds queued packets until its stop is out; keep
+     * queue room for the recording status instead of filling it with audio. */
+    if (rdx_file_download_tx_held() &&
+        rdx_queue_getQueueSize(&rdx_protocol_get_ble_send_data()->sendQueue) >=
+        RDX_STREAM_HOLD_QUEUE_DEPTH) {
+        return 0;
+    }
+    return 1;
 }
 
 #endif

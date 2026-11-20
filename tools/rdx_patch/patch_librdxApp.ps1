@@ -262,6 +262,8 @@ define zeroext i8 @rdx_uxfile_is_scan_active() local_unnamed_addr #4 !dbg !6111 
                           'rdx_protocol_record_file_info_indicate_admitted',
                           'rdx_protocol_handle_recordFileData_req_legacy',
                           'rdx_protocol_download_cleanup',
+                          'rdx_protocol_download_purge_frames',
+                          'rdx_protocol_bulk_frame_busy',
                           'rdx_uxfile_auto_delete_submit',
                           'rdx_uxfile_delete_checked_guarded')) {
         if (($Symbols -join "`n") -notmatch ('\b' + $Symbol + '\b')) {
