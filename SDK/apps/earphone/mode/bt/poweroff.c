@@ -289,6 +289,12 @@ void sys_enter_soft_poweroff(enum poweroff_reason reason)
     rdx_dut_test_cancel();
     rdx_dut_finalpack_tone_stop();
 #endif
+#if TCFG_DIP_SWITCH_POWER_ENABLE
+    if (rdx_dip_switch_shutdown_pending() && tone_player_runing()) {
+        log_info("DIP OFF: stop active tone\n");
+        tone_player_stop();
+    }
+#endif
     app_var.goto_poweroff_cnt = 0;
     sys_auto_shut_down_disable();
 

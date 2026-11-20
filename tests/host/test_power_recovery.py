@@ -284,46 +284,96 @@ native_stubs = r'''
 #define USER_CTRL_POWER_OFF 8
 #define THIRD_PARTY_PROTOCOLS_SEL 1
 #define RDX_EN 1
+#define TCFG_DAC_NODE_ENABLE 1
 #define APP_MSG_RECORD_OFF 9
 void rdx_dut_test_cancel(void) {}
 void rdx_dut_finalpack_tone_stop(void) {}
 enum poweroff_reason { TEST_NORMAL = 0 };
 static int g_bt_detach_timer, softoff_count, key_cancels;
+static int tone_active, tone_stops, dac_busy, dac_close_calls, dac_power_off_calls;
+static struct audio_dac_hdl { int unused; } dac_hdl;
 void rdx_hogp_input_cancel(void) { ++key_cancels; }
 void wait_exit_btstack_flag(void *p) {}
 void sys_auto_shut_down_disable(void) {}
 void bt_stop_a2dp_slience_detect(void *p) {}
 void bt_cmd_prepare(int cmd,int n,void *p) {}
-void dac_power_off(void) {}
+int tone_player_runing(void) { return tone_active; }
+void tone_player_stop(void) { ++tone_stops; tone_active=0; }
+int audio_dac_is_idle(void) { return !dac_busy; }
+int audio_dac_close(struct audio_dac_hdl *handle) { ++dac_close_calls; return dac_busy ? -1 : 0; }
+void dac_power_off(void) { ++dac_power_off_calls; }
 void dlog_flush2flash(int ms) {}
 void usb_factory_shutdown(void) {}
 void power_set_soft_poweroff(void) { ++softoff_count; }
 '''
 native_tests = r'''
+static void reset_native_power(void) {
+    reset(); mode=APP_MODE_IDLE; started=1; rdx_dip_switch_note_business_mode();
+    softoff_count=key_cancels=tone_stops=dac_close_calls=dac_power_off_calls=0;
+    tone_active=dac_busy=dip_dac_waiting=dip_dac_retry_timer=0;
+}
+static void enter_dip_off(void) {
+    on=0; rdx_dip_switch_guard(0); now+=100; rdx_dip_switch_guard(0);
+    sys_enter_soft_poweroff(POWEROFF_NORMAL);
+}
+static void retry_dac_close(void) {
+    now=timer_due;
+    timer_id=0;
+    timer_cb(timer_priv);
+}
 int test_native_normal_off(void) {
-    reset(); softoff_count=key_cancels=0; started=1; rdx_dip_switch_note_business_mode();
+    reset_native_power(); tone_active=dac_busy=1;
     sys_enter_soft_poweroff(POWEROFF_NORMAL);
     CHECK(app_var.goto_poweroff_flag && !rdx_dip_switch_shutdown_pending() && key_cancels==1);
     app_idle_enter_softoff();
-    CHECK(softoff_count==1 && !reset_count);
+    CHECK(softoff_count==1 && !reset_count && tone_active && !tone_stops && !dac_close_calls);
     return 0;
 }
 int test_native_dip_restart(void) {
-    reset(); softoff_count=key_cancels=0; started=1; rdx_dip_switch_note_business_mode();
-    on=0; rdx_dip_switch_guard(0); now+=100; rdx_dip_switch_guard(0);
-    sys_enter_soft_poweroff(POWEROFF_NORMAL);
+    reset_native_power(); enter_dip_off();
     CHECK(rdx_dip_switch_shutdown_pending());
-    app_idle_enter_softoff(); CHECK(softoff_count==1 && !reset_count);
-    on=1; app_idle_enter_softoff(); CHECK(reset_count>0);
+    app_idle_enter_softoff(); CHECK(softoff_count==1 && !reset_count && !dac_close_calls);
+    reset_native_power(); dac_busy=1; enter_dip_off();
+    app_idle_enter_softoff(); CHECK(dip_dac_retry_timer && !softoff_count);
+    on=1; dac_busy=0; retry_dac_close(); CHECK(reset_count>0);
+    return 0;
+}
+int test_native_dip_stops_tone_and_waits(void) {
+    reset_native_power(); tone_active=dac_busy=1;
+    enter_dip_off(); CHECK(!tone_active && tone_stops==1);
+    app_idle_enter_softoff();
+    CHECK(dip_dac_retry_timer && !softoff_count && dac_close_calls==1 && !dac_power_off_calls);
+    app_idle_enter_softoff();
+    CHECK(dac_close_calls==1);
+    dac_busy=0; retry_dac_close();
+    CHECK(!dip_dac_retry_timer && softoff_count==1 && dac_power_off_calls==1);
+    return 0;
+}
+int test_native_dip_dac_wait_limited(void) {
+    reset_native_power(); now=0xffffff00u; dac_busy=1; enter_dip_off();
+    app_idle_enter_softoff();
+    u32 start=now;
+    for (int retry=0; retry<20; ++retry) {
+        CHECK(dip_dac_retry_timer && !softoff_count);
+        retry_dac_close();
+    }
+    CHECK(now-start==400 && !dip_dac_retry_timer && softoff_count==1 && dac_power_off_calls==1);
+    reset_native_power(); dac_busy=1; enter_dip_off(); timer_fail=1;
+    app_idle_enter_softoff();
+    CHECK(!dip_dac_retry_timer && softoff_count==1 && dac_power_off_calls==1);
     return 0;
 }
 '''
 path = path.with_name('native_power.c')
+idle_dac_block = idle[idle.index('#if TCFG_DIP_SWITCH_POWER_ENABLE && TCFG_DAC_NODE_ENABLE'):
+                      idle.index('\n\nstatic void app_idle_enter_softoff(void)\n{')]
 path.write_text(stubs + source + tests + native_stubs +
                 function(power, 'sys_enter_soft_poweroff') +
+                idle_dac_block + '\n' +
                 function(idle, 'app_idle_enter_softoff') + native_tests, encoding='utf-8')
-run_c_checks(path, ['test_native_normal_off', 'test_native_dip_restart'])
-print('Native power: normal ON shutdown and accepted DIP OFF/ON remain distinct.')
+run_c_checks(path, ['test_native_normal_off', 'test_native_dip_restart',
+                    'test_native_dip_stops_tone_and_waits', 'test_native_dip_dac_wait_limited'])
+print('Native power: DIP OFF stops tones and bounds DAC close retries; normal poweroff is unchanged.')
 
 storage = (ROOT / 'SDK/apps/common/third_party_profile/rdx_protocol/rdx_storage_lifecycle.c').read_text(encoding='utf-8')
 storage = re.sub(r'^#include.*\n', '', storage, flags=re.M)

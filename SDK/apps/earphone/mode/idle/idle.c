@@ -19,6 +19,7 @@
 #include "user_cfg.h"
 #include "key/key_driver.h"
 #include "audio_config.h"
+#include "audio_dac.h"
 #include "app_default_msg_handler.h"
 #include "pwm_led/led_ui_api.h"
 #include "rdx_dip_switch.h"
@@ -47,6 +48,60 @@ static void wait_led_ui_stop_timeout(void *p)
 {
     app_send_message(APP_MSG_SOFT_POWEROFF, 0);
 }
+
+#if TCFG_DIP_SWITCH_POWER_ENABLE && TCFG_DAC_NODE_ENABLE
+#define DIP_DAC_WAIT_MS  400u
+#define DIP_DAC_RETRY_MS 20u
+
+static u8 dip_dac_waiting;
+static u16 dip_dac_retry_timer;
+static u32 dip_dac_wait_since;
+
+static void app_idle_enter_softoff(void);
+
+static void app_idle_dip_dac_retry(void *priv)
+{
+    (void)priv;
+    dip_dac_retry_timer = 0;
+    if (app_var.goto_poweroff_flag && app_in_mode(APP_MODE_IDLE)) {
+        app_idle_enter_softoff();
+    }
+}
+
+static int app_idle_dip_dac_ready(void)
+{
+    if (dip_dac_retry_timer) {
+        return 0;
+    }
+    if (!audio_dac_is_idle()) {
+        audio_dac_close(&dac_hdl);
+    }
+    if (audio_dac_is_idle()) {
+        if (dip_dac_waiting) {
+            log_info("DIP OFF: DAC idle\n");
+        }
+        return 1;
+    }
+
+    u32 now = sys_timer_get_ms();
+    if (!dip_dac_waiting) {
+        dip_dac_waiting = 1;
+        dip_dac_wait_since = now;
+        log_info("DIP OFF: wait for DAC close\n");
+    }
+    u32 elapsed = now - dip_dac_wait_since;
+    if (elapsed < DIP_DAC_WAIT_MS) {
+        u32 delay = DIP_DAC_WAIT_MS - elapsed;
+        dip_dac_retry_timer = sys_timeout_add(NULL, app_idle_dip_dac_retry,
+                                              delay < DIP_DAC_RETRY_MS ? delay : DIP_DAC_RETRY_MS);
+        if (dip_dac_retry_timer) {
+            return 0;
+        }
+    }
+    log_info("DIP OFF: DAC still busy after %u ms; continue soft-off\n", elapsed);
+    return 1;
+}
+#endif
 
 
 static void app_idle_enter_softoff(void)
@@ -79,6 +134,12 @@ static void app_idle_enter_softoff(void)
 #endif
        ) {
         sys_timeout_add(NULL, wait_led_ui_stop_timeout, 50);
+        return;
+    }
+#endif
+
+#if TCFG_DIP_SWITCH_POWER_ENABLE && TCFG_DAC_NODE_ENABLE
+    if (rdx_dip_switch_shutdown_pending() && !app_idle_dip_dac_ready()) {
         return;
     }
 #endif
