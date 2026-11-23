@@ -1286,7 +1286,7 @@
         "modeId": "id_1735033830237_1",
         "name": "DNSNoiseSuppAE2",
         "current": "arg0",
-        "bypass": false,
+        "bypass": true,
         "list": [
          {
           "name": "arg0",
@@ -1327,7 +1327,7 @@
            }
           ],
           "enable": true,
-          "bypass": false
+          "bypass": true
          }
         ]
        }
@@ -2182,7 +2182,7 @@
         "modeId": "id_1735033830237_1",
         "name": "DNSNoiseSuppAE4",
         "current": "arg0",
-        "bypass": false,
+        "bypass": true,
         "list": [
          {
           "name": "arg0",
@@ -2223,7 +2223,7 @@
            }
           ],
           "enable": true,
-          "bypass": false
+          "bypass": true
          }
         ]
        }
