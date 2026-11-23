@@ -459,8 +459,15 @@ static bool pb_schedule_pump(u32 delay_ms)
 
 // ---- 播放互斥 --------------------------------------------------------
 
+extern u8 get_ota_status();
+
 bool rdx_playback_can_start(void)
 {
+    /* OTA 独占闪存与带宽，期间不允许开始、续播或跳转。 */
+    if (get_ota_status()) {
+        PB_LOG("blocked: OTA");
+        return false;
+    }
     if (rdx_storage_lifecycle_business_blocked()) {
         rdx_record_format_download_conflict("PLAYBACK");
         return false;
@@ -494,6 +501,25 @@ void rdx_playback_stop(void)
     if (was_active) {
         PB_LOG("stop: selected=%u", pb.selected_sn);
     }
+}
+
+static void pb_preempt_on_app_core(void)
+{
+    rdx_playback_stop();
+}
+
+void rdx_playback_preempt(const char *reason)
+{
+    if (!strcmp(os_current_task(), "app_core")) {
+        pb_preempt_on_app_core();
+        return;
+    }
+    int msg[2] = { (int)pb_preempt_on_app_core, 0 };
+    if (os_taskq_post_type("app_core", Q_CALLBACK, 2, msg)) {
+        log_error("preempt %s: post failed", reason);
+        return;
+    }
+    PB_LOG("preempt: %s", reason);
 }
 
 // ---- 初始化 ----------------------------------------------------------

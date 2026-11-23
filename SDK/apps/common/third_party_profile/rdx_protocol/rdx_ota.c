@@ -52,6 +52,7 @@
 
 #include "rdx_app_config.h"
 #include "rdx_record.h"
+#include "rdx_playback.h"
 #include "rdx_commonDef.h"
 #include "rdx_util.h"
 #include "rdx_protocol.h"
@@ -738,6 +739,10 @@ int rdx_ota_upgrade_cmd_handler(u8* d, u32 len)
             otaPara.cur_pack_num = 1;
             // OTA 升级开始，设置 OTA 灯效
             rdx_led_ctrl_set_scene(RDX_LED_SCENE_OTA_START);
+#if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
+            /* OTA 状态已置位，新播放会被准入拒绝；这里只停掉正在进行的回放。 */
+            rdx_playback_preempt("OTA");
+#endif
             //start timer to check ota status.
             pack_cnt = 0;
             rdx_ota_get_data_timer_start();

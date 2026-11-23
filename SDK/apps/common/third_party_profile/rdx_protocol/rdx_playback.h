@@ -81,6 +81,8 @@ int rdx_playback_next(void);
 void rdx_playback_ff(void);
 void rdx_playback_fr(void);
 void rdx_playback_stop(void);
+/* 任意任务可调用：投递到 app_core 停止播放，供 OTA 等高优先级业务抢占。 */
+void rdx_playback_preempt(const char *reason);
 void rdx_playback_invalidate_playlist(pb_playlist_invalidate_reason_t reason);
 void rdx_playback_on_file_deleted(u32 sn);
 void rdx_playback_get_info(pb_public_info_t *info);
