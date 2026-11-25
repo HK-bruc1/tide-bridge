@@ -4077,6 +4077,15 @@ static void rdx_app_factory_reset_on_app_core(rdx_ble_async_token_t *token)
         free(token);
         return;
     }
+    if (rdx_app_factory_reset_scheduled) {
+        /* APP 重复下发 *APP#default#: 已提交并等待复位, 按成功应答, 不再重复执行 */
+        y_printf("[APP CMD] sys_reset duplicate, already scheduled -> ack ok\r");
+        if (g_protocol_ops) {
+            g_protocol_ops->sys_set_default_ack_indicate(0);
+        }
+        free(token);
+        return;
+    }
     ret = rdx_app_factory_reset_commit();
     if (rdx_ble_session_rdx_token_resolve(token, 1) && g_protocol_ops) {
         g_protocol_ops->sys_set_default_ack_indicate(ret ? 1 : 0);

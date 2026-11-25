@@ -400,10 +400,10 @@ int check_callback(void) {
     result=0;
     rdx_app_factory_reset_on_app_core(&token);
     CHECK(freed==3 && reset_attempts==2 && ack==0 && reset_calls==1);
-    /* 提交成功后到复位前，重复请求直接 NACK，不再写 VM。 */
+    /* 提交成功后到复位前，APP 重复请求按成功应答，不再写 VM、不重复安排复位。 */
     ack=-1;
     rdx_app_factory_reset_on_app_core(&token);
-    CHECK(freed==4 && reset_attempts==2 && ack==1 && reset_calls==1);
+    CHECK(freed==4 && reset_attempts==2 && ack==0 && reset_calls==1);
     rdx_app_factory_reset_scheduled=0; freed=3;
     download_busy=1; ack=-1;
     rdx_app_factory_reset_on_app_core(&token);

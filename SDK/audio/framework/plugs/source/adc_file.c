@@ -86,6 +86,7 @@ struct adc_file_hdl *hdl_p;
 
 void rdx_audio_adc_file_set_gain(u8 mic_index, u8 mic_gain);
 u8 rdx_audio_adc_file_get_gain(u8 mic_index);
+u8 rdx_audio_adc_file_get_cfg_gain(const char *node_name, u8 mic_index);
 //------------------------------------------------------------------------
 
 
@@ -372,6 +373,25 @@ u8 rdx_audio_adc_file_get_gain(u8 mic_index)
         y_printf("=== mic_index[%d] err !!! \r", mic_index);
     }
     return hdl_p->adc_f->cfg.param[mic_index].mic_gain;
+}
+
+/* 不依赖 ADC 节点是否在运行, 直接从可视化工具配置中读取指定 ADC 节点的 MIC 增益.
+ * node_name 为工具里 ADC 节点名 (如 "ADC16"); 读取失败返回 0xFF. */
+u8 rdx_audio_adc_file_get_cfg_gain(const char *node_name, u8 mic_index)
+{
+    struct adc_file_cfg cfg;
+    struct cfg_info info = {0};
+
+    if (!node_name || mic_index >= AUDIO_ADC_MAX_NUM) {
+        return 0xFF;
+    }
+    if (jlstream_read_form_node_info_base(0, node_name, 0, &info)) {
+        y_printf("=== adc node[%s] cfg not found !!! \r", node_name);
+        return 0xFF;
+    }
+    memset(&cfg, 0, sizeof(cfg));
+    jlstream_read_form_cfg_data(&info, &cfg);
+    return cfg.param[mic_index].mic_gain;
 }
 
 //---------------------------------------------------------------------------------

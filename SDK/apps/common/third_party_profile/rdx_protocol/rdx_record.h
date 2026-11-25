@@ -257,19 +257,20 @@ u8 rdx_record_get_marks(u32 *out, u8 max);
 #define RDX_RECORD_MIC_MODE_CALL     (1)
 
 /* 查询指定 mode 下 mic1/mic2 的增益.
+ *   - APP 设置过 (flag == true) 返回 APP 值; 否则返回可视化工具配置值.
  *   @param mode   RDX_RECORD_MIC_MODE_CHAT / RDX_RECORD_MIC_MODE_CALL
  *   @param gain1  [out] 返回 mic0 增益 (chat_mic0 / call_mic0, 骨麦)
  *   @param gain2  [out] 返回 mic1 增益 (chat_mic1 / call_mic1)
  *   @return 0=成功, 非 0=失败 (mode 非法 / VM 不可读) */
 int rdx_record_mic_gain_query(int mode, int* gain1, int* gain2);
 
-/* 设置指定 mode 下 mic1/mic2 的增益.
- *   - 越界通道 (RECORD_MIC_DB_VALUE_MIN ~ MAX 之外) 自动跳过, 不计入失败.
- *   - 仅两通道都成功更新时, 才设置 chat_mic_flag / call_mic_flag.
- *   - 写 VM 失败时 gain1 / gain2 会被回填为 VM 当前实际值, 便于 ack 回包.
+/* 设置指定 mode 下 mic1/mic2 的增益 (下次开始录音时生效).
+ *   - 两通道都须在 RECORD_MIC_DB_VALUE_MIN ~ MAX 内, 否则整体拒绝, 不改 VM.
+ *   - 成功时写 VM 并置 chat_mic_flag / call_mic_flag; 值未变化时不重复写 VM.
+ *   - 失败时 gain1 / gain2 回填为当前实际生效值 (同 query), 便于 ack 回包.
  *   @param mode   RDX_RECORD_MIC_MODE_CHAT / RDX_RECORD_MIC_MODE_CALL
- *   @param gain1  [in/out] 请求值; 失败时被覆盖为 VM 实际值
- *   @param gain2  [in/out] 请求值; 失败时被覆盖为 VM 实际值
+ *   @param gain1  [in/out] 请求值; 失败时被覆盖为当前生效值
+ *   @param gain2  [in/out] 请求值; 失败时被覆盖为当前生效值
  *   @return 0=成功, 非 0=失败 */
 int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2);
 

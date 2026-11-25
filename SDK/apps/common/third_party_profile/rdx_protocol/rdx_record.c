@@ -111,12 +111,9 @@
 #define RECORD_MIC_0                                    (0)
 #define RECORD_MIC_2                                    (2)
 #define RECORD_MIC_3                                    (3)
-
-#define RECORD_CHAT_GAIN_DEFAULT_MIC0                   (17)
-#define RECORD_CHAT_GAIN_DEFAULT_MIC3                   (17)
-
-#define RECORD_CALL_GAIN_DEFAULT_MIC2                   (17)
-#define RECORD_CALL_GAIN_DEFAULT_MIC3                   (13)
+/* MIC 增益默认值由可视化工具(ADC 节点)配置决定, APP 覆盖值存 VM_RDX_MIC_GAIN */
+/* 会议录音(翻译耳机_单声道 流程)的 ADC 节点名, 工具里改名需同步修改 */
+#define RECORD_CHAT_ADC_NODE_NAME                       "ADC16"
 
 /*******************************************************************************
 * Structure and Enum Section
@@ -337,6 +334,10 @@ static u16 record_set_process_state_timer = 0; //record process state set timer
 static u16 rdx_record_max_timer = 0;
 
 static MicGainPara mic_gain;
+/* 可视化工具(录音 ADC 节点)配置的 MIC 增益, 在录音开始、应用 APP 增益之前缓存.
+ * 用于 APP 未覆盖(flag == false)时查询返回实际生效值. 0xFF 表示尚未缓存. */
+static u8 tool_chat_gain[2] = {0xFF, 0xFF};   /* MIC0, MIC3 */
+static u8 tool_call_gain[2] = {0xFF, 0xFF};   /* MIC2, MIC3 */
 
 static u8 motor_twice_step = 0;
 static bool is_record_task_created = false;
@@ -1075,6 +1076,8 @@ extern void rdx_app_emmc_poweron(u8 check_en);
 
 extern u8 rdx_audio_adc_file_get_gain(u8 mic_index);
 extern void rdx_audio_adc_file_set_gain(u8 mic_index, u8 gain);
+extern u8 audio_adc_file_get_gain(u8 mic_index);
+extern u8 rdx_audio_adc_file_get_cfg_gain(const char *node_name, u8 mic_index);
 extern void force_set_sd_online(char *sdx);
 extern int dev_manager_mount(char *logo);
 extern void rdx_app_set_record_mode(u8 d);
@@ -3514,11 +3517,28 @@ int rdx_record_mic_gain_query(int mode, int* gain1, int* gain2)
     if(!pn) return -1;
 
     if(mode == RDX_RECORD_MIC_MODE_CHAT){
-        *gain1 = pn->chat_mic0_gain;
-        *gain2 = pn->chat_mic1_gain;
+        if(pn->chat_mic_flag){
+            /* APP 已覆盖: 返回 APP 设置值 */
+            *gain1 = pn->chat_mic0_gain;
+            *gain2 = pn->chat_mic1_gain;
+        }else{
+            /* 未覆盖: 直接读会议录音 ADC 节点的工具配置值 (与录音是否进行无关);
+             * 读取失败时退回录音开始时缓存的值, 再退回通话节点配置 */
+            u8 g0 = rdx_audio_adc_file_get_cfg_gain(RECORD_CHAT_ADC_NODE_NAME, RECORD_MIC_0);
+            u8 g3 = rdx_audio_adc_file_get_cfg_gain(RECORD_CHAT_ADC_NODE_NAME, RECORD_MIC_3);
+            if(g0 == 0xFF) g0 = (tool_chat_gain[0] != 0xFF) ? tool_chat_gain[0] : audio_adc_file_get_gain(RECORD_MIC_0);
+            if(g3 == 0xFF) g3 = (tool_chat_gain[1] != 0xFF) ? tool_chat_gain[1] : audio_adc_file_get_gain(RECORD_MIC_3);
+            *gain1 = g0;
+            *gain2 = g3;
+        }
     }else if(mode == RDX_RECORD_MIC_MODE_CALL){
-        *gain1 = pn->call_mic0_gain;
-        *gain2 = pn->call_mic1_gain;
+        if(pn->call_mic_flag){
+            *gain1 = pn->call_mic0_gain;
+            *gain2 = pn->call_mic1_gain;
+        }else{
+            *gain1 = (tool_call_gain[0] != 0xFF) ? tool_call_gain[0] : audio_adc_file_get_gain(RECORD_MIC_2);
+            *gain2 = (tool_call_gain[1] != 0xFF) ? tool_call_gain[1] : audio_adc_file_get_gain(RECORD_MIC_3);
+        }
     }else{
         r_printf("%s --> bad mode=%d \r", __func__, mode);
         return -1;
@@ -3537,7 +3557,6 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2)
     /*----------------------------------------------------------------*/
     MicGainPara  gain_para;
     MicGainPara* pn = NULL;
-    u8 hit = 0;
     int ret = 0;
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
@@ -3552,27 +3571,33 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2)
     }
     memcpy(&gain_para, pn, sizeof(MicGainPara));
 
-    if(mode == RDX_RECORD_MIC_MODE_CHAT){
-        if(*gain1 >= RECORD_MIC_DB_VALUE_MIN && *gain1 <= RECORD_MIC_DB_VALUE_MAX){
-            gain_para.chat_mic0_gain = (u8)(*gain1); hit++;
-        }
-        if(*gain2 >= RECORD_MIC_DB_VALUE_MIN && *gain2 <= RECORD_MIC_DB_VALUE_MAX){
-            gain_para.chat_mic1_gain = (u8)(*gain2); hit++;
-        }
-        if(hit == 2) gain_para.chat_mic_flag = true;
-    }else if(mode == RDX_RECORD_MIC_MODE_CALL){
-        if(*gain1 >= RECORD_MIC_DB_VALUE_MIN && *gain1 <= RECORD_MIC_DB_VALUE_MAX){
-            gain_para.call_mic0_gain = (u8)(*gain1); hit++;
-        }
-        if(*gain2 >= RECORD_MIC_DB_VALUE_MIN && *gain2 <= RECORD_MIC_DB_VALUE_MAX){
-            gain_para.call_mic1_gain = (u8)(*gain2); hit++;
-        }
-        if(hit == 2) gain_para.call_mic_flag = true;
-    }else{
+    if(mode != RDX_RECORD_MIC_MODE_CHAT && mode != RDX_RECORD_MIC_MODE_CALL){
         r_printf("%s --> bad mode=%d \r", __func__, mode);
         *gain1 = 0;
         *gain2 = 0;
         return -1;
+    }
+
+    /* 两个增益必须同时有效才接受; 否则不改 VM, 返回失败并回填当前实际生效值 */
+    if(*gain1 < RECORD_MIC_DB_VALUE_MIN || *gain1 > RECORD_MIC_DB_VALUE_MAX ||
+       *gain2 < RECORD_MIC_DB_VALUE_MIN || *gain2 > RECORD_MIC_DB_VALUE_MAX){
+        r_printf("%s --> bad gain mode=%d g1=%d g2=%d \r", __func__, mode, *gain1, *gain2);
+        goto fail;
+    }
+
+    if(mode == RDX_RECORD_MIC_MODE_CHAT){
+        gain_para.chat_mic0_gain = (u8)(*gain1);
+        gain_para.chat_mic1_gain = (u8)(*gain2);
+        gain_para.chat_mic_flag  = true;
+    }else{
+        gain_para.call_mic0_gain = (u8)(*gain1);
+        gain_para.call_mic1_gain = (u8)(*gain2);
+        gain_para.call_mic_flag  = true;
+    }
+
+    /* APP 常重复下发同一指令, 值未变化时不重复写 VM */
+    if(memcmp(&gain_para, pn, sizeof(MicGainPara)) == 0){
+        return 0;
     }
 
     ret = rdx_record_mic_gain_write_into_vm(&gain_para);
@@ -3580,20 +3605,9 @@ int rdx_record_mic_gain_set(int mode, int* gain1, int* gain2)
         return 0;
     }
 
-    /* 写失败: 把 VM 中实际的当前值回填给调用方, 便于打 ack 包 */
-    MicGainPara* prn = rdx_record_mic_gain_read_from_vm();
-    if(prn){
-        if(mode == RDX_RECORD_MIC_MODE_CHAT){
-            *gain1 = prn->chat_mic0_gain;
-            *gain2 = prn->chat_mic1_gain;
-        }else{
-            *gain1 = prn->call_mic0_gain;
-            *gain2 = prn->call_mic1_gain;
-        }
-    }else{
-        *gain1 = 0;
-        *gain2 = 0;
-    }
+fail:
+    /* 失败: 回填当前实际生效值 (APP 覆盖值或工具值), 便于打 ack 包 */
+    rdx_record_mic_gain_query(mode, gain1, gain2);
     return -1;
 }
 
@@ -3612,14 +3626,12 @@ void rdx_record_mic_gain_set_default(void)
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
-    memset(&gain_para, 0, sizeof(MicGainPara));
-    gain_para.chat_mic0_gain = RECORD_CHAT_GAIN_DEFAULT_MIC0;
-    gain_para.chat_mic1_gain = RECORD_CHAT_GAIN_DEFAULT_MIC3;
-    gain_para.call_mic0_gain = RECORD_CALL_GAIN_DEFAULT_MIC2;
-    gain_para.call_mic1_gain = RECORD_CALL_GAIN_DEFAULT_MIC3;
+    /* 恢复出厂: 清除 APP 覆盖, 录音回到可视化工具配置的增益.
+     * flag == false 时 VM 中增益值不参与任何逻辑, 统一填 0xFF 表示"未设置". */
+    memset(&gain_para, 0xFF, sizeof(MicGainPara));
     gain_para.chat_mic_flag = false;
     gain_para.call_mic_flag = false;
-    rdx_record_mic_gain_write_into_vm(&gain_para);    
+    rdx_record_mic_gain_write_into_vm(&gain_para);
 }
 
 /**************************************************************************
@@ -3640,23 +3652,14 @@ void rdx_record_mic_gain_check(void)
     /*----------------------------------------------------------------*/
     p = rdx_record_mic_gain_read_from_vm();
     if(rp->scene == RECORD_SCENE_CHAT){
-        y_printf("===> read mic gain, chat_mic0_gain: %d, chat_mic1_gain: %d, chat_mic_flag: %d \r", p->chat_mic0_gain, p->chat_mic1_gain, p->chat_mic_flag);
+        /* 先缓存工具配置值 (此时录音 ADC 节点刚从工具配置加载, 尚未被 APP 值覆盖) */
+        tool_chat_gain[0] = rdx_audio_adc_file_get_gain(RECORD_MIC_0);
+        tool_chat_gain[1] = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
+        y_printf("===> read mic gain, chat_mic0_gain: %d, chat_mic1_gain: %d, chat_mic_flag: %d, tool: %d/%d \r",
+                 p->chat_mic0_gain, p->chat_mic1_gain, p->chat_mic_flag, tool_chat_gain[0], tool_chat_gain[1]);
         //record by chat mode.
-        if(p->chat_mic_flag == false){
-            //write to vm.
-            MicGainPara gain_para;
-            memcpy(&gain_para, p, sizeof(MicGainPara));
-            if(p->chat_mic0_gain == 0 || p->chat_mic0_gain == 0xff){
-                u8 gain_value_0 = rdx_audio_adc_file_get_gain(RECORD_MIC_0);
-                gain_para.chat_mic0_gain = gain_value_0;
-            }
-            if(p->chat_mic1_gain == 0 || p->chat_mic1_gain == 0xff){
-                u8 gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-                gain_para.chat_mic1_gain = gain_value_3;
-            }
-            p->chat_mic_flag = true;
-            rdx_record_mic_gain_write_into_vm(&gain_para);
-        }else{
+        if(p->chat_mic_flag){
+            /* APP 已覆盖: 应用 APP 值; 未覆盖: 不做处理, 直接使用工具配置 */
             if(p->chat_mic0_gain >= RECORD_MIC_DB_VALUE_MIN && p->chat_mic0_gain <= RECORD_MIC_DB_VALUE_MAX){
                 rdx_audio_adc_file_set_gain(RECORD_MIC_0, p->chat_mic0_gain);
             }
@@ -3668,24 +3671,12 @@ void rdx_record_mic_gain_check(void)
         u8 r_gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
         y_printf("===> new mic gain, chat_mic0_gain: %d, chat_mic1_gain: %d \r", r_gain_value_0, r_gain_value_3);
     }else{
-        y_printf("===> read mic gain, call_mic0_gain: %d, call_mic1_gain: %d, call_mic_flag: %d \r", p->call_mic0_gain, p->call_mic1_gain, p->call_mic_flag);
+        tool_call_gain[0] = rdx_audio_adc_file_get_gain(RECORD_MIC_2);   //骨麦
+        tool_call_gain[1] = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
+        y_printf("===> read mic gain, call_mic0_gain: %d, call_mic1_gain: %d, call_mic_flag: %d, tool: %d/%d \r",
+                 p->call_mic0_gain, p->call_mic1_gain, p->call_mic_flag, tool_call_gain[0], tool_call_gain[1]);
         //record by call mode.
-        if(p->call_mic_flag == false){
-            //write to vm.
-            MicGainPara gain_para;
-            memcpy(&gain_para, p, sizeof(MicGainPara));
-            if(p->call_mic0_gain == 0 || p->call_mic0_gain == 0xff){
-                //骨麦
-                u8 gain_value_2 = rdx_audio_adc_file_get_gain(RECORD_MIC_2);
-                gain_para.call_mic0_gain = gain_value_2;
-            }
-            if(p->call_mic1_gain == 0 || p->call_mic1_gain == 0xff){
-                u8 gain_value_3 = rdx_audio_adc_file_get_gain(RECORD_MIC_3);
-                gain_para.call_mic1_gain = gain_value_3;
-            }
-            gain_para.call_mic_flag = true;
-            rdx_record_mic_gain_write_into_vm(&gain_para);
-        }else{
+        if(p->call_mic_flag){
             if(p->call_mic0_gain >= RECORD_MIC_DB_VALUE_MIN && p->call_mic0_gain <= RECORD_MIC_DB_VALUE_MAX){
                 rdx_audio_adc_file_set_gain(RECORD_MIC_2, p->call_mic0_gain);
             }
