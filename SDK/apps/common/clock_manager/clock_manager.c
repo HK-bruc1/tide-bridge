@@ -358,20 +358,20 @@ __again:
         dest_clk = min_clk;
     }
 
-    log_info("cpu0: %d%% cpu1: %d%% jlstream: %d%% curr_clk:%d  min_clk:%d dest_clk:%d, %d\n",
-             usage[0], usage[1], usage[2], curr_clk, min_clk, dest_clk, clk_adjust_step);
-
     //clock lock
     if (clk_locker.freq) {
         dest_clk = clk_locker.freq;
-    } else if (dest_clk < min_clk) {
-        dest_clk = min_clk;
     }
     if (dest_clk > CLOCK_MAXIMUM_FREQ) {
         dest_clk = CLOCK_MAXIMUM_FREQ;
     }
 
-    clk_set_api("sys", dest_clk);
+    log_info("cpu0: %d%% cpu1: %d%% jlstream: %d%% curr_clk:%d  min_clk:%d dest_clk:%d, %d\n",
+             usage[0], usage[1], usage[2], curr_clk, min_clk, dest_clk, clk_adjust_step);
+
+    if (!clk_locker.freq || curr_clk != dest_clk) {
+        clk_set_api("sys", dest_clk);
+    }
 }
 
 /* --------------------------------------------------------------------------*/
@@ -440,7 +440,9 @@ void clock_refurbish(void)
 #if (defined TCFG_FIX_CLOCK_FREQ  && TCFG_FIX_CLOCK_FREQ)
     clk_set_api("sys", TCFG_FIX_CLOCK_FREQ);
 #else
-    clk_set_api("sys", CLOCK_MAXIMUM_FREQ);
+    if (!clk_locker.freq) {
+        clk_set_api("sys", CLOCK_MAXIMUM_FREQ);
+    }
     ref_cnt = 0;
     clk_adjust_step = 0;
 
