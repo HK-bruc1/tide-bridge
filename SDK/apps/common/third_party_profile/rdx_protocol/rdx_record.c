@@ -66,6 +66,7 @@
 #include "rdx_storage_lifecycle.h"
 #include "rdx_playback.h"
 #include "rdx_record_save.h"
+#include "rdx_file_download.h"
 #include "rdx_flashnote.h"
 #include "jiffies.h"
 
@@ -3960,14 +3961,11 @@ int rdx_record_run_init(void)
     /*----------------------------------------------------------------*/
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
-    if(rf_info->file_send_busy == true){
-        rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
-    }
+    rdx_file_download_stop_for_recording();
 
     rp->ui_notify();
 
@@ -4217,14 +4215,11 @@ int rdx_record_run_init(void)
     /*----------------------------------------------------------------*/
     u16 con_hdl = rdx_ble_server_get_conn_handle();
     RecordStatus* rp = rdx_record_get_status();
-    ReqFileInfo* rf_info = rdx_protocol_get_uploadfileInfo();
     /*----------------------------------------------------------------*/
     /* Code Body                                                      */
     /*----------------------------------------------------------------*/
     y_printf("====== %s \r", __func__);
-    if(rf_info->file_send_busy == true){
-        rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
-    }
+    rdx_file_download_stop_for_recording();
 
     rp->ui_notify();
 

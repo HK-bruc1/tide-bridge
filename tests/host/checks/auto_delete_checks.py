@@ -23,6 +23,7 @@ typedef _Bool bool;
 #define NULL ((void*)0)
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #define Q_CALLBACK 1
+#define RDX_APP_FILE_CMD_STOP 0
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE 1
 #define RDX_RECORD_DELETE_REJECTED (-2)
 #define CHECK(x) do { if(!(x)) return __LINE__; } while(0)
@@ -60,7 +61,7 @@ static int flush_result, delete_result, reload_result, drop_during_scan;
 static int committed, drop_after_commit, raw_exists=1, mta_exists=1, dat_count=1;
 static int cache_invalidations, list_invalidations, read_open, sends;
 static int playback_notifications, stop_indications;
-static int preempt_posts, preempt_post_fail;
+static int preempt_posts, preempt_post_fail, preempt_runs_on_post;
 static int sleep_refresh;
 static u32 preempt_generation;
 static u32 loaded_sn=13, loaded_size=4000, last_offset, last_length;
@@ -90,12 +91,14 @@ int rdx_uxfile_auto_delete_submit(void *p) {
     if(pending) ++invalid;
     pending=p; return 0;
 }
+void rdx_protocol_download_preempt(u32);
 int os_taskq_post_type(const char *task,int type,int n,int *args) {
     /* Recording admission hands the stop to the busy timer's task. The 32-bit
      * callback pointer is not host-sized; tests run the captured generation. */
     if(!strcmp(task,"protocol_send_task")) {
         if(type!=Q_CALLBACK || n!=3 || !args[0] || args[1]!=1 || !args[2]) ++invalid;
         ++preempt_posts; preempt_generation=(u32)args[2];
+        if(preempt_runs_on_post && !preempt_post_fail) rdx_protocol_download_preempt(preempt_generation);
         return preempt_post_fail;
     }
     /* The patched duplicate branch must not queue a borrowed ReqFileInfo. */
@@ -125,6 +128,7 @@ void rdx_protocol_fileTransfer_stop_indicate(void) { ++stop_indications; }
 static int stop_sends, direct_sends, att_fail, kicks;
 static char tx_log[64];
 int rdx_file_download_tx_gate(const u8 *data,u32 len,const rdx_ble_async_token_t *token);
+void rdx_file_download_tx_ready(void);
 int rdx_ble_server_send_for_token(u8 *data,u32 len,const rdx_ble_async_token_t *t) {
     if(!t || irq || len<2 || strlen(tx_log)>=sizeof(tx_log)-1) ++invalid;
     if(!owner || t->transport_epoch!=(u32)owner) return -1;
@@ -226,13 +230,13 @@ void rdx_uxfile_datFileInfo_sendBuf_free(void) { ++list_invalidations; }
 void test_cache_loaded(void);
 int rdx_uxfile_dat_init_impl(void) { test_cache_loaded(); return reload_result; }
 int rdx_protocol_handle_recordFileData_req(u8 *,u16);
+ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 void rdx_protocol_download_cleanup(void);
 void rdx_file_download_abort(void);
 void rdx_file_download_delete_worker(void *);
 void rdx_uxfile_recordFileData_send_finish(ReqFileInfo *);
 void rdx_protocol_file_sync_busy_timer_cb(void *);
 void rdx_protocol_file_cmd_handle(u8);
-void rdx_protocol_download_preempt(u32);
 '''
 
 TESTS = r'''
@@ -261,7 +265,7 @@ static void reset(void) {
     flush_result=delete_result=reload_result=drop_during_scan=drop_after_commit=0;
     committed=delete_calls=cache_invalidations=list_invalidations=sends=0;
     complete_post_fail=1; playback_notifications=stop_indications=0;
-    preempt_posts=preempt_post_fail=0; preempt_generation=0;
+    preempt_posts=preempt_post_fail=preempt_runs_on_post=0; preempt_generation=0;
     stop_sends=direct_sends=att_fail=kicks=0; memset(&fence,0,sizeof(fence));
     tx_log[0]=0; ticks=frame_end_tick=0;
     while(queue_count) test_free(queue_data[--queue_count]);
@@ -453,6 +457,18 @@ static int direct(const char *text) {
 #define FRAME "*DEV#filect#13#1#0#24480#"
 #define BINARY "\x01\x02\x03\x04"
 #define STATUS "*DEV#flashnote#1#"
+#define RECORD_STATUS "*DEV#record#1#"
+#define STREAM "*DEV#stream#"
+int test_auto_record_preempt_worker_can_finish_before_post_returns(void) {
+    reset();
+    CHECK(!cmd(13,1,0,0,0) && download.active);
+    preempt_runs_on_post=1;
+    CHECK(!rdx_file_download_preempt("F19") && preempt_posts==1 && stop_sends==1);
+    CHECK(!download.active && fence.state==FENCE_IDLE && !fence.queued);
+    CHECK(!timer && !clock_hold && !read_open && !allocations && !invalid);
+    return 0;
+}
+
 int test_auto_record_admission_preempts_download(void) {
     /* Idle admission queues nothing and says nothing. */
     reset(); CHECK(!rdx_file_download_preempt("F19") && !preempt_posts && !stop_sends);
@@ -524,9 +540,11 @@ int test_auto_record_preempt_stop_ordering(void) {
     att_fail=1;
     CHECK(!rdx_file_download_preempt("F18") && stop_sends==1);
     rdx_protocol_download_preempt(preempt_generation);
-    CHECK(fence.state==FENCE_PENDING && !download.active && gate(STATUS,17));
+    CHECK(fence.state==FENCE_PENDING && !download.active && gate(RECORD_STATUS,14)<0);
+    CHECK(gate(STREAM,12)<0 && rdx_file_download_tx_held());
     att_fail=0;
-    CHECK(!gate(STATUS,17) && stop_sends==2 && fence.state==FENCE_IDLE);
+    CHECK(!gate(RECORD_STATUS,14) && stop_sends==2 && fence.state==FENCE_IDLE);
+    CHECK(!gate(STREAM,12) && !rdx_file_download_tx_held() && !timer);
     CHECK(!gate(FRAME,25));
     /* A disconnected or replaced owner gets no stop and blocks nothing. */
     CHECK(!cmd(13,1,1,0,0));
@@ -614,6 +632,36 @@ int test_auto_record_preempt_waits_frame(void) {
     CHECK(!ticks && !invalid);
     return 0;
 }
+int test_auto_record_init_keeps_preempted_frame(void) {
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),10,64);
+    CHECK(!rdx_file_download_preempt("F19") && preempt_posts==1);
+    record_run=0;
+    CHECK(rdx_protocol_get_uploadfileInfo()->file_send_busy);
+    rdx_file_download_stop_for_recording();
+    CHECK(preempt_posts==1 && download.active && rdx_protocol_bulk_frame_busy());
+    CHECK(cmd(13,2,1,0,0)==3 && cmd(13,1,1,0,0)==3 && !cmd(13,0,1,0,0));
+    CHECK(download.active && rdx_protocol_bulk_frame_busy() && !stop_sends && !stop_indications);
+    CHECK(direct("*DEV#flashnote#1#")==1);
+    frame_end_tick=3;
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(ticks==3 && !strcmp(tx_log,"S1") && !stop_indications);
+    CHECK(!download.active && !allocations && !invalid && !irq);
+
+    reset(); loaded_size=60000;
+    CHECK(!cmd(13,1,1,0,0));
+    test_frame_set(test_malloc(64),10,64);
+    preempt_post_fail=1;
+    CHECK(rdx_file_download_preempt("F19") && preempt_posts==1);
+    preempt_post_fail=0; record_run=0;
+    rdx_file_download_stop_for_recording();
+    CHECK(preempt_posts==2 && rdx_protocol_bulk_frame_busy());
+    frame_end_tick=2;
+    rdx_protocol_download_preempt(preempt_generation);
+    CHECK(ticks==2 && stop_sends==1 && !stop_indications && !allocations && !invalid && !irq);
+    return 0;
+}
 int test_auto_cleanup_keeps_queued_packets(void) {
     /* The cleanup drops queued download frames only; a status queued just
      * before it still goes out, in order. */
@@ -685,7 +733,8 @@ def run_auto_delete_checks():
                      'rdx_protocol_file_transfer_track_reset',
                      'rdx_protocol_file_sync_busy_timer_start', 'rdx_protocol_file_sync_busy_timer_stop',
                      'rdx_protocol_file_sync_busy_timer_rerun', 'rdx_protocol_file_sync_busy_timer_cb',
-                     'rdx_protocol_file_cmd_handle', 'rdx_protocol_uploadFileInfo_clean',
+                     'rdx_protocol_file_cmd_handle', 'rdx_protocol_get_uploadfileInfo',
+                     'rdx_protocol_uploadFileInfo_clean',
                      'rdx_protocol_download_preempt', 'rdx_protocol_bulk_frame_busy',
                      'rdx_protocol_download_purge_frames',
                      'rdx_protocol_free_send_queue_packet'],
@@ -781,8 +830,9 @@ define zeroext i1 @rdx_queue_enqueue(%struct.Queue* %queue, %struct.DataPacket* 
     storage_functions = ''.join(function(storage, n) for n in
                                 ('rdx_record_format_io_leave', 'rdx_record_format_delete_acquire',
                                  'rdx_record_format_delete_release'))
+    tests = STUBS + header + BOUNDARIES + storage_functions + source + TESTS
     path = audit / 'auto.c'
-    path.write_text(STUBS + header + BOUNDARIES + storage_functions + source + TESTS, encoding='utf-8')
+    path.write_text(tests, encoding='utf-8')
     result = subprocess.run(['C:/JL/pi32/bin/clang.exe', '-target', llvm.get_default_triple(),
                              '-O0', '-S', '-emit-llvm', str(path), '-o', str(path.with_suffix('.ll'))],
                             capture_output=True, text=True)

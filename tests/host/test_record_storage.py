@@ -966,17 +966,14 @@ typedef unsigned int u32;
 #define TCFG_SD_ALWAY_ONLINE_ENABLE 1
 #define RECORD_MODE_OFFLINE 0
 #define RECORD_MODE_ONLINE 1
-#define RDX_APP_FILE_CMD_STOP 2
 #define y_printf(...) ((void)0)
 #define r_printf(...) ((void)0)
 #define g_printf(...) ((void)0)
-typedef struct { int file_send_busy; } ReqFileInfo;
 typedef struct { u8 mode, orig_mode, scene; void (*ui_notify)(void); u8 formate; } RecordStatus;
-static int allowed=1, space, checks, reached, notified, only, current;
+static int allowed=1, space, checks, reached, notified, only, current, download_stops;
 static int gen_result, gen_calls, meta_calls, begin_calls;
 static u32 record_initialized_generation, record_session_generation=1;
 static u16 conn=1;
-static ReqFileInfo info;
 static void notify(void) { ++notified; }
 static RecordStatus status={0,0,0,notify};
 static int rdx_record_source_is_app_flashnote(void) { return 0; }
@@ -984,8 +981,7 @@ u8 rdx_record_file_scene(void) { return status.scene; }
 int rdx_record_session_allowed(void) { return allowed; }
 u16 rdx_ble_server_get_conn_handle(void) { return conn; }
 RecordStatus *rdx_record_get_status(void) { return &status; }
-ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &info; }
-void rdx_protocol_file_cmd_handle(int cmd) {}
+void rdx_file_download_stop_for_recording(void) { ++download_stops; }
 void rdx_record_max_timer_stop(void) {}
 void rdx_record_update_connection_mode(u16 c) {}
 int rdx_record_stream_only_session_is_active(void) { return only; }
@@ -1006,8 +1002,8 @@ int test_run_init_space(void) {
     int (*init[2])(void)={run_init_0, run_init_1};
     for (int v=0; v<2; ++v) {
         for (int value=0; value>=-2; --value) {
-            space=value; checks=reached=0;
-            CHECK(init[v]()==value && checks==1 && reached==!value);
+            space=value; checks=reached=download_stops=0;
+            CHECK(init[v]()==value && checks==1 && reached==!value && download_stops==1);
         }
         allowed=0; checks=0; CHECK(init[v]()==-1 && !checks); allowed=1;
         space=0; gen_result=-1; gen_calls=meta_calls=begin_calls=reached=0;

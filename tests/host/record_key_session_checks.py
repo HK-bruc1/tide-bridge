@@ -274,7 +274,7 @@ static void translation_ear_recoder_open_all_bound(int mode,u32 binding) { ++wor
 typedef struct { int file_send_busy; } ReqFileInfo;
 static ReqFileInfo file_info;
 static ReqFileInfo *rdx_protocol_get_uploadfileInfo(void) { return &file_info; }
-static void rdx_protocol_file_cmd_handle(int x) {}
+static void rdx_file_download_stop_for_recording(void) {}
 static void rdx_uxfile_operate_file_init(void) { ++memory_resets; }
 static void rdx_record_storage_end(void) { ++storage_ends; }
 static void translation_ear_recoder_storage_full(void) {}

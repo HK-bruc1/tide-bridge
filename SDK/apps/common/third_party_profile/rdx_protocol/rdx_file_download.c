@@ -3,6 +3,7 @@
 #include "rdx_file_download.h"
 #include "rdx_ble_session.h"
 #include "rdx_ble_server.h"
+#include "rdx_protocol.h"
 #include "rdx_record_format.h"
 #include "rdx_playback.h"
 
@@ -11,6 +12,7 @@
 
 /* These entry points are supplied by the hash-pinned archive patch. */
 extern int rdx_protocol_handle_recordFileData_req_legacy(u8 *data, u16 length);
+extern ReqFileInfo *rdx_protocol_get_uploadfileInfo(void);
 extern void rdx_protocol_download_cleanup(void);
 extern void rdx_protocol_download_preempt(u32 generation);
 extern int rdx_uxfile_auto_delete_submit(void *context);
@@ -86,8 +88,8 @@ static int download_owner_valid(const rdx_ble_async_token_t *token)
  * PENDING: cleanup done, stop still owed (ATT full or sender busy).
  * While a stop is owed, queued library packets are refused (the library parks
  * them at its queue head) and direct sends such as the F19 flashnote are kept
- * in a small FIFO, reported as sent, and released right after the stop. The
- * stop goes straight to ATT: a priority status would overtake a queued one. */
+ * in a small FIFO, reported as sent, and released after the stop. The stop
+ * goes straight to ATT so a priority status cannot pass it. */
 #define DOWNLOAD_STOP_TEXT "*DEV#filecmd#0#"
 #define DOWNLOAD_STOP_LEN (sizeof(DOWNLOAD_STOP_TEXT) - 1)
 #define DOWNLOAD_FRAME_TEXT "*DEV#filect#"
@@ -218,7 +220,7 @@ static int fence_defer(const u8 *data, u32 len, const rdx_ble_async_token_t *tok
 }
 
 /* rdx_ble_server_send_internal: negative refuses this packet for now,
- * positive means it was taken over and reaches ATT right after the stop.
+ * positive means it was taken over and reaches ATT when the fence opens.
  * token is NULL for library (queued) sends. */
 int rdx_file_download_tx_gate(const u8 *data, u32 len,
                               const rdx_ble_async_token_t *token)
@@ -250,13 +252,13 @@ int rdx_file_download_tx_gate(const u8 *data, u32 len,
     return verdict;
 }
 
-/* ATT_EVENT_CAN_SEND_NOW on the RDX link: room for an owed stop. */
+/* ATT_EVENT_CAN_SEND_NOW: resume the fence. */
 void rdx_file_download_tx_ready(void)
 {
     if (fence_owed(fence.state) || fence.count) fence_flush();
 }
 
-/* Stream audio yields queue room to statuses while the stop is owed: the
+/* Stream audio yields queue room to statuses while sends are held: the
  * library queue holds 15 packets and drops new ones when full. */
 u8 rdx_file_download_tx_held(void)
 {
@@ -304,25 +306,43 @@ void rdx_file_download_preempt_done(u32 stopped)
  * conflict branch still stops and notifies on the next request. */
 int rdx_file_download_preempt(const char *who)
 {
-    u32 generation = rdx_file_download_generation();
-    if (!generation) return 0;
     local_irq_disable();
+    u32 generation = rdx_file_download_generation();
+    u32 sn = download.sn;
+    if (!generation || (fence.queued && fence.state != FENCE_IDLE)) {
+        local_irq_enable();
+        return 0;
+    }
     if (fence.state == FENCE_IDLE || fence.state == FENCE_PENDING) {
         fence.token = download.token;
         fence.state = FENCE_ARMED;
     }
+    ++fence.queued;
     local_irq_enable();
     int msg[3] = { (int)rdx_protocol_download_preempt, 1, (int)generation };
     int ret = os_taskq_post_type(DOWNLOAD_TASK, Q_CALLBACK, 3, msg);
-    printf("[DL_PREEMPT] %s sn=%u gen=%u post=%d frame=%d\n", who, download.sn,
+    printf("[DL_PREEMPT] %s sn=%u gen=%u post=%d frame=%d\n", who, sn,
            generation, ret, rdx_protocol_bulk_frame_busy());
-    local_irq_disable();
-    if (!ret) ++fence.queued;
-    else if (!fence.queued) fence.state = FENCE_IDLE;
-    local_irq_enable();
+    if (ret) {
+        local_irq_disable();
+        if (!--fence.queued) fence.state = FENCE_IDLE;
+        local_irq_enable();
+    }
     fence_flush();
     fence_kick();
     return ret;
+}
+
+void rdx_file_download_stop_for_recording(void)
+{
+    local_irq_disable();
+    u8 managed = download.active || fence.queued;
+    local_irq_enable();
+    if (managed) {
+        rdx_file_download_preempt("REC_INIT");
+    } else if (rdx_protocol_get_uploadfileInfo()->file_send_busy) {
+        rdx_protocol_file_cmd_handle(RDX_APP_FILE_CMD_STOP);
+    }
 }
 
 /* Parse without touching the library's shared r_file_info. In particular, a
@@ -434,7 +454,10 @@ int rdx_file_download_request(u8 *data, u16 length)
 
     local_irq_disable();
     completed = download;
+    u8 preempting = completed.active && fence.queued && fence.state != FENCE_IDLE;
+    u8 stop_owed = fence.state == FENCE_ARMED;
     local_irq_enable();
+    if (preempting && (values[2] || stop_owed)) return values[2] ? 3 : 0;
     if (values[2] == 0) {
         /* Duplicate completion is harmless, even while deletion is queued. */
         if (!completed.active) return 0;

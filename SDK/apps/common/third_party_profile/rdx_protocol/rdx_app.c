@@ -2197,8 +2197,7 @@ static int rdx_app_device_record_set(u8 scene, u8 run, u8 route, u8 kind)
         return -1;
     }
     /* Admission passed: a local recording outranks BLE file download and
-     * local playback. The transfer stops with *DEV#filecmd#0#; the APP resumes
-     * it from its last complete block after the recording. */
+     * local playback. The transfer stops with *DEV#filecmd#0# and does not resume automatically. */
     rdx_file_download_preempt(kind == RDX_RECORD_INSPIRATION ? "F19" :
                               kind == RDX_RECORD_MEETING ? "F18" : "CALL");
 #if TCFG_RDX_LOCAL_PLAYBACK_ENABLE
