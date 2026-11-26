@@ -977,7 +977,7 @@
             "list": [
              {
               "id": "id_1675824280474_155",
-              "value": 12
+              "value": 15
              },
              {
               "id": "id_1671073072823_3",
@@ -1016,7 +1016,7 @@
             "list": [
              {
               "id": "id_1673164306360_11",
-              "value": 12
+              "value": 15
              },
              {
               "id": "id_1673164306360_12",
@@ -1286,7 +1286,7 @@
         "modeId": "id_1735033830237_1",
         "name": "DNSNoiseSuppAE2",
         "current": "arg0",
-        "bypass": true,
+        "bypass": false,
         "list": [
          {
           "name": "arg0",
@@ -1317,7 +1317,7 @@
              },
              {
               "id": "id_1703819432717_1",
-              "value": 0.09
+              "value": 1
              },
              {
               "id": "id_1656920542670_1",
@@ -1327,7 +1327,7 @@
            }
           ],
           "enable": true,
-          "bypass": true
+          "bypass": false
          }
         ]
        }
@@ -2154,7 +2154,7 @@
    {
     "position": {
      "x": -400,
-     "y": 120
+     "y": 160
     },
     "size": {
      "width": 200,
@@ -2182,7 +2182,7 @@
         "modeId": "id_1735033830237_1",
         "name": "DNSNoiseSuppAE4",
         "current": "arg0",
-        "bypass": true,
+        "bypass": false,
         "list": [
          {
           "name": "arg0",
@@ -2213,7 +2213,7 @@
              },
              {
               "id": "id_1703819432717_1",
-              "value": 0.09
+              "value": 1
              },
              {
               "id": "id_1656920542670_1",
@@ -2223,7 +2223,7 @@
            }
           ],
           "enable": true,
-          "bypass": true
+          "bypass": false
          }
         ]
        }
