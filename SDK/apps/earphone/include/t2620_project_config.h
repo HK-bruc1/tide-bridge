@@ -317,6 +317,8 @@
 #error "Meeting mono debug MIC must be 0, 1, 2 or 3"
 #endif
 
+#define TCFG_T2620_RECORD_CLOCK_HZ                96000000U
+
 /* 本地录音播放总开关；关闭时一并移除其解码依赖以释放 CODE0。 */
 #ifndef TCFG_RDX_LOCAL_PLAYBACK_ENABLE
 #define TCFG_RDX_LOCAL_PLAYBACK_ENABLE            1

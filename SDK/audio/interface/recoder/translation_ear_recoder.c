@@ -2,6 +2,7 @@
 #include "jlstream.h"
 #include "encoder_node.h"
 #include "st_opus_enc/opus_stenc_api.h"
+#include "clock.h"
 #include "clock_manager/clock_manager.h"
 #include "meeting_mono.h"
 #include "system/timer.h"
@@ -24,6 +25,8 @@ struct translation_ear_recoder {
 };
 
 static struct translation_ear_recoder *g_translation_ear_recoder[2] = {NULL,NULL};//一共需要两条流，一条[0]用于mic采样，一条[1]用于收集数据和编码
+
+static u8 record_clock_locked;
 
 static u32 mono_epoch;
 static u32 mono_binding;
@@ -363,7 +366,11 @@ void translation_ear_recoder_close_all(void)
     putchar('2');
     translation_ear_recoder_close(DAC);
     putchar('3');
-    clock_free("translation_ear");
+    if (record_clock_locked) {
+        int clock_ret = clock_unlock("translation_ear");
+        record_clock_locked = 0;
+        printf("[REC_CLK] unlock ret=%d\n", clock_ret);
+    }
 }
 
 /**
@@ -409,7 +416,19 @@ static int translation_ear_recoder_open_all_impl(u8 ch_mode)
     default:
         return -1;
     }
-    clock_alloc("translation_ear", 24 * 1000000UL);
+    u32 clock_target = TCFG_T2620_RECORD_CLOCK_HZ;
+    ret = clock_lock("translation_ear", clock_target);
+    u32 clock_actual = clk_get("sys");
+    printf("[REC_CLK] lock_hz=%u actual_hz=%u ret=%d\n", clock_target, clock_actual, ret);
+    if (ret) {
+        return ret;
+    }
+    record_clock_locked = 1;
+    if (clock_actual != clock_target) {
+        ret = -EINVAL;
+        goto fail;
+    }
+    clock_refurbish();
     set_global_ch_mode(ch);
     /* During an eSCO call the call path supplies MIC audio itself. */
     if (!esco_player_runing()) {
